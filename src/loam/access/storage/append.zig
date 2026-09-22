@@ -58,15 +58,23 @@ pub const Append = struct {
             const level: u2 = @intCast(self.count);
             var frame: Frame = .{ .object = self.cursor, .revision = null, .page = .{ .owner = self.view.header.owner, .family = self.family, .level = level, .prefix = Page.prefixFor(self.slot, level) } };
             if (self.cursor) |object| {
-                const lease = switch (try self.load.acquire(self.view.store, object)) {
-                    .ready => |lease| lease,
-                    .read => |request| return .{ .read = request },
-                    .waiting => return .waiting,
-                };
-                defer self.view.store.release(lease) catch unreachable;
-                const row = try self.view.store.currentView(lease);
-                frame.revision = row.revision;
-                frame.page = try Page.decode(row);
+                if (try self.view.store.proposed(object)) |staged| {
+                    // A composed transaction may have staged this page already:
+                    // walk the composed directory and keep the staged page's
+                    // expectation so stageDirectory re-proposes it in place.
+                    frame.revision = staged.expected;
+                    frame.page = try Page.decode(staged.view);
+                } else {
+                    const lease = switch (try self.load.acquire(self.view.store, object)) {
+                        .ready => |lease| lease,
+                        .read => |request| return .{ .read = request },
+                        .waiting => return .waiting,
+                    };
+                    defer self.view.store.release(lease) catch unreachable;
+                    const row = try self.view.store.currentView(lease);
+                    frame.revision = row.revision;
+                    frame.page = try Page.decode(row);
+                }
                 if (frame.page.owner != self.view.header.owner or frame.page.family != self.family or frame.page.level != level or frame.page.prefix != Page.prefixFor(self.slot, level)) return error.InvalidRecord;
             }
             self.frames[self.count] = frame;

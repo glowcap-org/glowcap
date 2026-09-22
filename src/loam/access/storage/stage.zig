@@ -4,6 +4,7 @@ const loam = @import("loam_core");
 const core = @import("loam_access_core");
 const records = @import("loam_access_records");
 const Read = @import("read.zig").Read;
+const read = @import("read.zig");
 const Append = @import("append.zig").Append;
 const putEncoded = @import("record.zig").putEncoded;
 
@@ -25,14 +26,24 @@ fn writable(view: *Read) !void {
 }
 
 fn headerRow(view: *Read, header: records.OwnerRecord) !void {
-    const row = try view.store.currentView(view.header_lease.?);
+    const expected: ?u64 = if (try view.store.proposed(view.owner_object)) |staged|
+        staged.expected
+    else
+        (try view.store.currentView(view.header_lease.?)).revision;
     var edges: [3]loam.Edge = undefined;
-    try putEncoded(view.store, view.owner_object, records.profile.owner, header, header.edges(&edges), row.revision, true);
+    try putEncoded(view.store, view.owner_object, records.profile.owner, header, header.edges(&edges), expected, true);
 }
 
-fn loaded(view: *Read, target: @import("read.zig").Target) !loam.RecordView {
+/// A staged or committed row plus the revision the backend must still match
+/// when staging it again: this transaction's own staged proposal carries the
+/// original expectation, a committed row carries its current revision.
+fn rowOf(view: *Read, target: read.Target) !Read.Row {
     const binding = (try view.binding(target)) orelse return error.RecordUnloaded;
-    return view.store.currentView(binding.lease orelse return error.Gone);
+    return (try Read.rowFor(view.store, binding)) orelse return error.Gone;
+}
+
+fn loaded(view: *Read, target: read.Target) !loam.RecordView {
+    return (try rowOf(view, target)).view;
 }
 
 pub fn appendResource(append: *Append, kind: core.KindId, parent: ?core.ResourceId) !core.ResourceId {
@@ -56,6 +67,10 @@ pub fn appendResource(append: *Append, kind: core.KindId, parent: ?core.Resource
     try putEncoded(view.store, object, records.profile.resource, records.ResourceRecord{ .revision = header.version.resources, .resource = .{ .id = id, .kind = kind, .parent = parent } }, edges[0..@intFromBool(parent != null)], null, false);
     header.resources = try append.stageDirectory(object);
     header.next_resource += 1;
+    // The view carries this transaction's composed header from here, so a
+    // further managed change staged in the same transaction prepares against
+    // these deltas instead of re-reading committed state.
+    view.header = header;
     try headerRow(view, header);
     return id;
 }
@@ -74,12 +89,12 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
         const path = append orelse return error.WrongPhase;
         if (path.view != view or path.family != .grant or path.count != 4 or path.staged or path.cancelled or path.slot != plan.grant.slot or plan.grant.generation != 1) return error.WrongPhase;
     } else if (append != null) return error.WrongPhase;
-    const original = if (issuing) null else try loaded(view, .{ .grant = plan.grant });
-    const parent = if (changes.parent_record) |record| try loaded(view, .{ .grant = record.id }) else null;
+    const original = if (issuing) null else try rowOf(view, .{ .grant = plan.grant });
+    const parent = if (changes.parent_record) |record| try rowOf(view, .{ .grant = record.id }) else null;
     var edges: [514]loam.Edge = undefined;
     var edge_count: usize = 0;
     if (plan.delta == .status) {
-        var it = original.?.edges();
+        var it = original.?.view.edges();
         while (it.next()) |edge| {
             if (edge_count == edges.len) return error.InvalidRecord;
             edges[edge_count] = edge;
@@ -104,18 +119,18 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
     var header = view.header;
     header.version = changes.event.version;
     errdefer view.store.abort() catch unreachable;
-    const object = if (original) |row| row.id else try view.store.allocateId();
-    try putEncoded(view.store, object, records.profile.grant, records.GrantRecord{ .grant = changes.record }, edges[0..edge_count], if (original) |row| row.revision else null, false);
+    const object = if (original) |row| row.view.id else try view.store.allocateId();
+    try putEncoded(view.store, object, records.profile.grant, records.GrantRecord{ .grant = changes.record }, edges[0..edge_count], if (original) |row| row.expected else null, false);
     if (parent) |row| {
         var parent_edges: [514]loam.Edge = undefined;
         var n: usize = 0;
-        var it = row.edges();
+        var it = row.view.edges();
         while (it.next()) |edge| {
             if (n == parent_edges.len) return error.InvalidRecord;
             parent_edges[n] = edge;
             n += 1;
         }
-        try putEncoded(view.store, row.id, records.profile.grant, records.GrantRecord{ .grant = changes.parent_record.? }, parent_edges[0..n], row.revision, false);
+        try putEncoded(view.store, row.view.id, records.profile.grant, records.GrantRecord{ .grant = changes.parent_record.? }, parent_edges[0..n], row.expected, false);
     }
     if (append) |path| {
         header.grants = try path.stageDirectory(object);
@@ -124,6 +139,10 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
     const event = try view.store.allocateId();
     try putEncoded(view.store, event, records.profile.change, records.ChangeRecord{ .change = changes.event }, &.{.{ .target = object }}, null, false);
     header.change = event;
+    // The view carries this transaction's composed header from here, so a
+    // further managed change staged in the same transaction prepares against
+    // these deltas instead of re-reading committed state.
+    view.header = header;
     try headerRow(view, header);
     return .{ .change = changes.event, .object = object };
 }

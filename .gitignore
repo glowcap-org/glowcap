@@ -1,6 +1,8 @@
 .zig-cache/
 zig-out/
 .DS_Store
+# Editor recovery state stays local, including while a checkout is integrated.
+.*.sw?
 # Zig extracts fetched packages into a `zig-pkg/` dir under the build that
 # declares them (`site/zig-pkg/`, `tools/consumer/zig-pkg/`) unless
 # ZIG_LOCAL_PKG_DIR redirects it. Generated, never committed.
@@ -81,12 +83,14 @@ glowcap-c-abi-cache/
 .env
 .worktrees/
 
-# Rooms host exposure is a machine-local Compose choice. The tracked example
-# documents the shape; the deployment's ops front adds the ignored file when present.
+# Checkout-owned Rooms configuration remains private when selected explicitly
+# with deployment --dir.
 apps/rooms/web/deploy/docker-compose.override.yml
-# The deployment's minted secrets (the history database password), one file
-# each, created by `ops up` and mounted as Docker secrets. Never tracked.
 apps/rooms/web/deploy/secrets/
+apps/rooms/web/deploy/lock
+apps/rooms/web/deploy/compose.yml
+apps/rooms/web/deploy/image
+apps/rooms/web/deploy/previous-image
 
 # per-worktree grid pane configuration for enter-grid.sh; only
 # panes.example.sh is tracked

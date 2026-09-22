@@ -69,9 +69,9 @@ glowcap_devcontainer_tmux_session_name() {
     glowcap_devcontainer_validate_worktree_name "${worktree}" "worktree name" || return
     if [[ -n "${designator}" ]]; then
         glowcap_devcontainer_validate_session_designator "${designator}" || return
-        printf 'glowcap-%s-%s\n' "${worktree}" "${designator}"
+        printf 'glowcap-dev-%s-%s\n' "${worktree}" "${designator}"
     else
-        printf 'glowcap-%s\n' "${worktree}"
+        printf 'glowcap-dev-%s\n' "${worktree}"
     fi
 }
 

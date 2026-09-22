@@ -54,14 +54,14 @@ export async function checkChannels(page, { script, wasm }, transport = "tcp") {
 	// Controlled same-host RTC needs no external STUN or TURN service. This also
 	// exercises the deployment's explicit empty ICE configuration through Rust.
 	environment.GLOWCAP_ROOMS_ICE_SERVERS = "";
-	const child = new Deno.Command(Deno.env.get("GLOWCAP_ROOMS_WEB_TEST_BIN") ?? local("zig-out/bin/rooms-web"), {
+	const child = new Deno.Command(Deno.env.get("GLOWCAP_ROOMS_WEB_TEST_BIN") ?? local("zig-out/libexec/rooms-web"), {
 		args: [
 			"0",
 			"0",
 			`--transport=${transport}`,
 			"--reachability=direct",
 			`--assets=${local("apps/rooms/web")}`,
-			`--server=${Deno.env.get("GLOWCAP_ROOMS_SERVER_TEST_BIN") ?? local("zig-out/bin/rooms-server")}`,
+			`--server=${Deno.env.get("GLOWCAP_ROOMS_SERVER_TEST_BIN") ?? local("zig-out/libexec/rooms-server")}`,
 		],
 		clearEnv: true,
 		env: environment,

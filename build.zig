@@ -526,12 +526,6 @@ pub fn build(b: *std.Build) void {
         if (arch.header) |header| release_headers.append(b.allocator, header) catch @panic("OOM");
     }
     for (shared_header_table) |header| release_headers.append(b.allocator, header) catch @panic("OOM");
-    release_build.register(b, target, optimize, abi_version, iroh_abi_step, .{
-        .static_archives = release_static_archives.items,
-        .dynamic_archives = release_dynamic_archives.items,
-        .headers = release_headers.items,
-        .binaries = &.{ "glowcap", "rooms-peer" },
-    });
     // ── Cross-language application demos (siblings of `check`) ───────────────
     // The Zig demo clients' shared helper modules under
     // `apps/_demo/zig/`: the typed room-error vocabulary, the
@@ -547,6 +541,7 @@ pub fn build(b: *std.Build) void {
     // The product CLI below stays here as its own subject.
     const rooms = rooms_build.register(.{
         .b = b,
+        .version = abi_version,
         .target = target,
         .optimize = optimize,
         .lib_mod = lib_mod,
@@ -569,6 +564,11 @@ pub fn build(b: *std.Build) void {
         .attach = attach,
     });
     const rooms_services_install = rooms.services_install;
+    release_build.register(b, target, optimize, abi_version, iroh_abi_step, check_step, .{
+        .static_archives = release_static_archives.items,
+        .dynamic_archives = release_dynamic_archives.items,
+        .headers = release_headers.items,
+    });
 
     // External conformance and the shipped Rooms page proofs meet in the
     // opt-in external gate after both families have registered their steps.

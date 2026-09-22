@@ -68,6 +68,9 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
         .root_module = link_mod,
         .version = ctx.version,
     });
+    if (ctx.target.result.os.tag == .macos) {
+        shared.install_name = b.fmt("@rpath/libglowcap_net_transport_iroh.{d}.dylib", .{ctx.version.major});
+    }
     if (ctx.target.result.ofmt == .elf) {
         shared.version_script = b.path("tools/build/exports/iroh.map");
         // The self-hosted backend accepts --version-script but does not honor

@@ -1,4 +1,4 @@
-// The Compose container is glowcap-${GLOWCAP_WORKTREE}; paths in containerEnv
+// The Compose container is glowcap-dev-${GLOWCAP_WORKTREE}; paths in containerEnv
 // must match .devcontainer/pins.sh.
 //
 // Networks: docker-compose.yml declares them; networking.md owns the setup

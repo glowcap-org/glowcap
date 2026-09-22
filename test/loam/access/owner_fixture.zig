@@ -71,6 +71,21 @@ pub fn resource(store: *loam.core.Store, backend: anytype, owner: loam.core.Obje
     return error.NoProgress;
 }
 
+/// Stages one resource append inside the caller's transaction, completing any
+/// record demand the parent lookup raises before it can stage.
+pub fn stageResource(append: *storage.Append, read: *storage.Read, backend: anytype, kind: core.KindId, parent: ?core.ResourceId) !core.ResourceId {
+    var result: ?core.ResourceId = null;
+    for (0..128) |_| {
+        result = storage.stage.appendResource(append, kind, parent) catch |err| {
+            if (err != error.RecordUnloaded) return err;
+            _ = try pump(read, backend);
+            continue;
+        };
+        break;
+    }
+    return result orelse error.NoProgress;
+}
+
 pub fn prepare(read: *storage.Read, backend: anytype, command: core.GrantPlan.Command) !?core.GrantPlan {
     for (0..128) |_| {
         var grants = try read.grantView();

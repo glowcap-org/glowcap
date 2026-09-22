@@ -34,7 +34,7 @@
 		</a>
 		<a class="card" href="$site.page('cli').link()">
 			<h2>Talk to a live peer from your shell</h2>
-			<p>Build the binary, then run <code>glowcap app rooms-peer</code> for an encrypted conversation over iroh.</p>
+			<p>Build the binary, then run <code>glowcap apps rooms session</code> for an encrypted conversation over iroh.</p>
 		</a>
 		<a class="card" href="$site.page('start').link()">
 			<h2>Start building</h2>

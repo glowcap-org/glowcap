@@ -57,23 +57,36 @@ Linux and macOS are the current packaging targets. Windows needs
 ## Building release archives
 
 ```sh
-zig build -Doptimize=ReleaseSafe release-pack
+zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline
 ```
 
 This writes checksummed, target-specific archives under `zig-out/release/`.
+The tarball and checksums replace that build-output directory as one generation.
+Handled failures restore the previous generation; if restoration fails, the
+diagnostic names its preserved staging directory. This is process-failure
+recovery, not a power-loss guarantee. Keep downloads elsewhere: a successful
+build replaces the prior contents of its release-output directory.
 `release-pack` refuses Debug mode so a bare invocation cannot accidentally
 publish development binaries; another explicit Release mode remains available
 to an embedding with a documented size or speed posture.
+It requires baseline CPU instructions and a build matching the running host's
+OS, architecture, and ABI. A package named only by architecture must not
+silently depend on the release runner's additional CPU features.
 Before it returns, the step safely extracts the tarball outside the checkout.
 It builds and runs one C consumer for every self-contained static archive, one
 consumer across the packaged shared libraries, loads the iroh companion through
-that shared path, and runs both product binaries there.
+that shared path.
 The archive table in `build.zig` is the release manifest. Packaging copies only
-those libraries, their public headers, and the product binaries by name, so a
+those libraries and their public headers by name, so a
 dirty `zig-out` cannot contribute another target or an internal artifact. Each
 tarball also carries the repository's `PROVENANCE.md` disclosure and its license
 files. The extracted smoke compares that disclosure byte for byte against the
 source tree. The tarballs contain regular files rather than library symlinks.
+
+The [glowcap product package](../apps/rooms/host.md) is a separate download
+for CLI and Rooms users. It includes private runtimes, prepared browser assets,
+and individual/team skills without C development archives or headers.
+The same release matrix builds and verifies both products.
 
 The optional native relay archive is self-contained: its pinned, namespaced
 Mbed TLS client is linked privately into `libglowcap_net_transport_relay` and
@@ -89,7 +102,7 @@ artifacts without publishing a GitHub release.
 does not authorize the release workflow to create those archives. Do not
 change it until the corresponding assets can be downloaded and verified.
 
-1. Run `zig build -Doptimize=ReleaseSafe release-pack` for every published
+1. Run `zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline` for every published
    target.
 2. Push the release commit and require its exact SHA to complete `check.yml`
    successfully, including both the `check.yml` jobs and macOS runtime jobs.

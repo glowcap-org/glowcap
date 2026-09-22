@@ -57,6 +57,7 @@ change as the state they describe:
 - `apps/rooms/developing.md`
 - `apps/rooms/goblins-vat.md`
 - `apps/rooms/operating.md`
+- `apps/rooms/host.md`
 - `apps/rooms/web/deploy/README.md`
 - `apps/rooms/web/ui/README.md`
 - `apps/rooms/rust/README.md`

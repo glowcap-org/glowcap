@@ -31,7 +31,7 @@
 ;; over iroh's encrypted QUIC; the transport in the locator picks the netlayer,
 ;; so nothing else on the command line changes:
 ;;
-;;   racket -y rooms-chat.rkt "$(curl -s http://localhost:8000/locator)" \
+;;   racket -y rooms-chat.rkt "$(curl -s http://localhost:8080/locator)" \
 ;;     general goblins-carol
 ;;
 ;; The trailing local-port argument is a TCP one — it is the port this vat's own

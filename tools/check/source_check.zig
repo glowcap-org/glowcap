@@ -37,7 +37,6 @@ const ps_gate_membership = @import("source_check/project_shape/steps/gate_member
 const ps_execution_deadlines = @import("source_check/project_shape/execution_deadlines.zig");
 const ps_zig_module_surface = @import("source_check/project_shape/zig_module_surface.zig");
 const ps_budgets = @import("source_check/project_shape/budgets.zig");
-const ps_ops_fronts = @import("source_check/project_shape/ops_fronts.zig");
 const ps_playwright = @import("source_check/project_shape/playwright.zig");
 const ps_npm_pins = @import("source_check/project_shape/npm_pins.zig");
 const ps_formatting = @import("source_check/project_shape/formatting.zig");
@@ -307,7 +306,6 @@ pub fn check(
     try ps_hygiene.checkRemoveDiscards(io, gpa, root, &violations);
     try ps_hygiene.checkDiscardedErrors(io, gpa, root, &violations);
     try ps_steps.checkArchiveTables(io, gpa, root, &violations);
-    try ps_ops_fronts.checkOpsFrontsCallZigOnly(io, gpa, root, &violations);
     try c_abi_cites.checkDocCAbiCites(io, gpa, root, &violations);
     try c_abi_cites.checkDeletedNodeCProjection(io, gpa, root, &violations);
     try cp_vocabulary.checkCaptpVocabulary(io, gpa, root, &violations);
@@ -361,7 +359,6 @@ test {
     _ = ps_gate_membership;
     _ = ps_execution_deadlines;
     _ = ps_zig_module_surface;
-    _ = ps_ops_fronts;
     _ = scaffolding;
     _ = captp_io_spine;
     _ = cp_deadlines;

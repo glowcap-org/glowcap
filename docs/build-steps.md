@@ -31,7 +31,7 @@ listener-admin capability, `--operator` the stewardship authority,
 `GLOWCAP_ROOMS_TRACE_PORT` overrides) and mints its capability. `rooms-dev`
 passes all six.
 `-Dhot-reload=false` on `rooms-dev` serves compiled generations through the
-native front while keeping the same state and grants. The default uses Vite
+web front while keeping the same state and grants. The default uses Vite
 Fast Refresh; production compiler selection is independent of this option.
 
 ## Adding a step
@@ -91,7 +91,13 @@ zig build site                 # build the documentation site (Zine + autodoc) u
 zig build site-render-check    # render every built site page at phone width in the pinned Chromium; fails on console errors or horizontal overflow (needs deno + the image-baked browser)
 zig build site-tabs-check      # press the code-tabs on every built site page in the pinned Chromium; fails when a tab does not open its own panel (needs deno + the image-baked browser)
 zig build docs-serve           # serve the documentation site at http://127.0.0.1:1990/glowcap/ (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes)
-zig build -Doptimize=ReleaseSafe release-pack # stage optimized archives, headers, product binaries, the project provenance disclosure, and licenses into one versioned, checksummed per-target tarball under zig-out/release/, then prove its extracted static/shared C consumers and CLIs (needs cargo; Debug is refused)
+zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline # package the C SDK under zig-out/release/ and exercise extracted static/shared consumers (needs cargo; Debug and cross-target builds are refused)
+zig build rooms-build # complete the installation under zig-out and stage zig-out/product for packaging/deployment (needs cargo + deno + wasm-bindgen)
+zig build glowcap-install-test # prove the checkout launcher, installed assets, skills, sessions and completion; part of runtime-check
+zig build glowcap-host-test # prove verified host installation, atomic selection, refusal, and Docker deployment command handling without a daemon; part of runtime-check (needs python3)
+zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the complete host product under zig-out/glowcap-release/; exercise extracted browser serving, HTTP bootstrap, iroh, rooms, DMs and restart (needs cargo + deno + wasm-bindgen + python3; Debug and cross-target builds are refused)
+zig build glowcap-package-test # release rollback and damaged-package fixtures cover checksums, extraction, skill links and Linux/macOS loader paths; part of check
+zig build product-manifest-test # generate and parse a complete staged product manifest, rejecting unsafe members; part of check
 zig build native-tls-build     # fetch Mbed TLS 4.2.0 by checksum, compile the private minimal client configuration with Zig, and run engine/ownership plus pollable and completion real local WSS success/refusal tests (needs network, python3, openssl)
 ```
 
@@ -457,7 +463,6 @@ zig build rooms-chat-build             # build and install the interactive Rust 
 zig build rooms-chat                   # run the interactive Rust rooms chat client; pass `-- <locator> <room> <nick>` (needs cargo)
 zig build rooms-web-operations-refresh # operations pagination, search, capability removal, and reload on the shipped page (needs cargo + deno + a Playwright Chromium)
 zig build rooms-trace-tail             # tail a Rooms server's live trace as lines; pass `-- <sturdyref> [--json]` (the ROOMS-TRACE-LISTENING value, needs deno)
-zig build rooms-peer                   # run rooms presence via `glowcap app rooms-peer`; pass `-- <verb> [flags]`. Install ships a thin `rooms-peer` shim. Source: `cli/app/rooms_peer.zig`
 zig build rooms-server-test            # run the in-tree Rooms server and UI contract tests (needs cargo + deno, part of runtime-check)
 zig build rooms-terminal-client-test   # run the Zig, Rust, Python, and Racket client contracts for watcher parsing, the membership-ended notice, and unread backpressure (needs cargo + python3 + racket); the Zig one also rides `check`
 zig build rooms-browser-build          # production Rooms application Wasm and generated JavaScript glue
@@ -470,10 +475,11 @@ zig build rooms-rust-browser-host-test # async Rust Host, capability calls, Room
 zig build rooms-archive-test           # prove the member archive contract, bounded durable store, v1/Syrup wire path, and process restart (needs deno)
 zig build rooms-archive-build          # build and install the archive peer (needs cargo)
 zig build rooms-peers-test             # prove the archive peer, session peer, and room server's identity, transport, restart and signal shutdown (needs cargo, part of runtime-check)
+zig build rooms-agent-test             # exercise the agent skill across multiple rooms, DMs, acknowledgement and restart (needs cargo + python3, part of runtime-check)
 zig build rooms-postgres-test          # opt-in installed-server history and restart proof; GLOWCAP_ROOMS_STORAGE_LIVE_URL names a disposable local PostgreSQL database
 zig build rooms-archive                # run the durable archive peer; pass `-- --state=<directory>` (iroh by default, needs cargo)
-zig build rooms-session-build          # build and install the session peer (needs cargo)
-zig build rooms-session                # run the durable Rooms session capability; pass `-- --state=<directory> [--checkpoint=<Rooms JSON>]` (iroh by default, needs cargo)
+zig build rooms-session-build          # build and install the durable Rooms session runtime (needs cargo)
+zig build rooms-session                # run `glowcap apps rooms session`; pass `-- <verb> [flags]`, such as `-- serve --dir=<directory>`
 zig build rooms-irc-front-build        # build and install the IRC client front (needs cargo)
 zig build rooms-irc-front              # ordinary IRC clients enter Rooms; loopback by default, TLS required for public bind
 zig build rooms-irc-bridge-build       # build and install the standalone IRC bridge (needs cargo)
@@ -483,9 +489,9 @@ zig build rooms-server                 # run the Rooms room server, the director
 zig build rooms-web-build              # build and install the HTTP front (needs cargo)
 zig build rooms-web-test               # the installed web front's HTTP, relay admission and startup/shutdown custody (needs cargo + deno + python3, part of runtime-check)
 zig build rooms-web-tor-test           # opt-in: private Tor ownership and durable directory service key, networking disabled (needs cargo + deno + python3 + tor)
-zig build rooms-web                    # serve the rooms browser UI; open the printed URL (needs cargo + deno). `-Dtransport=iroh|tcp|onion` picks the room transport: iroh (default, encrypted QUIC), tcp (cleartext, for a peer that speaks nothing else; `-- --bind= --announce-host=` expose it on a LAN), or onion (a Tor onion service; starts a private Tor unless GLOWCAP_ONION_SOCKS/GLOWCAP_ONION_CONTROL name one; needs tor). `-Dport` pins the HTTP port (default 8000); server flags such as `--diagnostics` follow `--`
-zig build rooms-dev                    # React Fast Refresh by default; -Dhot-reload=false serves compiled generations natively, with the same operator grants, durable state, and -Dtransport (needs cargo + deno)
-zig build rooms-deploy-prep            # build and version everything the rooms deploy container mounts: shared libraries, iroh, wasm Host, browser UI, native session peer (needs cargo + deno)
+zig build rooms-web                    # serve the rooms browser UI; open the printed URL (needs cargo + deno). `-Dtransport=iroh|tcp|onion` picks the room transport: iroh (default, encrypted QUIC), tcp (cleartext, for a peer that speaks nothing else; `-- --bind= --announce-host=` expose it on a LAN), or onion (a Tor onion service; starts a private Tor unless GLOWCAP_ONION_SOCKS/GLOWCAP_ONION_CONTROL name one; needs tor). `-Dport` pins the HTTP port (default 8080); server flags such as `--diagnostics` follow `--`
+zig build rooms-dev                    # React Fast Refresh by default; -Dhot-reload=false serves compiled generations through the web front, with the same operator grants, durable state, and -Dtransport (needs cargo + deno)
+zig build rooms-deploy-prep            # prepare the complete Linux product as a Docker image build context (needs cargo + deno)
 ```
 
 The rooms browser proofs each drive a real headless Chromium. The rows that need cargo run their page's rooms on the

@@ -39,6 +39,25 @@ test "writeResult appends to sink buffer" {
     try std.testing.expectEqualStrings("hello-captp\n", capture.items);
 }
 
+test "an unavailable CapTP transport is named before identity creation" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var ctx: Ctx = .{ .io = threaded.io(), .gpa = gpa, .environ = &environ };
+    defer ctx.deinit();
+    cli.log.test_capture.reset();
+    try std.testing.expectError(error.UnknownTransport, cli.ocapn.dialUriWithOpts(
+        &ctx,
+        "ocapn://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.iroh",
+        cli.ocapn.sessionOpts(),
+    ));
+    try std.testing.expect(ctx.secret == null);
+    try std.testing.expect(ctx.state_guard == null);
+    try std.testing.expect(std.mem.indexOf(u8, cli.log.test_capture.captured(), "transport 'iroh' is not registered") != null);
+}
+
 test "listen backgrounds on the MCP front: bind now, one listener, close stops it" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
@@ -306,21 +325,6 @@ test "mcp lifecycle defaults are finite" {
     try std.testing.expect(cli.mcp.default_idle_ms > 0);
     try std.testing.expect(cli.mcp.default_max_session_ms > 0);
     try std.testing.expect(cli.mcp.default_max_session_ms > cli.mcp.default_idle_ms);
-}
-
-test "rooms-peer shim reports missing glowcap" {
-    const gpa = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    // Empty PATH and no sibling guarantee → GlowcapNotFound (unless a real
-    // sibling exists next to the test binary — still ok if found).
-    const result = cli.rooms_peer_shim.resolveGlowcapPath(threaded.io(), gpa, "");
-    if (result) |path| {
-        defer gpa.free(path);
-        try std.testing.expect(path.len > 0);
-    } else |err| {
-        try std.testing.expect(err == error.GlowcapNotFound);
-    }
 }
 
 test "an unwritable state directory is refused as an identity problem, not a dial failure" {

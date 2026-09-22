@@ -1,215 +1,198 @@
 ---
 name: rooms-peer
 description: >-
-  Use when asked to be present in, join, sit in, or run a rooms peer in a
-  glowcap room. Not for shell CapTP (glowcap-cli), in-host CapTP (glowcap-mcp),
-  or multi-persona durable teams (rooms-team).
+  Participate in glowcap Rooms as one durable peer: join multiple rooms,
+  receive every room and direct message, reply privately or publicly, and
+  keep listening. Use when asked to join, be present, or use Rooms as a person.
 ---
 
 # Rooms peer
 
-CapTP outside this wake loop: [glowcap-mcp](../glowcap-mcp/SKILL.md) ·
-[glowcap-cli](../glowcap-cli/SKILL.md). Multi-persona teams →
-[rooms-team](../rooms-team/SKILL.md).
+Use one durable Rooms session for your identity, rooms, and DMs. Its process
+keeps receiving while you think or use other tools. The inbox retains events
+until you reply or dismiss them, including across restarts. All joined rooms
+are observed; selecting a conversation does not change what you receive.
+The skill describes your role as a peer; the CLI operates your session.
 
-## When not to use
+## Start
 
-- Multi-persona durable team → [rooms-team](../rooms-team/SKILL.md)
-- CapTP outside room wake → [glowcap-mcp](../glowcap-mcp/SKILL.md) /
-  [glowcap-cli](../glowcap-cli/SKILL.md)
+Extract the requested room, nickname, locator, and workspace before running
+commands. In "Join garden as Alice using https://rooms.example.org/locator",
+`garden` is the room, `Alice` is the nickname, and the URL is the directory.
+"Read all room messages and DMs" means all events in the joined conversations,
+not permission to join every room. Ask only for choices actually missing.
 
-Goal: be in a glowcap chat room and in your own session at the same time. A
-background `tick` wakes you when something is said; you reply in your own words
-and re-arm `tick`. Drop the re-arm and you go silent even if the peer stays
-joined.
+Choose the CLI on the machine running this agent, in this order:
 
-`tick` hands you every unanswered message (no relevance filter). Reply to what
-is worth a reply; `dismiss` the rest. Others can `@<nick>` you, but you see the
-whole room either way.
+1. Use the operator's explicit executable, otherwise `command -v glowcap`.
+2. If absent from PATH, check `$HOME/.local/bin/glowcap`.
+3. For a skill supplied from `<prefix>/share/glowcap/skills/rooms-peer/`, use
+   `<prefix>/bin/glowcap`. For `<checkout>/.agents/skills/rooms-peer/`, use
+   `<checkout>/glowcap`. It builds the complete product only if absent, then
+   runs on the host. Once prepared, listening and replying need no devcontainer
+   or compiler. Do not enter the container to run the peer.
+4. If none exists, stop and request a complete Linux/macOS product installation
+   or its executable path. Do not search home directories, deployment state,
+   MCP configuration, ADRs, or build caches for another executable.
 
-Run every command from the repo root (`/workspaces/glowcap`). Pick a NICK and
-use `/tmp/rooms-peer-<nick>` as DIR.
-
-## Choose a room (before start)
-
-Always pass `--room` explicitly — the CLI default is `general`, which is easy
-to join by accident.
-
-1. If the human named a room → use it.
-2. Else **ask** which room (or whether to create one).
-3. Creating = joining a **new** name (enter/open). Pick a room-safe slug they
-   approve, or one they invent.
-4. Multi-persona durable team → [rooms-team](../rooms-team/SKILL.md) (that skill
-   mints a dedicated team room; do not park a team in `general`).
-
-## 1. Build and put `glowcap` on PATH (once)
+Remember the selected executable and use it for every command. In the examples,
+replace `glowcap` with its absolute path when it is not on PATH. Do not invoke
+private `rooms-*` binaries or override the product selection with `GLOWCAP_BIN`.
+An installed product needs no compiler, checkout, Python, or Docker. Keep its
+`bin`, `libexec`, `lib`, and `share` together. Check once:
 
 ```sh
-zig build
-export PATH="$PWD/zig-out/bin:$PATH"
+glowcap apps rooms session --help
 ```
 
-That installs `glowcap` and a thin `rooms-peer` shim → `glowcap app rooms-peer`
-([ADR-0084](../../../docs/decisions/adr/ADR-0084-glowcap-cli-product-boundary.md)).
-Prefer `glowcap app rooms-peer`. (`zig build rooms-peer` / `zig build glowcap`
-are *run* forms and need `-- <verb> …`, not how you build.)
-
-## 2. Join the room
-
-**Always pass `--room <name>`** (decided above) and **`--locator` unless** you
-are on the compose `rooms-net` fabric (default bootstrap
-`http://glowcap-rooms:8000/locator` only resolves there).
-
-Public / tunnel / any other host:
+Then start with the requested rooms; no filesystem search or discovery tour is
+needed. The command creates or restores the workspace:
 
 ```sh
-glowcap app rooms-peer start \
-  --nick Alice --dir /tmp/rooms-peer-alice --room <room> \
-  --locator https://glowcap-rooms.example/locator
-# or a pasted ocapn://… URI
+glowcap apps rooms session start \
+  --dir "$HOME/.rooms/alice" --nick Alice \
+  --locator https://rooms.example.org/locator \
+  --room garden --room workshop
 ```
 
-Devcontainer against the local deploy (shared `rooms-net`):
+Do not silently join `general`. The URL above is a placeholder, not a service
+to contact. Use the deployment's agent-accessible
+HTTPS `/locator` endpoint, or its published localhost URL on the Docker host.
+Docker-internal service names are not host addresses. A successful HTTP fetch
+must also return a locator reachable from this host; iroh discovery is the
+ordinary deployed route.
+
+A browser login is not shared with the CLI. An access-gateway sign-in page is
+not a locator; ask for an operator-approved accessible URL or `ocapn://` locator.
+Do not extract browser cookies or change access controls to get around it.
+Reuse the same `--dir` on
+every command. For presence that must survive temporary-directory cleanup,
+choose a persistent private directory outside the installation. Keep the path
+short: the workspace's `control.sock` must fit the host's Unix socket path limit.
+
+`start` is idempotent for a running session. It joins the requested rooms and
+reports success after their memberships exist. URL bootstrap fails before a new
+workspace or process is created. A later room-join failure leaves the session
+available for `status`, correction, or `stop`; read its error.
+Restart with `start --dir <same-dir>` to restore the existing workspace.
+After success, immediately start the consumer below; do not report presence before the
+requested memberships exist and a consumer is active.
+
+## When a command fails
+
+Keep stdout JSON, stderr diagnostics, and the real exit status. Do not pipe
+commands through `head` or `tail`, merge the streams, or chain unrelated probes.
+Use short tool output waits (at most 30 seconds) and retain the running handle;
+never let a silent command block interaction indefinitely. Give finite diagnostic
+commands a tool deadline of 60 seconds. Quiet `tick` timeouts are not failures.
+
+On a failed start/join, read the error's `class`, `message`, and `retry`. Run
+`status --dir <same-dir>` once if a session may exist. If it cannot answer, read
+only the last 40 lines of `<dir>/control.log`, keeping private content private.
+Report the blocker and the concrete missing input or configuration. Retry only
+after that changes; uncertain sends require inbox inspection, never blind replay.
+A presence task is not a source-debugging task: no recursive repository searches,
+dependency scans, compiler installation, or identity deletion. Ask for separate
+debugging work if the product diagnostics cannot explain the failure.
+
+## Listen and respond
+
+Choose according to the harness: if its command tool returns a running process
+handle and lets the model consume output while it runs, use `listen`. If it
+returns output only when a command exits, use
+`glowcap apps rooms session tick --dir <dir> --wait 30` once per tool call.
+Do not put a never-ending listener into a blocking-only tool.
 
 ```sh
-glowcap app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room <room>
+glowcap apps rooms session listen --dir "$HOME/.rooms/alice"
 ```
 
-Wait for `"ok": true`. **`joined` (status) is room presence; `registered: true`
-means you are named and reachable; a first introduce to a peer still waits for
-their inbox offer.** `status` shows the
-peer's phase: `starting` → `joining` (session open, join in flight) → `joined`,
-with `reconnecting` between attempts; a hung join self-recovers after a
-deadline, and `join_attempts` counts tries since the last successful join. If `registered` is
-false, you are in the room but not DM-able yet (peer retries register). On
-`"ok": false`, read `detail`, fix, run `start` again (idempotent — never a
-second peer for the same DIR). A `join-timeout` **stops a peer this `start`
-spawned** before returning failure; an adopted already-running peer is left up,
-and the `detail` says which happened. Do not assume a timed-out fresh start
-left a live daemon.
+Run `listen` once as a long-running command. Keep its process handle and consume
+new output through the harness's wait mechanism, with waits at most 30 seconds.
+The first JSON line reports the current inbox, even if empty. Later lines
+contain newly delivered events; quiet periods produce no output. Reply and
+dismiss through separate commands while the same listener stays active.
+`remaining` counts all unacknowledged events, including ones already delivered.
+Use `tick --dir <dir> --wait 0` to reread the pending batch if needed.
 
-## 3. Stay present — the wake loop
-
-`tick` only wakes whoever is still running when it returns. How you wait
-depends on **which harness process you are**:
-
-| You are… | Wait style |
-| -------- | ---------- |
-| **Main** Cursor/Claude/Codex chat (solo presence, or rooms-team **lead**) | Keep a live consumer on `tick` returns. A fire-and-forget background `tick` with no notify/pager is how the lead goes silent while members stay live. Prefer [rooms-team `lead-watch.sh`](../rooms-team/scripts/lead-watch.sh) (`tick --json` + `AGENT_LOOP_WAKE_lead_pending`) with harness `notify_on_output`, or drain at the start of every operator turn via `tick --wait 0 --json`. |
-| **rooms-team member Task** | **Foreground-wait** on `tick` (block until return). Background-arm then a final “tick armed / standing by” **completes the Task** and orphans the peer — see [rooms-team](../rooms-team/SKILL.md) “Why members die” |
+Read every event in `pending`. Each has an `id`, `channel` (`room` or `dm`),
+`conversation`, `author`, `text`, and room/peer context. Events also include
+edits, withdrawals, presence, and file descriptions. No mention filter runs.
+Answer a DM in its own conversation; keep private content out of room replies.
 
 ```sh
-# Default stdout is --plain. Any script that parses pending MUST pass --json.
-glowcap app rooms-peer tick --dir /tmp/rooms-peer-alice --wait 120 --json
+# Route automatically to the exact room or DM that supplied this event.
+glowcap apps rooms session reply --dir "$HOME/.rooms/alice" \
+  --id 12 --text 'Yes, I can help with that.'
+# Read without speaking. Multiple --id flags acknowledge a reviewed batch.
+glowcap apps rooms session dismiss --dir "$HOME/.rooms/alice" --id 13 --id 14
 ```
 
-`--wait` is only the idle ceiling; `tick` returns early when a message arrives.
-(`rooms-peer` install shim accepts the same argv after the verb.)
+Reply naturally where a reply helps. Dismiss your own echoes and events that
+need no response. Reading alone never acknowledges an event. Prefer human
+DMs and questions, while still reading every room. A reply uses the shared
+application's send completion before acknowledging the incoming event.
+An interrupted or uncertain send requires `status` and inbox inspection
+before retrying; do not blindly send the same text twice.
 
-**Every time `tick` finishes** (exit 0, error, **or harness abort** —
-Cursor/Claude/Codex often kill a waiting `--wait 120`):
+Do not write a shell/Python polling loop or filter events by nickname, presence,
+or apparent importance. The product owns delivery; you decide what needs a
+response after reading it. Do not suppress stderr or truncate message bodies.
+Delivery does not acknowledge events. If the listener exits, inspect its error;
+restart it on the same workspace to replay all still-unacknowledged events.
 
-1. Read its JSON if present (`pending` = unanswered lines). If the process was
-   aborted with no JSON, run `tick --wait 0` once to drain.
-2. If `n` is 0, go to step 5.
-3. Drain in order when a human may be watching (solo or team lead): **human
-   `channel=dm`** → **human `channel=room`** → other lines. “Human” = author not
-   you (and, in a team, not a roster nick). `@`-mentions of your nick first
-   within a band. Team members follow [rooms-team](../rooms-team/SKILL.md)
-   Multi-surface wake / Human room ownership.
-4. `reply` or `dismiss` each item (every id must be handled). Never
-   `dismiss --all` while human lines remain.
-5. **Immediately run the next `tick`** (background-arm in a main session;
-   foreground-wait in a member Task).
+The peer process can collect messages without the model, but a background
+process alone cannot wake a completed model turn. Use the harness's live
+command wait/output notifications, or read each `tick` batch before calling
+it again. Never combine multiple waits into a minutes-long
+shell command. Quiet timeouts are not a stopping condition. Do not final-answer
+"standing by" and abandon the consumer. After an interrupted tool wait, resume
+the existing listener handle if it is still running; do not start a second one.
 
-A harness abort is not peer death and not a zombie. Do **not** narrate every
-abort in the room — re-arm quietly. But abort re-arms do **not** excuse a quiet
-room: if a human is present / a dig is open, keep the rooms-team heartbeat
-cadence (short unsolicited `reply --text`) on wall-clock, not only when
-`pending` arrives.
-
-## 4. Reply
+## Use the workspace
 
 ```sh
-glowcap app rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --text 'sure, on it'
-# when pending.channel is "dm":
-glowcap app rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --dm Bob --text 'privately: yes'
-# unsolicited room line (no pending id) — still posts via outbox:
-glowcap app rooms-peer reply --dir /tmp/rooms-peer-alice --text 'heads up: restarting Bob'
+# Join another room while keeping all existing memberships and DMs.
+glowcap apps rooms session join --dir "$HOME/.rooms/alice" --room design
+# Discover rooms, registered people, memberships, topics, and connection issues.
+glowcap apps rooms session status --dir "$HOME/.rooms/alice"
+# Start a public message or private conversation.
+glowcap apps rooms session reply --dir "$HOME/.rooms/alice" --room garden --text 'Hello everyone.'
+glowcap apps rooms session reply --dir "$HOME/.rooms/alice" --dm Bob --text 'Hello Bob.'
+# Leave one room; the other rooms and DMs keep receiving.
+glowcap apps rooms session leave --dir "$HOME/.rooms/alice" --room garden
+# Stop this peer and retain its workspace and unanswered inbox for restart.
+glowcap apps rooms session stop --dir "$HOME/.rooms/alice"
 ```
 
-Each `pending` item's `reply` field already has the right `--id` (and `--dm`).
-Omit `--id` only for unsolicited posts; with `--id`, the message is also marked
-answered so it will not resurface on `tick`.
+Room names can repeat across directories. Use the `conversation` ID from
+`status` with `--conversation` when a name is ambiguous. To join another
+directory, supply `join --locator <URL> --nick <nick> --room <name>`.
+Transport availability follows the session's configured providers.
+For editing, topics, standing, invitations, and other shared application
+commands, read [application commands](references/commands.md).
 
-## 5. Dismiss
+## Recovery and limits
 
-```sh
-glowcap app rooms-peer dismiss --dir /tmp/rooms-peer-alice --id d8713f30
-glowcap app rooms-peer dismiss --dir /tmp/rooms-peer-alice --all
-```
+The private inbox is bounded to 4096 unacknowledged events and a 16 MiB journal.
+A full inbox or failed write retires this observer and reports `inbox.gap`;
+the session, commands, and other views stay live. Reviewed events remain
+available to `tick` and `dismiss`. After correcting the cause, use
+`resume --dir <dir> --accept-gap` to observe new events again. That accepts an
+explicit gap; it does not recover messages missed while observation was stopped.
+A stopped process cannot receive new live messages.
+An unclean shutdown reports a gap on restart because queued events may not
+have reached disk; inspect it before accepting and resuming.
 
-Never clear a backlog with a placeholder `reply` — that posts to the room.
+Host-initiated browser DMs require a reachable browser route. Browsers can
+choose **Through the room relay**; an HTTP bootstrap derives its relay URL.
+Pass `start --relay-url <url>` when it cannot be derived. A default WebRTC-only
+browser is not reachable by the session's transports.
+Relay settings persist. To replace a previously saved inaccessible relay, stop
+the session and start the same workspace with the operator's `--relay-url`.
+File events expose descriptions; this command front does not yet transfer
+file bytes. The full application remains accessible through an attached browser.
 
-## 6. Leave
-
-```sh
-glowcap app rooms-peer stop --dir /tmp/rooms-peer-alice
-```
-
-After `start`, other verbs need only `--dir`.
-
-## Outbox (restart-safe)
-
-`reply` appends `DIR/outbox.jsonl`; the peer drains it by compaction under the
-`.lock` sidecar: a sent line is rewritten out of the file, a held line stays in
-place, an incomplete trailing write is kept whole. `DIR/outbox.offset` is
-honored read-only as already-sent scrollback (never invent EOF on start — that
-skipped undrained lines); the drain never writes it.
-`status` exposes `outbox_backlog` (bytes still waiting past that mark). Non-zero
-after a quiet moment means the send path is stuck — fix that, do not restart
-hoping posts appear. A failed DM introduce **holds that DM line** until the
-cooldown expires, or sooner when the peer offers us an inbox (`introducible`)
-or an inbound `dm(text, reply)` arms the ADR-0088 back-channel. Later room
-posts and sendable DMs still drain; the blocked line is not dropped.
-An inbox `kind:sent` (or “sent” in local logs) means **queued+armed on CapTP**,
-not proof the recipient rendered the line. First contact uses directory
-introduction; an existing inbound reply capability is preferred when available.
-Native rooms-peer composes iroh and Noise-sealed relay (`noise-relay`), not
-WebRTC. A cold introduce to a default browser tab (`ocapn://….webrtc`) cannot
-redeem. After they DM you first, answer on the back-channel. Browsers that want
-native-initiated DMs join with `?dm=relay` (or **Through the room relay** in
-the page Settings).
-
-On `start`, `inbox.watermark` advances past current scrollback so restart does
-not re-surface ancient inbox through a capped `replied.json`.
-
-### Human says they see silence (“Bueller”)
-
-1. `status` — `peer:up`, `outbox_backlog`, and `peer.out` for `drainActions` /
-   `ReenteredHost` / `post failed`. `ReenteredHost` on an outbox flush means
-   **retry** (actions still queued), not success — do not treat local `sent` as
-   proof the room rendered the line.
-2. Post a short distinctive `@human` line; confirm `outbox_backlog` returns to 0.
-3. Ask **another nick in the same room** to say whether they see that line
-   (local `sent` alone is not enough).
-4. If peers see it and the human does not → UI/filter surface, not CapTP.
-5. If nobody sees it → peer restart on a freshly built `glowcap`, then repeat.
-
-## Rules
-
-- **Re-arm `tick` after every wake** (including harness abort). Ending a turn
-  with no next `tick` started is going silent. Member Tasks must foreground-wait
-  (see §3); do not final-answer after arming.
-- **Full participant:** reply in your own voice; `dismiss` the rest.
-- **Never run `rooms-peer peer` yourself** — only `start` launches it.
-- **One peer per nick and DIR.**
-- **Talk like a person in the chat** — short, natural; only `reply` speaks.
-  Never paste `tick` / `status` JSON into the room.
-- DMs wake like room lines (`pending.channel` is `"dm"`); answer with that
-  item's `reply` (includes `--dm`) or `dismiss`. Directory introduction requires
-  `registered: true`.
-  CapTP DM content is private: never quote or paraphrase it in a room post
-  ([rooms-team](../rooms-team/SKILL.md) DM privacy). After a peer DMs you
-  first, the peer caches their reply capability and answers on that
-  back-channel — introduce is only needed when you DM first.
+Use [rooms-team](../rooms-team/SKILL.md) when explicitly operating a durable team.
+CapTP work outside Rooms is a separate task; this skill does not require the
+repository's development tools or other skills.

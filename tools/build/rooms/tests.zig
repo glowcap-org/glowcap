@@ -180,7 +180,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     web_tooling.has_side_effects = true;
     server_step.dependOn(&web_tooling.step);
     const archive = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
-    archive.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_TEST_BIN=", .make_absolute = true });
+    archive.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_TEST_BIN=", .make_absolute = true });
     archive.addArgs(command);
     archive.step.dependOn(ctx.archive_install);
     archive.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
@@ -195,11 +195,11 @@ pub fn register(ctx: Context) *std.Build.Step {
     var previous: ?*std.Build.Step = &web_tooling.step;
     for (batches) |files| {
         const batch = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
-        batch.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
-        batch.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
-        batch.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-irc-front" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_FRONT_BIN=", .make_absolute = true });
+        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
+        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-front" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_FRONT_BIN=", .make_absolute = true });
         batch.step.dependOn(ctx.archive_install);
-        batch.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
         for (files) |file| {
             if (std.mem.eql(u8, file, "apps/rooms/test/browser_bundle_test.ts")) batch.step.dependOn(ctx.wasm_install);
         }

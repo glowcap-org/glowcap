@@ -60,7 +60,7 @@ checkout="$(glowcap_devcontainer_resolve_checkout "enter.sh" "${primary_checkout
 session="$(glowcap_devcontainer_tmux_session_name "${worktree}" "${launcher_session}")"
 session_target="=${session}"
 # Pane and window commands need the trailing colon to qualify the exact session
-# target. Without it, tmux may interpret `=glowcap-main` as a pane name.
+# target. Without it, tmux may interpret `=glowcap-dev-main` as a pane name.
 window_target="${session_target}:"
 
 container_id="$(glowcap_devcontainer_column_container "${checkout}" "${launcher_mode}")"

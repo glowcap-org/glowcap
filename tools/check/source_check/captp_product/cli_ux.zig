@@ -26,9 +26,6 @@ pub fn checkCaptpLabUxHonesty(
         .{ .path = "cli/mcp/mod.zig", .needle = "\"version\":\"0.1.0\"", .why = "MCP serverInfo.version must come from build_options, not a hard-coded literal" },
         .{ .path = "cli/mcp/mod.zig", .needle = "Content-Length", .why = "MCP stdio is NDJSON per the MCP transport spec; LSP Content-Length framing breaks Cursor/Claude" },
         .{ .path = "cli/registry.zig", .needle = "if (std.mem.eql(u8, cmd.name, \"listen\")) continue", .why = "use leafVisible; no ad-hoc listen skip lists" },
-        .{ .path = "cli/cmd/tree.zig", .needle = "held; not yet on the wire", .why = "rooms-peer --dm ships via directory introduce; help must not claim held" },
-        .{ .path = "cli/app/rooms_peer/peer.zig", .needle = "remaining milestone", .why = "DM introduce/tell shipped; do not reintroduce a silent skip" },
-        .{ .path = "cli/app/rooms_peer/verbs.zig", .needle = "not-implemented", .why = "reply --dm writes outbox; not a not-implemented stub" },
     };
     for (forbidden) |row| {
         const contents = root.readFileAlloc(io, row.path, gpa, .limited(4 << 20)) catch |err| {
@@ -50,9 +47,6 @@ pub fn checkCaptpLabUxHonesty(
         "argv_only",
         "mcp_hide",
     });
-    try expectFileContains(io, gpa, root, violations, "cli/app/rooms_peer/peer.zig", &.{"registerWithDirectory"});
-    try expectFileContains(io, gpa, root, violations, "cli/app/rooms_peer/outbox.zig", &.{"startIntroduce(state, parsed.peer);"});
-    try expectFileContains(io, gpa, root, violations, "cli/app/rooms_peer/wire.zig", &.{"offerInboxFor"});
 }
 
 test "collectCaptpRegistryNames takes Command rows only" {

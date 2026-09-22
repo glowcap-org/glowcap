@@ -140,6 +140,16 @@ changes, and reserved installation capacity. There is one prepared write per
 domain initially. Reads can use the last installed revision while a write is
 pending; a cold read cannot expose a newer backend revision before installation.
 
+A transaction may re-propose a record it already staged: staging the same
+record id again with the same revision expectation replaces the staged bytes
+and the submitted batch still holds exactly one mutation per record. A
+different expectation, or re-proposing a staged removal, refuses. Staging may
+also read its own proposals back through the transaction, which is how several
+operations that each advance one record (an owner header, a parent row, a
+shared directory page) compose into one header mutation per owner. Each stage
+then validates against the transaction's own composed state; a stage prepared
+against an older revision refuses before anything submits.
+
 Participants provide bounded synchronous validation and staging. Managed access uses
 that boundary to check scopes, grant revisions, and operation requirements.
 Application content is another participant. They do not submit independent

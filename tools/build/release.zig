@@ -1,122 +1,71 @@
-//! Release packaging: the installed archive set, headers, product binaries, the
-//! project provenance disclosure, and licenses staged into one versioned,
-//! checksummed per-target tarball that the bindings' find leg resolves against.
-
+//! Host product and C SDK release profiles share staging, target guards, and
+//! checksummed archives. Product proofs run only extracted public commands.
 const std = @import("std");
 const common = @import("common.zig");
+const staging = @import("release/stage.zig");
+const transaction = @import("release/transaction.zig");
+pub const Manifest = staging.Manifest;
 
-const addInstalledSystemRun = common.addInstalledSystemRun;
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, iroh_abi_step: *std.Build.Step, check_step: *std.Build.Step, manifest: Manifest) void {
+    const manifest_tests = staging.addManifestTests(b);
+    check_step.dependOn(&manifest_tests.step);
+    b.step("product-manifest-test", "Generate and parse a sealed staged product without a release package build")
+        .dependOn(&manifest_tests.step);
+    const tests = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release_test.py" });
+    tests.addArg(archive_script);
+    const test_step = b.step("glowcap-package-test", "Prove release rollback and reject damaged packages, broken skills, and loader fallbacks");
+    test_step.dependOn(&tests.step);
+    check_step.dependOn(test_step);
 
-pub const Manifest = struct {
-    static_archives: []const []const u8,
-    dynamic_archives: []const []const u8,
-    headers: []const []const u8,
-    binaries: []const []const u8,
-};
+    const sdk = staging.add(b, target, version, "sdk", manifest);
+    sdk.step.dependOn(iroh_abi_step);
+    const sdk_archive = archive(b, target, version, "glowcap-c", "sdk", "release");
+    sdk_archive.run.step.dependOn(&sdk.step);
+    const sdk_proof = common.addRootedSystemCommand(b, .build_tool, &.{ "bash", "tools/check/release-pack-smoke.sh" });
+    sdk_proof.addFileArg(sdk_archive.path);
+    sdk_proof.addArgs(&.{ staging.join(b, manifest.static_archives), staging.join(b, manifest.dynamic_archives), staging.join(b, manifest.headers) });
+    sdk_proof.step.dependOn(&sdk_archive.run.step);
+    gate(b, target, optimize, b.step("release-pack", "Package and verify the C SDK (explicit Release mode and baseline CPU required)"), &sdk_proof.step);
 
-pub fn register(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    abi_version: std.SemanticVersion,
-    iroh_abi_step: *std.Build.Step,
-    manifest: Manifest,
-) void {
-    // ── release packaging ────────────────────────────────────────────────────
-    // Stage the complete installed archive set — the pure-Zig archives plus the
-    // iroh companion — with the headers, authorship disclosure, and licenses
-    // into one versioned, checksummed tarball under `zig-out/release/`, named by
-    // `abi_version` and the host target triple. `.github/workflows/release.yml`
-    // runs this per platform on a version tag and attaches the tarballs to the
-    // release, the hosted upstream the bindings' find leg resolves against.
-    const release_tarball = b.fmt(
-        "glowcap-c-v{d}.{d}.{d}-{s}-{s}.tar.gz",
-        .{
-            abi_version.major,                abi_version.minor,              abi_version.patch,
-            @tagName(target.result.cpu.arch), @tagName(target.result.os.tag),
-        },
-    );
-    const static_archives = std.mem.join(b.allocator, " ", manifest.static_archives) catch @panic("OOM");
-    const dynamic_archives = std.mem.join(b.allocator, " ", manifest.dynamic_archives) catch @panic("OOM");
-    const headers = std.mem.join(b.allocator, " ", manifest.headers) catch @panic("OOM");
-    const binaries = std.mem.join(b.allocator, " ", manifest.binaries) catch @panic("OOM");
-    const version = b.fmt("{d}.{d}.{d}", .{ abi_version.major, abi_version.minor, abi_version.patch });
-    const major = b.fmt("{d}", .{abi_version.major});
-    const target_os = @tagName(target.result.os.tag);
-    const release_pack_run = addInstalledSystemRun(b, .build_tool, &.{
-        "sh", "-ec",
-        b.fmt(
-            \\rm -rf zig-out/release
-            \\mkdir -p zig-out/release/stage/lib zig-out/release/stage/include zig-out/release/stage/bin
-            \\for name in {s}; do
-            \\  src="zig-out/lib/lib${{name}}.a"
-            \\  test -f "$src" || {{ echo "release-pack: missing static archive $src" >&2; exit 1; }}
-            \\  cp -L "$src" "zig-out/release/stage/lib/lib${{name}}.a"
-            \\done
-            \\case '{s}' in
-            \\  linux) dynamic_suffixes='.so .so.{s} .so.{s}' ;;
-            \\  macos) dynamic_suffixes='.dylib .{s}.dylib .{s}.dylib' ;;
-            \\  *) echo 'release-pack: target OS {s} has no published dynamic-library layout' >&2; exit 1 ;;
-            \\esac
-            \\for name in {s}; do
-            \\  for suffix in $dynamic_suffixes; do
-            \\    src="zig-out/lib/lib${{name}}${{suffix}}"
-            \\    test -f "$src" || {{ echo "release-pack: missing shared-library member $src" >&2; exit 1; }}
-            \\    cp -L "$src" "zig-out/release/stage/lib/lib${{name}}${{suffix}}"
-            \\  done
-            \\done
-            \\for name in {s}; do
-            \\  src="include/${{name}}"
-            \\  test -f "$src" || {{ echo "release-pack: missing public header $src" >&2; exit 1; }}
-            \\  cp "$src" "zig-out/release/stage/include/${{name}}"
-            \\done
-            \\for name in {s}; do
-            \\  src="zig-out/bin/${{name}}"
-            \\  test -f "$src" || {{ echo "release-pack: missing product binary $src" >&2; exit 1; }}
-            \\  cp "$src" "zig-out/release/stage/bin/${{name}}"
-            \\done
-            \\if find zig-out/release/stage ! -type d ! -type f -print | grep -q .; then
-            \\  echo 'release-pack: stage must contain only regular files and directories' >&2
-            \\  exit 1
-            \\fi
-            \\cp PROVENANCE.md LICENSE-APACHE LICENSE-THIRD-PARTY zig-out/release/stage/
-            \\tar -czf 'zig-out/release/{s}' -C zig-out/release/stage lib include bin PROVENANCE.md LICENSE-APACHE LICENSE-THIRD-PARTY
-            \\rm -rf zig-out/release/stage
-            \\cd zig-out/release
-            \\(sha256sum '{s}' || shasum -a 256 '{s}') > SHA256SUMS
-            \\echo 'release-pack: zig-out/release/{s}'
-        , .{
-            static_archives,
-            target_os,
-            major,
-            version,
-            major,
-            version,
-            target_os,
-            dynamic_archives,
-            headers,
-            binaries,
-            release_tarball,
-            release_tarball,
-            release_tarball,
-            release_tarball,
-        }),
-    });
-    release_pack_run.step.dependOn(b.getInstallStep());
-    release_pack_run.step.dependOn(iroh_abi_step);
-    const release_smoke = common.addRootedSystemCommand(b, .build_tool, &.{
-        "bash",
-        "tools/check/release-pack-smoke.sh",
-        b.fmt("zig-out/release/{s}", .{release_tarball}),
-        static_archives,
-        dynamic_archives,
-        headers,
-    });
-    release_smoke.step.dependOn(&release_pack_run.step);
-    const release_pack_step = b.step("release-pack", "Stage and verify optimized installed archives, headers, product binaries, provenance, and licenses in a versioned, checksummed per-target tarball under zig-out/release/ (needs cargo for the iroh companion)");
+    const product_archive = archive(b, target, version, "glowcap", "product", "glowcap-release");
+    product_archive.run.step.dependOn(&b.top_level_steps.get("rooms-build").?.step);
+    const proof = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release.py" });
+    proof.addFileArg(product_archive.path);
+    proof.step.dependOn(&product_archive.run.step);
+    proof.step.dependOn(test_step);
+    gate(b, target, optimize, b.step("glowcap-pack", "Package and exercise the complete relocatable glowcap product (explicit Release mode and baseline CPU required)"), &proof.step);
+}
+
+fn gate(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, step: *std.Build.Step, proof: *std.Build.Step) void {
     if (optimize == .debug) {
-        release_pack_step.dependOn(&b.addFail("release-pack refuses Debug artifacts; pass -Doptimize=ReleaseSafe (or another explicit Release mode)").step);
+        step.dependOn(&b.addFail("release packages refuse Debug; pass -Doptimize=ReleaseSafe").step);
+    } else if (target.result.os.tag != b.graph.host.result.os.tag or target.result.cpu.arch != b.graph.host.result.cpu.arch or target.result.abi != b.graph.host.result.abi) {
+        step.dependOn(&b.addFail("host packages must be built on their target OS and architecture; use the Linux/macOS release matrix, not a mixed Zig/Cargo cross-build").step);
+    } else if (target.result.os.tag == .linux and target.result.os.version_range.linux.glibc.order(b.graph.host.result.os.version_range.linux.glibc) == .lt) {
+        step.dependOn(&b.addFail("Rust runtimes use the build host's libc; build on the chosen Linux baseline instead of labeling host artifacts with an older glibc target").step);
+    } else if (!target.query.cpu_model.eql(.baseline) or !target.query.cpu_features_add.isEmpty()) {
+        step.dependOn(&b.addFail("release packages require -Dcpu=baseline without added CPU features").step);
     } else {
-        release_pack_step.dependOn(&release_smoke.step);
+        step.dependOn(proof);
     }
+}
+
+const archive_script = transaction.begin ++
+    \\source="$2"
+    \\name="$3"
+    \\marker=SHA256SUMS
+    \\LC_ALL=C TAR_OPTIONS= COPYFILE_DISABLE=1 tar -czf "$stage/tree/$name" -C "$source" bin lib libexec include share README.md PROVENANCE.md LICENSE-APACHE LICENSE-THIRD-PARTY
+    \\(cd "$stage/tree"; if command -v sha256sum >/dev/null 2>&1; then sha256sum "$name"; else shasum -a 256 "$name"; fi) > "$stage/tree/SHA256SUMS"
+    \\
+++ transaction.commit ++
+    \\echo "release-pack: $output/$name"
+;
+
+fn archive(b: *std.Build, target: std.Build.ResolvedTarget, version: std.SemanticVersion, name: []const u8, source: []const u8, output: []const u8) struct { run: *std.Build.Step.Run, path: std.Build.LazyPath } {
+    const filename = b.fmt("{s}-v{d}.{d}.{d}-{s}-{s}.tar.gz", .{ name, version.major, version.minor, version.patch, @tagName(target.result.cpu.arch), @tagName(target.result.os.tag) });
+    const run = common.addInstalledSystemRun(b, .build_tool, &.{ "sh", "-ec", archive_script, "glowcap-archive" });
+    run.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = output } }, .{ .make_absolute = true });
+    run.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = source } }, .{ .make_absolute = true });
+    run.addArg(filename);
+    return .{ .run = run, .path = .{ .relative = .{ .base = .install_prefix, .sub_path = b.fmt("{s}/{s}", .{ output, filename }) } } };
 }

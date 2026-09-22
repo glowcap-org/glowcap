@@ -3,6 +3,7 @@ const std = @import("std");
 const core = @import("loam_core");
 const driver = @import("driver_core");
 const h = @import("attachment.zig");
+const publication = @import("publication.zig");
 
 pub fn prefetch(owner: *h.Attachment, ref: driver.Capability) !void {
     try owner.topLevel();
@@ -75,19 +76,36 @@ pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.Read
         }
         return err;
     };
+    return publication.finishRepublish(owner, id);
 }
 
 pub fn completeWrite(owner: *h.Attachment, ticket: core.Ticket, outcome: core.Outcome) !void {
     try owner.topLevel();
     const writing = owner.writing orelse return error.StaleCompletion;
     if (!writing.submitted or writing.uncertain or !std.meta.eql(ticket, writing.batch.ticket)) return error.StaleCompletion;
+    switch (outcome) {
+        .committed, .unknown => try publication.fenceRetirements(owner, writing.batch),
+        .unchanged => publication.releaseRetirements(owner, false),
+    }
     owner.store.completeWrite(ticket, outcome) catch |err| {
-        if (owner.store.phase == .uncertain) owner.writing.?.uncertain = true;
+        // An install that cannot confirm locally leaves the batch uncertain;
+        // fenced retirement custody survives for recovery.
+        if (owner.store.phase == .uncertain) {
+            owner.writing.?.uncertain = true;
+            publication.releaseRetirements(owner, true);
+        }
         return err;
     };
     switch (outcome) {
-        .unknown => owner.writing.?.uncertain = true,
-        .committed => finish(owner, null),
+        // The fence applied; recovery now owns the transition.
+        .unknown => {
+            publication.releaseRetirements(owner, true);
+            owner.writing.?.uncertain = true;
+        },
+        .committed => {
+            publication.releaseRetirements(owner, false);
+            finish(owner, null);
+        },
         .unchanged => |err| finish(owner, err),
     }
 }
@@ -102,14 +120,34 @@ pub fn resolve(owner: *h.Attachment, ticket: core.Ticket, resolution: core.Resol
     try owner.topLevel();
     if (owner.writing == null or !owner.writing.?.uncertain) return error.WrongPhase;
     try owner.store.resolve(ticket, resolution);
-    finish(owner, if (resolution == .committed) null else error.WriteNotCommitted);
+    if (resolution == .committed) {
+        publication.releaseRetirements(owner, false);
+        finish(owner, null);
+    } else {
+        try publication.republishRetirements(owner);
+        finish(owner, error.WriteNotCommitted);
+    }
 }
 
 fn finish(owner: *h.Attachment, failure: ?anyerror) void {
-    const operation = &owner.operations[owner.writing.?.operation];
-    if (failure) |err| {
-        operation.failure = err;
-        operation.phase = .failed;
-    } else operation.phase = .settling;
+    if (owner.writing.?.operation) |index| {
+        const operation = &owner.operations[index];
+        if (failure) |err| {
+            operation.failure = err;
+            operation.phase = .failed;
+        } else operation.phase = .settling;
+    }
     owner.writing = null;
+}
+
+/// Submit a transaction the embedding staged directly (outside any call)
+/// through the owned write lane, so its terminal outcome runs the same
+/// publication-retirement fence as call-driven writes. The caller staged via
+/// `store.begin()` and staging helpers; this prepares and claims the lane.
+pub fn submit(owner: *h.Attachment) !core.Ticket {
+    try owner.topLevel();
+    if (owner.writing != null) return error.Busy;
+    const ticket = try owner.store.prepare();
+    owner.writing = .{ .batch = try owner.store.beginWrite(ticket), .operation = null };
+    return ticket;
 }

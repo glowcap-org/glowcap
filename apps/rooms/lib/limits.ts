@@ -471,10 +471,8 @@ export const MAX_BLOB_READERS = APPLICATION_DATA.MAX_BLOB_READERS;
  * a Host publication and an export on every session that projects it. Leaving
  * retires the alias; already-issued capabilities keep their exact old actor
  * until their own roots disappear. The peer asking chose the name, so the
- * count needs a ceiling that peer cannot argue with. `max_dm_inboxes` in
- * `cli/app/rooms_peer/common.zig` and in
- * `conformance/goblins-peer/racket/rooms-dm.rkt` are the same bound for the Zig
- * peer and the Goblins one. */
+ * count needs a ceiling that peer cannot argue with. The shared application
+ * owns this bound; the Goblins fixture checks the same contract. */
 export const MAX_DM_INBOXES = APPLICATION_DATA.MAX_DM_INBOXES;
 /** Repeated requests for the same reciprocal direct route inside this window
  * produce one notification. Expired rows are removed lazily, so the bound is

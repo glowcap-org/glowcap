@@ -185,7 +185,7 @@ if (attach && transport === "iroh") {
 const serverArgs = transport === "iroh"
 	? ["--transport=iroh", "--reachability=direct"]
 	: ["--transport=tcp", `--port=${pinPort}`];
-const serverBin = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") || `${ROOT}/zig-out/bin/rooms-server`;
+const serverBin = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") || `${ROOT}/zig-out/libexec/rooms-server`;
 const server = attach ? null : new Deno.Command(serverBin, {
 	args: serverArgs,
 	stdout: "piped",

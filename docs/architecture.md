@@ -424,7 +424,10 @@ attempt. Bindings tear down only loops and Hosts they minted themselves.
 
 The installable `glowcap` command is an application of the public library, not
 another protocol layer. It owns terminal behavior, identity files, MCP stdio,
-and room presence. [The CLI guide](cli.md) covers it.
+room presence, verified product installation, and Rooms deployment. Its
+deployment path shares the installed product inventory with Docker image
+construction, so the image contains a complete immutable product rather than
+checkout output. [The CLI guide](cli.md) covers it.
 
 First-party applications live under [`apps/`](../apps/). Compilable teaching
 programs live under [`examples/`](../examples/README.md). Build checks and code

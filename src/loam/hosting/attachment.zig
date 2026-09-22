@@ -15,6 +15,7 @@ pub const Options = struct {
     max_calls: usize = 64,
     call_bytes: usize = 64 * 1024,
     pending_bytes: usize = 4 * 1024 * 1024,
+    max_retirements: usize = 16,
     sleep_policy: enum { lru, every_turn } = .lru,
 };
 pub const Stats = struct { loads: u64 = 0, invocations: u64 = 0, sleeps: u64 = 0 };
@@ -27,7 +28,18 @@ pub const Entry = struct {
 };
 pub const Operation = calls.Operation;
 pub const Loading = struct { request: core.Read, submitted: bool = false, operation: ?usize = null };
-pub const Writing = struct { batch: core.Batch, operation: usize, submitted: bool = false, uncertain: bool = false };
+pub const Writing = struct { batch: core.Batch, operation: ?usize, submitted: bool = false, uncertain: bool = false };
+/// One staged publication tombstone this attachment owns the registry
+/// transition for. Reserved when the tombstone stages; fenced (discovery
+/// removed) when its batch reaches an unknown outcome; cleared at every
+/// terminal outcome, with recovery-to-absent re-publishing the still-rooted
+/// recipe through the ordinary restore path.
+pub const Retirement = struct {
+    record: core.ObjectId,
+    swiss: driver.Host.DurableSwiss,
+    fenced: bool = false,
+    republish: bool = false,
+};
 
 pub const Attachment = struct {
     allocator: std.mem.Allocator,
@@ -38,6 +50,7 @@ pub const Attachment = struct {
     entries: []Entry,
     operations: []Operation,
     reads: []?Loading,
+    retirements: []?Retirement,
     writing: ?Writing = null,
     runner: actors.Ref,
     sequence: u64 = 0,
@@ -70,8 +83,12 @@ pub const Attachment = struct {
         const reads = try allocator.alloc(?Loading, store.limits.cache_slots);
         errdefer allocator.free(reads);
         @memset(reads, null);
+        if (options.max_retirements == 0) return error.InvalidLimits;
+        const retirements = try allocator.alloc(?Retirement, options.max_retirements);
+        errdefer allocator.free(retirements);
+        @memset(retirements, null);
         const runner = try host.vat.spawn(calls.Runner, .{ .owner = self });
-        self.* = .{ .allocator = allocator, .host = host, .store = store, .behaviors = behaviors, .options = options, .entries = entries, .operations = operations, .reads = reads, .runner = runner };
+        self.* = .{ .allocator = allocator, .host = host, .store = store, .behaviors = behaviors, .options = options, .entries = entries, .operations = operations, .reads = reads, .retirements = retirements, .runner = runner };
         return self;
     }
 
@@ -82,6 +99,7 @@ pub const Attachment = struct {
         try self.topLevel();
         if (self.pending_bytes != 0 or self.writing != null) return error.Busy;
         for (self.reads) |read| if (read != null) return error.Busy;
+        for (self.retirements) |retirement| if (retirement != null) return error.Busy;
         // Cross a normal Vat boundary to retire released proxy boxes before
         // freeing the entry storage their destructors reference.
         _ = try self.host.vat.near(self.runner, .{ .verb = "barrier", .args = &.{} });
@@ -158,6 +176,7 @@ pub const Attachment = struct {
     pub const completeWrite = storage.completeWrite;
     pub const recoveryBatch = storage.recoveryBatch;
     pub const resolve = storage.resolve;
+    pub const submit = storage.submit;
 
     pub fn findBehavior(self: *Attachment, view: core.RecordView) !Behavior {
         for (self.behaviors) |item| if (item.schema == view.schema and item.version == view.schema_version) return item;
@@ -206,6 +225,7 @@ pub fn releaseClosed(self: *Attachment) void {
     for (self.entries) |entry| if (entry.actor != null) return;
     self.allocator.free(self.reads);
     self.allocator.free(self.operations);
+    self.allocator.free(self.retirements);
     self.allocator.free(self.entries);
     const allocator = self.allocator;
     allocator.destroy(self);

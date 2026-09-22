@@ -47,13 +47,124 @@ pub fn activeTarget(view: core.RecordView) !core.ObjectId {
 }
 
 /// Stage discovery retirement, preserving a tombstone of the secret name.
-/// Commit this transaction and applyRetirement before admitting another fetch.
-/// An unknown outcome must be resolved before changing the Host registry.
+/// Commit this transaction through the attachment's write lane: its terminal
+/// outcome applies the registry transition (see `fenceRetirements`), so no
+/// application coordination between commit and registry removal is required.
+/// Staging reserves bounded retirement custody; it refuses while another
+/// tombstone for this record is already pending or custody is exhausted.
 pub fn stageRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
     const view = try attachment.store.currentView(lease);
     try validate(view);
     if (!view.rooted) return error.RetiredPublication;
+    try reserve(attachment, view.id, driver.Host.DurableSwiss.fromEntropy(view.payload[0..@sizeOf(Entropy)].*));
     try attachment.store.putCopying(.{ .id = view.id, .revision = 0, .schema = schema.id, .rooted = false, .payload = view.payload }, view.revision);
+}
+
+/// Reserved custody for one staged tombstone. Bounded by the attachment's
+/// `max_retirements`; a duplicate record refuses rather than double-fencing.
+fn reserve(attachment: *h.Attachment, record: core.ObjectId, swiss: driver.Host.DurableSwiss) !void {
+    for (attachment.retirements) |slot| if (slot) |held| if (held.record.eql(record)) return error.RetirementPending;
+    for (attachment.retirements) |*slot| if (slot.* == null) {
+        slot.* = .{ .record = record, .swiss = swiss };
+        return;
+    };
+    return error.RetirementCapacity;
+}
+
+fn tombstone(batch_change: core.Mutation, owner: *h.Attachment) ?struct { record: core.ObjectId, swiss: driver.Host.DurableSwiss } {
+    const bytes = batch_change.bytes orelse return null;
+    const view = core.RecordView.decode(bytes, owner.store.limits.records, owner.store.cache.schemas) catch return null;
+    if (view.schema != schema.id or view.schema_version != schema.version) return null;
+    if (view.rooted or view.payload.len != @sizeOf(Entropy)) return null;
+    return .{ .record = batch_change.id, .swiss = driver.Host.DurableSwiss.fromEntropy(view.payload[0..@sizeOf(Entropy)].*) };
+}
+
+fn removeFromRegistry(owner: *h.Attachment, swiss: driver.Host.DurableSwiss) !void {
+    owner.host.removeDurable(swiss.slice()) catch |err| switch (err) {
+        error.UnknownPublication => {},
+        else => return err,
+    };
+}
+
+/// The commit-to-registry fence for one terminal batch. Every tombstoned
+/// publication record in the batch loses discovery now — including unknown
+/// outcomes, which fail closed — and keeps its reserved custody until the
+/// outcome resolves. Stale custody from abandoned staging clears here.
+pub fn fenceRetirements(owner: *h.Attachment, batch: core.Batch) !void {
+    for (batch.changes) |change| {
+        const dead = tombstone(change, owner) orelse continue;
+        try removeFromRegistry(owner, dead.swiss);
+        for (owner.retirements) |*slot| {
+            if (slot.*) |held| {
+                if (held.record.eql(dead.record)) {
+                    slot.*.?.fenced = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Drop one record's staged retirement custody after the caller abandoned
+/// its transaction. Fenced custody (an outcome already applied the fence)
+/// refuses: recovery owns it.
+pub fn dropRetirement(owner: *h.Attachment, record: core.ObjectId) !void {
+    for (owner.retirements) |*slot| if (slot.*) |held| {
+        if (!held.record.eql(record)) continue;
+        if (held.fenced) return error.RetirementFenced;
+        slot.* = null;
+        return;
+    };
+    return error.UnknownRetirement;
+}
+
+/// Drop custody. `keep_fenced` preserves fenced slots across an unresolved
+/// unknown outcome; every other call clears all custody.
+pub fn releaseRetirements(owner: *h.Attachment, keep_fenced: bool) void {
+    for (owner.retirements) |*slot| {
+        const held = slot.* orelse continue;
+        if (keep_fenced and held.fenced) continue;
+        slot.* = null;
+    }
+}
+
+/// Recovery proved a fenced tombstone's batch absent: the recipe is still
+/// rooted, so discovery returns through the ordinary restore path. A cold
+/// record defers to the read lane (`finishRepublish`) instead of blocking.
+pub fn republishRetirements(owner: *h.Attachment) !void {
+    releaseRetirements(owner, true);
+    for (owner.retirements) |*slot| if (slot.*) |*held| if (held.fenced) {
+        const acquired = owner.store.acquire(held.record) catch |err| switch (err) {
+            error.PendingRead => {
+                held.republish = true;
+                continue;
+            },
+            else => return err,
+        };
+        switch (acquired) {
+            .ready => |lease| {
+                defer owner.store.release(lease) catch unreachable;
+                _ = try restore(owner, lease);
+                slot.* = null;
+            },
+            .read => |read| {
+                held.republish = true;
+                @import("storage.zig").retainRead(owner, read, null);
+            },
+        }
+    };
+}
+
+/// Read-lane completion of a deferred re-publish.
+pub fn finishRepublish(owner: *h.Attachment, record: core.ObjectId) !void {
+    for (owner.retirements) |*slot| if (slot.*) |*held| {
+        if (!held.republish or !held.record.eql(record)) continue;
+        const lease = try owner.store.resident(record);
+        defer owner.store.release(lease) catch unreachable;
+        _ = try restore(owner, lease);
+        slot.* = null;
+        return;
+    };
 }
 
 /// Apply a committed tombstone, including after restart. Held capabilities

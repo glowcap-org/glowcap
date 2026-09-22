@@ -158,6 +158,7 @@ pub fn check(
         }
     }
     for (shared_manifests) |path| {
+        try rejectDependency(io, gpa, root, violations, path, "rooms-product");
         try rejectDependency(io, gpa, root, violations, path, "rooms-platform");
         try rejectDependency(io, gpa, root, violations, path, "rooms-services");
         try rejectDependency(io, gpa, root, violations, path, "rooms-browser");
@@ -166,6 +167,11 @@ pub fn check(
     try rejectDependency(io, gpa, root, violations, "apps/rooms/rust/platform/Cargo.toml", "rooms-browser");
     try rejectDependency(io, gpa, root, violations, "apps/rooms/rust/browser/Cargo.toml", "rooms-platform");
     try rejectDependency(io, gpa, root, violations, "apps/rooms/rust/browser/Cargo.toml", "rooms-services");
+    for ([_][]const u8{ "services", "platform", "browser" }) |layer| {
+        const path = try std.fmt.allocPrint(gpa, "apps/rooms/rust/{s}/Cargo.toml", .{layer});
+        defer gpa.free(path);
+        try rejectDependency(io, gpa, root, violations, path, "rooms-product");
+    }
     try util.expectFileContains(
         io,
         gpa,
@@ -266,6 +272,7 @@ test "Rooms crate dependencies keep one direction" {
             \\rooms-platform = { path = "../platform" }
             \\rooms-services = { path = "../services" }
             \\rooms-browser = { path = "../browser" }
+            \\rooms-product = { path = "../product" }
             \\
             ,
         });
@@ -274,7 +281,7 @@ test "Rooms crate dependencies keep one direction" {
     try tmp.dir.createDirPath(std.testing.io, "apps/rooms/rust/services");
     try tmp.dir.writeFile(std.testing.io, .{
         .sub_path = "apps/rooms/rust/services/Cargo.toml",
-        .data = "rooms-platform = { path = \"../platform\" }",
+        .data = "rooms-platform = { path = \"../platform\" }\nrooms-product = { path = \"../product\" }",
     });
     var violations: std.ArrayList([]const u8) = .empty;
     defer {
@@ -282,9 +289,9 @@ test "Rooms crate dependencies keep one direction" {
         violations.deinit(gpa);
     }
     try check(std.testing.io, gpa, tmp.dir, &violations);
-    // Three forbidden edges in each shared crate, two in platform, and two in
-    // browser. The services-to-platform edge is required and remains valid.
-    try std.testing.expectEqual(@as(usize, 13), violations.items.len);
+    // Four forbidden edges in each shared crate, three in platform, and three in
+    // browser, plus services depending on product. Services-to-platform is valid.
+    try std.testing.expectEqual(@as(usize, 19), violations.items.len);
     for (violations.items) |message| {
         try std.testing.expect(std.mem.indexOf(u8, message, "Rooms layer must not depend on") != null);
     }

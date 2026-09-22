@@ -58,8 +58,8 @@ jobs:
       - name: Prepare the devcontainer's external networks
         run: |
           bash .devcontainer/bin/configure.sh
-          docker network create rooms-net 2>/dev/null || true
-          docker network create glowcap-main-egress 2>/dev/null || true
+          docker network create glowcap-rooms-net 2>/dev/null || true
+          docker network create glowcap-dev-main-egress 2>/dev/null || true
 
       - name: Run the gates in the devcontainer
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3

@@ -11,41 +11,6 @@ workspace = true
 [features]
 processes = ["tokio/signal", "tokio/net", "tokio/io-util", "tokio/fs", "tokio/process", "dep:tokio-tungstenite", "dep:futures-util", "dep:tokio-rustls", "dep:tokio-postgres", "dep:tokio-postgres-rustls", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:base64", "dep:url", "dep:nix", "dep:html5ever", "dep:encoding_rs"]
 
-[[bin]]
-name = "rooms-archive"
-path = "src/bin/rooms-archive.rs"
-required-features = ["processes"]
-
-[[bin]]
-name = "rooms-session"
-path = "src/bin/rooms-session.rs"
-required-features = ["processes"]
-
-[[bin]]
-name = "rooms-server"
-path = "src/bin/rooms-server.rs"
-required-features = ["processes"]
-
-[[bin]]
-name = "rooms-irc-bridge"
-path = "src/bin/rooms-irc-bridge.rs"
-required-features = ["processes"]
-
-[[bin]]
-name = "rooms-irc-front"
-path = "src/bin/rooms-irc-front.rs"
-required-features = ["processes"]
-
-[[bin]]
-name = "rooms-web"
-path = "src/bin/rooms-web.rs"
-required-features = ["processes"]
-
-[[bin]]
-name = "rooms-chat"
-path = "src/bin/rooms-chat.rs"
-required-features = ["processes"]
-
 [dependencies]
 rooms-application = { path = "../application" }
 tokio.workspace = true
@@ -53,24 +18,24 @@ glowcap.workspace = true
 rooms-glowcap = { path = "../glowcap" }
 rooms-runtime = { path = "../runtime" }
 rooms-platform = { path = "../platform" }
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["std"] }
 serde = { workspace = true, features = ["std"] }
 sha2.workspace = true
 tokio-tungstenite = { workspace = true, optional = true, features = ["connect"] }
 futures-util = { workspace = true, optional = true, features = ["async-await", "sink"] }
 tokio-rustls = { workspace = true, optional = true, features = ["ring", "tls12"] }
-hyper = { version = "=1.11.1", optional = true, default-features = false, features = ["http1", "server", "client"] }
-hyper-util = { version = "=0.1.20", optional = true, default-features = false, features = ["tokio"] }
-http-body-util = { version = "=0.1.5", optional = true }
+hyper = { workspace = true, optional = true, features = ["server", "client"] }
+hyper-util = { workspace = true, optional = true }
+http-body-util = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 base64 = { version = "=0.23.1", optional = true }
 url = { workspace = true, optional = true }
-nix = { version = "=0.31.3", optional = true, default-features = false, features = ["signal", "fs", "poll"] }
+nix = { workspace = true, optional = true }
 html5ever = { version = "=0.40.0", optional = true }
 encoding_rs = { version = "=0.8.41", optional = true }
 
-tokio-postgres = { version = "=0.7.18", optional = true }
-tokio-postgres-rustls = { version = "=0.14.0", optional = true, default-features = false, features = ["ring"] }
+tokio-postgres = { workspace = true, optional = true }
+tokio-postgres-rustls = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

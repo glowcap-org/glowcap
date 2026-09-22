@@ -79,11 +79,12 @@ glowcap_pins_require_hex64() {
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
 
-GLOWCAP_PINS_DEPS="debian postgres zig zls rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
+GLOWCAP_PINS_DEPS="debian distroless postgres zig zls rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
 
 glowcap_pins_dep_var() {
     case "$1" in
         debian) echo DEBIAN_BASE_DIGEST ;;
+        distroless) echo DISTROLESS_BASE_DIGEST ;;
         postgres) echo POSTGRES_IMAGE_PIN ;;
         zig) echo ZIG_VERSION ;;
         zls) echo ZLS_SOURCE_REVISION ;;
@@ -122,6 +123,7 @@ glowcap_pins_dep_class() {
 glowcap_pins_dep_gate() {
     case "$1" in
         debian) echo "zig build check" ;;
+        distroless) echo "release workflow Linux image proofs" ;;
         postgres) echo "docker compose config + zig build rooms-rust-test" ;;
         zig) echo "zig build check with the new toolchain" ;;
         zls) echo "rebuild + post-create.sh (verify-toolchains)" ;;
@@ -138,7 +140,7 @@ glowcap_pins_dep_gate() {
 # only by the production Compose project, so rebuilding the devcontainer would
 # not adopt or prove it.
 glowcap_pins_dep_requires_devcontainer_rebuild() {
-    [[ "$1" != postgres ]]
+    [[ "$1" != postgres && "$1" != distroless ]]
 }
 
 # Every consumer below reads its whole input: under `set -o pipefail`, an
@@ -147,6 +149,12 @@ glowcap_pins_dep_requires_devcontainer_rebuild() {
 glowcap_pins_latest_version() {
     case "$1" in
         debian) glowcap_pins_docker_hub_index_digest library/debian "${DEBIAN_BASE_TAG}" ;;
+        distroless)
+            glowcap_pins_fetch --output /dev/null --dump-header - \
+                --header "Accept: application/vnd.oci.image.index.v1+json" \
+                https://gcr.io/v2/distroless/cc-debian13/manifests/latest \
+                | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }'
+            ;;
         postgres)
             local version digest
             version="$(glowcap_pins_fetch https://www.postgresql.org/versions.json \

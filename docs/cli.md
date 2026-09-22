@@ -8,7 +8,7 @@ binary: `glowcap help` (and `help ocapn`, `-h` on any command).
 
 ## Install
 
-From the repository root:
+For the core CLI while developing from the repository root:
 
 ```sh
 zig build
@@ -16,35 +16,48 @@ export PATH="$PWD/zig-out/bin:$PATH"
 glowcap help
 ```
 
-`zig build` installs `glowcap` (and a thin `rooms-peer` shim) under `zig-out/bin`.
-Put that directory on your `PATH` once per shell, then every example below is
-just `glowcap …`.
-
-In the devcontainer, skip both steps: `glowcap` is already on `PATH` there, as
-a link to the repo-root shim, and the shim runs `zig build` itself if the
-binary is missing.
-
-To install into a prefix that is already on your `PATH` (for example
-`~/.local/bin`):
+`zig build` installs the core `glowcap` CLI under `zig-out/bin`. The complete
+installation adds the Rooms runtimes, prepared browser assets, and skills.
+Contributors can install it with the checkout launcher:
 
 ```sh
-zig build -p "$HOME/.local"
-glowcap help
+./glowcap install --prefix "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
 ```
+
+Alternatively, install a complete platform archive through the
+[host guide](../apps/rooms/host.md). The installer verifies its generated
+inventory, stores an immutable content-addressed generation, and atomically
+selects the `bin/glowcap` symlink. It refuses an unrelated executable and keeps
+older generations for running processes.
+
+In the devcontainer, `glowcap` on PATH is a link to the checkout's `./glowcap`
+development launcher. It runs the complete product in `zig-out/product`,
+building it only when absent. Bootstrap uses `rooms-build` with
+`-Doptimize=ReleaseSafe -Dcpu=baseline`; Linux can build through this checkout's
+devcontainer, while macOS uses its local toolchain. Once prepared, ordinary
+commands need neither the compiler nor the devcontainer. After source edits,
+run `zig build rooms-build -Doptimize=ReleaseSafe -Dcpu=baseline` in the build
+environment to update the product. `./glowcap install` installs that prepared
+product. An installed binary never builds source or downloads components.
+
+On Linux, `./glowcap apps rooms deployment up` uses the checkout's prepared
+product to build its container image unless an image source is explicit.
+The [deployment guide](../apps/rooms/web/deploy/README.md) explains
+state ownership and how installed releases select images.
 
 While iterating without installing: `zig build glowcap -- <command> …` runs the
 same binary through the build graph.
 
 ## Encrypted conversation
 
-Native rooms traffic rides [iroh](https://www.iroh.computer/):
-
-```sh
-glowcap app rooms-peer
-```
-
-The peer prints a locator. `reply --dm PEER` delivers through directory
-introduction. Details are under [Sit in a room](#sit-in-a-room).
+Rooms sessions use [iroh](https://www.iroh.computer/) by default.
+`glowcap apps rooms session` operates one durable workspace;
+`reply --dm PEER` delivers through directory introduction.
+[Sit in a room](#sit-in-a-room) shows startup and message handling.
+The generic `ocapn` commands, REPL, and MCP currently register TCP and configured
+relay routes, not iroh or WebRTC. Their Zig Session adapter's multiplexed
+transport support remains [a known boundary](boundaries.md#transports-and-peer-identity).
 
 ## Lab round-trip
 
@@ -136,7 +149,7 @@ glowcap --json ocapn probe "$LOC"
 | `glowcap ocapn …` | CapTP verbs |
 | `glowcap repl` | CapTP lab (TTY workbench / line mode) |
 | `glowcap mcp` | Agent control plane |
-| `glowcap app rooms-peer` | Room presence and DM-by-introduction (`reply --dm PEER`) |
+| `glowcap apps rooms session` | Room presence and DM-by-introduction (`reply --dm PEER`) |
 | `glowcap griddle …` | Deterministic simulator and timeline family |
 
 ```sh
@@ -228,15 +241,37 @@ lives at [`docs/glowcap-mcp.json`](glowcap-mcp.json).
 
 ## Sit in a room
 
-Room presence is `glowcap app rooms-peer` (install alias `rooms-peer`). The peer
-registers a giftable `dm` inbox so `reply --dm PEER` delivers via directory
-introduction (same path as `demo-rooms-dm-iroh`). Native rooms-peer composes
-iroh and Noise-sealed relay (`noise-relay`), not WebRTC. A first DM to a
-default browser tab cannot redeem that locator. The peer answers on the reply
-capability after the tab messages first. Tabs that want to be introduced from
-native pick **Through the room relay** in Settings, or open with `?dm=relay`.
-Deploy and locator details are in
-[`apps/rooms/README.md`](../apps/rooms/README.md).
+Room presence is `glowcap apps rooms session`. Install
+the [Linux/macOS glowcap product](../apps/rooms/host.md), or use the checkout
+launcher with `./glowcap apps rooms session`.
+Zig owns its command grammar, help, and
+completion; the commands use the shared Rust Rooms session application.
+
+```sh
+glowcap apps rooms session start --dir "$HOME/.rooms/alice" --nick Alice \
+  --locator http://localhost:8080/locator --room garden --room workshop
+glowcap apps rooms session listen --dir "$HOME/.rooms/alice"
+glowcap apps rooms session reply --dir "$HOME/.rooms/alice" --id 12 --text 'Hello.'
+glowcap apps rooms session stop --dir "$HOME/.rooms/alice"
+```
+
+The workspace owns its identity and all joined rooms and DMs. Reading does
+not acknowledge events; `reply --id` acknowledges after sending, and `dismiss`
+acknowledges without speaking. `listen` emits the initial pending batch, then
+newly delivered events without repeating earlier ones. It never acknowledges
+them; restarting it replays still-pending events. `tick` returns the current
+pending batch for one bounded wait.
+Managed session commands return JSON; `listen` returns JSONL. `team start`, `team status`,
+and `team stop` operate a roster through the same session lifecycle, not a second
+implementation. Starting a peer does not start a model consumer.
+Rooms has an independent flag scope: `--identity`, `--json`, and `--plain`
+belong to the generic CLI and are refused before any Rooms command executes.
+
+Host-initiated browser DMs need a reachable route: browsers can select
+**Through the room relay**, while the session needs that relay's URL.
+An HTTP(S) bootstrap derives it; `start --relay-url` supplies it explicitly.
+The session does not provide WebRTC. See [operating Rooms](../apps/rooms/operating.md)
+for local control, limits, and recovery.
 
 ## Shell completion and scripting
 

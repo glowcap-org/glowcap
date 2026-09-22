@@ -27,7 +27,8 @@ owns placement:
 - Contributor commands are `zig build` steps. A script may implement a step
   when it owns process supervision, shell integration, or another boundary the
   build graph cannot express clearly.
-- A shipped deployable has one operator-facing front beside that deployable.
+- A shipped deployable's operator interface belongs to the product CLI;
+  its deployment templates ship with the product.
 - Check and generator bodies live under `tools/check` and `tools/gen`.
 - Container and agent workflow scripts stay with `.devcontainer/` and
   `.agents/`. Machine-specific facts stay in ignored `.local/` tooling.

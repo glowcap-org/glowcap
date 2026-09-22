@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Repo-root shim → zig-out/bin/glowcap (ADR-0084). Requires `zig build` first.
+# Development launcher for the complete installation (ADR-0084).
 # Symlink-safe (the devcontainer links it onto PATH), so the repo root comes
 # from the resolved script path, and the fallback build runs there too. The
 # loop uses plain `readlink`; macOS does not provide GNU `readlink -f`.
@@ -15,12 +15,33 @@ while [[ -L "${GLOWCAP_SHIM}" ]]; do
 	fi
 done
 ROOT="$(cd "$(dirname "${GLOWCAP_SHIM}")" && pwd)"
-BIN="${GLOWCAP_BIN:-$ROOT/zig-out/bin/glowcap}"
-if [[ ! -x "$BIN" ]]; then
-	(cd "$ROOT" && zig build)
-	if [[ ! -x "$BIN" ]]; then
-		echo "glowcap: missing executable at ${BIN} — run \`zig build\` from the repo root" >&2
-		exit 1
+PRODUCT="$ROOT/zig-out/product"
+BIN="${GLOWCAP_BIN:-$PRODUCT/bin/glowcap}"
+unset GLOWCAP_CHECKOUT_ROOT
+if [[ -z "${GLOWCAP_BIN:-}" ]]; then
+	# Run the complete staged product, never partially updated build outputs.
+	# Builds are explicit after bootstrap: operating a session must not require
+	# its compiler, a build lease, or a running development container.
+	if [[ ! -x "$BIN" || ! -f "$PRODUCT/share/glowcap/installation.manifest" ]]; then
+		echo "glowcap: preparing missing checkout product; command has not started yet" >&2
+		if "${ROOT}/.devcontainer/bin/run.sh" --auto zig build rooms-build -Doptimize=ReleaseSafe -Dcpu=baseline </dev/null >&2; then
+			echo "glowcap: checkout product ready; starting command" >&2
+		else
+			build_status=$?
+			echo "glowcap: checkout preparation failed; command was not started" >&2
+			exit "$build_status"
+		fi
+		if [[ ! -f "$PRODUCT/share/glowcap/installation.manifest" ]]; then
+			echo "glowcap: build did not prepare a complete product at $PRODUCT" >&2
+			exit 1
+		fi
 	fi
+	# The Zig CLI uses source context for development image selection; an
+	# installed executable receives no checkout hint.
+	export GLOWCAP_CHECKOUT_ROOT="$ROOT"
+fi
+if [[ ! -x "$BIN" ]]; then
+	echo "glowcap: missing executable at ${BIN}; check GLOWCAP_BIN or build the complete installation with 'zig build rooms-build'" >&2
+	exit 1
 fi
 exec "$BIN" "$@"

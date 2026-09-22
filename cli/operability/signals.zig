@@ -1,4 +1,4 @@
-//! SIGINT/SIGTERM drain for long-running CLI fronts (`ocapn listen`, `mcp`).
+//! SIGINT/SIGTERM drain for CLI services and finite product operations.
 //!
 //! Handlers only set a flag (async-signal-safe). Long waits must poll the flag
 //! (chunked sleep, `waitAcceptable`, `stepReadable`) — Zig's threaded Io retries
@@ -34,6 +34,34 @@ pub fn stopRequested() bool {
 
 pub fn requestStop() void {
     g_stop.store(true, .release);
+}
+
+/// Drain a finite operation on INT/TERM. The operation owns its cleanup and
+/// returns only caller-scoped data; cancellation waits for that cleanup and
+/// observes the operation's actual result, including completion racing a signal.
+pub fn interruptible(comptime Payload: type, io: std.Io, comptime operation: anytype, args: std.meta.ArgsTuple(@TypeOf(operation))) anyerror!Payload {
+    install();
+    const Event = union(enum) { finished: anyerror!Payload, stopped: std.Io.Cancelable!void };
+    var buffer: [2]Event = undefined;
+    var select = std.Io.Select(Event).init(io, &buffer);
+    defer select.cancelDiscard();
+    try select.concurrent(.stopped, waitForStop, .{io});
+    try select.concurrent(.finished, operation, args);
+    switch (try select.await()) {
+        .finished => |result| return result,
+        .stopped => |result| {
+            try result;
+            while (select.cancel()) |event| switch (event) {
+                .finished => |finished| return finished,
+                .stopped => {},
+            };
+            unreachable; // The operation publishes exactly one result.
+        },
+    }
+}
+
+fn waitForStop(io: std.Io) std.Io.Cancelable!void {
+    while (!stopRequested()) try std.Io.sleep(io, .fromMilliseconds(poll_ms), .awake);
 }
 
 /// Test-only: clear the stop latch so hermetic cases can re-arm.

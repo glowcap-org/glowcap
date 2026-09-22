@@ -40,8 +40,8 @@ pub const State = struct {
         var grants = try self.read.?.grantView();
         _ = try grants.get(self.descriptor.grant);
         const entry = (try self.read.?.binding(.{ .grant = self.descriptor.grant })).?;
-        const row = try self.binding.owner.store.currentView(entry.lease.?);
-        if (!row.id.eql(self.descriptor.grant_object)) return error.InvalidRecord;
+        const found = try Read.rowFor(self.binding.owner.store, entry) orelse return error.InvalidRecord;
+        if (!found.view.id.eql(self.descriptor.grant_object)) return error.InvalidRecord;
     }
 };
 

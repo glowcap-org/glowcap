@@ -60,7 +60,7 @@ RUN groupadd --gid 1000 vscode \
 && useradd --uid 1000 --gid 1000 -m -s /bin/zsh vscode \
 && mkdir -p /home/vscode/.cache \
      /home/vscode/.cache/glowcap \
-     /home/vscode/.cache/glowcap-zig-work \
+     /home/vscode/.cache/glowcap-dev-zig-work \
      /home/vscode/.claude \
      /home/vscode/.codex \
      /home/vscode/.config \

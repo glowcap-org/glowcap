@@ -196,7 +196,7 @@ async function bridgePhase(): Promise<void> {
 	void fixture.catch(() => {});
 
 	const bridge = new LiveChild(
-		Deno.env.get("GLOWCAP_ROOMS_IRC_BRIDGE_BIN") || `${ROOT}/zig-out/bin/rooms-irc-bridge`,
+		Deno.env.get("GLOWCAP_ROOMS_IRC_BRIDGE_BIN") || `${ROOT}/zig-out/libexec/rooms-irc-bridge`,
 		[
 			"--network=fixture",
 			"--channel=#ocapn",
@@ -253,7 +253,7 @@ async function bridgePhase(): Promise<void> {
 }
 
 async function frontPhase(): Promise<void> {
-	const room = new LiveChild(Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") || `${ROOT}/zig-out/bin/rooms-server`, [
+	const room = new LiveChild(Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") || `${ROOT}/zig-out/libexec/rooms-server`, [
 		"--transport=tcp",
 		"--port=0",
 	]);
@@ -274,11 +274,14 @@ async function frontPhase(): Promise<void> {
 		await goblins.waitFor(/\* you are in irc-front-live/, "Goblins room join");
 		await goblins.waitFor(/\* the room granted you the name goblins-carol/, "Goblins DM registration");
 
-		front = new LiveChild(Deno.env.get("GLOWCAP_ROOMS_IRC_FRONT_BIN") || `${ROOT}/zig-out/bin/rooms-irc-front`, [
-			`--directory=${locator}`,
-			"--port=0",
-			"--dm-transport=tcp",
-		]);
+		front = new LiveChild(
+			Deno.env.get("GLOWCAP_ROOMS_IRC_FRONT_BIN") || `${ROOT}/zig-out/libexec/rooms-irc-front`,
+			[
+				`--directory=${locator}`,
+				"--port=0",
+				"--dm-transport=tcp",
+			],
+		);
 		const frontPort = Number(
 			(await front.waitFor(/ROOMS-IRC-FRONT-LISTENING (\d+) /, "IRC front announcement"))[1],
 		);

@@ -12,7 +12,7 @@ const log = @import("../operability/log.zig");
 const registry = @import("../registry.zig");
 const repl = @import("../repl/mod.zig");
 const mcp = @import("../mcp/mod.zig");
-const rooms_peer = @import("../app/rooms_peer.zig");
+const rooms = @import("../app/rooms/mod.zig");
 const griddle = @import("../griddle/mod.zig");
 
 const Command = types.Command;
@@ -49,64 +49,12 @@ const mcp_flags = [_]Flag{
     .{ .long = "max-session-ms", .help = "Max session milliseconds (0 disables)", .kind = .string_flag },
 };
 
-const rp_dir = Flag{ .long = "dir", .help = "Harness directory", .kind = .string_flag };
-const rp_nick = Flag{ .long = "nick", .help = "Room nickname", .kind = .string_flag };
-const rp_room = Flag{ .long = "room", .help = "Room name (default general)", .kind = .string_flag };
-const rp_locator = Flag{ .long = "locator", .help = "Room locator URL or ocapn://", .kind = .string_flag };
-const rp_identity = Flag{ .long = "identity", .help = "Identity seed path (default DIR/identity)", .kind = .string_flag };
-const rp_text = Flag{ .long = "text", .help = "Reply text", .kind = .string_flag };
-const rp_dm = Flag{ .long = "dm", .help = "Peer nick for a direct-message reply", .kind = .string_flag };
-const rp_id = Flag{ .long = "id", .help = "Message id", .kind = .string_flag };
-const rp_wait = Flag{ .long = "wait", .help = "Seconds to wait (tick)", .kind = .string_flag };
-const rp_all = Flag{ .long = "all", .help = "Dismiss all pending" };
-
-// `start` and `peer` take the same full dial flag set (`stop`/`status` take only
-// `--dir`). One array; if the two verbs ever diverge, split then.
-const rp_full_flags = [_]Flag{ rp_dir, rp_nick, rp_room, rp_locator, rp_identity };
-const rp_tick_flags = [_]Flag{ rp_dir, rp_wait };
-const rp_reply_flags = [_]Flag{ rp_dir, rp_text, rp_dm, rp_id };
-const rp_dismiss_flags = [_]Flag{ rp_dir, rp_id, rp_all };
-const rp_dir_only_flags = [_]Flag{rp_dir};
-
-fn runRoomsPeerVerb(comptime verb: []const u8) *const fn (*Ctx, *Parsed) anyerror!u8 {
-    return struct {
-        fn run(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
-            const init = ctx.argv_init orelse {
-                log.err(ctx.io, "rooms-peer requires argv process init", .{});
-                return exit_codes.internal;
-            };
-            const flags = rooms_peer.Flags{
-                .dir = parsed.flagString("dir") orelse "",
-                .nick = parsed.flagString("nick") orelse "",
-                .room = parsed.flagString("room") orelse "general",
-                .locator = parsed.flagString("locator") orelse "",
-                .text = parsed.flagString("text") orelse "",
-                .dm = parsed.flagString("dm") orelse "",
-                .id = parsed.flagString("id") orelse "",
-                .wait = if (parsed.flagString("wait")) |w| std.fmt.parseInt(u64, w, 10) catch 0 else 0,
-                .all = parsed.flagBool("all"),
-                .identity = parsed.flagString("identity") orelse "",
-            };
-            return rooms_peer.runVerb(init.*, verb, flags);
-        }
-    }.run;
-}
-
-const rooms_peer_children = [_]Command{
-    .{ .name = "start", .short_help = "Start a background room peer", .flags = &rp_full_flags, .run = runRoomsPeerVerb("start") },
-    .{ .name = "peer", .short_help = "Internal daemon (supervised only)", .flags = &rp_full_flags, .hidden_from_help = true, .run = runRoomsPeerVerb("peer") },
-    .{ .name = "tick", .short_help = "Drain unanswered room and DM messages", .flags = &rp_tick_flags, .run = runRoomsPeerVerb("tick") },
-    .{ .name = "reply", .short_help = "Answer one message (room or --dm)", .flags = &rp_reply_flags, .run = runRoomsPeerVerb("reply") },
-    .{ .name = "dismiss", .short_help = "Clear message(s) without posting", .flags = &rp_dismiss_flags, .run = runRoomsPeerVerb("dismiss") },
-    .{ .name = "stop", .short_help = "Leave the room and stop the peer", .flags = &rp_dir_only_flags, .run = runRoomsPeerVerb("stop") },
-    .{ .name = "status", .short_help = "Show harness state", .flags = &rp_dir_only_flags, .run = runRoomsPeerVerb("status") },
-};
-
 const app_children = [_]Command{
     .{
-        .name = "rooms-peer",
-        .short_help = "Join a rooms app as a background peer",
-        .children = &rooms_peer_children,
+        .name = "rooms",
+        .short_help = "Browser app, directory, durable sessions, and IRC",
+        .inherit_flags = false,
+        .children = &rooms.commands,
     },
 };
 
@@ -209,6 +157,7 @@ fn runMcp(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
 }
 
 const root_children = [_]Command{
+    @import("../installation/mod.zig").command,
     .{
         .name = "init",
         .short_help = "Mint a CapTP identity seed",
@@ -237,8 +186,8 @@ const root_children = [_]Command{
         .run = runMcp,
     },
     .{
-        .name = "app",
-        .short_help = "Application harnesses (rooms-peer)",
+        .name = "apps",
+        .short_help = "Applications built on glowcap",
         .children = &app_children,
     },
     griddle.command,

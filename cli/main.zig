@@ -1,7 +1,7 @@
 //! Installable CapTP CLI for humans and agents.
 //!
 //! Sources live under repo-root `cli/` and consume the public `glowcap` module
-//! (ADR-0084). Progressive `ocapn` commands, REPL, curated MCP, and `app rooms-peer`
+//! (ADR-0084). Progressive `ocapn` commands, REPL, curated MCP, and `apps rooms session`
 //! share one command tree for parse, scoped help, and shell completion.
 const std = @import("std");
 const vaxis = @import("vaxis");
@@ -35,7 +35,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn run(init: std.process.Init) !u8 {
-    var ctx = Ctx{ .io = init.io, .gpa = init.gpa, .environ = init.environ_map, .argv_init = &init };
+    var ctx = Ctx{ .io = init.io, .gpa = init.gpa, .environ = init.environ_map };
     defer ctx.deinit();
 
     var args_iter = std.process.Args.Iterator.init(init.minimal.args);

@@ -33,8 +33,11 @@ glowcap_pins_companions() {
             ;;
         debian)
             printf '%s\t%s\t%s\n' \
-                .devcontainer/Dockerfile "debian:${DEBIAN_BASE_TAG}@${old}" "debian:${DEBIAN_BASE_TAG}@${new}" \
-                apps/rooms/web/deploy/rooms.Dockerfile "debian:${DEBIAN_BASE_TAG}@${old}" "debian:${DEBIAN_BASE_TAG}@${new}"
+                .devcontainer/Dockerfile "debian:${DEBIAN_BASE_TAG}@${old}" "debian:${DEBIAN_BASE_TAG}@${new}"
+            ;;
+        distroless)
+            printf '%s\t%s\t%s\n' \
+                apps/rooms/web/deploy/rooms.Dockerfile "gcr.io/distroless/cc-debian13@${old}" "gcr.io/distroless/cc-debian13@${new}"
             ;;
         postgres)
             printf '%s\t%s\t%s\n' \
@@ -65,8 +68,8 @@ glowcap_pins_companions() {
 
 # Point `glowcap_pins_companion_staged` at the staged copy of one companion
 # file, taken from disk the first time it is asked for and reused after that.
-# Two deps can restate their pins in the same file, as the rooms image does with
-# the base image and Deno, so a later edit has to build on the earlier one.
+# Two deps can restate their pins in the same file, so a later edit has to
+# build on the earlier one.
 # Staging each from the original would let whichever landed last drop the
 # other's change.
 #

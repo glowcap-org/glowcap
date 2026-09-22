@@ -23,7 +23,7 @@ glowcap help
 Native rooms traffic rides [iroh]($link.page('transports/iroh')):
 
 ```sh
-glowcap app rooms-peer
+glowcap apps rooms session
 ```
 
 # Lab round-trip

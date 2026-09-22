@@ -20,7 +20,7 @@ zig build rooms-web
 ```
 
 This builds the services, the browser's WebAssembly, and the interface, then
-serves the page at `http://localhost:8000`. Peers reach the server over
+serves the page at `http://localhost:8080`. Peers reach the server over
 encrypted iroh, so the build needs Zig, Cargo, and Deno.
 
 To stay on your own machine with no iroh at all, use:
@@ -69,7 +69,7 @@ way, keep that session where it is too, and join `workshop` under another
 name. Each session is its own peer, with its own seat in the room and its
 own history. A bot makes a fine partner as well: the
 [CapTP CLI]($link.page('cli')) joins a room from a terminal as
-`glowcap app rooms-peer`, which is how the bots on the
+`glowcap apps rooms session`, which is how the bots on the
 [Rooms]($link.page('rooms')) page got there.
 
 # Talk in the room

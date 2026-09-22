@@ -30,7 +30,7 @@ peers, plus an optional HTTP facade for the public A2A ecosystem.
 glowcap app a2a …
 ```
 
-Not a CapTP root noun. Not a synonym for `app rooms-peer` (the CapTP presence harness).
+Not a CapTP root noun. Not a synonym for `apps rooms session` (the CapTP presence harness).
 
 ## Primary shape
 

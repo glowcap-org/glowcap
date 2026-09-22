@@ -20,7 +20,7 @@ const execution = @import("execution.zig");
 const in_tree_runtimes = [_]toolchain_check.Runtime{
     .{
         .program = "python3",
-        .scripts = &.{"tools/run-with-timeout.py"},
+        .scripts = &.{ "tools/run-with-timeout.py", "tools/check/rooms_peer.py", "tools/check/glowcap_release.py", "tools/check/glowcap_release_test.py", "tools/check/glowcap_host.py" },
         .modules = &.{"py_compile"},
         .why = "deterministic subprocesses use the shared deadline wrapper and the Python benchmark client is compile-checked",
     },
@@ -33,6 +33,10 @@ const in_tree_runtimes = [_]toolchain_check.Runtime{
             "tools/c-abi/c-abi-extract-matrix.sh",
         },
         .why = "source parity, C-ABI extraction, and visualizer harnesses are shell-owned",
+    },
+    .{
+        .program = "sh",
+        .why = "the complete-installation proof runs build-owned POSIX staging recipes, including file copying and Git revision stamping",
     },
     .{
         .program = "deno",

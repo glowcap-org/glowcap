@@ -7,6 +7,9 @@ that survive a restart, moderation, and the Operations page. The
 covers building and changing it; the [deployment guide](web/deploy/README.md)
 runs everything here with Docker Compose.
 
+Participants running outside Docker use the [glowcap product package](host.md).
+Give them the host-reachable `/locator` URL, not an internal Compose hostname.
+
 ## The server and its state
 
 `rooms-server` is the directory members register with and the rooms they
@@ -112,7 +115,7 @@ work has a 30-second deadline, a persistence failure ends the server with
 the reason, and an uncertain commit is never retried on its own. `zig build
 rooms-postgres-test` exercises the installed server against the database
 `GLOWCAP_ROOMS_STORAGE_LIVE_URL` names; `python3
-apps/rooms/rust/services/tests/postgres_fixture.py` creates a disposable
+apps/rooms/rust/product/tests/postgres_fixture.py` creates a disposable
 cluster for it.
 
 ## The session service
@@ -123,7 +126,7 @@ connection choices, and the capabilities the session holds. Several browsers
 attach to it and see the same thing; closing every browser changes nothing.
 
 ```sh
-zig build rooms-session -- --state=.local/.state/rooms
+glowcap apps rooms session serve --dir=.local/.state/rooms
 ```
 
 Once its state, grants, listener, and administrator publication are ready
@@ -152,6 +155,34 @@ act as the session from the identity seed beside it.
 
 Share on a local session is the tab-lifetime sibling: this browser hosts the
 session until the tab closes or reloads.
+
+### Local command access
+
+`glowcap apps rooms session start --dir <directory>` starts the shared session
+with local control. At the process boundary, `rooms-session --state=<directory>
+--local-control` adds a Unix socket at `<directory>/control.sock`.
+The process restricts its state directory to its
+owner. Access to this socket grants administration of that session, including
+its private conversations. It never listens for JSON commands on a network port.
+
+The socket accepts one newline-terminated JSON request per connection. Its
+verbs are `status`, `locate`, `tick`, `ack`, `command`, `adopt`, `resume`, and `stop`. `command`
+takes an operation `id`, a command `name`, and string `args`; the shared Rooms
+application owns validation and execution. This view observes every
+joined conversation even while another conversation is selected.
+
+`tick` returns up to 64 retained events and waits up to 30 seconds for new
+ones. Reading does not acknowledge them. `ack` takes numeric event `ids`.
+`listen` uses the returned change cursor to wait for commits even when unread
+events remain, rather than repeatedly fetching the same batch.
+Unacknowledged events and their IDs survive a restart. The inbox holds at most
+4096 events within a 16 MiB journal. A bounded worker owns disk writes outside
+the Rooms event loop. Queue pressure, exhausted storage, or a failed write
+retires only this observer; the session and other views remain available.
+`status` reports `inbox.gap`. Correct the cause, dismiss reviewed events, then
+explicitly run `glowcap apps rooms session resume --dir <directory> --accept-gap`.
+This accepts missed events; it does not claim to recover them.
+Files appear as descriptions; this control interface does not transfer their bytes.
 
 ## The archive service
 
@@ -187,7 +218,7 @@ endpoints in `GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL`, keep
 bridge gateway without knowing IRC: a form to open a connection (an IRC
 network), a form to add a channel under one, and the connections it holds.
 A connection may have no channels and then opens no socket. A channel stands
-beside the native rooms as `network/#channel`, and IRC members appear as
+beside the Rooms conversations as `network/#channel`, and IRC members appear as
 `irc/<nick>`. Removing a channel takes down only that channel; closing the
 connection deletes the network and every channel beneath it.
 

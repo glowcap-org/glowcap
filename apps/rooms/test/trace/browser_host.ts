@@ -2,7 +2,7 @@ import { scrapeTraceSturdyref, tracePortOf, traceUrlOf } from "./viewer.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 
 const SERVER = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") ??
-	new URL("../../../../zig-out/bin/rooms-server", import.meta.url).pathname;
+	new URL("../../../../zig-out/libexec/rooms-server", import.meta.url).pathname;
 const MAX_ANNOUNCEMENT_BYTES = 8 * 1024;
 
 async function awaitServerAnnouncement(stdout: ReadableStream<Uint8Array>): Promise<void> {

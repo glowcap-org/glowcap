@@ -46,14 +46,16 @@ const fixture_children = [_]Command{
         .children = &fixture_ocapn_children,
     },
     .{
-        .name = "app",
+        .name = "apps",
         .short_help = "Apps",
         .children = &[_]Command{.{
-            .name = "rooms-peer",
-            .short_help = "Rooms peer",
+            .name = "notes",
+            .short_help = "Notes",
+            .inherit_flags = false,
+            .flags = &.{.{ .long = "format", .help = "Note format", .kind = .string_flag, .persistent = true }},
             .children = &[_]Command{.{
                 .name = "start",
-                .short_help = "Start peer",
+                .short_help = "Start notes",
                 .flags = &[_]Flag{.{ .long = "dir", .help = "dir", .kind = .string_flag }},
                 .run = stubRun,
             }},
@@ -186,7 +188,7 @@ test "persistent --json is accepted before subcommand" {
     try std.testing.expect(c.json == .json);
 }
 
-test "completion emit lists ocapn dial app rooms-peer and --json" {
+test "completion emit lists ocapn dial apps notes and --json" {
     try std.testing.expect(cli.cmd_completion.parseShell("bash") == .bash);
     try std.testing.expect(cli.cmd_completion.parseShell("zsh") == .zsh);
     try std.testing.expect(cli.cmd_completion.parseShell("fish") == .fish);
@@ -197,21 +199,21 @@ test "completion emit lists ocapn dial app rooms-peer and --json" {
     defer gpa.free(bash);
     try std.testing.expect(std.mem.indexOf(u8, bash, "ocapn") != null);
     try std.testing.expect(std.mem.indexOf(u8, bash, "dial") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bash, "app rooms-peer") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bash, "apps notes") != null);
     try std.testing.expect(std.mem.indexOf(u8, bash, "--json") != null);
     try std.testing.expect(std.mem.indexOf(u8, bash, "--repl") != null);
 
     const zsh = try cli.cmd_completion.emitAlloc(gpa, &fixture_root, .zsh);
     defer gpa.free(zsh);
     try std.testing.expect(std.mem.indexOf(u8, zsh, "ocapn") != null);
-    try std.testing.expect(std.mem.indexOf(u8, zsh, "app rooms-peer") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zsh, "apps notes") != null);
     try std.testing.expect(std.mem.indexOf(u8, zsh, "--repl") != null);
 
     const fish = try cli.cmd_completion.emitAlloc(gpa, &fixture_root, .fish);
     defer gpa.free(fish);
     try std.testing.expect(std.mem.indexOf(u8, fish, "ocapn") != null);
     try std.testing.expect(std.mem.indexOf(u8, fish, "dial") != null);
-    try std.testing.expect(std.mem.indexOf(u8, fish, "rooms-peer") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fish, "notes") != null);
     try std.testing.expect(std.mem.indexOf(u8, fish, "--json") != null or std.mem.indexOf(u8, fish, "-l json") != null);
 }
 
@@ -236,7 +238,6 @@ test "every persistent root flag completes on child nodes in bash zsh fish" {
     // the root's `.persistent` set, so a new persistent flag lands here too.
     const bash_dial = lineContaining(bash, "\"ocapn dial\") echo \"") orelse return error.MissingDialCase;
     const zsh_dial = lineContaining(zsh, "\"ocapn dial\") echo \"") orelse return error.MissingDialCase;
-    const fish_dial = lineContaining(fish, "__fish_seen_subcommand_from dial") orelse return error.MissingDialCase;
 
     for (fixture_root_flags) |f| {
         if (!f.persistent) continue;
@@ -244,19 +245,48 @@ test "every persistent root flag completes on child nodes in bash zsh fish" {
         const long = try std.fmt.bufPrint(&buf, "--{s}", .{f.long});
         try std.testing.expect(std.mem.indexOf(u8, bash_dial, long) != null);
         try std.testing.expect(std.mem.indexOf(u8, zsh_dial, long) != null);
-        // Fish carries persistent flags as one unguarded global line each
-        // (offered in every context); per-node lines stay own-flags only.
+        // Fish scopes every flag too; an unguarded line would leak through an
+        // application's independent flag boundary.
         var fbuf: [80]u8 = undefined;
         const fish_global = try std.fmt.bufPrint(&fbuf, "complete -c glowcap -l {s} ", .{f.long});
-        try std.testing.expect(std.mem.indexOf(u8, fish, fish_global) != null);
-        var nbuf: [64]u8 = undefined;
-        const fish_node_flag = try std.fmt.bufPrint(&nbuf, "-l {s}", .{f.long});
-        try std.testing.expect(std.mem.indexOf(u8, fish_dial, fish_node_flag) == null);
+        try std.testing.expect(std.mem.indexOf(u8, fish, fish_global) == null);
+        var nbuf: [128]u8 = undefined;
+        const fish_node_flag = try std.fmt.bufPrint(&nbuf, "__fish_seen_subcommand_from dial' -l {s}", .{f.long});
+        try std.testing.expect(std.mem.indexOf(u8, fish, fish_node_flag) != null);
     }
 
-    // A flagless leaf needs no per-node fish line at all: its name completes
-    // from the parent's `-a` list and the persistent flags are global.
-    try std.testing.expect(lineContaining(fish, "__fish_seen_subcommand_from completion") == null);
+    // A flagless leaf still has inherited flags, offered only at that leaf.
+    try std.testing.expect(lineContaining(fish, "__fish_seen_subcommand_from completion' -l") != null);
+}
+
+test "independent scopes retain their own persistent flags in parsing help and completion" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var ctx = testCtx(gpa, &environ, &threaded);
+    defer ctx.deinit();
+    for ([_][]const []const u8{
+        &.{ "apps", "notes", "--format=text", "start" },
+        &.{ "apps", "notes", "start", "--format=text" },
+    }) |args| try std.testing.expectEqual(cli.exit_codes.ok, try cli.cmd.dispatch(&fixture_root, &ctx, args));
+    const apps = fixture_root.findChild("apps").?;
+    const notes = apps.findChild("notes").?;
+    const help = try cli.cmd.help.writeNodeHelpAlloc(gpa, &.{ &fixture_root, apps, notes, notes.findChild("start").? });
+    defer gpa.free(help);
+    try std.testing.expect(std.mem.indexOf(u8, help, "--format") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "--json") == null);
+    for ([_]cli.cmd_completion.Shell{ .bash, .zsh, .fish }) |shell| {
+        const script = try cli.cmd_completion.emitAlloc(gpa, &fixture_root, shell);
+        defer gpa.free(script);
+        const line = lineContaining(script, if (shell == .fish)
+            "__fish_seen_subcommand_from start' -l format"
+        else
+            "\"apps notes start\") echo \"") orelse return error.MissingScopeFlags;
+        try std.testing.expect(std.mem.indexOf(u8, line, "format") != null);
+        try std.testing.expect(std.mem.indexOf(u8, line, "json") == null);
+    }
 }
 
 test "missing dial locator is usage" {

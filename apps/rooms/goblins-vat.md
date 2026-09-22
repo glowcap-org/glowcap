@@ -16,7 +16,7 @@ it is an adapter for Goblins rather than a transport shipped by Goblins itself. 
 zig build rooms-web -Dtransport=tcp -- --trace
 ```
 
-Open `http://localhost:8000`, enter the room `general`, and pick a nickname. That is your glowcap member.
+Open `http://localhost:8080`, enter the room `general`, and pick a nickname. That is your glowcap member.
 
 In a second terminal, start the viewer, switch the top bar to **Live**, and give the Source field the
 `ROOMS-TRACE-LISTENING` sturdyref:

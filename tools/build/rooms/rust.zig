@@ -109,8 +109,8 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     // Deno and Chromium each own a 30-second contract; native-front shutdown
     // owns another ten. Leave containment headroom above those scenario timers.
     const host_browser = execution.addSystemCommand(b, .{ .browser_proof = 90 }, &.{"env"});
-    host_browser.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_TEST_BIN=", .make_absolute = true });
-    host_browser.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_TEST_BIN=", .make_absolute = true });
+    host_browser.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_TEST_BIN=", .make_absolute = true });
+    host_browser.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_TEST_BIN=", .make_absolute = true });
     host_browser.addArgs(&.{ "deno", "run", "--allow-all", "check_host.mjs" });
     host_browser.setCwd(b.path("apps/rooms/rust/proofs/browser"));
     host_browser.step.dependOn(&glue.step);

@@ -46,8 +46,9 @@ The full contract below remains the destination. This profile accepts plain
 request arguments and returns local capability edges through Host/CapTP;
 it does not yet support foreign fields, general returned-capability attenuation, durable event
 intentions, browser storage, cross-vat roots, or foreign
-language borrow APIs. Administrative publication retirement requires the
-embedding to pause fetch admission through commit and registry application.
+language borrow APIs. Administrative publication retirement through the attachment's
+write lane applies discovery removal at the commit outcome, fails closed on
+unknown outcomes, and re-publishes when recovery proves the batch absent.
 Timers, subscriptions, native handles, and unresolved promises have no durable
 representation here. Pending calls are volatile. Workload and tail-latency
 measurements remain required; functional tests do not establish the scale goal.

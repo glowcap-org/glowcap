@@ -21,7 +21,7 @@ conversations after a room introduces their two ends.
 zig build rooms-web
 ```
 
-Open `http://localhost:8000` after the build is ready. The
+Open `http://localhost:8080` after the build is ready. The
 [first-room walkthrough]($link.page('rooms/start')) continues from there,
 including a second browser and a direct message. The
 [Rooms section]($link.page('rooms')) also covers durable sessions, history,

@@ -83,7 +83,7 @@ fn storeFlag(parsed: *Parsed, flag: Flag, value: ?[]const u8) !void {
         .bool_flag => try parsed.setBool(flag.long, true),
         .string_flag => {
             const v = value orelse return error.Usage;
-            try parsed.setString(flag.long, v);
+            if (flag.repeatable) try parsed.appendString(flag.long, v) else try parsed.setString(flag.long, v);
         },
     }
 }
@@ -104,6 +104,7 @@ fn refuseRepeatedFlag(
     value: []const u8,
     path: []const *const Command,
 ) !void {
+    if (flag.repeatable) return;
     const first = switch (parsed.flags.get(flag.long) orelse return) {
         .string_flag => |s| s,
         .bool_flag => return,
@@ -227,6 +228,11 @@ pub fn dispatch(root: *const Command, ctx: *Ctx, argv_in: []const []const u8) !u
                 }
                 path_buf[path_len] = child;
                 path_len += 1;
+                if (!child.inherit_flags and parsed.flags.count() != 0) {
+                    log.err(ctx.io, "flags before '{s}' do not apply to it; place supported flags after this command", .{child.name});
+                    try help_mod.writeNodeHelpErr(ctx.io, path_buf[0..path_len]);
+                    return exit_codes.usage;
+                }
                 i += 1;
                 continue;
             }

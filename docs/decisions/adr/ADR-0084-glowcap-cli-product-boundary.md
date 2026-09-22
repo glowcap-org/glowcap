@@ -6,6 +6,7 @@ tags: [cli, driver, mcp, packaging, operability]
 decision: "The installable glowcap product is a Zig binary under cli/ that consumes driver/net. One CapTP command registry drives CLI, REPL, and curated MCP. zig build remains the sole developer gate and packages the binary via installArtifact/release-pack. A2A-on-CapTP, timeline trace, and OTEL are deferred own passes, not CapTP roots."
 supersedes: []
 superseded_by: []
+amended_by: [ADR-0174]
 ---
 
 # ADR-0084 glowcap CLI product boundary
@@ -34,8 +35,8 @@ layer.
 3. **MCP** exposes a **curated** default tool set generated from the registry;
    `full` / `readonly` catalogs are explicit. CapTP remains the peer wire;
    MCP is the agent-to-local-glowcap control plane.
-4. **`app rooms-peer`** is the rooms-app CapTP presence harness (wake loop +
-   file mailbox; wire dialect is the rooms protocol). Demos nest under
+4. **`apps rooms`** is the Rooms product command tree. Its session and team
+   operations share one durable session lifecycle (ADR-0174). Demos nest under
    `demo` (or remain examples), not CapTP roots.
 5. **`zig build`** is the only developer gate. The same graph installs and
    release-packs the `glowcap` binary. There is no `glowcap check`.
@@ -58,9 +59,6 @@ layer.
 - Concrete MCP JSON-RPC field layouts beyond “stdio MCP, registry-backed tools.”
 - A2A Actor Card / Task type shapes on CapTP (Spec D plan).
 - Timeline event schema bytes for ocapnviz revival.
-- Whether the `rooms-peer` install argv[0] stays beside `glowcap` forever or
-  retires once `glowcap app rooms-peer` is the only documented entry (shim
-  ships today).
 
 ## Alternatives Considered
 
@@ -83,7 +81,7 @@ layer.
 - `cli/` and `test/cli/` land; `build.zig` adds `glowcap` executable + install.
 - `docs/shipped.md` / `README.md` / `docs/boundaries.md` name the CLI and its
   present edges.
-- Rooms peer presence migrates toward `glowcap app rooms-peer` without a second Host
+- Rooms peer presence migrates toward `glowcap apps rooms session` without a second Host
   stack.
 - `source-check` gains the `zig build glowcap` step when documented.
 - Future OTEL/timeline attach to one event spine designed with stderr logging.

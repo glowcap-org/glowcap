@@ -1,7 +1,7 @@
 # rooms-team — orchestration strategy catalog
 
-Lead chooses via the decision tree in [SKILL.md](SKILL.md), then looks up ids
-here. Announce the chosen id (or hybrid) in the room; re-choose when the
+Lead chooses the simplest pattern that fits the assignment's dependencies
+and acceptance criteria. Announce the chosen id (or hybrid) in the room; re-choose when the
 mission shape changes. Prefer the simplest pattern that still fits.
 
 Aliases in parentheses are the same pattern under another common name.
@@ -63,5 +63,7 @@ Compose freely when the mission has phases. Name both parts, e.g.:
 
 ## Choice checklist
 
-Canonical tree lives in [SKILL.md](SKILL.md) (strategy section). This file is
-the id ↔ shape lookup; do not skip the tree and pick from vibes.
+Use a pipeline for dependent stages, independent assignments for separable
+work, and a bounded maker-checker loop when the acceptance criteria need a
+second reader. Add coordination only when the assignment requires it.
+[SKILL.md](SKILL.md) owns presence, roster authority, and the member brief.

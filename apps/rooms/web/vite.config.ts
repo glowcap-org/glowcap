@@ -38,7 +38,7 @@ export function developmentAllowedHosts(value: string | undefined): string[] {
 }
 
 export function developmentPort(value: string | undefined): number {
-	const source = value?.trim() || "8000";
+	const source = value?.trim() || "8080";
 	const port = Number(source);
 	if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 		throw new Error("GLOWCAP_ROOMS_DEV_PORT must be an integer from 1 through 65535");

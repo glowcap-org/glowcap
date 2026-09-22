@@ -209,7 +209,6 @@ pub const local_turn_budget_rows: []const Ban = &.{
         .where = .{ .files = &.{
             "bench/iroh_bench.zig",
             "bench/peer_scaling_bench.zig",
-            "cli/app/rooms_peer/peer.zig",
             "interop/iroh_loop/driver.zig",
             "interop/tcp_loop/driver.zig",
             "interop/webrtc_loop/driver.zig",

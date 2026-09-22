@@ -128,7 +128,7 @@ glowcap_devcontainer_validate_effective_env() {
 }
 
 # Materialize the ignored Compose environment from Git-owned checkout facts.
-# The primary checkout has the canonical ports. A linked checkout must choose
+# The primary checkout uses the development baselines. A linked checkout chooses
 # an explicit offset because guessing an available host port would race Docker
 # and silently couple independent worktrees.
 glowcap_devcontainer_configure_env() {
@@ -173,6 +173,7 @@ glowcap_devcontainer_configure_env() {
             echo "configure.sh: --port-offset makes ${variable} exceed 65535" >&2
             return 1
         fi
+        glowcap_devcontainer_validate_development_port "$((base + decimal_offset))" || return
     done <<< "$(glowcap_devcontainer_port_rows)"
 
     common_dir="$(git -C "${checkout}" rev-parse --path-format=absolute --git-common-dir)" || return
@@ -240,6 +241,7 @@ glowcap_devcontainer_validate_host_ports() {
             echo "devcontainer: ${variable} must be between 1 and 65535" >&2
             return 1
         fi
+        glowcap_devcontainer_validate_development_port "${decimal}" || return
         for prior in ${seen}; do
             if [[ "${prior}" == "${decimal}" ]]; then
                 echo "devcontainer: host port ${decimal} is assigned more than once in .devcontainer/.env" >&2

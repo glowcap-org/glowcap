@@ -127,16 +127,23 @@ zig build bindings                     # all language binding smoke tests
 zig build bench-codec                  # codec and dispatch measurements
 ```
 
+The complete product path is also available to contributors. `./glowcap`
+builds the staged installation incrementally, and `./glowcap install` uses
+the same verified installer as a platform archive. `zig build rooms-build`
+stages `zig-out/product`; `zig build rooms-deploy-prep` prepares that complete
+Linux product as a Docker image context.
+
 ## Continuous integration
 
-GitHub has separate workflows for
+The repository defines separate workflows for
 [checks](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml),
 [the documentation site](https://github.com/jimisaacs/glowcap/actions/workflows/pages.yml),
 and [tagged releases](https://github.com/jimisaacs/glowcap/actions/workflows/release.yml).
 Pull requests run `zig build test` and `zig build fmt-check` in a 15-minute
 Zig-only lane. Pushes to `main` and `dev` run the complete devcontainer check
-and the macOS Zig test suite. Check the current commit's results before relying
-on them. CI installs the versions declared in
+and the macOS Zig test suite. The release workflow runs on `v*` tags and manual
+dispatch; tags publish after the matching check, while manual runs upload
+artifacts without publishing. CI installs the versions declared in
 [`.devcontainer/pins.sh`](.devcontainer/pins.sh).
 
 ## License

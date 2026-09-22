@@ -68,7 +68,10 @@ Deno.test("the web front describes itself at /llms.txt in the llms.txt shape", a
 		assert(lines[0]?.startsWith("# "), "llms.txt does not open with an H1");
 		assert(lines.some((line) => line.startsWith("> ")), "llms.txt carries no blockquote summary");
 		assert(lines.some((line) => line.includes("/locator")), "llms.txt does not say where the locator is");
-		assert(lines.some((line) => line.includes("rooms-peer")), "llms.txt does not say how a program joins");
+		assert(
+			lines.some((line) => line.includes("glowcap apps rooms session")),
+			"llms.txt does not say how a program joins",
+		);
 	});
 });
 

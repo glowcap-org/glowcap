@@ -1,8 +1,11 @@
-# The hosted C release: build the complete archive set per platform with
-# `zig build -Doptimize=ReleaseSafe release-pack`. A matching version tag on an
-# exact commit that passed check.yml authorizes publication of every tarball and
-# one combined SHA256SUMS. workflow_dispatch builds and uploads CI artifacts
-# only — never creates a GitHub release. Versioning is `abi_version` in
+# The hosted product, C SDK, and Rooms image release. Matching host archives are
+# built first with `zig build -Doptimize=ReleaseSafe release-pack glowcap-pack
+# -Dcpu=baseline`. Each native Linux runner then builds and exercises its image
+# from that exact product archive. A matching version tag on an exact commit
+# that passed check.yml authorizes publication of every tarball, one combined
+# SHA256SUMS, and the two-platform Rooms image. workflow_dispatch builds, tests,
+# and uploads archives and Docker image artifacts only — it publishes
+# nothing. Versioning is `abi_version` in
 # build.zig (reported by `glowcap_abi_version`); the tag records the release
 # point. This is the find leg's upstream named in bindings/README.md: a
 # runtime-download or per-platform packaging leg resolves archives from here.
@@ -22,6 +25,8 @@ permissions:
 
 jobs:
   contract:
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     permissions:
       actions: read
       contents: read
@@ -29,8 +34,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Read the product version
+        id: version
+        run: echo "value=$(jq -er '.abi_version' bindings/c-abi-resolve.json)" >> "$GITHUB_OUTPUT"
+
       - name: Require the ABI version tag
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         run: |
           expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
           if [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
@@ -39,7 +48,7 @@ jobs:
           fi
 
       - name: Require this commit's successful check workflow
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -65,11 +74,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest # x86_64-linux
+          - runner: ubuntu-24.04 # x86_64-linux; glibc floor shared with ARM64
+            target: x86_64-linux-gnu.2.39
           - runner: ubuntu-24.04-arm # aarch64-linux
+            target: aarch64-linux-gnu.2.39
           - runner: macos-15 # aarch64-macos
+            target: aarch64-macos.15.0
           - runner: macos-15-intel # x86_64-macos
+            target: x86_64-macos.15.0
     runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
     steps:
       # release-pack needs no conformance submodule, so no
       # `submodules: recursive` here.
@@ -86,8 +101,29 @@ jobs:
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
 
+      - name: Read test and browser tool pins
+        id: python
+        run: |
+          source .devcontainer/pins.sh
+          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
+          echo "deno=$DENO_VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ steps.python.outputs.version }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: ${{ steps.python.outputs.deno }}
+
+      - name: Install the matching browser compiler
+        run: |
+          rustup target add wasm32-unknown-unknown
+          version="$(python3 .devcontainer/image/rooms-toolchain-version.py)"
+          cargo install wasm-bindgen-cli --version "$version" --locked
+
       - name: Build the release tarball
-        run: zig build -Doptimize=ReleaseSafe release-pack
+        run: zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline -Dtarget=${{ matrix.target }}
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -95,17 +131,106 @@ jobs:
           path: |
             zig-out/release/*.tar.gz
             zig-out/release/SHA256SUMS
+            zig-out/glowcap-release/*.tar.gz
+            zig-out/glowcap-release/SHA256SUMS
+          if-no-files-found: error
+
+  images:
+    needs: [contract, archives]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            archive_arch: x86_64
+            image_arch: amd64
+          - runner: ubuntu-24.04-arm
+            archive_arch: aarch64
+            image_arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the test tool pin
+        id: python
+        run: |
+          source .devcontainer/pins.sh
+          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ steps.python.outputs.version }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: archives-${{ matrix.runner }}
+          path: archive-artifact
+
+      - name: Extract the verified Linux product
+        env:
+          VERSION: ${{ needs.contract.outputs.version }}
+          ARCHIVE_ARCH: ${{ matrix.archive_arch }}
+        run: |
+          archive="$(find archive-artifact -type f -name "glowcap-v${VERSION}-${ARCHIVE_ARCH}-linux.tar.gz" -print -quit)"
+          if [ -z "$archive" ]; then
+            echo "missing Linux product archive for $ARCHIVE_ARCH" >&2
+            exit 1
+          fi
+          (cd "$(dirname "$archive")" && sha256sum --check SHA256SUMS)
+          mkdir image-context
+          tar --extract --gzip --file "$archive" --directory image-context --no-same-owner
+
+      - name: Build the exact Docker image artifact
+        env:
+          VERSION: ${{ needs.contract.outputs.version }}
+          IMAGE_ARCH: ${{ matrix.image_arch }}
+          IMAGE: ghcr.io/jimisaacs/glowcap-rooms
+        run: |
+          mkdir image-artifact
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          docker buildx build \
+            --platform "linux/$IMAGE_ARCH" \
+            --build-arg SOURCE_DATE_EPOCH \
+            --file image-context/share/glowcap/deployment/rooms.Dockerfile \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=v$VERSION" \
+            --tag "$IMAGE:v$VERSION-$IMAGE_ARCH" \
+            --load \
+            image-context
+          # The runner's Docker driver loads images directly. Save that image
+          # instead of requiring a separate builder's file-export support.
+          docker image save --output "image-artifact/glowcap-rooms-v$VERSION-$IMAGE_ARCH.docker.tar" \
+            "$IMAGE:v$VERSION-$IMAGE_ARCH"
+          (cd image-artifact && sha256sum *.docker.tar > SHA256SUMS)
+
+      - name: Load and exercise the exact image artifact
+        env:
+          VERSION: ${{ needs.contract.outputs.version }}
+          IMAGE_ARCH: ${{ matrix.image_arch }}
+          IMAGE: ghcr.io/jimisaacs/glowcap-rooms
+        run: |
+          docker image load --input "image-artifact/glowcap-rooms-v$VERSION-$IMAGE_ARCH.docker.tar"
+          python3 tools/check/glowcap_release_image.py "$IMAGE:v$VERSION-$IMAGE_ARCH" "$IMAGE_ARCH"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rooms-image-${{ matrix.image_arch }}
+          path: image-artifact
           if-no-files-found: error
 
   release:
-    needs: archives
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [contract, archives, images]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
       actions: read
       artifact-metadata: write
       attestations: write
       contents: write
       id-token: write
+      packages: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,7 +243,7 @@ jobs:
         run: |
           mkdir release-assets
           find artifacts -name '*.tar.gz' -exec mv {} release-assets/ \;
-          cat artifacts/*/SHA256SUMS | sort -k2 > release-assets/SHA256SUMS
+          (cd release-assets && sha256sum *.tar.gz | sort -k2 > SHA256SUMS)
           ls -l release-assets
 
       - name: Attest release archives and checksums
@@ -128,13 +253,42 @@ jobs:
             release-assets/*.tar.gz
             release-assets/SHA256SUMS
 
+      - name: Publish the versioned multi-platform Rooms image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ghcr.io/jimisaacs/glowcap-rooms
+          VERSION: ${{ needs.contract.outputs.version }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          for arch in amd64 arm64; do
+            archive="$(find "artifacts/rooms-image-$arch" -type f -name "glowcap-rooms-v$VERSION-$arch.docker.tar" -print -quit)"
+            if [ -z "$archive" ]; then
+              echo "missing Rooms image artifact for $arch" >&2
+              exit 1
+            fi
+            (cd "$(dirname "$archive")" && sha256sum --check SHA256SUMS)
+            docker image load --input "$archive"
+            docker image push "$IMAGE:v$VERSION-$arch"
+            digest="$(docker buildx imagetools inspect --raw "$IMAGE:v$VERSION-$arch" | sha256sum | cut -d ' ' -f 1)"
+            case "$arch" in
+              amd64) amd64_source="$IMAGE@sha256:$digest" ;;
+              arm64) arm64_source="$IMAGE@sha256:$digest" ;;
+            esac
+          done
+          docker buildx imagetools create \
+            --tag "$IMAGE:v$VERSION" \
+            "$amd64_source" \
+            "$arm64_source"
+          docker buildx imagetools inspect --raw "$IMAGE:v$VERSION" | \
+            jq -e '[.manifests[].platform | (.os + "/" + .architecture)] | sort == ["linux/amd64", "linux/arm64"]'
+
       - name: Create the release with archives
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "glowcap C archives $GITHUB_REF_NAME" \
+            --title "glowcap and Rooms $GITHUB_REF_NAME" \
             --verify-tag \
-            --notes "Per-platform glowcap C archive sets (static and shared libraries, headers, product binaries, authorship disclosure, and licenses). Read the tagged [project provenance](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/PROVENANCE.md). Verify SHA256SUMS, then verify the GitHub artifact attestation with \`gh attestation verify --repo $GITHUB_REPOSITORY <archive>\`. The ABI version is reported by \`glowcap_abi_version\`." \
+            --notes "Per-platform glowcap product installations (CLI, Rooms runtimes, browser assets, and individual/team skills) and separate C SDK archives. Read the tagged [project provenance](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/PROVENANCE.md). Verify SHA256SUMS, then verify the GitHub artifact attestation with \`gh attestation verify --repo $GITHUB_REPOSITORY <archive>\`. The ABI version is reported by \`glowcap_abi_version\`." \
             release-assets/*

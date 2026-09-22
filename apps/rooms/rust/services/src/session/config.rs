@@ -15,6 +15,7 @@ pub struct Config {
 }
 
 pub const HELP: &str = "rooms-session --state=<directory> [--transport=iroh|tcp|onion]
+  --local-control  expose this session through <state>/control.sock
   --checkpoint=<Rooms JSON>  adopt a workspace or session document on a new peer
   --readiness-file=<path>  write the administrator sturdyref (default: <state>/admin.sturdyref)
   --reachability=discovery|direct  iroh reachability (default: discovery)

@@ -1,5 +1,5 @@
 # Two Docker networks:
-#   rooms-net  — shared with the rooms app (apps/rooms/web/deploy).
+#   glowcap-rooms-net  — shared with the Rooms deployment (apps/rooms/web/deploy).
 #                Committed and always on: it is how a bot in this dev container
 #                reaches the room's internal CapTP. Fixed name, so both compose
 #                projects converge on one shared network.
@@ -13,11 +13,11 @@ services:
     # `.env` gives each checkout one short identity. The service key stays
     # stable because devcontainer.json addresses it; Docker's actual container
     # name is the worktree-specific name people and tools use.
-    container_name: glowcap-${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}
-    hostname: glowcap-${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}
+    container_name: glowcap-dev-${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}
+    hostname: glowcap-dev-${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}
     # Name the built artifact too. Without this, Dev Containers derives an
     # opaque `vsc-<directory>-<hash>` image that drops the project identity.
-    image: vsc-glowcap-${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}
+    image: vsc-glowcap-dev-${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
@@ -42,8 +42,8 @@ services:
       # The named volume below gives Zig daemon-native filesystem semantics on
       # native Linux Docker and Docker Desktop. The volume name carries the
       # worktree identity, so local build state stays isolated.
-      ZIG_LOCAL_CACHE_DIR: /home/vscode/.cache/glowcap-zig-work/zig-local
-      ZIG_LOCAL_PKG_DIR: /home/vscode/.cache/glowcap-zig-work/zig-pkg
+      ZIG_LOCAL_CACHE_DIR: /home/vscode/.cache/glowcap-dev-zig-work/zig-local
+      ZIG_LOCAL_PKG_DIR: /home/vscode/.cache/glowcap-dev-zig-work/zig-pkg
     volumes:
       # Workspace bind — required when using dockerComposeFile.
       - ..:/workspaces/glowcap:cached
@@ -60,8 +60,8 @@ services:
         source: ${GLOWCAP_GIT_COMMON_DIR:?Set GLOWCAP_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
         target: ${GLOWCAP_GIT_COMMON_DIR:?Set GLOWCAP_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
       - type: volume
-        source: glowcap-zig-work
-        target: /home/vscode/.cache/glowcap-zig-work
+        source: glowcap-dev-zig-work
+        target: /home/vscode/.cache/glowcap-dev-zig-work
       # User-level agent, authentication, and shared download caches come from
       # the scoped host binds in devcontainer.json.
     # Preview servers and integration tests have process trees. Docker's tiny
@@ -72,7 +72,7 @@ services:
     # canonical container ports. Published on host loopback so a tailnet
     # listener can bind the same numbers on the machine's tailnet addresses.
     ports:
-      - "127.0.0.1:${GLOWCAP_ROOMS_WEB_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:8000"
+      - "127.0.0.1:${GLOWCAP_ROOMS_WEB_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:8080"
       - "127.0.0.1:${GLOWCAP_ROOMS_CAPTP_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9099"
       - "127.0.0.1:${GLOWCAP_ROOMS_RELAY_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9200"
       - "127.0.0.1:${GLOWCAP_ROOMS_TRACE_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9300"
@@ -83,15 +83,15 @@ services:
     security_opt:
       - seccomp:unconfined
     networks:
-      - rooms-net
+      - glowcap-rooms-net
       - egress-net
 
 networks:
-  # Shared fabric with the rooms app. Fixed name, external so both compose
+  # Shared fabric with the Rooms deployment. Fixed name, external so both compose
   # projects use the one network; created by the devcontainer initializeCommand
   # if it does not exist yet.
-  rooms-net:
-    name: rooms-net
+  glowcap-rooms-net:
+    name: glowcap-rooms-net
     external: true
   # One side network, host-named via the gitignored .env (EGRESS_NET). The key
   # below is a compose alias, not the host network name.
@@ -100,5 +100,5 @@ networks:
     external: true
 
 volumes:
-  glowcap-zig-work:
-    name: glowcap-${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}-zig-work
+  glowcap-dev-zig-work:
+    name: glowcap-dev-${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}-zig-work

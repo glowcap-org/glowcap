@@ -78,6 +78,8 @@ pub fn sessionOpts() driver.SessionOptions {
 /// of locator bytes.
 pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) !*driver.Session {
     try ctx.ensureDialAllowed();
+    const locator = try model.uri.parsePeer(ctx.gpa, uri);
+    defer model.freePeerLocator(ctx.gpa, locator);
     ctx.dial_resident = .{ .io = ctx.io };
     ctx.dial_netlayers[0] = ctx.dial_resident.netlayer();
     var netlayer_count: usize = 1;
@@ -102,8 +104,13 @@ pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) 
         const failure = relay_runtime.deinitAndReport(ctx, &ctx.rendezvous_provider.?);
         if (failure == null) ctx.rendezvous_provider = null;
     };
+    const netlayers = ctx.dial_netlayers[0..netlayer_count];
+    if (glowcap.net.netlayer.resolve(netlayers, locator.transport) == null) {
+        ctx.logErr("transport '{s}' is not registered in this CapTP front", .{locator.transport});
+        return error.UnknownTransport;
+    }
     const identity = try ctx.dialIdentity();
-    return driver.connectUriOwned(ctx.gpa, ctx.dial_netlayers[0..netlayer_count], uri, identity, session_opts.withRecipient(ctx, opts)) catch |err| {
+    return driver.connect(ctx.gpa, netlayers, locator, identity, session_opts.withRecipient(ctx, opts)) catch |err| {
         ctx.logErr("dial failed: {s}", .{@errorName(err)});
         return err;
     };

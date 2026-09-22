@@ -65,12 +65,6 @@ fi
 
 readonly include_dir=$workdir/include
 readonly lib_dir=$workdir/lib
-for binary in glowcap rooms-peer; do
-	if [[ ! -x $workdir/bin/$binary ]]; then
-		printf 'release-pack-smoke: missing executable product binary: bin/%s\n' "$binary" >&2
-		exit 1
-	fi
-done
 
 validate_identifier() {
 	local kind=$1
@@ -238,7 +232,4 @@ zig cc -std=c11 -Wall -Wextra -Werror -I"$include_dir" \
 	"${shared_archives[@]}" "${native_libraries[@]}" -o "$workdir/shared-consumer"
 env "$loader_variable=$lib_dir" "$workdir/shared-consumer"
 
-(cd "$workdir" && "$workdir/bin/glowcap" --help >/dev/null)
-(cd "$workdir" && "$workdir/bin/rooms-peer" --help >/dev/null)
-
-printf 'release-pack-smoke: per-archive static consumers, shared consumer, and product binaries passed\n'
+printf 'release-pack-smoke: per-archive static consumers and shared consumer passed\n'

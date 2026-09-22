@@ -164,3 +164,117 @@ test "loam actor released session cannot abandon a load or an admitted commit" {
         try std.testing.expectEqual(@as(u64, if (writing) 2 else 1), fixture.data.store.metadata.revision);
     }
 }
+
+fn drainAttachmentWork(fixture: *f.Fixture) !void {
+    while (try fixture.attached.nextWork()) |work| switch (work) {
+        .read => |request| try fixture.attached.completeRead(request.ticket, fixture.data.backend.read(request)),
+        .write => unreachable,
+    };
+}
+
+test "loam publication retirement fences discovery at its owned commit outcome" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    try fixture.data.store.begin();
+    const publication = try f.hosting.publication.stage(fixture.attached, @splat(0x31), fixture.root);
+    try records.commit(&fixture.data.store, &fixture.data.backend);
+    const lease = try records.load(&fixture.data.store, &fixture.data.backend, publication);
+    const swiss = try f.hosting.publication.restore(fixture.attached, lease);
+    try fixture.data.store.release(lease);
+
+    const active = try records.load(&fixture.data.store, &fixture.data.backend, publication);
+    try fixture.data.store.begin();
+    try f.hosting.publication.stageRetirement(fixture.attached, active);
+    try fixture.data.store.release(active);
+    const ticket = try fixture.attached.submit();
+    while (try fixture.attached.nextWork()) |work| switch (work) {
+        .read => |request| try fixture.attached.completeRead(request.ticket, fixture.data.backend.read(request)),
+        .write => |batch| try fixture.attached.completeWrite(ticket, fixture.data.backend.commit(batch)),
+    };
+    try std.testing.expectError(error.UnknownPublication, fixture.host.removeDurable(swiss.slice()));
+}
+
+test "loam fenced publication retirement stays removed when recovery finds the commit" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    try fixture.data.store.begin();
+    const publication = try f.hosting.publication.stage(fixture.attached, @splat(0x32), fixture.root);
+    try records.commit(&fixture.data.store, &fixture.data.backend);
+    const lease = try records.load(&fixture.data.store, &fixture.data.backend, publication);
+    const swiss = try f.hosting.publication.restore(fixture.attached, lease);
+    try fixture.data.store.release(lease);
+
+    const active = try records.load(&fixture.data.store, &fixture.data.backend, publication);
+    try fixture.data.store.begin();
+    try f.hosting.publication.stageRetirement(fixture.attached, active);
+    try fixture.data.store.release(active);
+    const ticket = try fixture.attached.submit();
+    while (try fixture.attached.nextWork()) |work| switch (work) {
+        .read => |request| try fixture.attached.completeRead(request.ticket, fixture.data.backend.read(request)),
+        .write => |batch| {
+            _ = fixture.data.backend.commit(batch);
+            // The commit's reply is lost: the fence still applies, fail closed.
+            try fixture.attached.completeWrite(ticket, .unknown);
+        },
+    };
+    try std.testing.expectError(error.UnknownPublication, fixture.host.removeDurable(swiss.slice()));
+    const pending = try fixture.attached.recoveryBatch();
+    try fixture.attached.resolve(ticket, try fixture.data.backend.recover(pending));
+    try std.testing.expectError(error.UnknownPublication, fixture.host.removeDurable(swiss.slice()));
+}
+
+test "loam fenced publication retirement restores discovery when recovery proves the batch absent" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    try fixture.data.store.begin();
+    const publication = try f.hosting.publication.stage(fixture.attached, @splat(0x33), fixture.root);
+    try records.commit(&fixture.data.store, &fixture.data.backend);
+    const lease = try records.load(&fixture.data.store, &fixture.data.backend, publication);
+    const swiss = try f.hosting.publication.restore(fixture.attached, lease);
+    try fixture.data.store.release(lease);
+
+    const active = try records.load(&fixture.data.store, &fixture.data.backend, publication);
+    try fixture.data.store.begin();
+    try f.hosting.publication.stageRetirement(fixture.attached, active);
+    try fixture.data.store.release(active);
+    const ticket = try fixture.attached.submit();
+    while (try fixture.attached.nextWork()) |work| switch (work) {
+        .read => |request| try fixture.attached.completeRead(request.ticket, fixture.data.backend.read(request)),
+        .write => try fixture.attached.completeWrite(ticket, .unknown),
+    };
+    try std.testing.expectError(error.UnknownPublication, fixture.host.removeDurable(swiss.slice()));
+    // A cold recipe defers its re-publish to the read lane.
+    _ = try fixture.data.store.evictObject(publication);
+    const pending = try fixture.attached.recoveryBatch();
+    try fixture.attached.resolve(ticket, try fixture.data.backend.recover(pending));
+    try drainAttachmentWork(&fixture);
+    _ = try fixture.host.removeDurable(swiss.slice());
+}
+
+test "loam publication retirement custody is bounded duplicate-safe and droppable" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{ .max_retirements = 1 });
+    defer fixture.deinit();
+    try fixture.data.store.begin();
+    const first = try f.hosting.publication.stage(fixture.attached, @splat(0x34), fixture.root);
+    const second = try f.hosting.publication.stage(fixture.attached, @splat(0x35), fixture.root);
+    try records.commit(&fixture.data.store, &fixture.data.backend);
+    const first_lease = try records.load(&fixture.data.store, &fixture.data.backend, first);
+    defer fixture.data.store.release(first_lease) catch unreachable;
+    const second_lease = try records.load(&fixture.data.store, &fixture.data.backend, second);
+    defer fixture.data.store.release(second_lease) catch unreachable;
+
+    try fixture.data.store.begin();
+    try f.hosting.publication.stageRetirement(fixture.attached, first_lease);
+    try std.testing.expectError(error.RetirementPending, f.hosting.publication.stageRetirement(fixture.attached, first_lease));
+    try std.testing.expectError(error.RetirementCapacity, f.hosting.publication.stageRetirement(fixture.attached, second_lease));
+    try fixture.data.store.abort();
+    try f.hosting.publication.dropRetirement(fixture.attached, first);
+    try fixture.data.store.begin();
+    try f.hosting.publication.stageRetirement(fixture.attached, second_lease);
+    try f.hosting.publication.dropRetirement(fixture.attached, second);
+    try fixture.data.store.abort();
+}

@@ -7,7 +7,7 @@
 #
 #   bash .devcontainer/bin/enter-grid.sh                   columns: every registered worktree
 #   bash .devcontainer/bin/enter-grid.sh main tree2        columns: only these
-#   bash .devcontainer/bin/enter-grid.sh --session review  tmux: glowcap-grid-review
+#   bash .devcontainer/bin/enter-grid.sh --session review  tmux: glowcap-dev-grid-review
 #   bash .devcontainer/bin/enter-grid.sh --rebuild         rebuild every column's container
 #   bash .devcontainer/bin/enter-grid.sh --cc | --no-cc    force or refuse control mode
 #

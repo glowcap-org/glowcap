@@ -7,7 +7,7 @@
  * and the IRC front against its directory:
  *
  *   GLOWCAP_ROOMS_STATE=/tmp/rooms-capture-state \
- *     zig build rooms-web -Dtransport=tcp -Dport=8000 -- --diagnostics --admin-listeners --operator --peering --irc
+ *     zig build rooms-web -Dtransport=tcp -Dport=8080 -- --diagnostics --admin-listeners --operator --peering --irc
  *   zig build rooms-irc-front -- --directory=127.0.0.1:9099
  *
  * then run:
@@ -45,7 +45,7 @@ import { type BrowserContext, chromium, type Page } from "playwright";
 const positional = Deno.args.filter((arg) => !arg.startsWith("--"));
 const flag = (name: string): string | undefined =>
 	Deno.args.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
-const url = positional[0] ?? "http://127.0.0.1:8000/";
+const url = positional[0] ?? "http://127.0.0.1:8080/";
 const outDir = positional[1] ?? "site/assets";
 const stateDir = flag("state");
 const ircPort = Number(flag("irc-port") ?? "6667");

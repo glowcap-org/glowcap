@@ -7,10 +7,17 @@ decision: "Commands live with the surface they act on, contributor commands are 
 supersedes: []
 superseded_by: []
 amends: [ADR-0085]
-amended_by: []
+amended_by: [ADR-0175]
 ---
 
 # ADR-0150 Operations fronts and script placement
+
+The deployment-front choice in this historical record is amended by
+[ADR-0175](ADR-0175-product-installation-and-rooms-deployment.md). The
+current public owner is the installed Zig CLI; the former private shell front
+and its source-only preparation flow are no longer part of the product.
+The sections below preserve the decision as it stood on 2026-09-12; references
+to that shell front are historical, not current commands or paths.
 
 ## Context
 

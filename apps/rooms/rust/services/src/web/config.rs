@@ -20,7 +20,7 @@ pub(super) enum BrowserAssets {
 	Disabled,
 }
 pub const HELP: &str = "rooms-web [http-port] [room-port] [options]
-  --http-bind=<host> --http-port=<port>  HTTP listener (default: 0.0.0.0:8000)
+  --http-bind=<host> --http-port=<port>  HTTP listener (default: 0.0.0.0:8080)
   --assets=<directory>  Rooms web source, or an artifact directory with --prepared (default: apps/rooms/web)
   --prepared  serve a prepared bundle without invoking browser build tools
   --no-browser-assets  serve native Rooms endpoints without a browser bundle (development tooling)
@@ -33,7 +33,7 @@ Server options and GLOWCAP_ROOMS_* variables have the same meaning as rooms-serv
 rooms-web --check-ready[=http://host:port]  check directory and browser assets (5 second deadline)
 rooms-web --locator[=http://host:port]  print the running directory locator
 rooms-web --ui-version[=http://host:port]  print the running browser revision
-Status reads default to http://127.0.0.1:8000, or GLOWCAP_ROOMS_HTTP_PORT.
+Status reads default to http://127.0.0.1:8080, or GLOWCAP_ROOMS_HTTP_PORT.
 rooms-web --prepare[=<output-directory>] [--assets=<source-directory>]  build self-contained browser assets
 Preparation defaults to zig-out/rooms-web; serve its current directory with --prepared.
 ";
@@ -71,7 +71,7 @@ impl Config {
 			.remove("http-port")
 			.or_else(|| positional.first().cloned())
 			.or_else(|| env("GLOWCAP_ROOMS_HTTP_PORT"))
-			.unwrap_or_else(|| "8000".into())
+			.unwrap_or_else(|| "8080".into())
 			.parse::<u16>()
 			.map_err(|_| "HTTP port must be an integer from 0 through 65535")?;
 		let prepared = match options.remove("prepared").as_deref() {

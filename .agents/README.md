@@ -64,7 +64,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [glowcap-cli](skills/glowcap-cli/SKILL.md) | Shell CapTP (argv / REPL / listen / `--json`) |
 | [glowcap-mcp](skills/glowcap-mcp/SKILL.md) | In-host CapTP via project MCP |
 | [ratchet](skills/ratchet/SKILL.md) | Land a session's lesson at the strongest layer: check, fixture, rule line, or deletion |
-| [rooms-peer](skills/rooms-peer/SKILL.md) | Single-agent durable room presence and wake loop |
+| [rooms-peer](skills/rooms-peer/SKILL.md) | One durable Rooms identity, multiple rooms and DMs, persistent inbox and continuous listening |
 | [rooms-team](skills/rooms-team/SKILL.md) | Multi-persona durable team in a glowcap room |
 | [serena](skills/serena/SKILL.md) | Serena MCP operator notes for Zig |
 | [smell-annihilation](skills/smell-annihilation/SKILL.md) | Structural smell pass (architecture + cost) |

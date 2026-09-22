@@ -1040,6 +1040,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "rooms-product"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "glowcap-rust-dogfood",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "nix",
+ "rooms-application",
+ "rooms-glowcap",
+ "rooms-platform",
+ "rooms-runtime",
+ "rooms-services",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tokio-rustls",
+ "tokio-tungstenite",
+ "url",
+]
+
+[[package]]
 name = "rooms-runtime"
 version = "0.0.0"
 dependencies = [

@@ -6,42 +6,24 @@
 # never enter the repository. Terminal CapTP peers need neither: they dial
 # over iroh Discovery.
 #
-# Prerequisites, in the dev container — this produces the shared libraries,
-# WebAssembly Host, and browser bundle this image loads:
-#
-#     zig build rooms-deploy-prep
-#
-# Then, from this directory on the Docker host, bring it up:
-#
-#     ./ops up
-#
-# The first up creates the shared network, seeds the override from its
-# example, and mints the database password into secrets/; every up then
-# refuses anything but the prepared, committed source, waits for every
-# service to serve, and prints the room locator, the operator capabilities,
-# and the session administrator capability in one block.
-# `./ops compose up -d --build` is the same start without that handoff. With
-# the example override in place the page is at http://127.0.0.1:8000 on the
-# Docker host, and the browser peer dials the room through the same-origin
-# /relay WebSocket.
+# `glowcap apps rooms deployment up` installs this template into the selected
+# configuration directory, preserves the operator override and database secret,
+# selects an immutable product image, and waits for service health. With the
+# example override the page is at http://127.0.0.1:8080 on the Docker host.
+# Runtime binaries and browser assets are inside the image, never live mounts.
 
-name: rooms
+name: glowcap-rooms
 
 services:
-  rooms:
-    build:
-      # Native executables, libraries and browser assets arrive as runtime mounts.
-      context: .
-      dockerfile: rooms.Dockerfile
-    image: glowcap-rooms:local
-    container_name: glowcap-rooms
+  directory:
+    image: ${GLOWCAP_ROOMS_IMAGE:?select an image through glowcap apps rooms deployment up}
+    container_name: glowcap-rooms-directory
     working_dir: /runtime
-    # The native front serves the prepared page and owns its directory child.
+    # The web front serves the prepared page and owns its directory child.
     command:
-      - "8000"
+      - --http-port=8080
+      - --http-bind=0.0.0.0
       - --transport=iroh
-      - --prepared
-      - --assets=/runtime/rooms-web/current
     environment:
       GLOWCAP_LIB_DIR: /runtime/lib
       # One room authority across child and container restarts. This keeps the
@@ -69,7 +51,7 @@ services:
       # Every operator capability, on by default: each swiss number persists in
       # the state volume and prints in the logs; comment one out to withhold
       # that authority from this deployment. Read them any time with
-      #   ./ops compose exec rooms /runtime/bin/rooms-server --capabilities
+      #   docker exec glowcap-rooms-directory /runtime/bin/glowcap apps rooms directory capabilities
       # Same as starting with --diagnostics: mint inspect.
       GLOWCAP_ROOMS_DIAGNOSTICS: "1"
       # Same as --admin-listeners: mint the listener-admin capability.
@@ -95,21 +77,20 @@ services:
       # --storage-password-file, never in this environment. Export both of
       # these empty to keep lines in the state volume's files instead, which
       # is a development posture, not a deployment.
-      GLOWCAP_ROOMS_STORAGE: ${GLOWCAP_ROOMS_STORAGE-postgres://rooms@rooms-storage-db:5432/rooms?sslmode=disable}
+      GLOWCAP_ROOMS_STORAGE: ${GLOWCAP_ROOMS_STORAGE-postgres://rooms@postgres:5432/rooms?sslmode=disable}
       GLOWCAP_ROOMS_STORAGE_PASSWORD_FILE: ${GLOWCAP_ROOMS_STORAGE_PASSWORD_FILE-/run/secrets/storage-db-password}
     secrets:
       - storage-db-password
     volumes:
-      - ../../../../zig-out:/runtime:ro
-      - rooms-state:/state
+      - directory-state:/state
     # The room server refuses to start until it can open its history store,
     # so it waits for the database to answer before it is started at all.
     depends_on:
-      rooms-storage-db:
+      postgres:
         condition: service_healthy
     # Readiness checks both the supervised directory and prepared browser assets.
     healthcheck:
-      test: ["CMD", "/runtime/bin/rooms-web", "--check-ready"]
+      test: ["CMD", "/runtime/bin/glowcap", "apps", "rooms", "status"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -118,20 +99,20 @@ services:
       start_period: 90s
     restart: unless-stopped
     networks:
-      - rooms-net
+      - glowcap-rooms-net
 
-  # One durable user workspace, separate from the room directory's authority.
-  # Its administrator sturdyref never crosses HTTP: ./ops up reads the
+  # One durable user workspace, separate from the directory's authority.
+  # Its administrator sturdyref never crosses HTTP: deployment up reads the
   # current-start mirror from this container and the intended owner pastes it
   # into the page's explicit session-establishment form. The page's existing
   # relay can dial this iroh identity without a published container port.
-  rooms-session:
-    image: glowcap-rooms:local
+  session:
+    image: ${GLOWCAP_ROOMS_IMAGE:?select an image through glowcap apps rooms deployment up}
     container_name: glowcap-rooms-session
     working_dir: /runtime
-    entrypoint: ["/runtime/bin/rooms-session"]
+    entrypoint: ["/runtime/bin/glowcap", "apps", "rooms", "session", "serve"]
     command:
-      - --state=/session-state
+      - --dir=/session-state
       - --readiness-file=/run/rooms-session/admin.sturdyref
     environment:
       GLOWCAP_LIB_DIR: /runtime/lib
@@ -139,33 +120,32 @@ services:
       GLOWCAP_ROOMS_SESSION_TRANSPORT: iroh
       GLOWCAP_ROOMS_SESSION_REACHABILITY: discovery
     volumes:
-      - ../../../../zig-out:/runtime:ro
-      - rooms-session-state:/session-state
+      - session-state:/session-state
     # Readiness is an incarnation fact, not user state. A tmpfs makes a crash,
     # container restart, or recreation begin without a stale ready marker.
     tmpfs:
       - /run/rooms-session:mode=0700
     healthcheck:
-      test: ["CMD", "/runtime/bin/rooms-session", "--check-ready=/run/rooms-session/admin.sturdyref"]
+      test: ["CMD", "/runtime/bin/glowcap", "apps", "rooms", "session", "ready", "--file=/run/rooms-session/admin.sturdyref"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 90s
     restart: unless-stopped
     networks:
-      - rooms-net
+      - glowcap-rooms-net
 
   # The history database. The room server reaches it only over the private
   # compose network; nothing publishes it to the host, and its one password
-  # is the Docker secret `ops up` mints, mounted here as a file the image reads
+  # is the Docker secret deployment up mints, mounted here as a file the image reads
   # at first start. Data checksums are on from the first initdb, because
   # turning them on later means a dump and restore. The data volume is the
   # deployment's memory: back it up with pg_dump (README, Storage) before
   # recreating or upgrading this service, and never change the major version
   # in place.
-  rooms-storage-db:
+  postgres:
     image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
-    container_name: rooms-storage-db
+    container_name: glowcap-rooms-postgres
     environment:
       POSTGRES_DB: rooms
       POSTGRES_USER: rooms
@@ -174,7 +154,7 @@ services:
     secrets:
       - storage-db-password
     volumes:
-      - rooms-storage-db:/var/lib/postgresql
+      - postgres:/var/lib/postgresql
     # PostgreSQL's shared buffers live in shared memory, and Docker's 64 MiB
     # default is too small for a busy checkpoint.
     shm_size: 256m
@@ -188,10 +168,10 @@ services:
     stop_grace_period: 60s
     restart: unless-stopped
     networks:
-      - rooms-net
+      - glowcap-rooms-net
 
 secrets:
-  # Minted by `ops up` on first use and ignored by Git. One file, read by the
+  # Minted in the deployment configuration on first use. One file, read by the
   # database at its first start and by the room server at every start.
   storage-db-password:
     file: ./secrets/storage-db-password
@@ -199,12 +179,15 @@ secrets:
 networks:
   # Shared fabric with the glowcap devcontainer: a bot there reaches this
   # container's internal CapTP over this network. Fixed name, external so both
-  # compose projects use the one network (`./ops up` creates it once).
-  rooms-net:
-    name: rooms-net
+  # compose projects use the one network (deployment up creates it once).
+  glowcap-rooms-net:
+    name: glowcap-rooms-net
     external: true
 
 volumes:
-  rooms-state:
-  rooms-session-state:
-  rooms-storage-db:
+  directory-state:
+    name: glowcap-rooms-directory-state
+  session-state:
+    name: glowcap-rooms-session-state
+  postgres:
+    name: glowcap-rooms-postgres

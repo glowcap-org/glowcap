@@ -155,19 +155,66 @@ pub const Store = struct {
 
     /// Copies a complete proposed record. A null expected revision creates a
     /// freshly allocated object; otherwise the backend compares the existing row.
+    /// Re-proposing a record this transaction already staged replaces the staged
+    /// bytes and keeps the staged revision expectation, so one transaction can
+    /// compose several operations that each advance the same record (an owner
+    /// header, a parent row, a shared directory page) while the submitted batch
+    /// still holds exactly one mutation per record. A different expectation, or
+    /// re-proposing a staged removal, stays `DuplicateMutation`.
     pub fn putCopying(self: *Store, record: Record, expected: ?u64) !void {
-        try self.admit(record.id);
+        if (self.phase != .staging) return error.WrongPhase;
+        if (record.id.store != self.metadata.store) return error.ForeignObject;
+        if (self.count == self.changes.len) return error.ChangeCapacity;
+        if (self.stagedIndex(record.id)) |index| {
+            const existing = self.changes[index];
+            if (existing.bytes == null or !std.meta.eql(existing.expected, expected)) return error.DuplicateMutation;
+            const old_len = existing.bytes.?.len;
+            const bytes = try self.encodeProposed(record, old_len);
+            errdefer self.allocator.free(bytes);
+            if (bytes.len > self.limits.staging_bytes - self.staged_bytes + old_len) return error.StagingCapacity;
+            self.allocator.free(existing.bytes.?);
+            self.changes[index] = .{ .id = record.id, .expected = expected, .bytes = bytes };
+            self.staged_bytes = self.staged_bytes - old_len + bytes.len;
+            return;
+        }
         if (expected == null and (record.id.incarnation != self.metadata.incarnation or record.id.sequence > self.object_sequence or record.id.sequence <= self.creation_floor)) return error.InvalidObject;
-        var proposed = record;
-        proposed.revision = self.metadata.revision + 1;
-        var bounded = self.limits.records;
-        bounded.max_record_bytes = @min(bounded.max_record_bytes, self.limits.staging_bytes - self.staged_bytes);
-        const bytes = try proposed.encodeAlloc(self.allocator, bounded, self.cache.schemas);
+        const bytes = try self.encodeProposed(record, 0);
         errdefer self.allocator.free(bytes);
         if (bytes.len > self.limits.staging_bytes - self.staged_bytes) return error.StagingCapacity;
         self.changes[self.count] = .{ .id = record.id, .expected = expected, .bytes = bytes };
         self.count += 1;
         self.staged_bytes += bytes.len;
+    }
+
+    fn encodeProposed(self: *Store, record: Record, extra: usize) ![]u8 {
+        var staged_record = record;
+        staged_record.revision = self.metadata.revision + 1;
+        var bounded = self.limits.records;
+        bounded.max_record_bytes = @min(bounded.max_record_bytes, self.limits.staging_bytes - self.staged_bytes + extra);
+        return staged_record.encodeAlloc(self.allocator, bounded, self.cache.schemas);
+    }
+
+    fn stagedIndex(self: *Store, id: ObjectId) ?usize {
+        for (self.changes[0..self.count], 0..) |change, i| if (change.id.eql(id)) return i;
+        return null;
+    }
+
+    pub const Proposed = struct { view: RecordView, expected: ?u64 };
+
+    /// The transaction's own staged proposal for `id`, decoded for read-back, or
+    /// null when this transaction staged none. Staging consults it to compose
+    /// further changes onto the same record: each stage then re-proposes the
+    /// record with the composed delta. The view and the expectation borrow
+    /// store-owned memory until the transaction reaches a terminal outcome.
+    pub fn proposed(self: *Store, id: ObjectId) !?Proposed {
+        if (self.phase != .staging) return null;
+        for (self.changes[0..self.count]) |change| {
+            if (!change.id.eql(id)) continue;
+            const bytes = change.bytes orelse return null;
+            const decoded = try RecordView.decode(bytes, self.limits.records, self.cache.schemas);
+            return .{ .view = decoded, .expected = change.expected };
+        }
+        return null;
     }
 
     pub fn remove(self: *Store, id: ObjectId, expected: u64) !void {

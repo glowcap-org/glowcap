@@ -21,7 +21,7 @@ pub const Target = union(Page.Family) {
         };
     }
 };
-pub const Binding = struct { target: Target, lease: ?loam.Lease, absence: core.ResourceView.Absence = .unknown };
+pub const Binding = struct { target: Target, lease: ?loam.Lease, absence: core.ResourceView.Absence = .unknown, object: ?loam.ObjectId = null };
 pub const Step = union(enum) { ready, read: loam.Read, waiting };
 
 pub const Read = struct {
@@ -32,6 +32,7 @@ pub const Read = struct {
     incarnation: u64,
     header: records.OwnerRecord = undefined,
     header_lease: ?loam.Lease = null,
+    header_ready: bool = false,
     bindings: []Binding,
     count: usize = 0,
     load: Load = .{},
@@ -77,15 +78,24 @@ pub const Read = struct {
 
     pub fn advance(self: *Read) !Step {
         try self.current();
-        if (self.header_lease == null) {
-            const lease = switch (try self.load.acquire(self.store, self.owner_object)) {
-                .ready => |lease| lease,
-                .read => |read| return .{ .read = read },
-                .waiting => return .waiting,
-            };
-            errdefer self.store.release(lease) catch unreachable;
-            self.header = try records.OwnerRecord.decode(try self.store.currentView(lease));
-            self.header_lease = lease;
+        if (!self.header_ready) {
+            if (try self.store.proposed(self.owner_object)) |staged| {
+                // A composed transaction stages the owner header itself: read
+                // this transaction's own proposal so a further managed change
+                // prepares against the deltas already staged here.
+                self.header = try records.OwnerRecord.decode(staged.view);
+                self.header_ready = true;
+            } else {
+                const lease = switch (try self.load.acquire(self.store, self.owner_object)) {
+                    .ready => |lease| lease,
+                    .read => |read| return .{ .read = read },
+                    .waiting => return .waiting,
+                };
+                errdefer self.store.release(lease) catch unreachable;
+                self.header = try records.OwnerRecord.decode(try self.store.currentView(lease));
+                self.header_lease = lease;
+                self.header_ready = true;
+            }
         }
         const target = self.demand orelse return .ready;
         if (self.count == self.bindings.len) return error.WorkingSetCapacity;
@@ -95,20 +105,37 @@ pub const Read = struct {
         } };
         const cursor = &self.cursor.?;
         while (cursor.node) |node| {
+            if (cursor.level == 4) {
+                if ((try self.store.proposed(node)) != null) {
+                    self.bindings[self.count] = .{ .target = target, .lease = null, .object = node };
+                    self.finish();
+                    return .ready;
+                }
+                const lease = switch (try self.load.acquire(self.store, node)) {
+                    .ready => |lease| lease,
+                    .read => |read| return .{ .read = read },
+                    .waiting => return .waiting,
+                };
+                self.bindings[self.count] = .{ .target = target, .lease = lease, .object = node };
+                self.finish();
+                return .ready;
+            }
+            const level: u2 = @intCast(cursor.level);
+            if (try self.store.proposed(node)) |staged| {
+                const page = try Page.decode(staged.view);
+                try checkPage(page, self.header.owner, target, level);
+                cursor.node = page.get(Page.digit(target.slot(), level));
+                cursor.level += 1;
+                continue;
+            }
             const lease = switch (try self.load.acquire(self.store, node)) {
                 .ready => |lease| lease,
                 .read => |read| return .{ .read = read },
                 .waiting => return .waiting,
             };
-            if (cursor.level == 4) {
-                self.bindings[self.count] = .{ .target = target, .lease = lease };
-                self.finish();
-                return .ready;
-            }
             defer self.store.release(lease) catch unreachable;
             const page = try Page.decode(try self.store.currentView(lease));
-            const level: u2 = @intCast(cursor.level);
-            if (page.owner != self.header.owner or page.family != std.meta.activeTag(target) or page.level != level or page.prefix != Page.prefixFor(target.slot(), level)) return error.InvalidRecord;
+            try checkPage(page, self.header.owner, target, level);
             cursor.node = page.get(Page.digit(target.slot(), level));
             cursor.level += 1;
         }
@@ -139,7 +166,20 @@ pub const Read = struct {
 
     pub fn opened(self: *const Read) !void {
         try self.current();
-        if (self.header_lease == null) return error.RecordUnloaded;
+        if (!self.header_ready) return error.RecordUnloaded;
+    }
+
+    pub const Row = struct { view: loam.RecordView, expected: ?u64 };
+
+    /// Resolve a binding's row: the transaction's own staged proposal when this
+    /// transaction already staged the row (the expected revision is the one the
+    /// backend must still match when staging it again), else the committed lease
+    /// view. Null means the binding resolved absent.
+    pub fn rowFor(store: *loam.Store, entry: Binding) !?Row {
+        const object = entry.object orelse return null;
+        if (try store.proposed(object)) |staged| return .{ .view = staged.view, .expected = staged.expected };
+        const committed = try store.currentView(entry.lease.?);
+        return .{ .view = committed, .expected = committed.revision };
     }
 
     /// Resolve an already-loaded model record for trusted transaction staging.
@@ -151,6 +191,10 @@ pub const Read = struct {
             if (!std.meta.eql(prior, target)) return error.PendingRead;
         } else self.demand = target;
         return null;
+    }
+
+    fn checkPage(page: Page, owner: core.OwnerId, target: Target, level: u2) !void {
+        if (page.owner != owner or page.family != std.meta.activeTag(target) or page.level != level or page.prefix != Page.prefixFor(target.slot(), level)) return error.InvalidRecord;
     }
 
     fn sourceError(err: anyerror) core.GrantView.SourceError {
@@ -167,8 +211,8 @@ pub const Read = struct {
         const entry = self.binding(.{ .resource = id }) catch |err| return sourceError(err);
         const version: core.ResourceView.Version = .{ .owner = self.header.owner, .revision = self.header.version.resources };
         const found = entry orelse return .{ .version = version, .value = .unloaded };
-        const lease = found.lease orelse return .{ .version = version, .value = .{ .absent = found.absence } };
-        const row = self.store.currentView(lease) catch |err| return sourceError(err);
+        const row = ((rowFor(self.store, found) catch |err| return sourceError(err)) orelse
+            return .{ .version = version, .value = .{ .absent = found.absence } }).view;
         if (row.schema != records.profile.resource or row.schema_version != 1) return error.InvalidRecord;
         const record = records.ResourceRecord.decode(row.payload) catch return error.InvalidRecord;
         if (record.resource.id.owner != id.owner or record.resource.id.slot != id.slot or @backingInt(record.revision) > @backingInt(version.revision)) return error.InvalidRecord;
@@ -181,13 +225,13 @@ pub const Read = struct {
         const entry = self.binding(.{ .grant = id }) catch |err| return sourceError(err);
         const version: core.GrantView.Version = .{ .owner = self.header.owner, .revisions = self.header.version };
         const found = entry orelse return .{ .version = version, .value = .unloaded };
-        const lease = found.lease orelse return .{ .version = version, .value = .{ .absent = found.absence } };
-        const row = self.store.currentView(lease) catch |err| return sourceError(err);
-        if (row.schema != records.profile.grant or row.schema_version != 1) return error.InvalidRecord;
+        const found_row = ((rowFor(self.store, found) catch |err| return sourceError(err)) orelse
+            return .{ .version = version, .value = .{ .absent = found.absence } }).view;
+        if (found_row.schema != records.profile.grant or found_row.schema_version != 1) return error.InvalidRecord;
         // This bounded scratch is reused only by the next grant lookup.
         // Resource lookups cannot disturb the returned selected-scope borrow.
         var fixed = std.heap.FixedBufferAllocator.init(&self.grant_scratch);
-        const decoded = records.GrantRecord.decodeOwned(fixed.allocator(), row.payload) catch return error.InvalidRecord;
+        const decoded = records.GrantRecord.decodeOwned(fixed.allocator(), found_row.payload) catch return error.InvalidRecord;
         const record = decoded.value.grant;
         if (record.id.owner != id.owner or record.id.slot != id.slot) return error.InvalidRecord;
         if (record.id.generation != id.generation) return .{ .version = version, .value = .{ .absent = .gone } };

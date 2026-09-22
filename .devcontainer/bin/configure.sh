@@ -5,9 +5,9 @@
 #   bash .devcontainer/bin/configure.sh --port-offset 10000
 #   bash .devcontainer/bin/configure.sh --egress-net existing-network
 #
-# The primary checkout needs no arguments. A linked worktree must provide a
+# The primary checkout defaults to port offset 0. A linked worktree must provide a
 # port offset; --egress-net opts into an existing host network instead of the
-# isolated glowcap-<worktree>-egress network created by initialize.sh. An
+# isolated glowcap-dev-<worktree>-egress network created by initialize.sh. An
 # existing valid .env is never overwritten.
 set -euo pipefail
 

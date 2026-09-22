@@ -53,10 +53,10 @@ command -v docker >/dev/null || {
   exit 1
 }
 
-# rooms-net is the fixed-name network this container shares with the rooms app
+# glowcap-rooms-net is the fixed-name network this container shares with the Rooms deployment
 # (apps/rooms/web/deploy) so a bot here reaches the room's internal CapTP by
 # name. Ignore a create race only when the network is observable afterward.
-glowcap_devcontainer_ensure_network rooms-net managed
+glowcap_devcontainer_ensure_network glowcap-rooms-net managed
 
 egress="$(glowcap_devcontainer_env_value "${dir}" EGRESS_NET)"
 default_egress="$(glowcap_devcontainer_default_egress_network "${worktree_name}")"

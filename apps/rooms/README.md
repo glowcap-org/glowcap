@@ -8,19 +8,33 @@ are no accounts. A member holds references to the rooms and conversations it
 is in, and holding a reference is what lets it act.
 
 The [Rooms pages on the site](https://jimisaacs.github.io/glowcap/rooms/)
-show what it is like to use. This page is for someone who has the repository
-checked out and wants to run it, read it, or change it.
+show what it is like to use. The [host guide](host.md) explains installing
+glowcap on Linux or macOS, running Rooms, and using the individual/team skills.
 
 ## Run it
 
-From the repository root:
+With the complete glowcap installation on PATH:
+
+```sh
+glowcap apps rooms serve
+```
+
+Open the printed browser URL. The installation includes the prepared browser
+application and its services, so startup needs no checkout or build tools.
+Use `glowcap apps rooms session` to participate in an existing deployment and
+`glowcap apps rooms team` to coordinate several such peers.
+
+## Build and develop
+
+From the repository root, `zig build rooms-build` stages that installation
+under `zig-out/product`. For a contributor-run browser front:
 
 ```sh
 zig build rooms-web
 ```
 
 That builds the services and the browser page and serves the page at
-`http://localhost:8000`. Open it, choose to keep your session in this
+`http://localhost:8080`. Open it, choose to keep your session in this
 browser, pick a room name and a nickname, then open the same address in a
 private window and join the same room as somebody else. Peers reach the
 server over [iroh](https://www.iroh.computer/)'s encrypted QUIC, so the build
@@ -46,21 +60,21 @@ zig build rooms-dev
 ```
 
 Vite serves source modules with React Fast Refresh and proxies Rooms traffic to the
-real native web front. The browser still exercises the native relay, link
+real web front. The browser still exercises the web relay, link
 preview, ICE, and directory services. It keeps its identity, room links, and
 capability swiss numbers under `.local/.state/rooms`, so a restart brings back
 the same server. Ctrl-C retires both development processes.
 
 Use `zig build rooms-dev -Dhot-reload=false` to serve compiled browser
-generations through the native front with the same state and operator grants.
+generations through the web front with the same state and operator grants.
 The [development guide](developing.md#browser-compiler-boundary) explains the
 compiler boundary and how to switch bundlers.
 
 ## Other ways in
 
-- **From a terminal, over iroh.** `glowcap app rooms-peer` is the presence
-  client that ships with the CLI. [`docs/cli.md`](../../docs/cli.md) lists
-  its flags.
+- **From a Linux or macOS host.** The [glowcap product package](host.md)
+  includes `glowcap apps rooms session`, its runtime, and individual/team skills.
+  Connect it to deployed Rooms without a checkout or compiler.
 - **From a terminal, over TCP.** Start a cleartext server with
   `zig build rooms-server -- --transport=tcp --port=9099` and join it with
   `zig build rooms-chat -- 127.0.0.1:9099 general alice`. The client takes
@@ -78,20 +92,20 @@ compiler boundary and how to switch bundlers.
 
 ## Keeping things
 
-Without flags, rooms and messages live in memory and a restart drops them.
-Three services keep state across restarts, each with one state directory and
-an identity that survives:
+`glowcap apps rooms serve` keeps its directory state outside the installation
+by default. Message history is opt-in with `--history`. Standalone services
+take explicit state directories; keep each service's identity and state together:
 
 | Service | Keeps | Start |
 | --- | --- | --- |
-| `rooms-server` | The directory, its rooms, room links, and operator capabilities; with `--history`, each listed room's recent lines | `zig build rooms-server -- --state=<dir> --history` |
-| `rooms-session` | One person's whole workspace, so several browsers can open the same session | `zig build rooms-session -- --state=<dir>` |
-| `rooms-archive` | A member's own message history, behind a sturdyref | `zig build rooms-archive -- --state=<dir>` |
+| Directory | The directory, its rooms, room links, and operator capabilities; with `--history`, each listed room's recent lines | `glowcap apps rooms directory serve --state=<dir> --history` |
+| Session | One person's whole workspace, so several browsers can open the same session | `glowcap apps rooms session serve --dir=<dir>` |
+| Archive | A member's own message history, behind a sturdyref | `glowcap apps rooms archive serve --state=<dir>` |
 
 [Operating Rooms](operating.md) describes each one, the history limits, the
 operator capabilities, and moderation. The
-[deployment guide](web/deploy/README.md) runs all of them behind a reverse
-proxy with Docker Compose.
+[deployment guide](web/deploy/README.md) runs them with Docker Compose and
+explains how to add a reverse proxy or tunnel for public access.
 
 ## How it is built
 
@@ -106,7 +120,7 @@ both places.
 | --- | --- |
 | [`rust/`](rust/) | The application crates, the services, and the browser Wasm adapter |
 | [`web/ui/`](web/ui/) | The browser page |
-| [`web/deploy/`](web/deploy/) | The Compose deployment and its operations front |
+| [`web/deploy/`](web/deploy/) | The Compose template and Linux image recipe used by the CLI deployment |
 | [`lib/`](lib/) | The Rooms protocol as TypeScript, read by the Deno client, the demos, and the tests |
 | [`clients/`](clients/) | One terminal client per language, each beside its generated protocol table |
 | [`irc/`](irc/) | The IRC bridge and front |
@@ -122,7 +136,7 @@ the scenarios, and the source map.
 ## Prerelease
 
 Rooms ships from this repository at an exact Git commit. There is no
-versioned package or application image yet, and no state migration: the
+published versioned package or application image yet, and no state migration: the
 server, session, and archive stores accept their current schema and refuse
 an older one rather than rewriting it. A release names its commit, its green
 checks, and any state reset that commit requires.

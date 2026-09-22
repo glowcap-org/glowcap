@@ -82,6 +82,24 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
   services, and the limits. Operations credentials follow the retry class of
   their failure, IRC numerics follow stable failure codes, and direct cleanup
   distinguishes a departed registration from a partner whose close stalled.
+  `glowcap apps rooms session` exposes that session through the Zig command tree.
+  Individual and team skills use the same session lifecycle and local inbox,
+  observing all joined rooms and DMs and retaining events until acknowledged.
+  One `session listen` consumer delivers each event once per invocation,
+  replays unacknowledged events on restart, and stays quiet between changes.
+  A failed inbox observer reports its gap without stopping other session views.
+  The process proof covers multiple rooms, private replies, and unread restart.
+  The [glowcap product package](../apps/rooms/host.md) includes the CLI, private
+  Rooms runtimes, prepared browser application, and both skills.
+  `glowcap-pack` serves the browser assets and repeats the process proof from an
+  extracted installation without checkout tooling or library-path overrides.
+  `glowcap-package-test` checks package and image inventories plus archive
+  publication fixtures, including checksum failures, rename failures, and
+  termination signals. The repository is prerelease; these checks do not claim
+  that an archive or release has been published.
+  The checkout launcher bootstraps a missing product, then operates its complete
+  staged installation without build tools. Source edits require an explicit
+  `rooms-build`. The runtime proof exercises this path without a binary override.
 
 - **Distributed reclamation.** Native Zig and all four language bindings hold two handles to one Goblins
   object, release them independently, and observe Goblins reclaim it before closing the session.
@@ -251,7 +269,11 @@ between these choices.
 [Loam](loam.md) exposes immutable collections, checksummed records with typed
 local edges, and a portable transaction and lease core. The volatile backend
 and optional native LMDB module share batch validation, atomic record/root
-updates, exact encoded-byte totals, and completion/recovery decisions. Each
+updates, exact encoded-byte totals, and completion/recovery decisions. A
+transaction may re-propose a record it already staged and read its own
+proposals back. Several operations can therefore advance shared records (an
+owner header, a parent row) in one transaction while the submitted batch
+holds one mutation per record. Each
 exclusive opening reserves a new incarnation; committed object names survive
 reopen. Resident and pending record buffers have explicit bounds independent
 of stored object count. Native tests cover cyclic graph reopen, map exhaustion,
@@ -261,7 +283,10 @@ local installation, then verify the complete graph in a fresh process.
 The `hosting` module supplies record-backed sleepy actors on an existing
 Host/Vat, coalesced cold activation, bounded retained calls, same-attachment
 capability edges, and commit-gated replies. Durable publication descriptors and
-retirement tombstones preserve discovery decisions across reopen. Native process
+retirement tombstones preserve discovery decisions across reopen. The
+attachment's write lane owns the commit-to-registry fence: discovery removal
+applies at the terminal outcome, unknown outcomes fail closed, and recovery
+that proves the batch absent re-publishes the still-rooted recipe. Native process
 proofs kill a CapTP-invoked actor around commit, reopen its publication, and
 follow its cyclic capability graph. Pressure tests cover allocation refusal,
 lease lifetime, cancellation, and cold object growth without endpoint growth.
@@ -411,9 +436,11 @@ the call arrived on, so a peer with no listening socket can still receive replie
   issued, paused, and revoked access. The other browser proofs under
   `rooms-web-*` cover joining, direct messages on every transport, private
   rooms, routes, reconnect, and archives on the shipped page. Rooms ships as
-  source at an exact Git commit. The Compose deployment mounts the built
-  artifacts and refuses to start when the prepared identity differs from the
-  checkout.
+  source at an exact Git commit. The Compose deployment copies a complete
+  verified Linux product into its image and runs without checkout mounts.
+  On Linux, the checkout launcher selects that prepared product for deployment
+  without extra flags. Deployment configuration stays in host state across
+  source builds and product installations.
 - ocapnviz can open a read-only trace sturdyref as a browser OCapN peer. Its production Chromium check covers replay,
   subsequent live observations, and exclusion of the observer session from its own topology. The rooms trace endpoint
   behind that sturdyref requires the trace capability from both viewers and

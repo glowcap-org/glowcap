@@ -1,4 +1,4 @@
-//! Product CLI, install alias, and hermetic CLI test roots.
+//! Product CLI and hermetic CLI test roots.
 
 const std = @import("std");
 const common = @import("common.zig");
@@ -31,11 +31,11 @@ pub fn add(b: *std.Build, in: Inputs) void {
     const product = cliModule(b, in, vaxis, options, "cli/main.zig", true, in.native_relay);
     const exe = b.addExecutable(.{ .name = "glowcap", .root_module = product });
     b.installArtifact(exe);
-    const run = execution.addArtifact(b, .service, exe);
-    run.setCwd(b.path("."));
-    run.has_side_effects = true;
+    const run = common.addInstalledSystemRun(b, .service, &.{"env"});
+    run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "bin/glowcap" } });
+    run.step.dependOn(&b.top_level_steps.get("rooms-build").?.step);
     run.addPassthruArgs();
-    b.step("glowcap", "Run the glowcap CapTP CLI; pass `-- <command> …` (ocapn|repl|mcp|app rooms-peer|…)")
+    b.step("glowcap", "Run the glowcap CapTP CLI; pass `-- <command> …` (ocapn|repl|mcp|apps rooms session|…)")
         .dependOn(&run.step);
 
     const product_check = cliModule(b, in, vaxis, options, "cli/main.zig", false, in.check_relay);
@@ -44,23 +44,13 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .root_module = product_check,
     }).step);
 
-    const shim = b.createModule(.{
-        .root_source_file = b.path("cli/rooms_peer_shim.zig"),
-        .target = in.target,
-        .optimize = in.optimize,
-    });
-    b.installArtifact(b.addExecutable(.{ .name = "rooms-peer", .root_module = shim }));
-    in.check.dependOn(&b.addObject(.{
-        .name = "rooms-peer-shim-check",
-        .root_module = shim,
-    }).step);
-    const rooms_peer = execution.addArtifact(b, .service, exe);
-    rooms_peer.setCwd(b.path("."));
-    rooms_peer.has_side_effects = true;
-    rooms_peer.addArgs(&.{ "app", "rooms-peer" });
-    rooms_peer.addPassthruArgs();
-    b.step("rooms-peer", "Run rooms presence via `glowcap app rooms-peer`; pass `-- <verb> [flags]`")
-        .dependOn(&rooms_peer.step);
+    const rooms_session = common.addInstalledSystemRun(b, .service, &.{"env"});
+    rooms_session.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "bin/glowcap" } });
+    rooms_session.addArgs(&.{ "apps", "rooms", "session" });
+    rooms_session.addPassthruArgs();
+    rooms_session.step.dependOn(&b.top_level_steps.get("rooms-session-build").?.step);
+    b.step("rooms-session", "Run the public Rooms session command; pass `-- <verb> [flags]`")
+        .dependOn(&rooms_session.step);
 
     const iroh_stub = b.createModule(.{
         .root_source_file = b.path("tools/gen/stub/iroh_sidecar.zig"),

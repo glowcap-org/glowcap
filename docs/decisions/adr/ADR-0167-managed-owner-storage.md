@@ -58,8 +58,18 @@ Shared `GrantPlan` rules decide grant changes. Loam owns preparation, commit,
 uncertain outcomes, and recovery. No managed owner introduces an executor or
 independent write-completion state machine.
 
-One transaction stages at most one mutation per managed owner. Another update
-to that header meets Loam's duplicate-record refusal. A prepared append borrows
+> **Composition amendment (2026-09-22).** Transactions now compose several
+> managed changes into one owner mutation: each stage validates and stages
+> against the transaction's own composed state and re-proposes shared records
+> (the owner header, a parent grant row) in place, so the submitted batch still
+> holds exactly one mutation per record. The re-propose rule lives in the
+> [atomic mutations contract](../../planning/loam/api.md#atomic-mutations); the
+> [owner transaction tests](../../../test/loam/access/owner_test.zig) and the
+> [LMDB composed reopen test](../../../test/loam/lmdb/owner_test.zig) hold the
+> evidence.
+
+One transaction stages at most one mutation per managed owner in the submitted
+batch. A prepared append borrows
 its read operation until explicit close; close refuses while submitted work
 still owns a buffer. The caller publishes proposed identities and events only
 after confirmed commit.

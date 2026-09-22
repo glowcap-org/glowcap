@@ -17,6 +17,7 @@ tab.
 | `rooms-runtime` | Shared execution over platform adapters: session commands, directory supervision, rooms, direct messages, media, archives, grants | `rooms-application`, `rooms-glowcap`, the Rust binding |
 | `rooms-platform` | The host side of those adapters: Tokio, operating-system entropy, leased filesystem storage, listeners, TLS trust, WebSocket byte channels | the three above, the Rust binding |
 | `rooms-services` | The room server, the session peer, the archive peer, the IRC bridge and front, the web front, and the interactive client | the four above |
+| `rooms-product` | Private executable entry points, workspace and roster supervision, and process proofs | `rooms-services` and its lower layers |
 | `rooms-browser` | The browser side of the adapters and the exports the page calls: session controllers, IndexedDB storage, WebRTC signaling, transports | `rooms-application`, `rooms-glowcap`, `rooms-runtime`, the Rust browser binding |
 | `rooms-contract-proofs` | The application contracts replayed from recorded fixtures, natively and as browser Wasm | `rooms-application`; the Rust binding on both targets |
 
@@ -106,6 +107,12 @@ binary installs; the binary decides where it goes. The server keeps history
 in files or PostgreSQL through one shared index, the web front serves a
 prepared browser generation and supervises the room server, and every
 service takes `--transport=onion` with a running Tor's endpoints.
+The session's optional `session::control` view admits local commands and owns
+a bounded unread-event journal. Its disk worker cannot block a Rooms turn, and
+an observer failure does not terminate the application. The private command
+front under `src/bin/rooms-session/commands` composes that interface into
+individual and roster operations. The Zig CLI owns argv parsing, help, and
+completion; neither Rust front reimplements Rooms protocol behavior.
 [Operating Rooms](../operating.md) says how each is run.
 
 ### rooms-browser
@@ -144,6 +151,9 @@ deployment preparation depends on it.
 Running a test binary by hand needs glowcap's shared libraries on the
 loader path: from `apps/rooms/rust`,
 `LD_LIBRARY_PATH=../../../zig-out/lib cargo test -p rooms-services --features processes`.
+Process tests live in `rooms-product`; `zig build rooms-peers-test rooms-web-test`
+supplies their installed runtimes and prepared assets. `zig build rooms-build` stages the complete installation,
+including private runtimes under `libexec` and prepared browser assets.
 
 The [archive design page](archive.md) describes the member archive from
 records to durable shares.

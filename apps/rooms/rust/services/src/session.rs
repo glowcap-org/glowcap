@@ -4,6 +4,7 @@
 //! answers attached views over the administrator sturdyref and the grants it
 //! publishes. [`peer::Peer`] owns host acceptance and readiness; the application lifecycle and capability verbs live in `rooms_runtime::service`; [`error::Error`] is the one failure vocabulary.
 mod config;
+pub mod control;
 mod error;
 mod notice;
 mod peer;

@@ -424,7 +424,7 @@ fn serve(server: *glowcap.driver.Server) !void {
 ```
 
 The matching Listen tab is the live partner for these snippets.
-The [CapTP CLI]($link.page('cli')) starts with `glowcap app rooms-peer`.
+The [CapTP CLI]($link.page('cli')) starts with `glowcap apps rooms session`.
 
 # [From C, or any FFI host]($section.id('from-c-or-any-ffi-host'))
 

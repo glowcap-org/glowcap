@@ -44,7 +44,6 @@ pub fn checkRoomsWireProfile(
         .{ .path = "apps/rooms/clients/racket/room-client.rkt", .needle = "#:profile 'native" },
         .{ .path = "apps/rooms/clients/rust/room.rs", .needle = "HostOptions::with_profile(glowcap::HostProfile::Native)" },
         .{ .path = "apps/rooms/clients/zig/client.zig", .needle = "model.Preference.native" },
-        .{ .path = "cli/app/rooms_peer/peer.zig", .needle = "model.Preference.native" },
     };
     for (profile_uses) |use| try expectFileContains(io, gpa, root, violations, use.path, &.{use.needle});
 }

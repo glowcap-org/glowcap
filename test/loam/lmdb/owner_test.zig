@@ -91,3 +91,109 @@ test "loam LMDB managed owner reopens indexes and recovers content grants and ev
         try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
     }
 }
+
+test "loam LMDB composed managed changes reopen atomically after commit and unknown outcomes" {
+    for ([_]bool{ false, true }) |committed| {
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
+        const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", a);
+        defer a.free(path);
+        const terminated = try a.dupeSentinel(u8, path, 0);
+        defer a.free(terminated);
+        var db = try Lmdb.open(terminated, .{ .mode = .{ .create = f.store_id } });
+        defer db.close() catch unreachable;
+        var wide = f.limits;
+        wide.cache_slots = 24;
+        wide.max_leases = 24;
+        var store = try f.loam.core.Store.init(a, db.metadata, &f.schemas, wide);
+        defer store.deinit() catch unreachable;
+        const owner = try f.create(&store, &db, @fromBackingInt(81));
+        const resource = try f.resource(&store, &db, owner, null);
+
+        // One transaction: resource append, root issuance over committed and
+        // staged resources, and a derive under the issued grant. The working
+        // read closes before the store does.
+        var issued_grant: f.core.GrantId = undefined;
+        var derived_grant: f.core.GrantId = undefined;
+        var staged_message: f.core.ResourceId = undefined;
+        {
+            try store.begin();
+            var read = try f.storage.Read.init(a, &store, owner, 7);
+            defer read.deinit() catch unreachable;
+            _ = try f.pump(&read, &db);
+            var append = try f.storage.Append.init(&read, .resource);
+            _ = try f.pump(&append, &db);
+            const message = try f.stageResource(&append, &read, &db, f.vocabulary.kind, resource);
+            staged_message = message;
+            try append.deinit();
+            const terms = try f.vocabulary.terms(.{ .objects = &.{ resource, message } }, &.{ f.vocabulary.read, f.vocabulary.post }, null);
+            var plan = (try f.prepare(&read, &db, .{ .issue_root = f.vocabulary.issue(terms, 2) })).?;
+            defer plan.deinit(a);
+            var grants_append = try f.storage.Append.init(&read, .grant);
+            _ = try f.pump(&grants_append, &db);
+            const issued = try f.storage.stage.grant(&read, &plan, &grants_append);
+            issued_grant = issued.change.grant;
+            try grants_append.deinit();
+            const selected = try f.vocabulary.terms(.{ .objects = &.{message} }, &.{f.vocabulary.read}, null);
+            var child_plan = (try f.prepare(&read, &db, .{ .derive = .{ .parent = issued.change.grant, .request = f.vocabulary.issue(selected, 0) } })).?;
+            defer child_plan.deinit(a);
+            var child_append = try f.storage.Append.init(&read, .grant);
+            _ = try f.pump(&child_append, &db);
+            const derived = try f.storage.stage.grant(&read, &child_plan, &child_append);
+            derived_grant = derived.change.grant;
+            try child_append.deinit();
+            const ticket = try store.prepare();
+            const batch = try store.beginWrite(ticket);
+            if (committed) {
+                const outcome = db.commit(batch);
+                try std.testing.expect(outcome == .committed);
+                try store.completeWrite(ticket, outcome);
+            } else {
+                var pending = try db.beginCommit(batch);
+                pending.abort();
+                try store.completeWrite(ticket, .unknown);
+                try store.resolve(ticket, try db.recover(try store.recoveryBatch()));
+            }
+        }
+        try store.deinit();
+        try db.close();
+        db = try Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } });
+        store = try f.loam.core.Store.init(a, db.metadata, &f.schemas, wide);
+        try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
+        {
+            var verify = try f.storage.Read.init(a, &store, owner, 7);
+            defer verify.deinit() catch unreachable;
+            _ = try f.pump(&verify, &db);
+            const req: f.core.Policy.Requirement = .{ .permissions = &.{f.vocabulary.read} };
+            if (committed) {
+                try std.testing.expectEqual(@as(u64, 2), verify.header.next_resource);
+                try std.testing.expectEqual(@as(u64, 2), verify.header.next_grant);
+                try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), verify.header.version.grants);
+                try f.require(&verify, &db, issued_grant, resource, req);
+                try f.require(&verify, &db, issued_grant, staged_message, req);
+                try f.require(&verify, &db, derived_grant, staged_message, req);
+                try std.testing.expectError(error.OutOfScope, f.require(&verify, &db, derived_grant, resource, req));
+                var grants = try verify.grantView();
+                try std.testing.expectEqual(@as(u32, 1), (try grants.get(issued_grant)).child_count);
+                try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), (try grants.get(issued_grant)).revision);
+                const event_lease = try support.load(&store, &db, verify.header.change.?);
+                const event = try f.loam.access.records.ChangeRecord.decode((try store.currentView(event_lease)).payload);
+                try std.testing.expectEqualDeep(verify.header.version, event.change.version);
+                try std.testing.expectEqual(derived_grant, event.change.grant);
+                try store.release(event_lease);
+            } else {
+                // Recovery proved the composed batch absent: the committed
+                // owner keeps its pre-composition indexes and counters.
+                try std.testing.expectEqual(@as(u64, 1), verify.header.next_resource);
+                try std.testing.expectEqual(@as(u64, 0), verify.header.next_grant);
+                try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(0)), verify.header.version.grants);
+                try std.testing.expect(verify.header.change == null);
+                try std.testing.expectError(error.UnknownGrant, f.require(&verify, &db, issued_grant, resource, req));
+            }
+        }
+        const next = try f.resource(&store, &db, owner, null);
+        try std.testing.expectEqual((if (committed) staged_message.slot + 1 else staged_message.slot), next.slot);
+        store.evict();
+        try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
+    }
+}

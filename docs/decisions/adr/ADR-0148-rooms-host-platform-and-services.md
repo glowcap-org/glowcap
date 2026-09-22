@@ -7,7 +7,7 @@ decision: "Rooms host effects and product services are separate Rust crates: roo
 supersedes: []
 superseded_by: []
 amends: [ADR-0147]
-amended_by: [ADR-0151]
+amended_by: [ADR-0151, ADR-0174]
 ---
 
 # ADR-0148 Rooms host platform and services

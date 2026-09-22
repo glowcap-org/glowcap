@@ -23,7 +23,7 @@ The four bots are ordinary members. Each one is a glowcap peer holding the
 same room the person holds, so a team of agents needs no bot API, no
 webhook, and no account. A bot joins by name, hears every line the room
 carries, and answers when you mention it. The [CapTP CLI]($link.page('cli')) ships that
-peer as `glowcap app rooms-peer`, and the repository's rooms-team skill runs
+peer as `glowcap apps rooms session`, and the repository's rooms-team skill runs
 a whole roster of them under a human lead.
 
 # What you can do

@@ -35,7 +35,9 @@ Run both in the devcontainer when both boundaries changed.
 `check` is not Zig-only: Python enforces deterministic deadlines and
 compile-checks its benchmark client, Cargo checks compile-only consumers,
 `raco` compiles Racket clients, Bash harnesses make `tar` part of the hard
-floor, and Deno type-checks TypeScript surfaces. **Run checks in the
+floor, and Deno type-checks TypeScript surfaces. `runtime-check` also reaches
+POSIX-shell installation recipes that copy artifacts and stamp Git revisions.
+**Run checks in the
 devcontainer**, where the complete declared toolchain is pinned.
 `in_tree_runtimes` in `tools/build/toolchain.zig` names every program visible in the
 build graph and the interpreter scripts or modules allowed to hide host-tool
@@ -135,8 +137,8 @@ environment automatically; then run `zig build check`. The notes are in
 [`.devcontainer/README.md`](../../.devcontainer/README.md). Serena MCP is
 client-started over stdio, see [serena-mcp](serena-mcp.md).
 
-Put first-class project commands in `build.zig`. Devcontainer scripts handle
-image build, cache ownership, and toolchain pin checks only.
+Put first-class project commands in `build.zig`. Devcontainer scripts own
+development-environment selection, image build, cache ownership, and toolchain pins.
 
 The browser proofs need no setup, because the image installs the pinned
 Playwright Chromium into `PLAYWRIGHT_BROWSERS_PATH`. The driving library must be
@@ -164,7 +166,7 @@ Generated state is ignored and must not be committed:
 - `bindings/rust/Cargo.lock`
 
 In the devcontainer, Zig's local cache and extracted packages live in the
-per-worktree `glowcap-<worktree>-zig-work` Docker volume
+per-worktree `glowcap-dev-<worktree>-zig-work` Docker volume
 (`ZIG_LOCAL_CACHE_DIR`, `ZIG_LOCAL_PKG_DIR`), not in the checkout or a host
 bind. `zig-out/` stays at the worktree root: it is the install prefix.
 
@@ -243,7 +245,7 @@ rebases the current branch onto observed `main` and `dev`, then compare-and-swap
 `dev` to `HEAD` (a fast-forward merge; agents never check out `dev`). The
 expected-old check is load-bearing: an ancestor check followed by an
 unconditional `update-ref` has a race that can erase another agent's tip. The
-black-box contract rides `zig build source-check`.
+black-box contract rides `zig build infrastructure-check`.
 
 Commit in small, evidenced steps on the worktree. `dev` takes one commit per
 change: one commit lands as written, and several need `-m "<subject>"` to land

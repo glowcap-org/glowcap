@@ -64,18 +64,12 @@ fn emitBash(em: *Emitter, root: *const Command) !void {
         \\  cur="${COMP_WORDS[COMP_CWORD]}"
         \\  prev="${COMP_WORDS[COMP_CWORD-1]}"
         \\
-        \\  local path=()
-        \\  local i
-        \\  for ((i=1; i<COMP_CWORD; i++)); do
-        \\    case "${COMP_WORDS[i]}" in
-        \\      -*) ;;
-        \\      *) path+=("${COMP_WORDS[i]}") ;;
-        \\    esac
-        \\  done
+        \\  local command_path
+        \\  command_path="$(_glowcap_path "${COMP_WORDS[@]:1:$((COMP_CWORD-1))}")"
         \\
         \\  local cmds flags
-        \\  cmds="$(_glowcap_cmds "${path[@]}")"
-        \\  flags="$(_glowcap_flags "${path[@]}")"
+        \\  cmds="$(_glowcap_cmds "$command_path")"
+        \\  flags="$(_glowcap_flags "$command_path")"
         \\
         \\  if [[ "$cur" == -* ]]; then
         \\    COMPREPLY=( $(compgen -W "$flags" -- "$cur") )
@@ -91,33 +85,52 @@ fn emitBash(em: *Emitter, root: *const Command) !void {
 /// The `_glowcap_cmds` / `_glowcap_flags` case tables bash and zsh share; only
 /// the registration line at the tail differs per shell.
 fn emitCaseTables(em: *Emitter, root: *const Command, register: []const u8) !void {
+    try em.writeAll(
+        \\# Follow declared children and skip option values, including values
+        \\# that happen to be command names. Positional arguments keep the leaf.
+        \\_glowcap_path() {
+        \\  local command_path='' token child skip=0
+        \\  for token in "$@"; do
+        \\    if [ "$skip" = 1 ]; then skip=0; continue; fi
+        \\    child="$(_glowcap_child "$command_path" "$token")"
+        \\    if [ -n "$child" ]; then command_path="${command_path:+$command_path }$child"; continue; fi
+        \\    case "$token" in
+        \\      --) break ;;
+        \\      --*=*) ;;
+        \\      -*) if _glowcap_takes_value "$command_path" "$token"; then skip=1; fi ;;
+        \\    esac
+        \\  done
+        \\  printf '%s\n' "$command_path"
+        \\}
+        \\_glowcap_child() {
+        \\  case "$1|$2" in
+        \\
+    );
+    try writeContextCases(em, root, &.{}, &.{root}, .child);
+    try em.writeAll("  esac\n}\n_glowcap_takes_value() {\n  case \"$1|$2\" in\n");
+    try writeContextCases(em, root, &.{}, &.{root}, .value);
+    try em.writeAll("  esac\n  return 1\n}\n\n");
     try em.writeAll("_glowcap_cmds() {\n  case \"$*\" in\n");
     try writeCmdCases(em, root, &.{});
     try em.writeAll("  esac\n}\n\n");
     try em.writeAll("_glowcap_flags() {\n  case \"$*\" in\n");
-    try writeFlagCases(em, root, &.{}, root.flags);
+    try writeFlagCases(em, root, &.{}, &.{root});
     try em.writeAll("  esac\n}\n\n");
     try em.writeAll(register);
 }
 
 fn emitZsh(em: *Emitter, root: *const Command) !void {
-    // Same tree-derived case tables as bash; zsh wrapper builds the path from $words.
+    // Both wrappers feed shell tokens to the same tree-derived context scanner.
     try em.writeAll(
         \\# glowcap zsh completion — eval "$(glowcap completion zsh)"
         \\#compdef glowcap
         \\_glowcap() {
         \\  local cur="${words[CURRENT]}"
-        \\  local -a path
-        \\  local i
-        \\  for (( i=2; i<CURRENT; i++ )); do
-        \\    case "${words[i]}" in
-        \\      -*) ;;
-        \\      *) path+=("${words[i]}") ;;
-        \\    esac
-        \\  done
+        \\  local command_path
+        \\  command_path="$(_glowcap_path "${words[@]:1:$((CURRENT-2))}")"
         \\  local cmds_str flags_str
-        \\  cmds_str="$(_glowcap_cmds "${path[@]}")"
-        \\  flags_str="$(_glowcap_flags "${path[@]}")"
+        \\  cmds_str="$(_glowcap_cmds "$command_path")"
+        \\  flags_str="$(_glowcap_flags "$command_path")"
         \\  local -a cmds flags
         \\  cmds=(${=cmds_str})
         \\  flags=(${=flags_str})
@@ -182,7 +195,44 @@ fn hasFlag(flags: []const types.Flag, long: []const u8) bool {
     return false;
 }
 
-fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8, root_flags: []const types.Flag) !void {
+fn writeValueCase(em: *Emitter, key: []const u8, flag: types.Flag) !void {
+    if (flag.kind != .string_flag) return;
+    try em.writeFmt("    \"{s}|--{s}\") return 0 ;;\n", .{ key, flag.long });
+    if (flag.short) |short| try em.writeFmt("    \"{s}|-{c}\") return 0 ;;\n", .{ key, short });
+}
+
+fn writeContextCases(em: *Emitter, cmd: *const Command, path: []const []const u8, nodes: []const *const Command, kind: enum { child, value }) !void {
+    var key_buf: [256]u8 = undefined;
+    const key = pathKey(path, &key_buf);
+    switch (kind) {
+        .child => for (cmd.children) |child| {
+            if (child.hidden_from_help) continue;
+            try em.writeFmt("    \"{s}|{s}\") echo \"{s}\" ;;\n", .{ key, child.name, child.name });
+            for (child.aliases) |alias| try em.writeFmt("    \"{s}|{s}\") echo \"{s}\" ;;\n", .{ key, alias, child.name });
+        },
+        .value => {
+            for (cmd.flags) |flag| try writeValueCase(em, key, flag);
+            var flags: [48]types.Flag = undefined;
+            var count: usize = 0;
+            types.collectPersistent(nodes, &flags, &count);
+            for (flags[0..count]) |flag| {
+                if (!hasFlag(cmd.flags, flag.long)) try writeValueCase(em, key, flag);
+            }
+        },
+    }
+    var child_path: [12][]const u8 = undefined;
+    var child_nodes: [12]*const Command = undefined;
+    for (cmd.children) |*child| {
+        if (child.hidden_from_help or path.len >= child_path.len or nodes.len >= child_nodes.len) continue;
+        @memcpy(child_path[0..path.len], path);
+        child_path[path.len] = child.name;
+        @memcpy(child_nodes[0..nodes.len], nodes);
+        child_nodes[nodes.len] = child;
+        try writeContextCases(em, child, child_path[0 .. path.len + 1], child_nodes[0 .. nodes.len + 1], kind);
+    }
+}
+
+fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8, nodes: []const *const Command) !void {
     var key_buf: [256]u8 = undefined;
     const key = pathKey(path, &key_buf);
 
@@ -195,10 +245,10 @@ fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8, r
         first = false;
         try em.writeFmt("--{s}", .{f.long});
     }
-    // Persistent root flags apply at every node; derived, so a new one lands
-    // in completion the same day it lands in `root_flags`.
-    for (root_flags) |f| {
-        if (!f.persistent) continue;
+    var flags: [48]types.Flag = undefined;
+    var count: usize = 0;
+    types.collectPersistent(nodes, &flags, &count);
+    for (flags[0..count]) |f| {
         if (hasFlag(cmd.flags, f.long)) continue;
         if (!first) try em.writeAll(" ");
         first = false;
@@ -209,36 +259,29 @@ fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8, r
     try em.writeAll("\" ;;\n");
 
     var child_path_buf: [12][]const u8 = undefined;
+    var child_nodes: [12]*const Command = undefined;
     for (cmd.children) |*c| {
         if (c.hidden_from_help) continue;
         const n = path.len;
-        if (n >= child_path_buf.len) continue;
+        if (n >= child_path_buf.len or nodes.len >= child_nodes.len) continue;
         @memcpy(child_path_buf[0..n], path);
         child_path_buf[n] = c.name;
-        try writeFlagCases(em, c, child_path_buf[0 .. n + 1], root_flags);
+        @memcpy(child_nodes[0..nodes.len], nodes);
+        child_nodes[nodes.len] = c;
+        try writeFlagCases(em, c, child_path_buf[0 .. n + 1], child_nodes[0 .. nodes.len + 1]);
     }
 }
 
 fn emitFish(em: *Emitter, root: *const Command) !void {
-    var help_buf: [256]u8 = undefined;
     try em.writeAll("# glowcap fish completion — glowcap completion fish | source\n");
     try em.writeAll("complete -c glowcap -f\n");
-    // Persistent root flags are emitted once, unguarded, so fish offers them in
-    // every context; per-node lines below carry only the node's own flags.
-    // Derived, so a new persistent flag lands here the day it lands in the tree.
-    for (root.flags) |f| {
-        if (!f.persistent) continue;
-        try em.writeAll("complete -c glowcap");
-        try writeFishFlagSpec(em, f, &help_buf);
-        try em.writeAll("\n");
-    }
     try em.writeAll("complete -c glowcap -l help -s h -d 'Help'\n");
-    try writeFishNode(em, root, &.{});
+    try writeFishNode(em, root, &.{}, &.{root});
     try em.writeAll("\n");
 }
 
 /// One fish flag spec (` -l NAME -d 'HELP'`, plus ` -r` when it takes a value),
-/// shared by the global persistent lines and the per-node lines.
+/// shared by local and inherited flags in each node's scope.
 fn writeFishFlagSpec(em: *Emitter, f: types.Flag, help_buf: []u8) !void {
     const d = fishEscape(f.help, help_buf);
     if (f.kind == .string_flag) {
@@ -260,39 +303,56 @@ fn fishEscape(s: []const u8, buf: []u8) []const u8 {
     return buf[0..n];
 }
 
-fn writeFishNode(em: *Emitter, cmd: *const Command, path: []const []const u8) !void {
-    var help_buf: [256]u8 = undefined;
+fn writeFishCondition(em: *Emitter, cmd: *const Command, path: []const []const u8) !void {
+    try em.writeAll("complete -c glowcap -n '");
     if (path.len == 0) {
-        for (cmd.children) |c| {
-            if (c.hidden_from_help) continue;
-            const d = fishEscape(c.short_help, &help_buf);
-            try em.writeFmt("complete -c glowcap -n '__fish_use_subcommand' -a '{s}' -d '{s}'\n", .{ c.name, d });
-        }
-    } else if (cmd.children.len > 0 or cmd.flags.len > 0) {
-        try em.writeAll("complete -c glowcap -n '");
+        try em.writeAll("__fish_use_subcommand");
+    } else {
         for (path, 0..) |p, i| {
             if (i > 0) try em.writeAll("; and ");
             try em.writeFmt("__fish_seen_subcommand_from {s}", .{p});
         }
-        try em.writeAll("'");
-        for (cmd.children) |c| {
-            if (c.hidden_from_help) continue;
-            const d = fishEscape(c.short_help, &help_buf);
-            try em.writeFmt(" -a '{s}' -d '{s}'", .{ c.name, d });
+        // Parent options must stop matching once a child owns the scope.
+        if (cmd.children.len > 0) {
+            try em.writeAll("; and not __fish_seen_subcommand_from");
+            for (cmd.children) |c| try em.writeFmt(" {s}", .{c.name});
         }
-        for (cmd.flags) |f| {
-            try writeFishFlagSpec(em, f, &help_buf);
-        }
+    }
+    try em.writeAll("'");
+}
+
+fn writeFishNode(em: *Emitter, cmd: *const Command, path: []const []const u8, nodes: []const *const Command) !void {
+    var help_buf: [256]u8 = undefined;
+    for (cmd.children) |c| {
+        if (c.hidden_from_help) continue;
+        try writeFishCondition(em, cmd, path);
+        try em.writeFmt(" -a '{s}' -d '{s}'\n", .{ c.name, fishEscape(c.short_help, &help_buf) });
+    }
+    for (cmd.flags) |f| {
+        try writeFishCondition(em, cmd, path);
+        try writeFishFlagSpec(em, f, &help_buf);
+        try em.writeAll("\n");
+    }
+    var flags: [48]types.Flag = undefined;
+    var count: usize = 0;
+    types.collectPersistent(nodes, &flags, &count);
+    for (flags[0..count]) |f| {
+        if (hasFlag(cmd.flags, f.long)) continue;
+        try writeFishCondition(em, cmd, path);
+        try writeFishFlagSpec(em, f, &help_buf);
         try em.writeAll("\n");
     }
 
     var child_path_buf: [12][]const u8 = undefined;
+    var child_nodes: [12]*const Command = undefined;
     for (cmd.children) |*c| {
         if (c.hidden_from_help) continue;
         const n = path.len;
-        if (n >= child_path_buf.len) continue;
+        if (n >= child_path_buf.len or nodes.len >= child_nodes.len) continue;
         @memcpy(child_path_buf[0..n], path);
         child_path_buf[n] = c.name;
-        try writeFishNode(em, c, child_path_buf[0 .. n + 1]);
+        @memcpy(child_nodes[0..nodes.len], nodes);
+        child_nodes[nodes.len] = c;
+        try writeFishNode(em, c, child_path_buf[0 .. n + 1], child_nodes[0 .. nodes.len + 1]);
     }
 }

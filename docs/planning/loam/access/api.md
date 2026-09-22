@@ -405,7 +405,12 @@ write fences the owner for recovery; a known-unchanged failure keeps prior
 committed state. Cancellation cannot release a store while it is still writing.
 
 The store commits the content, graph, and grant changes that must be atomic as
-one recoverable unit. An arbitrary pair of unrelated stores does not satisfy
+one recoverable unit. Several managed changes may join that one unit: each
+stage validates against the transaction's current composed owner state, and
+every participating change's deltas compose into one owner header mutation.
+Prepare each change against the state the previous stages left; a change
+prepared against an older revision refuses and the caller aborts, leaving no
+partial changes. An arbitrary pair of unrelated stores does not satisfy
 this API. Applications choose a common transactional store or an explicit
 coordinator with demonstrated recovery. There is no implicit distributed
 transaction across resource owners.

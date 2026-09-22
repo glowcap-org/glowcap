@@ -117,11 +117,11 @@ zig build rooms-web -Dtransport=tcp -- --bind=0.0.0.0 --announce-host=192.168.1.
 prints and advertises. TCP is cleartext, so a room exposed this way is
 readable by everyone on that network. Keep the page itself on a trustworthy
 origin: from another machine, forward the web port
-(`ssh -N -L 8000:127.0.0.1:8000 development-host`) and open
-`http://localhost:8000`. A page served over bare network HTTP could be
+(`ssh -N -L 8080:127.0.0.1:8080 development-host`) and open
+`http://localhost:8080`. A page served over bare network HTTP could be
 replaced before it becomes a peer, and browsers withhold APIs Rooms needs
 there, so the page refuses that origin and says so. On a Tailscale host,
-`tailscale serve --bg 8000` gives the page an HTTPS name inside the tailnet.
+`tailscale serve --bg 8080` gives the page an HTTPS name inside the tailnet.
 Beyond a trusted LAN, use iroh.
 
 The Vite dev server behind `zig build rooms-dev` answers to a tailnet name

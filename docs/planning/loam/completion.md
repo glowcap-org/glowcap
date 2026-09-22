@@ -47,9 +47,9 @@ Each item states a verified gap, dependencies, and a deletion criterion.
 Dependencies refer to mechanisms: if an item has been removed, check its
 implementation and tests instead of recreating it. Keep IDs stable while this
 file exists. Independent items may proceed in another order.
-Start with N04's transaction composition; N03 and N10 also have independent
-entry points. Extend N11's failure evidence and N12's workload coverage with
-each feature rather than treating them as a final testing phase.
+Start with N03 or N10; both have independent entry points. Extend N11's
+failure evidence and N12's workload coverage with each feature rather than
+treating them as a final testing phase.
 
 Remove an item in the same change that implements it, tests its failure paths,
 documents ownership/cost, and updates affected contracts, `docs/loam.md`,
@@ -108,26 +108,6 @@ Unsupported reference kinds fail explicitly without partial content writes.
 No cross-machine atomic transaction or snapshot of a live CapTP session is
 required. Follow the [actor contract](actors.md) and [reference contract](access/storage.md#references-embedded-in-application-content).
 
-### N04. Compose multiple managed changes in one Store transaction
-
-**Verified gap:** [stage.grant and appendResource](../../../src/loam/access/storage/stage.zig)
-each stage the owner header. Store rejects duplicate mutations of that record,
-so independently composing two owner changes in one batch is unsupported.
-The existing primitive already commits a grant with content and its event.
-
-**Work:** Prepare one bounded owner delta for all affected resource/grant/content
-participants, validate relevant revisions, and stage the header once. Support
-cross-resource effects within the same Store. Preserve atomic abort and exact
-unknown-outcome recovery. Keep operation admission behind held authority;
-trusted Store composition remains a separate privileged API.
-
-**Remove when:** One operation changes multiple resources/grants and content
-atomically, including two changes under the same owner. Stale source or target
-facts, quota exhaustion, cancellation before submission, and failed staging
-leave no partial changes. Test committed/aborted uncertain outcomes and reopen.
-The [storage transaction contract](access/storage.md) owns semantics; this item
-does not introduce distributed transactions across independently committed stores.
-
 ### N05. Persist resource moves, deletion and bounded child queries
 
 **Verified gap:** [Resident Graph](../../../src/loam/access/core/graph.zig)
@@ -135,7 +115,11 @@ implements reparenting and leaf deletion. Persistent access currently appends
 resources and indexes them by identity; it has no staged move/delete or
 parent-to-children listing API. An identity directory is not a child index.
 
-**Depends on:** N04's composed owner delta.
+**Depends on:** the implemented composed owner delta
+([managed staging](../../../src/loam/access/storage/stage.zig);
+[owner transaction tests](../../../test/loam/access/owner_test.zig)), which
+already composes several owner changes, including resource appends, into one
+header mutation.
 
 **Work:** Share resource invariants with the resident model and add transactional
 parent/child indexes. Preserve stable identities, refuse cycles and excessive
@@ -167,7 +151,8 @@ Make subscription cancellation, revocation and retention costs explicit.
 disconnect/reopen, retention overflow, slow observers, ancestor revocation,
 hidden sibling activity, and no event on abort or unchanged mutation.
 Raw owner revisions and global event counters never become wire cursors.
-Use N01 for control observation and N04 for multi-change events. General durable
+Use N01 for control observation and the implemented composed owner delta for
+multi-change events. General durable
 mailboxes are separate work; see [access architecture](access/architecture.md).
 
 ### N07. Define bounded retries for other mutating methods
@@ -188,7 +173,7 @@ Never present caller IDs alone as authority or retry expiration as a new request
 have tested lost-reply behavior across reopen, conflicting intent is refused,
 and old requests cannot remint capabilities or repeat effects after receipt
 retirement. Replay checks current authority and preserves issuer control custody.
-N01, N04 and N05 use this contract; the [Loam API](api.md#atomic-mutations)
+N01 and N05 use this contract; the [Loam API](api.md#atomic-mutations)
 owns receipt semantics. No exactly-once network-delivery claim is required.
 
 ### N08. Retire managed owners, grants, controls and obsolete identities
@@ -198,7 +183,7 @@ resource/grant directories retain indexed rows. Revoked grants stay indexed;
 persistent slots are never reused. There is no managed retirement operation
 that updates all indexes, dependencies, publications and retained events.
 
-**Depends on:** N01, N04, N05, N06 and N07 for their retention contracts.
+**Depends on:** N01, N05, N06 and N07 for their retention contracts.
 
 **Work:** Add bounded terminal-record and owner retirement. Distinguish revocation,
 resource deletion, publication removal and physical collection. Preserve enough
@@ -236,16 +221,21 @@ need a separate rollback policy, not a claim that compaction solves rollback.
 ### N10. Restore durable publications on demand and own admission barriers
 
 **Verified gap:** [publication.restore](../../../src/loam/hosting/publication.zig)
-takes an already located descriptor and installs a Host entry. Startup
-enumeration is application-owned, and administrative retirement tells the
-embedding to pause fetch admission between commit and registry removal.
-Managed derivation already owns its reservation/activation barrier.
+takes an already located descriptor and installs a Host entry, and startup
+enumeration is application-owned. The administrative commit-to-registry
+transition is now owned: staging a tombstone reserves bounded custody, the
+attachment's write lane applies the discovery fence at the batch's terminal
+outcome (fail closed on unknown outcomes), and recovery that proves the batch
+absent re-publishes the still-rooted recipe
+([retirement tests](../../../test/loam/hosting/wire_test.zig)). Managed
+derivation already owns its reservation/activation barrier.
 
 **Work:** Complete bounded lookup of stored publication recipes through the
-existing Host/restoration boundary. Avoid eager endpoint creation for every
-stored publication. Make the administrative commit-to-registry transition an
-owned operation with explicit admission fencing and recovery, rather than a
-comment requiring applications to coordinate it correctly.
+existing Host/restoration boundary, so a restarted peer answers a fetch for an
+unregistered stored publication without scanning or activating the graph.
+Avoid eager endpoint creation for every stored publication: restore on demand
+at fetch, with retirement races and simultaneous cold fetches preserving exact
+target authority and bounded memory.
 
 **Remove when:** A restarted peer fetches an unregistered stored publication
 without scanning or activating the graph. Missing/retired names, simultaneous

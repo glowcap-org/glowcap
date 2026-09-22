@@ -2,7 +2,7 @@
 //! `build.zig` composes: the native Zig clients (TCP and iroh), the hermetic
 //! Deno process suite that rides `runtime-check`, the cross-language demos, the browser UI
 //! serve steps, the `rooms-web-*` proof family, and the deploy bundle. The
-//! product CLI (`glowcap app rooms-peer`) is its own subject and stays in the
+//! product CLI (`glowcap apps rooms session`) is its own subject and stays in the
 //! root beside the other CLI steps.
 //!
 //! The demos and serves are sibling steps of `check`, not members: they need
@@ -29,6 +29,7 @@ pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    version: std.SemanticVersion,
     /// The public `glowcap` module.
     lib_mod: *std.Build.Module,
     iroh_resident_mod: *std.Build.Module,
@@ -100,6 +101,8 @@ pub fn register(ctx: Context) Registered {
 
     rooms_browser_front.register(.{
         .b = b,
+        .target = target,
+        .version = ctx.version,
         .runtime_gate = runtime_gate,
         .browser_application = browser_application,
         .archive_install = archive_install,
@@ -196,7 +199,7 @@ pub fn register(ctx: Context) Registered {
     // server, runs whichever clients are available, and asserts the all-to-all
     // broadcast among them.
     const rooms_demo = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    rooms_demo.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    rooms_demo.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_demo.step.dependOn(archive_install);
     rooms_demo.addArgs(&.{
         "deno",                     "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
@@ -234,7 +237,7 @@ pub fn register(ctx: Context) Registered {
     // Tor explicitly; each product edge installs the onion provider package into
     // an otherwise transport-empty generic driver.
     const rooms_onion_demo = common.addInstalledSystemRun(b, .real_internet, &.{"env"});
-    rooms_onion_demo.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    rooms_onion_demo.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_onion_demo.addArgs(&.{ "bash", "apps/rooms/demos/run-onion.sh" });
     rooms_onion_demo.step.dependOn(archive_install);
     const rooms_onion_demo_step = b.step("demo-rooms-onion", "Run the Rooms application over real Tor with one onion service and two independent peers (needs deno + tor + network)");
@@ -274,7 +277,7 @@ pub fn register(ctx: Context) Registered {
     };
     for (dm_demos) |demo| {
         const run = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
-        run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
         run.addArgs(&.{ "deno", "run", "--allow-run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env", demo.source });
         run.step.dependOn(archive_install);
         const cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", demo.source });
@@ -300,8 +303,7 @@ pub fn register(ctx: Context) Registered {
     // The client's `dialIroh` path lives behind `iroh_enabled`, so the TCP client
     // that rides `check` (above) compiles it out. Ride a second, cargo-free
     // compile guard on `check` with the flag on — externs stay unresolved — so a
-    // core-API change through the iroh resident cannot break this consumer unseen,
-    // the same split as `rooms-peer-shim-check`.
+    // core-API change through the iroh resident cannot break this consumer unseen.
     const rooms_client_iroh_check_mod = common.irohDriverModule(b, target, optimize, lib_mod, ctx.iroh_resident_mod, "apps/rooms/clients/zig/client.zig");
     rooms_client_iroh_check_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
     rooms_client_iroh_check_mod.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
@@ -309,7 +311,7 @@ pub fn register(ctx: Context) Registered {
     check_step.dependOn(&b.addObject(.{ .name = "rooms-client-iroh-check", .root_module = rooms_client_iroh_check_mod }).step);
 
     const rooms_demo_iroh = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    rooms_demo_iroh.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    rooms_demo_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_demo_iroh.step.dependOn(archive_install);
     rooms_demo_iroh.addArgs(&.{
         "deno",                     "run", "-A", "--unstable-ffi",
@@ -332,7 +334,7 @@ pub fn register(ctx: Context) Registered {
     // two client hosts plus the native server process. Needs cargo (the sidecar +
     // iroh ABI companion) and deno, so it is a sibling of `check`.
     const rooms_dm_iroh = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_dm_iroh.step.dependOn(archive_install);
     rooms_dm_iroh.addArgs(&.{
         "deno",                             "run", "-A", "--unstable-ffi",
@@ -350,7 +352,7 @@ pub fn register(ctx: Context) Registered {
     // timing, so it is opt-in and never part of `check`; the offline, deterministic
     // proof of the same handoff is `demo-rooms-dm-iroh` (the Direct posture).
     const rooms_dm_iroh_discovery = common.addInstalledSystemRun(b, .real_internet, &.{"env"});
-    rooms_dm_iroh_discovery.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    rooms_dm_iroh_discovery.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_dm_iroh_discovery.step.dependOn(archive_install);
     rooms_dm_iroh_discovery.addArgs(&.{
         "deno",                                       "run", "-A", "--unstable-ffi",
@@ -367,7 +369,7 @@ pub fn register(ctx: Context) Registered {
     // are native children). A sibling step (needs deno), not folded into the
     // Zig-hermetic `check`.
     const rooms_web_relay_peer = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
-    rooms_web_relay_peer.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    rooms_web_relay_peer.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_web_relay_peer.addArgs(&.{
         "deno",                                       "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "apps/rooms/test/proofs/relay_peer_proof.ts",
@@ -483,17 +485,17 @@ pub fn register(ctx: Context) Registered {
     const web_proofs_step = b.step("rooms-web-proofs", "Run every browser proof of the shipped Rooms page (needs cargo + deno + a Playwright Chromium)");
     for (web_proofs) |proof| {
         const run = execution.addSystemCommand(b, .{ .browser_proof = proof.wrapper_deadline_seconds }, &.{"env"});
-        run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
         if (proof.needs_archive) {
-            run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_TEST_BIN=", .make_absolute = true });
+            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_TEST_BIN=", .make_absolute = true });
             run.step.dependOn(archive_install);
         }
         if (proof.needs_session) {
-            run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-session" } }, .{ .prefix = "GLOWCAP_ROOMS_SESSION_TEST_BIN=", .make_absolute = true });
+            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-session" } }, .{ .prefix = "GLOWCAP_ROOMS_SESSION_TEST_BIN=", .make_absolute = true });
             run.step.dependOn(archive_install);
         }
         {
-            run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
             run.step.dependOn(archive_install);
         }
         run.addArgs(&.{ "deno", "run", "--allow-all", proof.source });

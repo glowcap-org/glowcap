@@ -25,7 +25,7 @@ Deno.test("the Vite listener is loopback by default and explicit when container-
 	assertEquals(developmentListen(undefined), { host: "127.0.0.1" });
 	assertEquals(developmentListen("localhost"), { host: "localhost" });
 	assertEquals(developmentListen("0.0.0.0"), { host: "0.0.0.0" });
-	assertEquals(developmentPort(undefined), 8000);
+	assertEquals(developmentPort(undefined), 8080);
 	assertEquals(developmentPort("8123"), 8123);
 	assertThrows(() => developmentPort("free"), Error, "integer from 1 through 65535");
 });

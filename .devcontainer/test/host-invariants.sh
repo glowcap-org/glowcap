@@ -86,9 +86,9 @@ help_output="$(cd / && "${scratch}/host/glowcap" --help)"
 [[ "${help_output}" == *"bash .devcontainer/bin/enter.sh tree1"* ]]
 [[ "${help_output}" == *"--session review"* ]]
 
-[[ "$(glowcap_devcontainer_tmux_session_name main)" == glowcap-main ]]
-[[ "$(glowcap_devcontainer_tmux_session_name main review)" == glowcap-main-review ]]
-[[ "$(glowcap_devcontainer_tmux_session_name tree1 investigation-2)" == glowcap-tree1-investigation-2 ]]
+[[ "$(glowcap_devcontainer_tmux_session_name main)" == glowcap-dev-main ]]
+[[ "$(glowcap_devcontainer_tmux_session_name main review)" == glowcap-dev-main-review ]]
+[[ "$(glowcap_devcontainer_tmux_session_name tree1 investigation-2)" == glowcap-dev-tree1-investigation-2 ]]
 glowcap_devcontainer_validate_session_designator review
 glowcap_devcontainer_validate_session_designator investigation-2
 glowcap_devcontainer_validate_session_designator abcdefghijklmnopqrstuvwx
@@ -128,7 +128,7 @@ TERM_PROGRAM=iTerm.app glowcap_devcontainer_client_is_iterm2
 TERM_PROGRAM='' LC_TERMINAL=iTerm2 glowcap_devcontainer_client_is_iterm2
 grid_help_output="$(bash "${dir}/bin/enter-grid.sh" --help)"
 [[ "${grid_help_output}" == *"columns: every registered worktree"* ]]
-[[ "${grid_help_output}" == *"tmux: glowcap-grid-review"* ]]
+[[ "${grid_help_output}" == *"tmux: glowcap-dev-grid-review"* ]]
 
 # The container half of the pane runtime sources the worktree's panes.sh in
 # an initialized interactive shell: top-level lines run in every pane, and the
@@ -385,14 +385,25 @@ if glowcap_devcontainer_configure_env "${primary}/.devcontainer" >/dev/null 2>&1
     exit 1
 fi
 rm "${primary}/.devcontainer/.env"
+# Reject a reservation conflict before creating a file, including an offset
+# that makes a different development service land on production's HTTP port.
+for reserved_offset in 1907 5090; do
+    if glowcap_devcontainer_configure_env "${primary}/.devcontainer" "${reserved_offset}" >"${scratch}/reserved-port.log" 2>&1; then
+        echo "test/host-invariants: configure accepted deployment port 8080" >&2
+        exit 1
+    fi
+    grep -q '8080 is reserved' "${scratch}/reserved-port.log"
+    [[ ! -e "${primary}/.devcontainer/.env" ]]
+done
 glowcap_devcontainer_configure_env "${primary}/.devcontainer" >/dev/null 2>&1
 expected_common="$(git -C "${primary}" rev-parse --path-format=absolute --git-common-dir)"
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_WORKTREE)" == main ]]
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_ROOMS_WEB_HOST_PORT)" == 9080 ]]
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_CHECKOUT_DIR)" == "${primary}" ]]
-[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" EGRESS_NET)" == glowcap-main-egress ]]
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" EGRESS_NET)" == glowcap-dev-main-egress ]]
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_GIT_COMMON_DIR)" == "${expected_common}" ]]
 glowcap_devcontainer_configure_env "${primary}/.devcontainer" 10000 other-network >/dev/null 2>&1
-[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" EGRESS_NET)" == glowcap-main-egress ]]
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" EGRESS_NET)" == glowcap-dev-main-egress ]]
 
 # An .env the port table has outgrown is completed at the offset it already
 # uses, and nothing else in it moves. This is what a checkout written before
@@ -400,22 +411,23 @@ glowcap_devcontainer_configure_env "${primary}/.devcontainer" 10000 other-networ
 # remedy on offer.
 outgrown_env="${primary}/.devcontainer/.env"
 docs_port_line="$(grep '^GLOWCAP_DOCS_HOST_PORT=' "${outgrown_env}")"
-[[ "${docs_port_line}" == GLOWCAP_DOCS_HOST_PORT=1990 ]]
+[[ "${docs_port_line}" == GLOWCAP_DOCS_HOST_PORT=2990 ]]
 grep -v -e '^GLOWCAP_DOCS_HOST_PORT=' -e '^GLOWCAP_CHECKOUT_DIR=' \
     "${outgrown_env}" > "${outgrown_env}.trimmed"
 mv "${outgrown_env}.trimmed" "${outgrown_env}"
 printf 'OPERATOR_ADDED=kept\n' >> "${outgrown_env}"
 glowcap_devcontainer_complete_env "${primary}/.devcontainer" 2>/dev/null
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_CHECKOUT_DIR)" == "${primary}" ]]
-[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_DOCS_HOST_PORT)" == 1990 ]]
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_DOCS_HOST_PORT)" == 2990 ]]
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" OPERATOR_ADDED)" == kept ]]
 
-# The offset comes from the rows the file carries, not from the table.
+# The offset comes from the rows the file carries, not from the table. An old
+# baseline remains usable: filling missing entries must not silently remap it.
 offset_env="${scratch}/offset/.devcontainer"
 mkdir -p "${offset_env}"
 {
     printf 'GLOWCAP_WORKTREE=tree1\n'
-    printf 'GLOWCAP_ROOMS_WEB_HOST_PORT=18000\n'
+    printf 'GLOWCAP_ROOMS_WEB_HOST_PORT=18080\n'
     printf 'GLOWCAP_ROOMS_CAPTP_HOST_PORT=19099\n'
 } > "${offset_env}/.env"
 glowcap_devcontainer_complete_env "${offset_env}" 2>/dev/null
@@ -451,10 +463,36 @@ fi
 glowcap_devcontainer_configure_env "${linked}/.devcontainer" 10000 >/dev/null 2>&1
 [[ "$(glowcap_devcontainer_worktree_name "${linked}/.devcontainer")" == tree1 ]]
 [[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_CHECKOUT_DIR)" == "${linked}" ]]
-[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_ROOMS_WEB_HOST_PORT)" == 18000 ]]
-[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_DOCS_HOST_PORT)" == 11990 ]]
-[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" EGRESS_NET)" == glowcap-tree1-egress ]]
+[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_ROOMS_WEB_HOST_PORT)" == 19080 ]]
+[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_DOCS_HOST_PORT)" == 12990 ]]
+[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" EGRESS_NET)" == glowcap-dev-tree1-egress ]]
 glowcap_devcontainer_validate_worktree "${linked}/.devcontainer" tree1
+# Main must coexist with the established linked-worktree offsets. Compare
+# every service against every other service, not just web against web.
+allocated_ports="8080"
+for port_offset in 0 10000 20000 30000; do
+    while IFS=: read -r variable base; do
+        port=$((base + port_offset))
+        for allocated_port in ${allocated_ports}; do
+            [[ "${port}" != "${allocated_port}" ]]
+        done
+        allocated_ports="${allocated_ports} ${port}"
+    done <<< "$(glowcap_devcontainer_port_rows)"
+done
+# An existing operator file cannot give any development service port 8080,
+# including a decimal with a leading zero. Validation leaves the file intact.
+reserved_env="${scratch}/reserved-env"
+mkdir -p "${reserved_env}"
+while IFS=: read -r variable base; do
+    cp "${primary}/.devcontainer/.env" "${reserved_env}/.env"
+    printf '%s=08080\n' "${variable}" >> "${reserved_env}/.env"
+    if glowcap_devcontainer_validate_host_ports "${reserved_env}" >"${scratch}/reserved-port.log" 2>&1; then
+        echo "test/host-invariants: existing ${variable} claimed deployment port 8080" >&2
+        exit 1
+    fi
+    grep -q '8080 is reserved' "${scratch}/reserved-port.log"
+    [[ "$(glowcap_devcontainer_env_value "${reserved_env}" "${variable}")" == 08080 ]]
+done
 [[ "$(glowcap_devcontainer_primary_checkout "${linked}")" == "${primary}" ]]
 
 if glowcap_devcontainer_validate_worktree "${linked}/.devcontainer" main >/dev/null 2>&1; then
@@ -526,8 +564,8 @@ docker() {
     fi
     return 1
 }
-glowcap_devcontainer_ensure_network glowcap-main-egress managed
-[[ "${network_created}" == glowcap-main-egress ]]
+glowcap_devcontainer_ensure_network glowcap-dev-main-egress managed
+[[ "${network_created}" == glowcap-dev-main-egress ]]
 network_exists=false
 if glowcap_devcontainer_ensure_network missing-external external >/dev/null 2>&1; then
     echo "test/host-invariants: startup created an operator-owned external network" >&2

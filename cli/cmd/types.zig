@@ -9,8 +9,10 @@ pub const Flag = struct {
     short: ?u8 = null,
     help: []const u8,
     kind: FlagKind = .bool_flag,
-    /// Accepted at any depth when defined on an ancestor (typically root).
+    /// Inherited by descendants until a command starts an independent scope.
     persistent: bool = false,
+    /// Repeated values are retained in order rather than replacing one another.
+    repeatable: bool = false,
     /// Omit from MCP tool schemas / fillParsed (argv-only flag, e.g. dial --repl).
     mcp_hide: bool = false,
 };
@@ -33,10 +35,14 @@ pub const FlagValue = union(FlagKind) {
 pub const Parsed = struct {
     gpa: std.mem.Allocator,
     flags: std.StringHashMapUnmanaged(FlagValue) = .empty,
+    repeated: std.StringHashMapUnmanaged(std.ArrayList([]const u8)) = .empty,
     positionals: []const []const u8 = &.{},
     positionals_owned: ?[][]const u8 = null,
 
     pub fn deinit(self: *Parsed) void {
+        var repeated = self.repeated.valueIterator();
+        while (repeated.next()) |values| values.deinit(self.gpa);
+        self.repeated.deinit(self.gpa);
         self.flags.deinit(self.gpa);
         if (self.positionals_owned) |p| self.gpa.free(p);
         self.* = undefined;
@@ -48,6 +54,13 @@ pub const Parsed = struct {
 
     pub fn setString(self: *Parsed, long: []const u8, value: []const u8) !void {
         try self.flags.put(self.gpa, long, .{ .string_flag = value });
+    }
+
+    pub fn appendString(self: *Parsed, long: []const u8, value: []const u8) !void {
+        const entry = try self.repeated.getOrPut(self.gpa, long);
+        if (!entry.found_existing) entry.value_ptr.* = .empty;
+        try entry.value_ptr.append(self.gpa, value);
+        if (!self.flags.contains(long)) try self.setString(long, value);
     }
 
     pub fn flagBool(self: *const Parsed, long: []const u8) bool {
@@ -74,8 +87,10 @@ pub const Command = struct {
     positionals: []const Positional = &.{},
     children: []const Command = &.{},
     aliases: []const []const u8 = &.{},
-    /// Omit from argv help "Commands:" and shell completion (runtime leaf still
-    /// exists — e.g. supervised-only `rooms-peer peer`).
+    /// Whether ancestor flags configure this subtree. False starts an
+    /// independent scope, refusing ancestor flags even when supplied earlier.
+    inherit_flags: bool = true,
+    /// Omit from argv help "Commands:" and shell completion; the leaf remains callable.
     hidden_from_help: bool = false,
     /// Leaf runner. Parents leave this null.
     run: ?*const fn (*Ctx, *Parsed) anyerror!u8 = null,
@@ -96,12 +111,13 @@ pub const Command = struct {
 };
 
 /// Gather the persistent flags visible at `path`'s node: every flag an
-/// ancestor (typically root) declared persistent is accepted at any depth, so
-/// parsing and help both need the same set. Fills `buf` and writes the count
+/// ancestor declared persistent is accepted until an independent scope, so
+/// parsing, help, and completion need the same set. Fills `buf` and writes the count
 /// to `n`, stopping at capacity rather than growing.
 pub fn collectPersistent(path: []const *const Command, buf: *[48]Flag, n: *usize) void {
     n.* = 0;
     for (path) |cmd| {
+        if (!cmd.inherit_flags) n.* = 0;
         for (cmd.flags) |f| {
             if (!f.persistent) continue;
             if (n.* >= buf.len) return;

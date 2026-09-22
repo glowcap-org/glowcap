@@ -24,7 +24,7 @@ shelling out. Same product binary as argv/REPL
 | --- | --- |
 | Cursor | [`.cursor/mcp.json`](../../../.cursor/mcp.json) → `./glowcap mcp --tools default` |
 | Claude | [`.mcp.json`](../../../.mcp.json) → `./glowcap mcp --tools default` |
-| Shim | [`glowcap`](../../../glowcap) → `zig-out/bin/glowcap` |
+| Shim | [`glowcap`](../../../glowcap) → `zig-out/product/bin/glowcap` |
 | Portable stub (PATH `glowcap`) | [`docs/glowcap-mcp.json`](../../../docs/glowcap-mcp.json) |
 | Human recipes | [`docs/cli.md`](../../../docs/cli.md) |
 | Shell / REPL / listen | [glowcap-cli](../glowcap-cli/SKILL.md) |
@@ -48,7 +48,8 @@ accept), iterate code, re-listen, MCP again.
 
 ## Before the first tool call
 
-1. **Build once:** `zig build` (shim requires `zig-out/bin/glowcap`).
+1. **Prepare:** `./glowcap version` bootstraps a missing product. After source
+   edits, explicitly run `zig build rooms-build` through the work skill's build front.
 2. **Reload MCP** in the host if configs or the binary just changed.
 3. **Discover tools:** `tools/list` — never invent verb names. Catalog is
    `--tools default|full|readonly` (project configs use `default`).
@@ -90,7 +91,7 @@ probe-then-call): [glowcap-cli](../glowcap-cli/SKILL.md) § Session model.
 
 | Mistake | Reality |
 | --- | --- |
-| MCP server fails to start | Run `zig build`; confirm `./glowcap version` works |
+| MCP server fails to start | Run `./glowcap version`; resolve its build or environment diagnostic |
 | Yellow “Loading tools”, then green with none | Stdio is NDJSON (`JSON` + newline); rebuild + reload MCP |
 | Blank `isError` tool text | Should be failure JSON; rebuild + reload MCP if empty |
 | Share state with a human REPL | Default `.local/glowcap-mcp-state` is separate; do not point both at one dir |

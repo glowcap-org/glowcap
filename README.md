@@ -110,8 +110,13 @@ switch (settled) {
 that never published `"greeter"` cannot be fetched that way.
 
 [Start building](https://jimisaacs.github.io/glowcap/start/) is the listen half
-and the other languages. `zig build` puts the `glowcap` CLI in `zig-out/bin`;
-`glowcap app rooms-peer` is an encrypted conversation over iroh.
+and the other languages. `zig build` puts the generic CLI in `zig-out/bin`.
+The [complete host installation](apps/rooms/host.md) includes Rooms:
+`glowcap apps rooms serve` starts the browser application, and
+`glowcap apps rooms session` participates over encrypted iroh. Contributors use
+`./glowcap install` to build and install that verified product outside the
+checkout; `zig build rooms-build` only stages the same installation under
+`zig-out/product`. An installed CLI never builds source.
 [`docs/cli.md`](docs/cli.md) covers the REPL, `--json` scripting, MCP, and the
 cleartext lab round-trip.
 

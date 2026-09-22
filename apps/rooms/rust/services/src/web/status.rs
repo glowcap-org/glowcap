@@ -36,7 +36,7 @@ impl StatusQuery {
 			Some(value) => value.to_owned(),
 			None => {
 				let port = env("GLOWCAP_ROOMS_HTTP_PORT")
-					.unwrap_or_else(|| "8000".into())
+					.unwrap_or_else(|| "8080".into())
 					.parse::<u16>()
 					.map_err(|_| "HTTP port must be an integer from 1 through 65535")?;
 				if port == 0 {

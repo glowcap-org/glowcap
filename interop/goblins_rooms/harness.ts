@@ -227,7 +227,7 @@ function expectTransport(row: SessionRow, label: string): void {
 
 // The room server, on an ephemeral port, with its trace broadcast on another.
 const roomsServer = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") ??
-	`${ROOT}/zig-out/bin/rooms-server`;
+	`${ROOT}/zig-out/libexec/rooms-server`;
 const server = new Deno.Command(roomsServer, {
 	// iroh addresses an endpoint by id, so there is no port to pin.
 	args: IROH

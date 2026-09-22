@@ -239,7 +239,7 @@ pub fn register(
     // (ADR-0103); the harness reads both profiles off the server's live trace
     // rather than taking either member's word for it.
     const goblins_rooms = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    goblins_rooms.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     goblins_rooms.addArgs(&.{
         "deno",        "run",            "--allow-read",
         "--allow-net", "--allow-run",    "--allow-env",
@@ -266,15 +266,15 @@ pub fn register(
     // They are serialized so logs and resource ownership name one edge at a
     // time, and both fit the ordinary deterministic ceiling without a browser.
     const goblins_rooms_irc_bridge = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    goblins_rooms_irc_bridge.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
+    goblins_rooms_irc_bridge.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
     goblins_rooms_irc_bridge.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=bridge" });
     goblins_rooms_irc_bridge.step.dependOn(rooms_services_install);
     const goblins_rooms_irc_bridge_step = b.step("goblins-rooms-irc-bridge", "Live Goblins through the IRC bridge: fixture IRC and a real vat exchange room lines both ways (needs deno + racket + goblins)");
     goblins_rooms_irc_bridge_step.dependOn(&goblins_rooms_irc_bridge.step);
 
     const goblins_rooms_irc_front = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    goblins_rooms_irc_front.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
-    goblins_rooms_irc_front.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-irc-front" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_FRONT_BIN=", .make_absolute = true });
+    goblins_rooms_irc_front.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_irc_front.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-front" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_FRONT_BIN=", .make_absolute = true });
     goblins_rooms_irc_front.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=front" });
     goblins_rooms_irc_front.step.dependOn(&goblins_rooms_irc_bridge.step);
     const goblins_rooms_irc_front_step = b.step("goblins-rooms-irc-front", "Live Goblins through the IRC front: channel traffic both ways, then IRC initiates a DM and Goblins replies on that session (needs deno + racket + goblins)");
@@ -289,7 +289,7 @@ pub fn register(
     // vat is refused without it, and reads the refusal as a decode error
     // because a refusal is framed in the room's own profile.
     const goblins_rooms_iroh = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    goblins_rooms_iroh.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     goblins_rooms_iroh.addArgs(&.{
         "deno",        "run",            "--allow-read",
         "--allow-net", "--allow-run",    "--allow-env",
@@ -310,8 +310,8 @@ pub fn register(
     // with nothing changed in Goblins to allow it and the whole conversation
     // drawn on the live timeline from both ends.
     const goblins_rooms_dm = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{"env"});
-    goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
-    goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+    goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     goblins_rooms_dm.step.dependOn(rooms_services_install);
     goblins_rooms_dm.addArgs(&.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts",
@@ -329,8 +329,8 @@ pub fn register(
     // redeems the native member's. Each accepting endpoint records the key
     // QUIC authenticated as its channel testimony.
     const goblins_rooms_dm_iroh = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{"env"});
-    goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
-    goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+    goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     goblins_rooms_dm_iroh.step.dependOn(rooms_services_install);
     goblins_rooms_dm_iroh.addArgs(&.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts", "--iroh",
@@ -352,8 +352,8 @@ pub fn register(
     var previous_goblins_rooms_matrix_phase: ?*std.Build.Step = null;
     for (goblins_rooms_matrix_phases) |phase| {
         const run = execution.addSystemCommand(b, .{ .browser_proof = 630 }, &.{"env"});
-        run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
-        run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
         run.step.dependOn(rooms_services_install);
         run.addArgs(&.{
             "deno",                         "run", "--allow-all", "interop/goblins_rooms_matrix/harness.ts",

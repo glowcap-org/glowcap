@@ -16,42 +16,49 @@ travel does not change how sessions are shared.
 
 For local development, `zig build rooms-web` serves the page on your machine
 and runs the room server over encrypted iroh in a temporary data directory
-with nothing minted. `zig build rooms-dev` is the same page with every admin
-capability minted and the data kept under `.local/.state/rooms`, so identity,
-room links, and the admin secrets survive a restart and the admin pages have
-something to show. A server that should keep its identity and settings names
-its own directory:
+with nothing minted. `zig build rooms-dev` keeps state under
+`.local/.state/rooms` and mints every admin capability. A server that should
+keep its identity and settings names its own directory:
 
 ```sh
 GLOWCAP_ROOMS_STATE=/var/lib/glowcap/rooms \
   zig build rooms-web
 ```
 
-To host it, the repository ships a Compose stack: the page, an iroh room
-server, one durable session service, and a PostgreSQL database for kept room
-lines. The three services are native programs that mount the build output
-read-only and need no compiler. The database is the pinned official image,
-reached only over the stack's private network. Its one password is minted
-into an ignored file on first start and handed to both containers as a
-Docker secret. Build the artifacts where the toolchain is, then bring it up
-where Docker is:
+To host it, install the complete glowcap product and Docker with Compose. The
+deployment runs the page, an iroh room server, one durable session service, and
+a PostgreSQL database for kept room lines. The product image contains the
+glowcap and Rooms runtimes, prepared browser assets, skills, and iroh library.
+It has no checkout or compiler and mounts no build output at runtime. The
+database is reached only over the stack's private network. Its password is
+stored in the deployment state directory and passed as a Docker secret.
 
 ```sh
-zig build rooms-deploy-prep
-cd apps/rooms/web/deploy
-./ops up
+zig build rooms-deploy-prep -Doptimize=ReleaseSafe -Dcpu=baseline
+glowcap apps rooms deployment up --build "$PWD/zig-out/product"
 ```
 
-The first `up` creates the shared network, copies the example override,
-mints the database password, recreates the containers, waits for each to
-serve, and prints the room address and every admin secret. The same front
-has `status`, `logs`, `down`, `redeploy`, and a `reset` that asks before it
-destroys one volume. The tracked Compose file publishes no
-port at all; the ignored override says how this machine reaches the page,
-and the example publishes it on this host's loopback only. Put an HTTPS
-reverse proxy or a private network in front of that, so the page, `/relay`
-with its rendezvous mode, `/register`, `/ice` for TURN credentials, and
-`/trace` all come from one address people can trust.
+The first `up` resolves and saves an immutable image ID, creates the shared
+network and database secret, refreshes the managed Compose file, waits for
+health, and prints the room locator and capabilities. Later starts reuse that
+image. To select a tag, digest, or local image explicitly, pass `--image`.
+The default image is the versioned GHCR name derived from the installed CLI;
+this repository does not claim that the image has been published.
+
+Deployment state defaults to `$XDG_STATE_HOME/glowcap/rooms-deployment`, or
+`$HOME/.local/state/glowcap/rooms-deployment`. Pass `--dir` to select another
+configuration directory. It selects credentials and configuration, not another
+stack: container, network, and volume names are fixed per Docker daemon. Keep
+operator settings in `docker-compose.override.yml`, which `up` preserves.
+
+The example override publishes the page on host loopback. Put an HTTPS reverse
+proxy or private network in front of it for broader access. A loopback HTTP
+address does not restrict the separately authenticated iroh directory.
+
+The deployment front also has `doctor`, `status`, `logs`, `down`, and `reset`.
+`doctor` is read-only. `down` keeps data. `reset` names a custody unit and
+confirms before destroying it. Mutating commands lock the configuration
+directory until they exit.
 
 On a tailnet, Tailscale Serve can terminate HTTPS and forward the local
 Rooms port. For a public server, use the container guide and an ordinary
@@ -98,7 +105,7 @@ On its own, a session lives on one device. To open the same session, with
 the same identity, from anywhere, run the session service:
 
 ```sh
-zig build rooms-session -- --state=.local/.state/rooms
+glowcap apps rooms session serve --dir=.local/.state/rooms
 ```
 
 The command prints one admin link. Open it from the Session tab in Settings.
@@ -181,17 +188,14 @@ how to set up the live view.
 
 # Read failures as they are
 
-The supervisor tells apart a server that refused to start, one that stopped
-after it was ready, a connection that was lost, and a cleanup that also
-failed. Restarts are rate limited: a run that stays up resets the limit, and
-a server that keeps failing eventually stays down with its reason on
-screen.
+The deployment tells apart a service that refused to start, one that stopped
+after it was ready, and a cleanup that also failed. Docker restarts services
+according to its Compose policy, while `status` and `logs` show the current
+state and reason.
 
 Your session follows the same rule. A request still in progress
 stays marked in progress, a known refusal offers the next step for that
-code, and a request nobody can confirm is never shown as cleanly undone. If
-building the page's assets fails for a moment, the same source is retried
-after the refresh interval instead of serving a broken build.
+code, and a request nobody can confirm is never shown as cleanly undone.
 
 # Check a deployment
 

@@ -202,8 +202,6 @@ pub fn checkCaptpAgentDogfoodRouting(
     const must_name_mcp = [_][]const u8{
         ".agents/skills/work/SKILL.md",
         ".agents/skills/smell-annihilation/SKILL.md",
-        ".agents/skills/rooms-peer/SKILL.md",
-        ".agents/skills/rooms-team/SKILL.md",
         ".agents/skills/community-review/SKILL.md",
     };
     for (must_name_mcp) |path| {
@@ -217,14 +215,8 @@ pub fn checkCaptpAgentDogfoodRouting(
         }
     }
 
-    const rooms_team_script = ".agents/skills/rooms-team/scripts/team.sh";
-    root.access(io, rooms_team_script, .{}) catch |err| {
-        try appendViolation(gpa, violations, "{s}: rooms-team skill requires companion script ({s})", .{ rooms_team_script, @errorName(err) });
-    };
-    const rooms_lead_watch = ".agents/skills/rooms-team/scripts/lead-watch.sh";
-    root.access(io, rooms_lead_watch, .{}) catch |err| {
-        try appendViolation(gpa, violations, "{s}: rooms-team skill requires lead wake pager ({s})", .{ rooms_lead_watch, @errorName(err) });
-    };
+    // Rooms skills ship without developer skills. Their extracted-package
+    // proof checks every relative reference stays inside the shipped skills.
     const rooms_team_skill = root.readFileAlloc(io, ".agents/skills/rooms-team/SKILL.md", gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: failed to read for companion refs with {s}", .{@errorName(err)});
         return;
@@ -236,8 +228,13 @@ pub fn checkCaptpAgentDogfoodRouting(
     {
         try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: must link ops.md, gotchas.md, and strategies.md", .{});
     }
-    // Multi-surface / per-peer pending floors — prose that must not vanish when
-    // the skill is edited; the hermetic one-wake golden holds the CLI half.
+    // Both skill procedures consume the same product command. Live behavior
+    // is exercised through that command by rooms-agent-test.
+    if (std.mem.indexOf(u8, rooms_team_skill, "glowcap apps rooms session") == null or
+        std.mem.indexOf(u8, rooms_team_skill, "../rooms-peer/SKILL.md") == null)
+    {
+        try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: use the shared Rooms peer CLI and skill", .{});
+    }
     if (std.mem.indexOf(u8, rooms_team_skill, "Multi-surface wake") == null) {
         try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: must keep Multi-surface wake (DM then room before peers)", .{});
     }

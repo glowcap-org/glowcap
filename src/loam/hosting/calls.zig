@@ -177,7 +177,10 @@ pub fn advance(owner: *h.Attachment) !void {
             continue;
         }
         if (op.phase == .materializing) finishInvocation(owner, index) catch |err| {
-            if (owner.store.phase == .staging or owner.store.phase == .prepared) owner.store.abort() catch unreachable;
+            if (owner.store.phase == .staging or owner.store.phase == .prepared) {
+                owner.store.abort() catch unreachable;
+                @import("publication.zig").releaseRetirements(owner, false);
+            }
             op.failure = err;
             op.phase = .failed;
         };
@@ -323,7 +326,10 @@ fn invoke(owner: *h.Attachment, index: usize) !void {
     if (op.call.?.replacement != null or op.call.?.transaction != null) {
         // Local-only resolver results cannot transport owning capability values.
         try owner.store.begin();
-        errdefer if (owner.store.phase == .staging or owner.store.phase == .prepared) owner.store.abort() catch unreachable;
+        errdefer {
+            if (owner.store.phase == .staging or owner.store.phase == .prepared) owner.store.abort() catch unreachable;
+            @import("publication.zig").releaseRetirements(owner, false);
+        }
         if (op.call.?.replacement) |payload| {
             const edges = try arena.alloc(core.Edge, view.edge_count);
             var iterator = view.edges();

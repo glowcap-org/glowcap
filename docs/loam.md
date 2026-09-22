@@ -12,7 +12,7 @@ the [design guide](planning/README.md) maps the remaining application foundation
 | --- | --- |
 | `glowcap.loam.collections` | Immutable, structurally shared maps for actor state and snapshots. Requires no store. |
 | `glowcap.loam.records` | Store/object identities, schema limits, typed edges, and checksummed Syrup envelopes. |
-| `glowcap.loam.core` | Store transactions, exact completion/recovery, and bounded record leases. Performs no I/O. |
+| `glowcap.loam.core` | Store transactions with re-proposable staged records, exact completion/recovery, and bounded record leases. Performs no I/O. |
 | `glowcap.loam.hosting` | Record-backed behavior, bounded pending calls, lazy local capability edges, and publication descriptors on an existing Host. |
 | `glowcap.loam.Volatile` | In-memory realization of the same batches, with its own storage-byte limit. |
 | `"glowcap_loam_lmdb"` | Optional native Zig module exposing `Lmdb`; executes blocking storage work. |

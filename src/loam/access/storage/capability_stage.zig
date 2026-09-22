@@ -23,6 +23,6 @@ pub fn create(read: *Read, grant: core.GrantId, powers: ?core.Control.Powers, ro
         try core.Control.validate(&resources, &read.header.policy, current.ceiling, control);
     }
     const binding = (try read.binding(.{ .grant = grant })).?;
-    const grant_row = try read.store.currentView(binding.lease.?);
+    const grant_row = (try Read.rowFor(read.store, binding) orelse return error.Gone).view;
     return descriptor(read.store, .{ .owner = read.owner_object, .grant_object = grant_row.id, .grant = grant, .role = if (powers != null) .control else .use, .powers = powers orelse .{} }, rooted);
 }

@@ -6,15 +6,14 @@
 # test/env-sync.sh enforces path consistency across those surfaces.
 
 # --- Base image ---
-# Both Dockerfiles build on this one image, and they pin its digest rather than
-# its tag, because a tag moves under you and the two images have to be the same
-# one. The digest names the multi-architecture index, so one value serves every
-# machine the image builds on. `update-pins.sh check` reports it like any other
-# dependency and `test/env-sync.sh` holds both Dockerfiles to the value here.
+# The development image includes the toolchain. Production uses only the
+# compatible system runtime below. Both pins name multi-architecture indexes;
+# update-pins tracks them and env-sync checks their Dockerfile consumers.
 DEBIAN_BASE_TAG="trixie-slim"
 DEBIAN_BASE_DIGEST="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
 
 # --- Production service images ---
+DISTROLESS_BASE_DIGEST="sha256:4594d59540d1948417f6ca2829ddd9294493a7c68b7528f4dd459de7f203a750"
 # The complete tag + digest is one pin because both identify the exact image
 # Compose runs. update-pins.sh selects PostgreSQL's newest stable release.
 POSTGRES_IMAGE_PIN="18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2"
@@ -90,7 +89,7 @@ BUN_INSTALL_CACHE_DIR="${BUN_CACHE_DIR}/install"
 # Per-worktree Zig local cache and extracted packages live on a Docker volume.
 # The daemon-owned filesystem supplies Zig's atomic-file semantics consistently
 # under native Linux Docker and Docker Desktop; host-bind implementations vary.
-ZIG_WORK_CACHE_DIR="/home/vscode/.cache/glowcap-zig-work"
+ZIG_WORK_CACHE_DIR="/home/vscode/.cache/glowcap-dev-zig-work"
 PLTUSERHOME="/opt/glowcap-racket-userhome"
 # Playwright's default download directory is ~/.cache/ms-playwright, which is
 # outside the glowcap cache bind, so a browser landing there would vanish with

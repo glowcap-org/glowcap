@@ -301,10 +301,14 @@ pub fn checkCAbiResolve(
     }
 
     const release_build_path = "tools/build/release.zig";
-    const release_build = root.readFileAlloc(io, release_build_path, gpa, .limited(1 << 20)) catch |err| {
+    const release_front = root.readFileAlloc(io, release_build_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ release_build_path, @errorName(err) });
         return;
     };
+    defer gpa.free(release_front);
+    const release_stage = try root.readFileAlloc(io, "tools/build/release/stage.zig", gpa, .limited(1 << 20));
+    defer gpa.free(release_stage);
+    const release_build = try std.mem.concat(gpa, u8, &.{ release_front, release_stage });
     defer gpa.free(release_build);
     if (std.mem.indexOf(u8, release_build, "cp -aL zig-out/lib") != null or
         std.mem.indexOf(u8, release_build, "zig-out/lib zig-out/include") != null)
@@ -319,7 +323,7 @@ pub fn checkCAbiResolve(
         "missing shared-library member",
         "stage must contain only regular files and directories",
         "cp PROVENANCE.md",
-        "release-pack refuses Debug artifacts",
+        "release packages refuse Debug",
         "tools/check/release-pack-smoke.sh",
     }) |marker| {
         if (std.mem.indexOf(u8, release_build, marker) == null) {
@@ -351,8 +355,6 @@ pub fn checkCAbiResolve(
         "zig cc",
         "write_consumer \"$workdir/static-$name-consumer.c\" \"$name\"",
         "shared-consumer",
-        "bin/glowcap",
-        "bin/rooms-peer",
     }) |marker| {
         if (std.mem.indexOf(u8, release_smoke, marker) == null) {
             try appendViolation(gpa, violations, "{s}: extracted release consumer proof requires `{s}`", .{ release_smoke_path, marker });

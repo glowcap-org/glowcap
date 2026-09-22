@@ -14,7 +14,7 @@ zig build check
 On first use, `hooks/initialize.sh` runs
 [`bin/configure.sh`](bin/configure.sh). The primary checkout needs no setup:
 the command derives its Git common directory, writes the ignored `.env`, and
-creates an isolated `glowcap-main-egress` network. `hooks/post-create.sh` runs
+creates an isolated `glowcap-dev-main-egress` network. `hooks/post-create.sh` runs
 automatically after the image is ready, verifies the toolchains, and initializes
 the conformance submodules before the editor opens the workspace.
 
@@ -37,14 +37,14 @@ the host launcher does not take that name. Run it from the checkout, or symlink
 it onto the host `PATH` under another name:
 
 ```sh
-bash .devcontainer/bin/enter.sh                          # tmux: glowcap-main
-bash .devcontainer/bin/enter.sh --session review         # tmux: glowcap-main-review
-bash .devcontainer/bin/enter.sh tree1                    # tmux: glowcap-tree1
-bash .devcontainer/bin/enter.sh tree1 --session review   # tmux: glowcap-tree1-review
+bash .devcontainer/bin/enter.sh                          # tmux: glowcap-dev-main
+bash .devcontainer/bin/enter.sh --session review         # tmux: glowcap-dev-main-review
+bash .devcontainer/bin/enter.sh tree1                    # tmux: glowcap-dev-tree1
+bash .devcontainer/bin/enter.sh tree1 --session review   # tmux: glowcap-dev-tree1-review
 bash .devcontainer/bin/enter.sh tree1 --session review --rebuild
 
-ln -s "$(pwd)/.devcontainer/bin/enter.sh" ~/.local/bin/glowcap-enter
-glowcap-enter tree1 --session review
+ln -s "$(pwd)/.devcontainer/bin/enter.sh" ~/.local/bin/glowcap-dev-enter
+glowcap-dev-enter tree1 --session review
 ```
 
 The launcher follows its symlink and asks Git for the primary checkout, so it
@@ -56,8 +56,8 @@ beside compose if that checkout has not moved it yet, then attaches.
 
 The option `--session NAME` selects another tmux session without creating
 another Docker container. Omitting it preserves the default
-`glowcap-<worktree>` session; supplying it uses
-`glowcap-<worktree>-<name>`. Each session opens its own shell, while all
+`glowcap-dev-<worktree>` session; supplying it uses
+`glowcap-dev-<worktree>-<name>`. Each session opens its own shell, while all
 sessions for a worktree share that container's processes and filesystem.
 A session designator starts with a lowercase letter, ends with a
 lowercase letter or digit, contains only lowercase letters, digits, and
@@ -71,7 +71,7 @@ force either behavior; detection covers a local iTerm2 tab and, with iTerm2's
 shell integration installed, an ssh session from one.
 
 The same identity names both Docker artifacts. A `tree1` checkout uses the
-container `glowcap-tree1` and builds the image `vsc-glowcap-tree1`.
+container `glowcap-dev-tree1` and builds the image `vsc-glowcap-dev-tree1`.
 
 [`bin/enter-grid.sh`](bin/enter-grid.sh) opens many worktrees at once: one tmux
 session holding a grid with one column per worktree. With no arguments, every
@@ -80,13 +80,13 @@ those columns. It runs that checkout's own `up.sh`, looking under `bin/` first
 and beside compose if that checkout still keeps it there, so each column keeps
 the tooling and ports it was built with. `--rebuild`, `--no-cache`,
 `--session`, `--cc`, and `--no-cc` work as in `bin/enter.sh`, with sessions
-named `glowcap-grid` or `glowcap-grid-<name>`. Percentage splits need tmux 3.1
+named `glowcap-dev-grid` or `glowcap-dev-grid-<name>`. Percentage splits need tmux 3.1
 or newer.
 
 ```sh
-bash .devcontainer/bin/enter-grid.sh                  # tmux: glowcap-grid
+bash .devcontainer/bin/enter-grid.sh                  # tmux: glowcap-dev-grid
 bash .devcontainer/bin/enter-grid.sh main tree2       # only these columns
-bash .devcontainer/bin/enter-grid.sh --session review # tmux: glowcap-grid-review
+bash .devcontainer/bin/enter-grid.sh --session review # tmux: glowcap-dev-grid-review
 ```
 
 Each worktree configures its own column through the ignored
@@ -143,7 +143,7 @@ path. Neither one replaces your shell: each sources your own `~/.zshrc` or
 Each checkout has one short name in its ignored `.devcontainer/.env`.
 [`bin/configure.sh`](bin/configure.sh) derives the name and Git common
 directory. The primary checkout uses `main`, so its Docker container is
-`glowcap-main`. A linked worktree uses the same lowercase name as its
+`glowcap-dev-main`. A linked worktree uses the same lowercase name as its
 directory; its branch name remains independent. Create and configure one with:
 
 ```sh
@@ -159,7 +159,7 @@ container removes every unlocked worktree's registry entry and submodule
 stores, including its own. Git never prunes a locked worktree, so keep the
 lock on for the worktree's whole life.
 
-The offset produces host ports 18000, 19099, 19200, 19300, 15173, and 11990.
+The offset produces host ports 19080, 20099, 20200, 20300, 16173, and 12990.
 Requiring that one explicit choice prevents a setup command from guessing
 whether ports are free and then racing Docker for them.
 
@@ -167,7 +167,7 @@ whether ports are free and then racing Docker for them.
 an identity, port offset, or egress network, stop that checkout's container,
 remove the ignored file, and run the command again with the new choice.
 
-Opening that checkout creates `glowcap-tree1`, even though its branch is
+Opening that checkout creates `glowcap-dev-tree1`, even though its branch is
 `failure-sweep`. Startup refuses a mismatched linked-worktree directory instead
 of attaching an ambiguous container name. Names start with a letter, contain
 only lowercase letters and digits, and are at most 12 characters.
@@ -195,17 +195,19 @@ CLI: its automatic Git mounts are not applied to custom Compose workspace
 mounts.
 
 The same ignored file owns that worktree's host ports. The primary checkout
-uses 8000, 9099, 9200, 9300, 5173, and 1990. `configure.sh --port-offset` gives
-every concurrently running worktree a different set. The generated `tree1` file
+uses offset 0: 9080, 10099, 10200, 10300, 6173, and 2990. Host port 8080
+is reserved for the Rooms deployment; development configuration refuses it
+even when that deployment is stopped. Linked worktrees choose distinct offsets
+with `configure.sh --port-offset`. The generated `tree1` file
 contains:
 
 ```dotenv
-GLOWCAP_ROOMS_WEB_HOST_PORT=18000
-GLOWCAP_ROOMS_CAPTP_HOST_PORT=19099
-GLOWCAP_ROOMS_RELAY_HOST_PORT=19200
-GLOWCAP_ROOMS_TRACE_HOST_PORT=19300
-GLOWCAP_OCAPNVIZ_HOST_PORT=15173
-GLOWCAP_DOCS_HOST_PORT=11990
+GLOWCAP_ROOMS_WEB_HOST_PORT=19080
+GLOWCAP_ROOMS_CAPTP_HOST_PORT=20099
+GLOWCAP_ROOMS_RELAY_HOST_PORT=20200
+GLOWCAP_ROOMS_TRACE_HOST_PORT=20300
+GLOWCAP_OCAPNVIZ_HOST_PORT=16173
+GLOWCAP_DOCS_HOST_PORT=12990
 ```
 
 The file uses one plain `KEY=value` assignment per line. Exported host
@@ -246,8 +248,15 @@ The compiler version comes from `apps/rooms/rust/Cargo.lock`; the image copies
 that lockfile and verifies its installed compiler against it.
 
 The image also puts the repository's own CapTP CLI on PATH: `glowcap` links to
-the repo-root shim, which builds `zig-out/bin/glowcap` on first use, so the
-[CLI](../docs/cli.md) is callable from any directory in the container.
+the repo-root development launcher, which runs `zig-out/product/bin/glowcap`.
+It bootstraps a missing product once; use `zig build rooms-build` explicitly
+after source edits. Operating an existing product does not acquire a build lease.
+The launcher also serves `./glowcap install`, which uses the same verified
+product installer as a platform archive. The [CLI](../docs/cli.md) is callable
+from any directory in the container.
+The launcher and agent workflow share `.devcontainer/bin/run.sh` for environment
+selection and a per-checkout build lease. Installed product executables do not
+enter containers or run compilers.
 
 Cursor's agent CLI answers to both of the names upstream installs, `agent` and
 `cursor-agent`. Upstream unpacks it into the user's home directory; here it is
@@ -319,15 +328,15 @@ Each worktree keeps Zig's local cache and extracted packages in a Docker named
 volume. This gives Zig the Docker daemon's filesystem semantics under native
 Linux Docker and Docker Desktop instead of inheriting whichever atomic-file
 behavior a host bind provides. The volume name is
-`glowcap-<worktree>-zig-work`, so worktrees do not share build objects.
+`glowcap-dev-<worktree>-zig-work`, so worktrees do not share build objects.
 
 | Path | Owner | What |
 | --- | --- | --- |
 | `tool/zig` | `ZIG_GLOBAL_CACHE_DIR` | Zig compiler / global cache |
 | `tool/deno`, `npm`, `pip`, `bun`, `uv`, `zls` | those tools' cache vars | shared downloads |
 | `cargo/` | `CARGO_HOME` | registry, git, `cargo install` bins |
-| `/home/vscode/.cache/glowcap-zig-work/zig-local` | `ZIG_LOCAL_CACHE_DIR` | that container's Zig compile objects |
-| `/home/vscode/.cache/glowcap-zig-work/zig-pkg` | `ZIG_LOCAL_PKG_DIR` | that container's extracted Zig packages |
+| `/home/vscode/.cache/glowcap-dev-zig-work/zig-local` | `ZIG_LOCAL_CACHE_DIR` | that container's Zig compile objects |
+| `/home/vscode/.cache/glowcap-dev-zig-work/zig-pkg` | `ZIG_LOCAL_PKG_DIR` | that container's extracted Zig packages |
 
 Checkout paths that are **install products or product state** stay on the
 worktree bind, where the tree already names them:
@@ -390,12 +399,12 @@ Two detailed guides cover the parts that vary by machine:
 ### Ports the container forwards
 
 `docker-compose.yml` publishes six ports on host loopback: the rooms
-web page (8000), the rooms directory's CapTP listener (9099), the reference
+web page (8080), the rooms directory's CapTP listener (9099), the reference
 relay (9200), the protocol-visualizer trace feed (9300), the ocapnviz Vite
 dev server (5173), and the documentation preview (1990). Services always use
 those canonical numbers inside the container. Their host ports come from
-`.env`, so the primary checkout's web page is `http://localhost:8000`, while
-the example worktree above uses `http://localhost:18000`. The ocapnviz page
+`.env`, so the primary checkout's web page is `http://localhost:9080`, while
+the example worktree above uses `http://localhost:19080`. The ocapnviz page
 and the docs preview open as localhost on that published port. A tailnet
 listener such as Tailscale Serve can bind the same numbers on the machine's
 tailnet addresses without colliding with this publish.
@@ -409,11 +418,16 @@ They are declared rather than left to the editor noticing a listener, because a
 guessed forward goes away again when it stops noticing, and
 [`apps/rooms/developing.md`](../apps/rooms/developing.md) uses canonical
 container ports. A host-side client uses the corresponding `*_HOST_PORT` value;
-for the example above, the live trace is `ws://127.0.0.1:19300/`.
+for the example above, the live trace is `ws://127.0.0.1:20300/`.
 
-If a host port is already taken, the container will not start. Change that
-worktree's offset by removing its ignored `.env` and rerunning
-`bin/configure.sh`; the editor never silently remaps it.
+If a host port is already taken, the container will not start. Inspect its
+owner before choosing a different offset; the editor never silently remaps it.
+Existing `.env` files retain their ports when `configure.sh` runs. To change
+an existing assignment, edit its six `*_HOST_PORT` values together, preserving
+the checkout paths and egress network. Recreate the devcontainer from a host
+shell with `bash .devcontainer/bin/up.sh --rebuild` to apply the mapping.
+This disconnects sessions inside that devcontainer; restarting it alone does
+not change the published ports.
 
 ## Layout
 
@@ -428,14 +442,14 @@ files that carry versions, and the front-door prose.
 | `image/` | Everything the image is built from: one installer per toolchain group, the patches they apply, and the version check that closes the build |
 | `hooks/` | The lifecycle hooks the devcontainer CLI runs, on the host before creation and in the container after it |
 | `pane/` | The tmux pane runtime, one directory per side of the container boundary, beside the example pane configuration |
-| `test/` | This directory's own checks, which `zig build source-check` runs |
+| `test/` | Static environment parity (`source-check`) and executable workflow proofs (`infrastructure-check`) |
 | `docs/` | The longer prose: host setup and networking |
 
 Each script declares where it runs and refuses the wrong side: host-side
 scripts call `glowcap_require_host`, container-side ones
 `glowcap_require_devcontainer`, and `lib/context.sh` owns the detection. The
-two exceptions are noted in their own headers: `image/zig.sh` also runs on CI
-runners, macOS included, and `test/env-sync.sh` is pure file checks.
+shared fronts and tests state their supported environments in their headers.
+`image/zig.sh` also runs on CI runners, macOS included.
 `hooks/post-create.sh` runs shellcheck over every shell file here, so a lint
 finding fails container open and the CI push checks.
 
@@ -453,6 +467,8 @@ finding fails container open and the CI push checks.
 | `bin/enter.sh` | Starts or reuses a worktree container and attaches its default or a named tmux session | host |
 | `bin/enter-grid.sh` | Starts or reuses every column worktree's container and attaches one tmux grid, rows per column set by each worktree's `pane/panes.sh` | host |
 | `bin/update-pins.sh` | Reports and bumps the pins against upstream | container |
+| `bin/run.sh` | Selects the development environment and runs the checkout launcher's or agent's build | host or container |
+| `bin/build-lease` | Serializes finite builds over one checkout | host or container (Python 3) |
 | `lib/mod.sh` | The library's front door, and the one call that loads a checkout's pins | sourced |
 | `lib/launcher.sh` | Shared mechanics of the tmux launchers: option grammar, checkout resolution, pane commands, attach | sourced |
 | `lib/update-pins-*.sh` | `bin/update-pins.sh`'s own modules, one subject each: the dependency table and its release channels, staged edits to `pins.sh` and `checksums.sh`, and the files outside `pins.sh` that restate a pin | sourced |
@@ -468,7 +484,7 @@ finding fails container open and the CI push checks.
 | `pane/container/.zshrc` | Container half: initializes the shell, runs that pane's function from the worktree's ignored `pane/panes.sh`, and owns `glowcap_devcontainer_exit` | container |
 | `pane/panes.example.sh` | The shape a worktree's own `pane/panes.sh` takes | example |
 | `test/env-sync.sh` | Checks pins, mounts, names, structure, and host lifecycle contracts | anywhere |
-| `test/build-front.sh` | Tests host/container routing, per-test timeout injection, and the build lease | Host or devcontainer (needs Bash and Python 3) |
+| `test/build-front.sh` | Tests host/container routing, launcher bootstrap and build-independent operation, streams, timeout injection, and the build lease | Host or devcontainer (needs Bash and Python 3) |
 | `test/host-invariants.sh` | Tests checkout configuration, identity, networks, Git-owned lookup, and the pane runtime | Host or devcontainer (needs Bash and Git) |
 
 `test/env-sync.sh` runs in `zig build source-check`. The two executable behavior

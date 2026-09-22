@@ -62,8 +62,6 @@ pub const Ctx = struct {
     last_locator_ready: std.atomic.Value(bool) = .init(false),
     /// Exclusive identity/state lock; held while this process owns CapTP identity.
     state_guard: ?state_lock.Guard = null,
-    /// Borrowed argv `std.process.Init` for leaves that need the full process handle (rooms-peer).
-    argv_init: ?*const std.process.Init = null,
     /// Callerless Runtime leftovers delivered through `unhandled_failure` after
     /// the last deterministic close return. Drained by session finish and
     /// `closeOwned`; not a second journal.

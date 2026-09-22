@@ -39,17 +39,28 @@ glowcap_devcontainer_validate_pins() {
 }
 
 glowcap_devcontainer_default_egress_network() {
-    printf 'glowcap-%s-egress\n' "$1"
+    printf 'glowcap-dev-%s-egress\n' "$1"
 }
 
+# Development host-port baselines; Compose owns container-side service ports.
+# Worktree offsets apply uniformly to this table, including the primary's zero.
 glowcap_devcontainer_port_rows() {
     printf '%s\n' \
-        GLOWCAP_ROOMS_WEB_HOST_PORT:8000 \
-        GLOWCAP_ROOMS_CAPTP_HOST_PORT:9099 \
-        GLOWCAP_ROOMS_RELAY_HOST_PORT:9200 \
-        GLOWCAP_ROOMS_TRACE_HOST_PORT:9300 \
-        GLOWCAP_OCAPNVIZ_HOST_PORT:5173 \
-        GLOWCAP_DOCS_HOST_PORT:1990
+        GLOWCAP_ROOMS_WEB_HOST_PORT:9080 \
+        GLOWCAP_ROOMS_CAPTP_HOST_PORT:10099 \
+        GLOWCAP_ROOMS_RELAY_HOST_PORT:10200 \
+        GLOWCAP_ROOMS_TRACE_HOST_PORT:10300 \
+        GLOWCAP_OCAPNVIZ_HOST_PORT:6173 \
+        GLOWCAP_DOCS_HOST_PORT:2990
+}
+
+# The deployed Rooms HTTP endpoint keeps its host port even when it is down.
+# Apply this to every development service, not just its web preview.
+glowcap_devcontainer_validate_development_port() {
+    if [[ "$1" -eq 8080 ]]; then
+        echo "devcontainer: host port 8080 is reserved for the Rooms deployment; choose a development port in .devcontainer/.env" >&2
+        return 1
+    fi
 }
 
 # User identity and agent-harness state shared by every glowcap worktree. The
@@ -90,7 +101,7 @@ container (/home/vscode/.cache/glowcap). See .devcontainer/README.md
   cargo/  CARGO_HOME (registry, git, cargo install)
 
 Per-worktree Zig objects and extracted packages live in the Docker volume
-glowcap-<worktree>-zig-work. See .devcontainer/README.md (Persistent paths).
+glowcap-dev-<worktree>-zig-work. See .devcontainer/README.md (Persistent paths).
 EOF
 }
 

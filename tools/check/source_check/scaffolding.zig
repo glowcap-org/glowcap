@@ -203,7 +203,7 @@ pub fn checkRequiredSubstrings(
     try expectGlowcapMcpServer(io, gpa, root, violations, ".cursor/mcp.json", .cursor);
     try expectGlowcapMcpServer(io, gpa, root, violations, ".mcp.json", .claude);
     try expectFileContains(io, gpa, root, violations, "glowcap", &.{
-        "zig-out/bin/glowcap",
+        "zig-out/product",
     });
     try expectFileContains(io, gpa, root, violations, "cli/operability/xdg.zig", &.{
         "mcp_local",

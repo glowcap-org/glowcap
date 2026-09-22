@@ -238,9 +238,13 @@ not ship a native Zig QUIC or WebRTC stack.
   Resource and grant views share evaluation and mutation preparation with those
   resident models. The storage participant persists owner headers and indexed
   resource/grant records, with bounded resumable loading and native LMDB evidence
-  for atomic content/grant/event updates and recovery. It stages one managed
-  owner mutation per transaction; repeated updates to that header refuse through
-  Loam's duplicate-record check. Control descriptors persist immutable powers;
+  for atomic content/grant/event updates and recovery. Several managed changes
+  join one Store transaction. Each stage validates and stages against the
+  transaction's own composed state, and the deltas re-propose the owner
+  header, so the submitted batch holds one header mutation per owner. Stale
+  preparation against an older revision refuses the whole transaction without
+  partial changes. Volatile and LMDB evidence covers composed commit, abort,
+  and unknown-outcome recovery with reopen. Control descriptors persist immutable powers;
   independent control attenuation/revocation
   remain requirements in the [storage plan](planning/loam/access/storage.md).
   That plan also owns resource reparenting/deletion and child listing indexes. The
@@ -288,6 +292,14 @@ not ship a native Zig QUIC or WebRTC stack.
   or IRC owner in TypeScript. That establishes neither Windows support,
   file-lock behavior on other filesystems, nor public Tor circuit
   reachability, and no throughput or latency figure is claimed for it.
+  The repository defines a workflow for [host product packages](../apps/rooms/host.md)
+  on matching runners. A workflow definition does not establish that a
+  particular run passed or that an archive was published. Local Linux evidence
+  does not establish macOS behavior.
+  A Linux devcontainer does not cross-build
+  the Rust session for macOS. The macOS packages are not Developer ID signed
+  or notarized, and the package proof does not establish Gatekeeper acceptance
+  of a downloaded artifact or reachability through a particular public network.
 
 - **A Rooms message consumer has a bounded unread queue.** `Room.messages`
   hands a line directly to a pending read and otherwise retains at most 256
@@ -546,11 +558,17 @@ Native WebRTC embeddings pass the same provider-neutral ICE facts as fixed C
 records: URLs plus optional username/password credentials. They still own any
 credential API, expiry, and refresh policy above the transport.
 
-Native `rooms-peer` composes iroh and the sealed relay backend, not WebRTC, so
-it cannot signal a default browser tab. It answers on an inbound WebRTC reply
-capability, or cold-dials a tab that selected `noise-relay`. A tab that wants
-native-initiated DMs picks **Through the room relay** in Settings or opens with
-`?dm=relay`.
+`glowcap apps rooms session` uses the shared Rust session, with iroh, TCP, onion,
+and relay routes supplied by its host providers, not WebRTC. A browser that
+wants host-initiated DMs selects **Through the room relay**; the session also
+needs the relay URL, supplied explicitly or derived from its HTTP bootstrap.
+
+The session's local inbox holds 4096 unacknowledged events within a 16 MiB
+journal. Pressure or failed persistence retires the observer, not the session,
+and reports a gap requiring explicit acceptance before observation resumes.
+Its file events contain descriptions; local control does not transfer bytes. The agent
+harness must keep a live consumer to wake a model; the session alone keeps
+receiving but cannot invoke a model after its turn ends.
 
 A room stores posted files under its room and server ceilings. A direct-message sender has no server
 in its path, so it hosts each blob until the recipient pulls it. The Rust application's

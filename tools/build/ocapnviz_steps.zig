@@ -33,7 +33,7 @@ pub fn register(
     const ocapnviz_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
     ocapnviz_test.setCwd(b.path("."));
     ocapnviz_test.has_side_effects = true;
-    ocapnviz_test.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    ocapnviz_test.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     ocapnviz_test.addArgs(&.{ "bash", "tools/check/ocapnviz-test.sh" });
     ocapnviz_test.step.dependOn(rooms_services_install);
     ocapnviz_test.step.dependOn(&ocapnviz_build_check.step);
@@ -66,7 +66,7 @@ pub fn register(
     const ocapnviz_live_browser = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
     ocapnviz_live_browser.setCwd(b.path("apps/ocapnviz"));
     ocapnviz_live_browser.has_side_effects = true;
-    ocapnviz_live_browser.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    ocapnviz_live_browser.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     ocapnviz_live_browser.addArgs(&.{ "deno", "task", "test:live-browser" });
     ocapnviz_live_browser.step.dependOn(rooms_services_install);
     ocapnviz_live_browser.step.dependOn(wasm_driver_install_step);

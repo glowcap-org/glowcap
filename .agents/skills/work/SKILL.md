@@ -179,6 +179,8 @@ lease. If another session owns the lease, the front reports its PID, working
 directory, and command instead of racing caches or ports. A contributor with
 the complete declared toolchain may still invoke `zig build` directly on the
 host.
+The skill's build front and lease are links to their canonical implementations
+under `.devcontainer/bin/`; the checkout launcher shares that environment owner.
 
 A host-side live service invocation needs a PTY so Ctrl-C crosses `docker exec`
 and reaches its container process tree. `glowcap-dev` refuses a service build

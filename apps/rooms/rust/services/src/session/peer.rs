@@ -43,6 +43,7 @@ impl Owners {
 /// driven by [`Peer::serve`], retired by [`Peer::close`].
 pub struct Peer {
 	owners: Owners,
+	pub(super) state_directory: std::path::PathBuf,
 	link: String,
 	report: Report,
 }
@@ -54,13 +55,26 @@ impl Peer {
 	pub async fn open(config: Config, report: Report) -> Result<Self, Error> {
 		let mut owners = Owners::default();
 		match assemble(&config, &report, &mut owners).await {
-			Ok(link) => Ok(Self { owners, link, report }),
+			Ok(link) => Ok(Self {
+				owners,
+				link,
+				report,
+				state_directory: config.state,
+			}),
 			Err(error) => Err(error.retain_result(owners.close().await)),
 		}
 	}
 	/// The administrator sturdyref this peer published.
 	pub fn link(&self) -> &str {
 		&self.link
+	}
+	/// Local application access for a view hosted by this same process.
+	pub fn local(&self) -> Result<rooms_runtime::service::Local<rooms_platform::HostPlatform>, Error> {
+		self.owners
+			.session
+			.as_ref()
+			.map(SharedSession::local)
+			.ok_or_else(|| Error::closed("the session is closed"))
 	}
 	/// Accept and serve partners until `halt` resolves or a worker ends on its
 	/// own. Either way the peer is closed before this returns, and every

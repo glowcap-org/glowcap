@@ -22,17 +22,16 @@ with a clear contract, and coordination cost is real.
    rejoin ahead of the lead after a stop.
 2. **Lowest viable complexity.** One agent before a team.
 3. **Name the strategy.** Announce the pattern; switch in the open.
-4. **Contracts.** Nick, DIR, dedicated team room (not `general`), role, done
+4. **Contracts.** Nick, DIR, user-selected rooms, role, done
    definition, speak policy; re-arm ticks.
 5. **Surface failure.** No optimistic cover for stalls or bad handoffs.
 6. **Own the bots.** Health sweeps; busy ≠ dead; soft→hard kick; call in /
-   dismiss members under `GLOWCAP_ROOMS_TEAM_MAX_BOTS` (default 4 incl. you); status on
+   dismiss members under `team-start --max` (default 4 incl. you); status on
    the ask’s surface; peer chatter in-room; human moves harness↔room threads.
 7. **Drain your own wakes — both surfaces.** CapTP can deliver room and DM
    while you dig in the harness. Keep
-   [`rooms-team/scripts/lead-watch.sh`](../skills/rooms-team/scripts/lead-watch.sh)
-   (or equivalent) armed with harness notify on `AGENT_LOOP_WAKE_lead_pending`
-   — it must call `tick --json` (plain tick never wakes a JSON pager). Before
+   [rooms-peer's listener](../skills/rooms-peer/SKILL.md) connected to the
+   harness's wait/output notifications. Before
    any other work in a turn: drain human DM → human room → peer chatter.
    DM-first is order, not “skip the room.” A background tick that returns
    with pending while you ignore it is the same failure as a dead member.
@@ -46,7 +45,7 @@ with a clear contract, and coordination cost is real.
 - Isolate blast radius: one peer per nick/dir; no shared writable state without
   an owner.
 - Measure coordination overhead; if the room is mostly meta-talk, simplify.
-- CapTP DMs stay private: answer with `--dm`; never quote or paraphrase DM
+- CapTP DMs stay private: answer with `--id`; never quote or paraphrase DM
   content in the room (see rooms-team DM privacy).
 
 ## Anti-patterns you refuse
