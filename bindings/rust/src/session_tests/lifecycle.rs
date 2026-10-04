@@ -215,8 +215,8 @@ async fn a_mid_turn_driving_verb_breaks_its_own_answer() {
 
 // A behavior that drops its own captured `Session` mid-turn requests the
 // shared cancel policy without freeing the `Box<ActorCell>` whose behavior
-// frame is still on the stack. The core-issued close effect runs after the
-// turn, so the send settles before the connection reaches its barrier.
+// frame is still on the stack. The cancel takes effect when the turn returns
+// (ADR-0114), so the turn's own reply stands and later calls see the close.
 #[tokio::test]
 async fn a_behavior_closing_its_own_connection_mid_local_send_parks_the_release() {
 	let local = LocalSet::new();
@@ -252,10 +252,10 @@ async fn a_behavior_closing_its_own_connection_mid_local_send_parks_the_release(
 					Ok(Argument::Void)
 				})
 				.unwrap();
-			// Cancelling the causal session wins before its queued answer is
-			// projected. The native Host owns this order for local calls too.
-			let error = observer.send(&me, "die", &[]).await.unwrap_err();
-			assert_eq!(error.code(), crate::sys::ERR_CLOSED);
+			// The turn finished before its cancel took effect, so its reply is
+			// not an outstanding operation the cancel breaks.
+			let reply = observer.send(&me, "die", &[]).await.unwrap();
+			assert_eq!(reply, Argument::Symbol("closing".into()));
 			assert!(
 				!released_in_behavior.get(),
 				"session released beneath its behavior frame"

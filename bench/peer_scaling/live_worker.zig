@@ -48,7 +48,6 @@ fn rootFor(role: u8, shard: usize) [32]u8 {
 fn initHost(allocator: std.mem.Allocator, role: u8, shard: usize) !Host {
     return Host.init(allocator, rootFor(role, 0), rootFor(role, shard + 1), .{
         .limits = .{ .max_frame_bytes = frame_cap },
-        .local_turn_budget = driver.core.default_loop_local_turn_budget,
     });
 }
 

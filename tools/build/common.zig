@@ -241,7 +241,9 @@ pub fn installArchive(
     version: std.SemanticVersion,
 ) InstalledArchive {
     const static_lib = b.addLibrary(.{ .name = name, .linkage = .static, .root_module = root_module });
-    b.installArtifact(static_lib);
+    const static_install = b.addInstallArtifact(static_lib, .{});
+    checkArchiveSymbols(b, static_lib, &static_install.step, name);
+    b.getInstallStep().dependOn(&static_install.step);
     const shared_lib = b.addLibrary(.{
         .name = name,
         .linkage = .dynamic,
@@ -250,12 +252,24 @@ pub fn installArchive(
     });
     const dynamic_install = b.addInstallArtifact(shared_lib, .{});
     checkArchiveTls(b, shared_lib, &dynamic_install.step);
+    checkArchiveSymbols(b, shared_lib, &dynamic_install.step, name);
     b.getInstallStep().dependOn(&dynamic_install.step);
     return .{
         .static = static_lib,
         .dynamic = shared_lib,
         .dynamic_install = dynamic_install,
     };
+}
+
+/// Exact C-family ownership for ELF archives consumed by foreign linkers.
+/// Reflection supplies declarations; artifact inspection catches incidental
+/// exports pulled into companions by implementation imports.
+fn checkArchiveSymbols(b: *std.Build, artifact: *std.Build.Step.Compile, install: *std.Build.Step, name: []const u8) void {
+    if (artifact.root_module.resolved_target.?.result.ofmt != .elf) return;
+    const check = addRootedSystemCommand(b, .{ .deterministic = 15 }, &.{ "python3", "tools/check/archive_symbols.py" });
+    check.addFileArg(artifact.getEmittedBin());
+    check.addFileArg(b.path(b.fmt("include/{s}.h", .{name})));
+    install.dependOn(&check.step);
 }
 
 /// ELF TLS consumes storage on host-created pthread stacks. Keep each ABI

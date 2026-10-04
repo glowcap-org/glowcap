@@ -10,7 +10,7 @@ const values = @import("values.zig");
 const storage = @import("storage.zig");
 
 pub const Operation = struct {
-    phase: enum { free, waiting, scheduled, materializing, writing, settling, failed } = .free,
+    phase: enum { free, waiting, restarting, scheduled, materializing, forwarding, forwarded, writing, settling, failed } = .free,
     entry: *h.Entry = undefined,
     sequence: u64 = 0,
     ingress: actors.IngressId = .local,
@@ -21,6 +21,7 @@ pub const Operation = struct {
     pending_read: bool = false,
     verb: []const u8 = "",
     args: []const driver.Value = &.{},
+    argument_retains: []driver.Host.StagedCapabilityRetain = &.{},
     resolver: union(enum) { local: u64, host: u64, none } = .none,
     lifetime: driver.Host.PendingWorkLease = .{ .host = null },
     lease: ?core.Lease = null,
@@ -28,8 +29,12 @@ pub const Operation = struct {
     call: ?h.Call = null,
     reply: driver.Value = .{ .void = {} },
     failure: anyerror = error.CallFailed,
+    /// Borrows the owned forwarded result, or bounded call-arena text.
+    failure_reason: ?[]const u8 = null,
     confirmed: bool = false,
     dependent_target: ?driver.Capability = null,
+    forwarded: ?*driver.Host.Call = null,
+    local_forward: ?actors.Vow = null,
 };
 
 pub const Endpoint = struct {
@@ -92,13 +97,12 @@ pub const DependentEndpoint = struct {
         if (self.owner.closing) return error.AttachmentClosed;
         if (turn.host != self.owner.host) return error.ForeignTurn;
         const entry = try self.owner.entryFor(self.guard);
-        _ = try self.owner.entryFor(self.target);
         try admit(entry, turn.turn, turn.session, verb, args, self.target);
         return .{ .void = {} };
     }
 
     pub fn deinit(self: *DependentEndpoint, _: std.mem.Allocator) void {
-        self.owner.host.releaseCapability(self.target, 1) catch unreachable;
+        self.owner.host.releaseCapabilityTerminal(self.target, null);
         self.owner.host.releaseCapability(self.guard, 1) catch unreachable;
         std.debug.assert(self.owner.dependent_facets != 0);
         self.owner.dependent_facets -= 1;
@@ -109,7 +113,6 @@ pub const DependentEndpoint = struct {
 fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, verb: []const u8, args: []const driver.Value, dependent_target: ?driver.Capability) !void {
     const owner = entry.owner;
     if (turn.vat != &owner.host.vat) return error.ForeignTurn;
-    for (args) |arg| if (!values.plain(arg)) return error.NotDurable;
     if (owner.sequence == std.math.maxInt(i64)) return error.SequenceExhausted;
     if (owner.pending_bytes > owner.options.pending_bytes - owner.options.call_bytes) return error.CallCapacity;
     var ingress_calls: usize = 0;
@@ -126,15 +129,20 @@ fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, ver
     op.* = .{ .entry = entry, .memory = memory, .fixed = .init(memory), .ingress = turn.ingress, .peer = if (session) |s| s.peer_handle else null };
     errdefer op.* = .{};
     if (dependent_target) |target| {
-        const actor = owner.host.localActorFor(target) orelse return error.NotDurable;
-        op.dependent_target = try owner.host.retainLocalCapability(actor);
+        const retained = try owner.host.retainValueCapabilities(op.fixed.allocator(), &.{.{ .capability = target }});
+        op.dependent_target = retained[0].ref;
     }
-    errdefer if (op.dependent_target) |target| owner.host.releaseCapability(target, 1) catch unreachable;
+    errdefer if (op.dependent_target) |target| owner.host.releaseCapabilityTerminal(target, null);
     const arena = op.fixed.allocator();
     op.verb = try arena.dupe(u8, verb);
     const copied = try arena.alloc(driver.Value, args.len);
     for (copied, args) |*out, item| out.* = try values.copy(driver.Value, arena, item);
     op.args = copied;
+    // The inbound turn releases its observations on return. The admitted
+    // operation owns one retain per occurrence through every storage wait,
+    // preparation restart, and commit outcome, including a closed session.
+    op.argument_retains = try owner.host.retainValueCapabilities(arena, copied);
+    errdefer owner.host.releaseUntransferredCapabilityRetains(op.argument_retains);
     op.input_end = op.fixed.end_index;
     op.lifetime = try owner.host.admitPendingWork();
     errdefer op.lifetime.complete();
@@ -164,11 +172,61 @@ fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, ver
 /// Storage completions only change eligibility. Ready invocations run as
 /// ordinary Vat turns; settlement runs here at a top-level owner boundary.
 pub fn advance(owner: *h.Attachment) !void {
+    _ = try advanceProgress(owner);
+}
+
+/// Reports transitions that need another Host turn, without treating a parked
+/// foreign reply or storage worker as runnable activity.
+pub fn advanceProgress(owner: *h.Attachment) !bool {
     try owner.topLevel();
+    var progressed = if (owner.discovery) |discovery| try discovery.advanceProgress() else false;
+    progressed = (try advanceOperations(owner)) or progressed;
+    // Settlement releases leases before deferred publication tries to acquire
+    // them. Host publication runs outside the retained-operation callback guard.
+    progressed = (try @import("publication.zig").advanceRepublish(owner)) or progressed;
+    return progressed;
+}
+
+fn advanceOperations(owner: *h.Attachment) !bool {
+    var progressed = false;
     owner.advancing = true;
     defer owner.advancing = false;
     for (owner.operations, 0..) |*op, index| {
+        const prior_phase = op.phase;
+        defer progressed = progressed or op.phase != prior_phase;
         if (op.pending_read) continue;
+        if (op.phase == .restarting) {
+            reset(owner, op);
+            op.phase = .waiting;
+            continue;
+        }
+        if (op.phase == .forwarding) {
+            if (owner.store.phase != .idle or op.snapshot_revision != owner.store.metadata.revision) {
+                reset(owner, op);
+                op.phase = .waiting;
+                continue;
+            }
+            beginForward(owner, op) catch |err| {
+                op.failure = err;
+                op.phase = .failed;
+            };
+        }
+        if (op.phase == .forwarded and op.forwarded != null) switch (op.forwarded.?.result()) {
+            .pending => continue,
+            .failed => |failed| {
+                op.failure = error.ForwardedCallFailed;
+                op.failure_reason = failed.message;
+                op.phase = .failed;
+            },
+            .ready => |reply| {
+                retainResult(op, reply) catch |err| {
+                    op.failure = err;
+                    op.phase = .failed;
+                    continue;
+                };
+                op.phase = .settling;
+            },
+        };
         if (op.phase == .materializing and op.call.?.replacement == null and op.call.?.transaction == null and
             (owner.store.phase != .idle or op.snapshot_revision != owner.store.metadata.revision))
         {
@@ -254,6 +312,7 @@ pub fn advance(owner: *h.Attachment) !void {
             if (owner.host.sessionForPeer(peer)) |session| try owner.host.flushSession(session);
         }
     }
+    return progressed;
 }
 
 fn prepare(owner: *h.Attachment, op: *Operation) !void {
@@ -267,6 +326,10 @@ fn prepare(owner: *h.Attachment, op: *Operation) !void {
 /// No outstanding read may borrow working-set or arena storage at this point.
 pub fn reset(owner: *h.Attachment, op: *Operation) void {
     std.debug.assert(!op.pending_read);
+    if (op.forwarded) |forwarded| forwarded.deinit();
+    op.forwarded = null;
+    op.failure_reason = null;
+    std.debug.assert(op.local_forward == null);
     if (op.call) |*call| {
         call.release();
         if (call.preparation) |working| working.deinit();
@@ -283,7 +346,6 @@ fn dispatched(ctx: ?*anyopaque, result: actors.Resolution) void {
     // The runner normally changes phase before resolving. A still-scheduled
     // operation was canceled or refused before invoking its behavior.
     _ = result;
-    reset(op.entry.owner, op);
     op.failure = error.ActivationCanceled;
     op.phase = .failed;
 }
@@ -299,8 +361,8 @@ pub const Runner = struct {
         const op = &self.owner.operations[index];
         if (op.phase != .scheduled or op.sequence != msg.args[1].integer) return error.StaleCompletion;
         if (self.owner.store.phase != .idle or op.snapshot_revision != self.owner.store.metadata.revision) {
-            reset(self.owner, op);
-            op.phase = .waiting;
+            // Retire preparation at the next top-level advance boundary.
+            op.phase = .restarting;
             return .{ .void = {} };
         }
         invoke(self.owner, index) catch |err| {
@@ -323,6 +385,11 @@ fn invoke(owner: *h.Attachment, index: usize) !void {
     const arena = op.fixed.allocator();
     owner.stats.invocations += 1;
     op.reply = try behavior.invoke(&op.call.?, view, op.verb, op.args);
+    if (op.call.?.forward != null) {
+        if (op.call.?.replacement != null or op.call.?.transaction != null or op.call.?.result != null or op.call.?.confirmation != null) return error.InvalidForwarding;
+        op.phase = .forwarding;
+        return;
+    }
     if (op.call.?.replacement != null or op.call.?.transaction != null) {
         // Local-only resolver results cannot transport owning capability values.
         try owner.store.begin();
@@ -345,6 +412,47 @@ fn invoke(owner: *h.Attachment, index: usize) !void {
         return;
     }
     if (op.call.?.result != null) op.phase = .materializing else try finishInvocation(owner, index);
+}
+
+fn beginForward(owner: *h.Attachment, op: *Operation) !void {
+    const forward = op.call.?.forward.?;
+    const session = owner.host.capabilitySession(forward.target) orelse if (op.peer) |peer| owner.host.sessionForPeer(peer) else null;
+    if (session) |home| {
+        op.forwarded = try owner.host.callCapability(op.fixed.allocator(), home, forward.target, forward.verb, forward.args, owner.options.forward_reply_bytes);
+    } else {
+        // Native local eventual calls keep their existing data-only resolver
+        // boundary. An owning reply requires the Host Value delivery surface.
+        const actor = owner.host.localActorFor(forward.target) orelse return error.UnknownCapability;
+        const args = try op.fixed.allocator().alloc(model.Argument, forward.args.len);
+        for (args, forward.args) |*out, value| out.* = try values.copy(model.Argument, op.fixed.allocator(), value);
+        op.local_forward = try owner.host.vat.sendObservedFromIngress(op.ingress, actor, .{ .verb = forward.verb, .args = args }, .{ .ctx = op, .func = completeLocalForward });
+    }
+    op.phase = .forwarded;
+}
+
+fn completeLocalForward(context: ?*anyopaque, resolution: actors.Resolution) void {
+    const op: *Operation = @ptrCast(@alignCast(context.?));
+    std.debug.assert(op.phase == .forwarded and op.local_forward != null);
+    op.local_forward = null;
+    switch (resolution) {
+        .fulfilled => |value| {
+            op.reply = values.copy(driver.Value, op.fixed.allocator(), value) catch |err| {
+                op.failure = err;
+                op.phase = .failed;
+                return;
+            };
+            op.phase = .settling;
+        },
+        .broken => |reason| {
+            op.failure = error.ForwardedCallFailed;
+            op.failure_reason = op.fixed.allocator().dupe(u8, reason) catch null;
+            op.phase = .failed;
+        },
+        .give => {
+            op.failure = error.OwningReplyRequired;
+            op.phase = .failed;
+        },
+    }
 }
 
 fn finishInvocation(owner: *h.Attachment, index: usize) !void {
@@ -376,7 +484,7 @@ fn settle(owner: *h.Attachment, op: *Operation) !void {
     switch (op.resolver) {
         .none => {},
         .local => |resolver| {
-            if (failed) try owner.host.vat.breakVow(resolver, @errorName(op.failure)) else {
+            if (failed) try owner.host.vat.breakVow(resolver, op.failure_reason orelse @errorName(op.failure)) else {
                 // Conversion may be retried after allocation refusal. This is
                 // preparation only; it does not rerun the actor or its write.
                 var arena = std.heap.ArenaAllocator.init(owner.allocator);
@@ -388,7 +496,7 @@ fn settle(owner: *h.Attachment, op: *Operation) !void {
             var arena = std.heap.ArenaAllocator.init(owner.allocator);
             defer arena.deinit();
             const result = if (failed)
-                owner.host.resolverBreak(resolver, @errorName(op.failure))
+                owner.host.resolverBreak(resolver, op.failure_reason orelse @errorName(op.failure))
             else
                 owner.host.resolverFulfillValue(resolver, op.reply, arena.allocator());
             result catch |err| switch (err) {
@@ -402,7 +510,8 @@ fn settle(owner: *h.Attachment, op: *Operation) !void {
         if (owner.store.evictObject(op.entry.id) catch false) owner.stats.sleeps += 1;
     }
     owner.host.vat.releaseActor(op.entry.actor.?.local);
-    if (op.dependent_target) |target| owner.host.releaseCapability(target, 1) catch unreachable;
+    if (op.dependent_target) |target| owner.host.releaseCapabilityTerminal(target, null);
+    for (op.argument_retains) |retained| owner.host.releaseCapabilityTerminal(retained.ref, null);
     op.lifetime.complete();
     owner.pending_bytes -= op.memory.len;
     owner.allocator.free(op.memory);

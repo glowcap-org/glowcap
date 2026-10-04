@@ -6,10 +6,16 @@ pub const Capture = struct {
     arena: std.mem.Allocator,
     value: ?f.model.Argument = null,
     failed: bool = false,
+    reason_buf: [128]u8 = undefined,
+    reason_len: usize = 0,
     pub fn record(context: ?*anyopaque, resolution: h.actors.Resolution) void {
         const self: *Capture = @ptrCast(@alignCast(context.?));
         if (resolution != .fulfilled) {
             self.failed = true;
+            if (resolution == .broken) {
+                self.reason_len = @min(resolution.broken.len, self.reason_buf.len);
+                @memcpy(self.reason_buf[0..self.reason_len], resolution.broken[0..self.reason_len]);
+            }
             return;
         }
         self.value = f.model.cloneArgument(self.arena, resolution.fulfilled) catch {
@@ -18,7 +24,10 @@ pub const Capture = struct {
         };
     }
     pub fn require(self: *const Capture) !f.model.Argument {
-        if (self.failed) return error.DescriptionFailed;
+        if (self.failed) {
+            std.log.err("snapshot reply failed: {s}", .{self.reason_buf[0..self.reason_len]});
+            return error.DescriptionFailed;
+        }
         return self.value orelse error.Unsettled;
     }
 };

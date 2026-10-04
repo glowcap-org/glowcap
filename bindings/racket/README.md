@@ -57,37 +57,42 @@ listener opens rather than dropped.
 
 ## The native loop
 
-Every provider-backed `runtime-connect` and `listen` ride the native loop posture:
-`libglowcap_host` supplies the Host and `libglowcap_driver` supplies only the
-loop family. The driver adopts the Host through `glowcap_driver_take_host`,
-starts with zero providers, and receives the TCP package from
-`libglowcap_net_transport_tcp` through the common provider ABI. The library owns
-the socket, the readiness set, and every accepted session's pumping, and the
-binding parks one green thread on the loop's readiness descriptor and steps. A
-bare `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial
-mints one loop per connection, `listen` binds the loop's listener, and a dial
-sharing a loop-backed server's host stages on that same loop. A supplied Host
-is transferred into that loop transactionally, preserving its identity and
-authority. A byte-fed dial requires a connector explicitly registered on the
-Host; that connector is also the only byte-fed realization available to a
-later handoff redeem.
+Every `runtime-connect` and `listen` that uses a transport provider runs on
+glowcap's native loop. `libglowcap_host` supplies the Host, and
+`libglowcap_driver` supplies only the loop. The driver adopts the Host through
+`glowcap_driver_take_host`, starts with no providers, and receives the TCP
+package from `libglowcap_net_transport_tcp` through the common provider ABI.
+
+- The library owns the socket, the readiness set, and the pumping of every
+  accepted session. The binding parks one green thread on the loop's readiness
+  descriptor and steps the loop.
+- A bare `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial creates
+  one loop per connection. `listen` binds the loop's listener, and a dial that
+  shares a loop-backed server's Host runs on that same loop.
+- A supplied Host moves into the loop in one step, keeping its identity and
+  authority.
+- A byte-fed dial needs a connector registered on the Host explicitly. That
+  connector is also the only byte-fed path a later handoff redeem can use.
 
 `open-runtime` accepts `#:adopt-host` when an existing Host should transfer
 into the Runtime. `runtime-close!` is then that Host's terminal shutdown
 barrier.
 
-`listen`, `listen-keyed-tcp`, and `listen-noise-tcp` return the same server
-surface. `server-locator` is its canonical metadata, `server-uri` renders that
-locator, and `server-port` extracts the provider's bound port. Pass `#:seed` to
-preserve keyed identity across restarts, or `#:host` to have a supplied Host
-own the same native loop. `#:codec`, `#:captp-version`, and `#:features` name
-the profile a fresh Host is minted with; left out, a listener takes the supplied
-Host's profile, else the generated default. A value that differs from a
-supplied Host's profile is refused, never replaced by the Host's. `listen-iroh`
-and `listen-onion` take the same three keywords with the same rule, and every
-listener takes `#:options`; only the TCP package defines per-listen options, so
-the iroh, onion, and relay providers refuse any value other than an empty one
-when the listener opens.
+`listen`, `listen-keyed-tcp`, and `listen-noise-tcp` return the same kind of
+server. `server-locator` is its canonical locator, `server-uri` renders that
+locator as text, and `server-port` returns the port the provider bound.
+
+- Pass `#:seed` to keep a keyed identity across restarts, or `#:host` to have
+  a supplied Host own the same native loop.
+- `#:codec`, `#:captp-version`, and `#:features` set the profile of a newly
+  created Host. If you leave them out, a listener uses the supplied Host's
+  profile, or otherwise the generated default. A value that conflicts with a
+  supplied Host's profile is refused, never silently replaced.
+- `listen-iroh` and `listen-onion` take the same three keywords with the same
+  rule.
+- Every listener takes `#:options`, but only the TCP package defines any. The
+  iroh, onion, and relay providers refuse anything but an empty value when the
+  listener opens.
 
 ## Hosted behavior rules
 

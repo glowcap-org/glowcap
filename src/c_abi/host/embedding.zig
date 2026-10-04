@@ -33,6 +33,34 @@ pub const DriverClaim = struct {
 
 pub const ClaimError = error{HostAlreadyOwned};
 
+/// Borrow the existing Host for a companion attachment. Terminal release is
+/// refused until the companion returns this borrow; it owns no driving rights.
+pub const AttachmentBorrow = struct {
+    inst: *common.Instance,
+    pub fn core(self: AttachmentBorrow) *driver_core.Host {
+        return &self.inst.core;
+    }
+    pub fn release(self: AttachmentBorrow) void {
+        std.debug.assert(self.inst.attachment_borrows != 0);
+        self.inst.attachment_borrows -= 1;
+    }
+};
+
+pub fn borrowForAttachment(handle: ?*c.GlowcapHost) !AttachmentBorrow {
+    const inst = common.instanceFrom(handle) orelse return error.NullPointer;
+    if (inst.core.withinCallback()) return error.ReenteredHost;
+    if (inst.core.lifecyclePhase() != .active) return error.Closed;
+    inst.attachment_borrows = try std.math.add(usize, inst.attachment_borrows, 1);
+    return .{ .inst = inst };
+}
+
+pub fn checkAttachmentsReleased(handle: ?*c.GlowcapHost) !void {
+    const inst = common.instanceFrom(handle) orelse return error.NullPointer;
+    if (inst.attachment_borrows != 0) return error.Busy;
+}
+
+pub const valueToC = common.valueToC;
+
 /// Claim the C handle's transport/action-drain ownership for a native driver
 /// construction. `HostRuntime.initWithCore` validates whether the core itself
 /// can transfer; rollback restores this token if it cannot.

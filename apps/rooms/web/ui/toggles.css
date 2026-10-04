@@ -217,9 +217,9 @@
    from whichever side of them was chosen.
 
    The ends belong to the cells that sit at them. Rounding the row by clipping
-   over the top of the cells was the old way, and it is what sliced a chosen
-   cell's ring at the corners; it was only ever needed because a wrapping row
-   moves which cells are visually first and last. It cannot wrap, so they say so
+   over the top of the cells would slice a chosen cell's ring at the corners;
+   it is only needed when a wrapping row moves which cells are visually first
+   and last. It cannot wrap, so they say so
    themselves and a chosen end cell closes its outline the whole way round. */
 .segmented {
 	--segmented-h: 24px;

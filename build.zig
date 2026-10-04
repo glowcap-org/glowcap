@@ -89,8 +89,10 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "c_abi_net_transport_inproc", .prefix = "c_abi/net_transport/inproc/", .imports = &.{ "net", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_net_transport_onion", .prefix = "c_abi/net_transport/onion/", .imports = &.{ "model", "net", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_host", .prefix = "c_abi/host/", .imports = &.{ "foundation", "model", "engine", "actors", "driver_core", "c_abi_shared" }, .core = false, .graph = false },
+    .{ .name = "c_abi_loam", .prefix = "c_abi/loam/", .imports = &.{ "loam_core", "loam_access", "loam_hosting", "driver_core", "c_abi_shared", "c_abi_host" }, .core = false, .graph = false },
+    .{ .name = "c_abi_loam_lmdb", .prefix = "c_abi/loam_lmdb/", .imports = &.{ "loam_core", "loam_lmdb", "c_abi_loam", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_driver", .prefix = "c_abi/driver/", .imports = &.{ "foundation", "model", "engine", "net", "driver_core", "driver", "c_abi_shared", "c_abi_host" }, .core = false, .graph = false },
-    .{ .name = "c_abi_wasm", .prefix = "c_abi/wasm/", .imports = &.{ "c_abi_shared", "c_abi", "c_abi_host" }, .core = false, .graph = false },
+    .{ .name = "c_abi_wasm", .prefix = "c_abi/wasm/", .imports = &.{ "c_abi_shared", "c_abi", "c_abi_host", "c_abi_loam" }, .core = false, .graph = false },
     .{ .name = "glowcap", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "loam", "net", "driver", "c_abi" }, .core = false },
 };
 
@@ -127,6 +129,8 @@ const archive_table = [_]ArchiveSpec{
     .{ .artifact = "glowcap_net_transport_inproc", .layer = "c_abi_net_transport_inproc", .header = "glowcap_net_transport_inproc.h" },
     .{ .artifact = "glowcap_net_transport_onion", .layer = "c_abi_net_transport_onion", .header = "glowcap_net_transport_onion.h" },
     .{ .artifact = "glowcap_host", .layer = "c_abi_host", .header = "glowcap_host.h" },
+    .{ .artifact = "glowcap_loam", .layer = "c_abi_loam", .header = "glowcap_loam.h" },
+    .{ .artifact = "glowcap_loam_lmdb", .layer = "c_abi_loam_lmdb", .header = "glowcap_loam_lmdb.h" },
     .{ .artifact = "glowcap_driver", .layer = "c_abi_driver", .header = "glowcap_driver.h" },
     .{ .artifact = "glowcap_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "glowcap_net_transport_iroh.h", .default_install = false },
     .{ .artifact = "glowcap_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "glowcap_net_transport_webrtc.h", .default_install = false, .release_install = false },
@@ -341,7 +345,8 @@ pub fn build(b: *std.Build) void {
     const runtime_gate = gates.runtime_gate;
     const test_filter = gates.test_filter;
     const wasm_driver_install_step = gates.wasm_install;
-    @import("tools/build/loam.zig").register(b, target, optimize, host_mods[layerIndex("loam_core")], gates);
+    const loam_lmdb_mod = @import("tools/build/loam.zig").register(b, target, optimize, host_mods[layerIndex("loam_core")], gates);
+    const loam_abi = @import("tools/build/loam_abi.zig").register(b, target, optimize, abi_version, host_mods, host_abi_mod, loam_lmdb_mod, gates);
 
     // The generated headers and binding mirrors register from
     // tools/build/gen.zig; the resident-dependent rows join below once the
@@ -361,6 +366,8 @@ pub fn build(b: *std.Build) void {
         .host_mods = host_mods,
         .host_abi_mod = host_abi_mod,
         .driver_abi_mod = driver_abi_mod,
+        .loam_abi_mod = loam_abi.portable,
+        .loam_lmdb_abi_mod = loam_abi.storage,
         .reflected_archives = gen_reflected_archives,
         .support = gen_support,
     };
@@ -405,7 +412,7 @@ pub fn build(b: *std.Build) void {
 
     // The examples register from tools/build/examples.zig; all of them ride
     // `check`.
-    examples_build.register(b, target, optimize, lib_mod, check_step, ocapn_static, host_static);
+    examples_build.register(b, target, optimize, lib_mod, check_step, ocapn_static, host_static, loam_lmdb_mod);
     // Optimize mode is per-module: every consumer that claims optimized
     // glowcap figures imports this dedicated ReleaseFast graph, never
     // `lib_mod`. The benches and their `perf-check` tripwire register from
@@ -597,7 +604,7 @@ pub fn build(b: *std.Build) void {
 
     // The formatting and per-scope checks register from
     // tools/build/bindings_steps.zig, over the archives and dogfood runs.
-    bindings_steps_build.registerChecks(b, check_step, &onion_archive.dynamic_install.step, bindings_reg);
+    bindings_steps_build.registerChecks(b, check_step, &onion_archive.dynamic_install.step, rooms.browser_application, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
     ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, &browser_preflight.step, rooms_services_install);

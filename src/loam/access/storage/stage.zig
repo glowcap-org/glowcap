@@ -6,12 +6,18 @@ const records = @import("loam_access_records");
 const Read = @import("read.zig").Read;
 const read = @import("read.zig");
 const Append = @import("append.zig").Append;
-const putEncoded = @import("record.zig").putEncoded;
+const record = @import("record.zig");
+const history = @import("history.zig");
+const putEncoded = record.putEncoded;
+pub const endpoint = @import("endpoint_stage.zig").create;
+pub const endpointFromOperation = @import("endpoint_stage.zig").createFromOperation;
+pub const endpointAtOperation = @import("endpoint_stage.zig").stageFromOperation;
 
 /// Creates an empty owner root in the caller's staging transaction. Opening
 /// failure never replaces an owner; callers explicitly retain this reference.
 pub fn createOwner(store: *loam.Store, owner: core.OwnerId, policy: core.Policy, options: Options) !loam.ObjectId {
     if (store.phase != .staging) return error.WrongPhase;
+    if (options.max_resource_depth > 64 or options.max_grant_depth > 64) return error.DepthLimit;
     errdefer store.abort() catch unreachable;
     const object = try store.allocateId();
     const header: records.OwnerRecord = .{ .owner = owner, .policy = policy, .max_resource_depth = options.max_resource_depth, .max_grant_depth = options.max_grant_depth, .max_grant_children = options.max_grant_children };
@@ -21,7 +27,7 @@ pub fn createOwner(store: *loam.Store, owner: core.OwnerId, policy: core.Policy,
 pub const Options = struct { max_resource_depth: u32 = 64, max_grant_depth: u16 = 64, max_grant_children: u32 = 256 };
 
 fn writable(view: *Read) !void {
-    try view.opened();
+    try view.prepareHistory();
     if (view.store.phase != .staging) return error.WrongPhase;
 }
 
@@ -29,9 +35,10 @@ fn headerRow(view: *Read, header: records.OwnerRecord) !void {
     const expected: ?u64 = if (try view.store.proposed(view.owner_object)) |staged|
         staged.expected
     else
-        (try view.store.currentView(view.header_lease.?)).revision;
-    var edges: [3]loam.Edge = undefined;
+        view.header_revision.?;
+    var edges: [records.OwnerRecord.max_edges]loam.Edge = undefined;
     try putEncoded(view.store, view.owner_object, records.profile.owner, header, header.edges(&edges), expected, true);
+    view.transaction = view.store.ticket;
 }
 
 /// A staged or committed row plus the revision the backend must still match
@@ -49,33 +56,48 @@ fn loaded(view: *Read, target: read.Target) !loam.RecordView {
 pub fn appendResource(append: *Append, kind: core.KindId, parent: ?core.ResourceId) !core.ResourceId {
     const view = append.view;
     try writable(view);
-    if (append.family != .resource or append.count != 4 or append.staged or append.cancelled) return error.WrongPhase;
+    if (append.directory.family != .resource or append.directory.count != 4 or append.directory.staged or append.directory.cancelled) return error.WrongPhase;
+    if (!append.resource_ready or !std.meta.eql(append.parent, parent)) return error.NotPrepared;
     var resources = try view.resourceView();
-    var edges: [1]loam.Edge = undefined;
+    var parent_object: ?loam.ObjectId = null;
     if (parent) |id| {
         if (resources.max_depth == 0) return error.DepthLimit;
         resources.max_depth -= 1;
         _ = try resources.isDescendant(id, id);
-        edges[0] = .{ .target = (try loaded(view, .{ .resource = id })).id };
+        parent_object = (try loaded(view, .{ .resource = id })).id;
     }
+    const parent_path = if (parent) |id| try history.resourcePath(view, id) else history.ResourcePath{};
     var header = view.header;
     header.version.resources = @fromBackingInt(std.math.add(u64, @backingInt(header.version.resources), 1) catch return error.RevisionExhausted);
-    const id: core.ResourceId = .{ .owner = header.owner, .slot = append.slot, .generation = 1 };
+    const id: core.ResourceId = .{ .owner = header.owner, .slot = append.directory.slot, .generation = 1 };
     // From here, a failure discards the entire shared content/access batch.
     errdefer view.store.abort() catch unreachable;
+    view.transaction = view.store.ticket;
     const object = try view.store.allocateId();
-    try putEncoded(view.store, object, records.profile.resource, records.ResourceRecord{ .revision = header.version.resources, .resource = .{ .id = id, .kind = kind, .parent = parent } }, edges[0..@intFromBool(parent != null)], null, false);
+    try record.putResource(view.store, object, records.ResourceRecord{ .revision = header.version.resources, .resource = .{ .id = id, .kind = kind, .parent = parent }, .placement = try history.stamp(view, @backingInt(header.version.resources)), .subtree = try history.stamp(view, @backingInt(header.version.resources)) }, parent_object, null);
     header.resources = try append.stageDirectory(object);
+    const children = try append.child.?.stage(object);
+    if (parent) |target| {
+        const row = try rowOf(view, .{ .resource = target });
+        try record.putChildren(view.store, row, children, header.version.resources);
+    } else header.roots = children;
     header.next_resource += 1;
     // The view carries this transaction's composed header from here, so a
     // further managed change staged in the same transaction prepares against
     // these deltas instead of re-reading committed state.
     view.header = header;
-    try headerRow(view, header);
+    try history.touchResources(view, parent_path.slice(), false);
+    var path = parent_path;
+    if (path.count == path.ids.len) return error.DepthLimit;
+    std.mem.copyBackwards(core.ResourceId, path.ids[1 .. path.count + 1], path.ids[0..path.count]);
+    path.ids[0] = id;
+    path.count += 1;
+    try history.append(view, .{ .resource = .{ .id = id, .kind = .created, .before = &.{}, .after = path.slice() } });
+    try headerRow(view, view.header);
     return id;
 }
 
-/// Stages a prepared grant with its parent, owner revision, and latest event.
+/// Stages a prepared grant and its ancestry in the shared retained batch.
 /// Issuance needs a prepared append path. Plans and this function are trusted
 /// owner operations; use/control authority is admitted before calling them.
 pub const StagedGrant = struct { change: core.GrantPlan.Change, object: loam.ObjectId };
@@ -83,14 +105,33 @@ pub const StagedGrant = struct { change: core.GrantPlan.Change, object: loam.Obj
 pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !StagedGrant {
     try writable(view);
     var grants = try view.grantView();
+    const event_parent = if (plan.delta == .issue) plan.delta.issue.parent else (try grants.get(plan.grant)).parent;
+    var ancestors: [records.ChangeBatchRecord.max_path]core.GrantId = undefined;
+    ancestors[0] = plan.grant;
+    var ancestor_count: usize = 1;
+    var ancestry = grants.ancestry(event_parent orelse plan.grant);
+    if (event_parent != null) while (try ancestry.next()) |entry| {
+        if (ancestor_count == ancestors.len) return error.DepthLimit;
+        ancestors[ancestor_count] = entry.id;
+        ancestor_count += 1;
+    };
     const changes = try plan.changes(&grants);
     const issuing = changes.expected == null;
     if (issuing) {
         const path = append orelse return error.WrongPhase;
-        if (path.view != view or path.family != .grant or path.count != 4 or path.staged or path.cancelled or path.slot != plan.grant.slot or plan.grant.generation != 1) return error.WrongPhase;
+        if (path.view != view or path.directory.family != .grant or path.directory.count != 4 or path.directory.staged or path.directory.cancelled or path.directory.slot != plan.grant.slot or plan.grant.generation != 1) return error.WrongPhase;
     } else if (append != null) return error.WrongPhase;
     const original = if (issuing) null else try rowOf(view, .{ .grant = plan.grant });
-    const parent = if (changes.parent_record) |record| try rowOf(view, .{ .grant = record.id }) else null;
+    // Policy edits preserve lifecycle history. Separate scratch keeps the
+    // plan's borrowed selections intact while decoding the prior stamp.
+    const status_stamp = if (issuing or plan.delta == .status) try history.stamp(view, @backingInt(changes.record.revision)) else blk: {
+        var scratch: [2 * core.max_scope_objects * @sizeOf(core.ResourceId)]u8 align(@alignOf(core.ResourceId)) = undefined;
+        var fixed = std.heap.FixedBufferAllocator.init(&scratch);
+        var prior = try records.GrantRecord.decodeOwned(fixed.allocator(), original.?.view.payload);
+        defer prior.deinit(fixed.allocator());
+        break :blk prior.value.lifecycle;
+    };
+    const parent = if (changes.parent_record) |parent_record| try rowOf(view, .{ .grant = parent_record.id }) else null;
     var edges: [514]loam.Edge = undefined;
     var edge_count: usize = 0;
     if (plan.delta == .status) {
@@ -119,8 +160,9 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
     var header = view.header;
     header.version = changes.event.version;
     errdefer view.store.abort() catch unreachable;
+    view.transaction = view.store.ticket;
     const object = if (original) |row| row.view.id else try view.store.allocateId();
-    try putEncoded(view.store, object, records.profile.grant, records.GrantRecord{ .grant = changes.record }, edges[0..edge_count], if (original) |row| row.expected else null, false);
+    try putEncoded(view.store, object, records.profile.grant, records.GrantRecord{ .grant = changes.record, .lifecycle = status_stamp, .authority = try history.stamp(view, @backingInt(header.version.grants)), .inventory = try history.stamp(view, @backingInt(header.version.grants)) }, edges[0..edge_count], if (original) |row| row.expected else null, false);
     if (parent) |row| {
         var parent_edges: [514]loam.Edge = undefined;
         var n: usize = 0;
@@ -130,19 +172,79 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
             parent_edges[n] = edge;
             n += 1;
         }
-        try putEncoded(view.store, row.view.id, records.profile.grant, records.GrantRecord{ .grant = changes.parent_record.? }, parent_edges[0..n], row.expected, false);
+        var parent_record = try records.GrantRecord.decodeOwned(view.allocator, row.view.payload);
+        defer parent_record.deinit(view.allocator);
+        parent_record.value.grant.child_count = changes.parent_record.?.child_count;
+        parent_record.value.grant.revision = changes.parent_record.?.revision;
+        parent_record.value.inventory = try history.stamp(view, @backingInt(header.version.grants));
+        try putEncoded(view.store, row.view.id, records.profile.grant, parent_record.value, parent_edges[0..n], row.expected, false);
     }
     if (append) |path| {
         header.grants = try path.stageDirectory(object);
         header.next_grant += 1;
     }
-    const event = try view.store.allocateId();
-    try putEncoded(view.store, event, records.profile.change, records.ChangeRecord{ .change = changes.event }, &.{.{ .target = object }}, null, false);
-    header.change = event;
-    // The view carries this transaction's composed header from here, so a
-    // further managed change staged in the same transaction prepares against
-    // these deltas instead of re-reading committed state.
     view.header = header;
-    try headerRow(view, header);
+    try history.touchGrants(view, ancestors[1..ancestor_count]);
+    try history.append(view, .{ .grant = .{ .change = changes.event, .path = ancestors[0..ancestor_count] } });
+    try headerRow(view, view.header);
     return .{ .change = changes.event, .object = object };
+}
+
+/// Independent management changes fence admissions without advancing the
+/// portable grant graph's revision or fabricating a grant change event.
+pub fn controlChanged(view: *Read, object: loam.ObjectId, kind: @FieldType(@FieldType(records.ChangeBatchRecord.Effect, "control"), "kind")) !void {
+    try writable(view);
+    errdefer view.store.abort() catch unreachable;
+    view.transaction = view.store.ticket;
+    var header = view.header;
+    header.control_revision = std.math.add(u64, header.control_revision, 1) catch return error.RevisionExhausted;
+    view.header = header;
+    try history.append(view, .{ .control = .{ .object = object, .kind = kind } });
+    try headerRow(view, view.header);
+}
+
+/// The caller prepared this path before invoking the application method.
+pub fn contentChanged(view: *Read, target: core.ResourceId) !void {
+    try writable(view);
+    const path = try history.resourcePath(view, target);
+    errdefer view.store.abort() catch unreachable;
+    view.transaction = view.store.ticket;
+    view.header.version.resources = @fromBackingInt(std.math.add(u64, @backingInt(view.header.version.resources), 1) catch return error.RevisionExhausted);
+    try history.touchResources(view, path.slice(), true);
+    try history.append(view, .{ .content = .{ .id = target, .path = path.slice() } });
+    try headerRow(view, view.header);
+}
+
+/// Load the immutable ancestry needed to stamp and journal a prepared grant.
+pub fn prepareGrant(view: *Read, plan: *const core.GrantPlan) !void {
+    try view.prepareHistory();
+    var grants = try view.grantView();
+    const parent = if (plan.delta == .issue) plan.delta.issue.parent else @as(?core.GrantId, plan.grant);
+    if (parent) |id| {
+        var path = grants.ancestry(id);
+        while (try path.next()) |_| {}
+    }
+}
+
+/// Hosting has admitted the method and exact endpoint target before requesting
+/// this owner-only preparation. It grants no public capability authority.
+pub fn prepareContent(operation: *@import("capability_operation.zig").Operation, target: core.ResourceId) !void {
+    const value = @import("capability_operation.zig").state(operation);
+    try value.opened();
+    if (value.staged or (value.prepared != .none and value.prepared != .resource)) return error.WrongPhase;
+    if (value.children != 0) return error.Busy;
+    try value.read.?.prepareHistory();
+    _ = try history.resourcePath(&value.read.?, target);
+}
+
+pub fn content(operation: *@import("capability_operation.zig").Operation, target: core.ResourceId) !void {
+    const value = @import("capability_operation.zig").state(operation);
+    try value.opened();
+    try value.unprepared();
+    try contentChanged(&value.read.?, target);
+    value.staged = true;
+}
+
+pub fn resourceWithContent(operation: *@import("capability_operation.zig").Operation, changed: bool) !bool {
+    return @import("capability_operation.zig").stagePreparedResource(@import("capability_operation.zig").state(operation), changed);
 }

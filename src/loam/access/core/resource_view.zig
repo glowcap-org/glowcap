@@ -43,6 +43,7 @@ pub const ResourceView = struct {
         InvalidRecord,
         RecordUnloaded,
         DepthLimit,
+        ContainmentCycle,
     };
 
     /// The source and its record storage outlive this view. Reads are
@@ -78,6 +79,32 @@ pub const ResourceView = struct {
         }
     }
 
+    pub fn depth(self: *ResourceView, id: ResourceId) Error!u32 {
+        var record = try self.get(id);
+        var value: u32 = 0;
+        while (record.parent) |parent| {
+            if (value == self.max_depth) return error.DepthLimit;
+            value += 1;
+            record = try self.get(parent);
+        }
+        return value;
+    }
+
+    /// Both resident and persistent moves validate canonical ancestry here.
+    /// The caller supplies the inspected subtree's maximum relative depth.
+    pub fn checkReparent(self: *ResourceView, id: ResourceId, parent: ?ResourceId, height: u32) Error!bool {
+        const record = try self.get(id);
+        _ = try self.depth(id);
+        const new_depth = if (parent) |target| value: {
+            if (try self.isDescendant(target, id)) return error.ContainmentCycle;
+            const parent_depth = try self.depth(target);
+            if (parent_depth == self.max_depth) return error.DepthLimit;
+            break :value parent_depth + 1;
+        } else 0;
+        if (height > self.max_depth - new_depth) return error.DepthLimit;
+        return !@import("std").meta.eql(record.parent, parent);
+    }
+
     /// Walks canonical parent edges with bounded work and no allocation. A
     /// positive match still validates the rest of the path to its root: an
     /// unloaded, cyclic, over-depth, or missing ancestor cannot hide behind it.
@@ -85,10 +112,10 @@ pub const ResourceView = struct {
         _ = try self.get(root);
         var record = try self.get(id);
         var matched = id.eql(root);
-        var depth: u32 = 0;
+        var traversed: u32 = 0;
         while (record.parent) |parent| {
-            if (depth == self.max_depth) return error.DepthLimit;
-            depth += 1;
+            if (traversed == self.max_depth) return error.DepthLimit;
+            traversed += 1;
             record = try self.get(parent);
             matched = matched or parent.eql(root);
         }

@@ -4,7 +4,6 @@ const std = @import("std");
 const access = @import("glowcap").loam.access;
 const core = access.core;
 const Record = access.records.GrantRecord;
-const Change = access.records.ChangeRecord;
 const a = std.testing.allocator;
 const wide = "0123456789abcdef";
 const owner: core.OwnerId = @fromBackingInt(std.mem.readInt(u128, wide, .big));
@@ -25,7 +24,7 @@ const sample: Record = .{ .grant = .{
     .child_count = 0,
 } };
 const term_bytes = "[[6'object16:0123456789abcdef3+1+]16:0123456789abcdef1+[ffffffffffffffff]]";
-const golden = "<12'access:grant1+16:0123456789abcdef0+1+2+f" ++ term_bytes ++ term_bytes ++ "6'active2+0+>";
+const golden = "<12'access:grant1+16:0123456789abcdef0+1+2+f" ++ term_bytes ++ term_bytes ++ "6'active2+0+0+0+0+0+0+0+>";
 
 test "access grant record canonical scalar grammar has no decode allocations" {
     const encoded = try sample.encodeAlloc(a);
@@ -123,34 +122,4 @@ test "access grant maximum selections and integers fit the encoded bound" {
     var other = try Record.decodeOwned(a, subtree);
     defer other.deinit(a);
     try std.testing.expectEqualDeep(maximal, other.value);
-}
-
-test "access change records retain the exact revision pair and event kind" {
-    const kinds = [_]core.GrantLedger.Change.Kind{
-        .{ .issued = null },
-        .{ .issued = .{ .owner = owner, .slot = 9, .generation = 1 } },
-        .policy_changed,
-        .{ .status_changed = .{ .before = .active, .after = .paused } },
-        .{ .status_changed = .{ .before = .paused, .after = .active } },
-        .{ .status_changed = .{ .before = .paused, .after = .revoked } },
-    };
-    for (kinds) |kind| {
-        const event: Change = .{ .change = .{ .version = .{ .resources = @fromBackingInt(4), .grants = @fromBackingInt(5) }, .grant = sample.grant.id, .kind = kind } };
-        const encoded = try event.encodeAlloc(a);
-        defer a.free(encoded);
-        try std.testing.expect(encoded.len <= Change.max_encoded_bytes);
-        const decoded = try Change.decode(encoded);
-        try std.testing.expectEqualDeep(event, decoded);
-        for (0..encoded.len) |length| try std.testing.expectError(error.MalformedRecord, Change.decode(encoded[0..length]));
-        @memset(encoded, 0);
-        try std.testing.expectEqualDeep(event, decoded);
-    }
-    const event_golden = "<13'access:change1+4+5+16:0123456789abcdef0+1+14'status_changed6'active6'paused>";
-    const value = try Change.decode(event_golden);
-    const encoded = try value.encodeAlloc(a);
-    defer a.free(encoded);
-    try std.testing.expectEqualStrings(event_golden, encoded);
-    try std.testing.expectError(error.MalformedRecord, Change.decode(event_golden ++ "f"));
-    try std.testing.expectError(error.UnsupportedVersion, Change.decode("<13'access:change2+>"));
-    try std.testing.expectError(error.InvalidRecord, Change.decode("<13'access:change1+4+5+16:0123456789abcdef0+1+14'status_changed7'revoked6'active>"));
 }

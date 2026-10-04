@@ -58,7 +58,7 @@ output name. To try `deno bundle`, replace the recipe with:
 to the selected compiler and an isolated Deno build with Vite's dependencies
 removed. `zig build rooms-web-page` exercises the selected output in Chromium.
 
-Development can already use native generation serving:
+Development can also use native generation serving:
 
 ```sh
 zig build rooms-dev -Dhot-reload=false
@@ -135,16 +135,20 @@ devcontainer already sets to `0.0.0.0`.
 ### As an onion service
 
 `zig build rooms-web -Dtransport=onion` publishes the directory as a Tor
-onion service while the page is still served over HTTP. The launcher starts
-a private Tor and stops it with the process; `GLOWCAP_ONION_SOCKS` and
-`GLOWCAP_ONION_CONTROL` name a Tor you already run. The onion address is
-the service key, kept as `onion-key` in the state directory, so set
-`GLOWCAP_ROOMS_STATE` when the address must survive a restart. Tor returns
-the address before publishing its descriptor, so a peer outside may need a
-few seconds of retries after the `ROOMS-SERVER-LISTENING` line; this page's
-own tabs reach the room at once through the relay's local forward. A
-terminal client needs an onion-capable runtime to dial through Tor;
-`demos/onion_demo.ts` is the working example.
+onion service, while the page itself is still served over HTTP.
+
+- The launcher starts a private Tor and stops it when the process ends. To use
+  a Tor you already run instead, set `GLOWCAP_ONION_SOCKS` and
+  `GLOWCAP_ONION_CONTROL`.
+- The onion address comes from the service key, stored as `onion-key` in the
+  state directory. Set `GLOWCAP_ROOMS_STATE` when the address must survive a
+  restart.
+- Tor reports the address before it publishes the service descriptor. An
+  outside peer may need a few seconds of retries after the
+  `ROOMS-SERVER-LISTENING` line, but this page's own tabs reach the room at
+  once through the relay's local forward.
+- A terminal client needs an onion-capable runtime to dial through Tor;
+  `demos/onion_demo.ts` is a working example.
 
 ### With a Goblins vat
 
@@ -164,8 +168,10 @@ raw TCP or iroh sockets, so `rooms-web` exposes a WebSocket byte relay:
 browser peer ──WebSocket /relay──▶ rooms-web ──TCP, iroh, or onion──▶ peer
 ```
 
-The relay does not parse CapTP and holds no application references; the
-keyed session passes through it end to end. It admits only destinations the
+The relay does not parse CapTP and holds no application references, but the
+browser has to trust it. The browser leg is cleartext, so the relay could read
+every frame. On an iroh route, the relay's QUIC connection checks the far
+node's key, and the browser takes its word for it. It admits only destinations the
 deployment allows: the supervised directory, an operator-listed TCP peer
 (`GLOWCAP_RELAY_TCP_PEERS`), any key-verified iroh node, the supervised
 onion service's own local endpoint, or a peer registered for rendezvous. It
@@ -225,11 +231,11 @@ messages, typing, room invitations, or archive shares across the connection,
 whichever side opened it.
 
 A member-owned archive is one more ordinary object, defined in
-`lib/archive/protocol.ts`: `put(record)` upserts one line or standing under
-its recorder source, conversation generation, and record id; `read(filter,
-afterRevision, limit)` answers a bounded page; `narrow(filter, access)`
-answers a facet whose scope can only shrink and whose write authority can
-only be removed. The browser store, the archive service, and the session
+`lib/archive/protocol.ts`. `put(record)` inserts or replaces one line or
+standing, keyed by its recorder source, conversation generation, and record id.
+`read(filter, afterRevision, limit)` returns a bounded page.
+`narrow(filter, access)` returns a facet whose scope can only shrink and whose
+write authority can only be removed. The browser store, the archive service, and the session
 service all implement it.
 
 The site's [protocol page](https://jimisaacs.github.io/glowcap/rooms/protocol/)
@@ -247,25 +253,29 @@ room-hosted blob at once; a read at the moving edge parks and wakes when the
 next bytes arrive. Holding an upload reference is the whole authority to fill
 that file, so `write` never names who is uploading.
 
-The room hosts the bytes rather than relaying the sender's own blob.
-Sender-hosted media reads as the purer capability story until you follow
-it: the recipient must dial the sender, which a browser tab cannot answer
-without per-viewer signaling, and the picture dies when the tab closes.
-Room-hosted media works for every client and outlives the poster. The cost
-is that the server has ceilings to keep: `FileLimits` in
-`rust/application/src/files.rs` bounds pending and held bytes and file
-counts, server-wide and per room, and `UPLOAD_IDLE_MS` reclaims an upload
-that declared a size and then wrote nothing. A dropped file's reference
-stays valid and answers `blob-expired`; bytes still in flight are refused
-rather than evicted, because their message may already be visible. A file
-that is too large for the page to keep at all is refused before the
-composer clears.
+The room hosts the bytes itself instead of relaying a blob the sender hosts.
+Sender-hosted files would mean every recipient dials the sender, which a
+browser tab cannot answer without signaling per viewer, and the picture
+would disappear when the sender's tab closed. Room-hosted files work for
+every client and outlive the person who posted them.
+
+The cost is that the server has limits to enforce:
+
+- `FileLimits` in `rust/application/src/files.rs` bounds pending bytes, held
+  bytes, and file counts, both server-wide and per room.
+- `UPLOAD_IDLE_MS` reclaims an upload that declared a size and then wrote
+  nothing.
+- A dropped file's reference stays valid and answers `blob-expired`.
+- Bytes still being uploaded are refused rather than evicted, because their
+  message may already be visible.
+- A file too large for the page to keep at all is refused before the composer
+  clears.
 
 ## Present boundaries
 
-- The session chooser draws a third door, "Sign in", as a stated boundary:
-  a session a server keeps and any device reaches with an account is not
-  built, so the row carries a "Coming soon" state and no act.
+- The session chooser shows a third option, "Sign in", marked "Coming soon"
+  and with no action. Server-kept sessions that any device can reach with an
+  account are not built yet.
 - `web/ui/emoji.ts` is a curated table and the one authority the tray,
   `:code:` substitution, and completion derive from. The widening path is a
   generator over a pinned CLDR-backed dataset, keeping the runtime

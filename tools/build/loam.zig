@@ -3,12 +3,15 @@ const std = @import("std");
 const execution = @import("execution.zig");
 const Gates = @import("gates.zig").Registered;
 
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, gates: Gates) void {
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, gates: Gates) *std.Build.Module {
     const lmdb = b.addModule("glowcap_loam_lmdb", .{
         .root_source_file = b.path("src/loam/backends/lmdb/mod.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        // Foreign linkers consume this module through the LMDB C archive.
+        // Trap-mode preserves C checks without an implicit Zig UBSan runtime.
+        .sanitize_c = .trap,
     });
     lmdb.addImport("loam_core", core);
     lmdb.addIncludePath(b.path("third_party/lmdb"));
@@ -18,7 +21,9 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         .flags = &.{ "-fvisibility=hidden", "-pthread" },
     });
     lmdb.addCSourceFile(.{ .file = b.path("src/loam/backends/lmdb/lock.c"), .flags = &.{"-fvisibility=hidden"} });
+    lmdb.addCSourceFile(.{ .file = b.path("src/loam/backends/lmdb/replacement.c"), .flags = &.{"-fvisibility=hidden"} });
     const bench_mod = b.createModule(.{ .root_source_file = b.path("bench/loam_bench.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    bench_mod.addCSourceFile(.{ .file = b.path("bench/loam/process_memory.c"), .flags = &.{"-fvisibility=hidden"} });
     bench_mod.addImport("glowcap", b.modules.get("glowcap").?);
     bench_mod.addImport("loam_lmdb", lmdb);
     bench_mod.addImport("alloc_metrics", b.createModule(.{ .root_source_file = b.path("test/support/alloc_metrics.zig"), .target = target, .optimize = optimize }));
@@ -63,6 +68,30 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     const actor_step = b.step("loam-actors-crash-test", "Kill a CapTP actor turn around LMDB commit and restore callable cyclic capabilities");
     actor_step.dependOn(&actor_crash.step);
     gates.runtime_gate.add(actor_step);
+    const managed_mod = b.createModule(.{ .root_source_file = b.path("test/loam_managed_crash.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    managed_mod.addImport("loam_lmdb", lmdb);
+    managed_mod.addImport("glowcap", b.modules.get("glowcap").?);
+    const managed_probe = b.addExecutable(.{ .name = "loam-managed-crash-probe", .root_module = managed_mod });
+    const managed_crash = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"python3"});
+    managed_crash.addFileArg(b.path("test/loam/lmdb/crash_test.py"));
+    managed_crash.addArtifactArg(managed_probe);
+    for ([_][]const u8{ "derive", "managed", "attenuate", "revoke", "add", "remove", "move", "delete", "observe", "cancel", "retire", "cleanup" }) |scenario| managed_crash.addArgs(&.{ "--scenario", scenario });
+    for ([_][]const u8{ "before", "after", "installed", "published" }) |boundary| managed_crash.addArgs(&.{ "--boundary", boundary });
+    const managed_step = b.step("loam-managed-crash-test", "Kill managed CapTP mutations around commit, installation, and reply delivery");
+    managed_step.dependOn(&managed_crash.step);
+    gates.runtime_gate.add(managed_step);
+    const reference_mod = b.createModule(.{ .root_source_file = b.path("test/loam_references_crash.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    reference_mod.addImport("loam_lmdb", lmdb);
+    reference_mod.addImport("glowcap", b.modules.get("glowcap").?);
+    const reference_probe = b.addExecutable(.{ .name = "loam-references-crash-probe", .root_module = reference_mod });
+    const reference_crash = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"python3"});
+    reference_crash.addFileArg(b.path("test/loam/lmdb/crash_test.py"));
+    reference_crash.addArtifactArg(reference_probe);
+    for ([_][]const u8{ "original", "use", "control" }) |scenario| reference_crash.addArgs(&.{ "--scenario", scenario });
+    for ([_][]const u8{ "before", "after", "installed" }) |boundary| reference_crash.addArgs(&.{ "--boundary", boundary });
+    const reference_step = b.step("loam-references-crash-test", "Kill checked foreign reference writes and restore exact authority roles in fresh vats");
+    reference_step.dependOn(&reference_crash.step);
+    gates.runtime_gate.add(reference_step);
     const collection_mod = b.createModule(.{ .root_source_file = b.path("test/loam_collection_crash.zig"), .target = target, .optimize = optimize, .link_libc = true });
     collection_mod.addImport("loam_core", core);
     collection_mod.addImport("loam_lmdb", lmdb);
@@ -74,6 +103,17 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     const collection_step = b.step("loam-collection-crash-test", "Kill a tracing sweep around LMDB commit and safely restart collection");
     collection_step.dependOn(&collection_crash.step);
     gates.runtime_gate.add(collection_step);
+    const compaction_mod = b.createModule(.{ .root_source_file = b.path("test/loam_compaction_crash.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    compaction_mod.addImport("loam_core", core);
+    compaction_mod.addImport("loam_lmdb", lmdb);
+    const compaction_probe = b.addExecutable(.{ .name = "loam-compaction-crash-probe", .root_module = compaction_mod });
+    const compaction_crash = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"python3"});
+    compaction_crash.addFileArg(b.path("test/loam/lmdb/compaction_crash_test.py"));
+    compaction_crash.addArtifactArg(compaction_probe);
+    const compaction_step = b.step("loam-compaction-crash-test", "Interrupt offline LMDB replacement and refuse duplicate owners and incomplete copies");
+    compaction_step.dependOn(&compaction_crash.step);
+    gates.runtime_gate.add(compaction_step);
+    return lmdb;
 }
 
 fn portableCheck(b: *std.Build, optimize: std.builtin.OptimizeMode, gates: Gates) void {

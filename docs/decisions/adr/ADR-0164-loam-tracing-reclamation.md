@@ -7,7 +7,7 @@ decision: "Reclaim unreachable local records through bounded transactional traci
 supersedes: []
 superseded_by: []
 amends: [ADR-0162, ADR-0163]
-amended_by: [ADR-0165]
+amended_by: [ADR-0165, ADR-0189]
 ---
 
 # ADR-0164 Loam tracing reclamation
@@ -29,7 +29,8 @@ requiring a resident graph index. LMDB uses ordered cursor seeks. The volatile
 backend is a transactional reference implementation with linear cursor scans.
 
 Live retention tokens, pending reads, and pinned record versions seed each
-batch. Historical pinned versions also seed their old strong edges. Host
+cycle, with later admissions journaled until confirmed shading under
+[ADR-0189](ADR-0189-loam-collection-custody-admission.md). Historical pinned versions also seed their old strong edges. Host
 endpoints own retention tokens automatically, so held actor capabilities survive
 collection without residency or a durable root flag. Releasing custody removes
 a root; explicit deletion and revocation retain their separate meanings.

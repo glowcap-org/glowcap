@@ -51,17 +51,17 @@ to trigger:
   reference under the other codec must not change its validated descriptor,
   including its variant, table position, kind, or pipeline path. Otherwise one
   table row could be read as two references, or two rows as one.
-- **Inbound frames are untrusted.** A frame escapes the resource caps
-  (frame size, table count and retained-byte bounds, nesting depth, validation
-  comparison work) to exhaust memory or CPU, or to overflow the stack, instead
-  of failing loud with a typed abort.
+- **Inbound frames are untrusted.** A frame gets past the resource caps and
+  exhausts memory or CPU, or overflows the stack, instead of failing loudly
+  with a typed abort. The caps cover frame size, table counts, retained bytes,
+  nesting depth, and the comparison work done during validation.
 
-glowcap proves that a target reached directly and through three-party handoff
-compares Equal when both paths converge on the same live exporter session. It
-does not infer target equality across independently established sessions that
-the protocol supplied no authenticated common identity for;
-[docs/boundaries.md](docs/boundaries.md) records that edge. If you can show the
-remaining edge defeats a revocation, report it.
+If a target is reached both directly and through a three-party handoff, glowcap
+proves the two references compare equal when both paths lead to the same live
+exporter session. It does not assume two targets are equal when they come from
+separate sessions that share no authenticated identity.
+[docs/boundaries.md](docs/boundaries.md) records that limit. If you can show
+that this limit lets someone defeat a revocation, please report it.
 
 ## Out of scope
 

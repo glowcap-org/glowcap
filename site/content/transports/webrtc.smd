@@ -159,18 +159,23 @@ DataChannel to the wasm Host. It supports two topologies:
 
 # STUN, TURN, and staying direct
 
-ICE finds a network path. The `@glowcap/webrtc` connector adds no infrastructure
-unless its embedding names some; a relay is fallback, never the steady path. On
-loopback or a LAN, peers pair on host candidates with no STUN or TURN. A browser
-that must cross NAT hands the connector a STUN server. Rooms does that as
-deployment policy, using Cloudflare's public STUN service by default and serving
-the chosen configuration to both browser halves; an explicit empty setting
-keeps the page infrastructure-free. A Rooms deployment may also keep a TURN
-issuer token on its server and mint short-lived browser credentials for each
-new connection. The native sidecar gathers host candidates only, so a native
-peer pairs on loopback or a LAN. A TURN relay carries bytes only when ICE finds
-no direct path, and even then it sits under DTLS, so it sees timing and volume
-but never the keyed session.
+ICE finds a network path between the peers. The `@glowcap/webrtc` connector
+adds no servers unless the application configures some, and a relay is only a
+fallback, never the normal path.
+
+- On loopback or a LAN, peers connect directly on host candidates, with no
+  STUN or TURN.
+- A browser that must cross a NAT gives the connector a STUN server. Rooms
+  does this by default, using Cloudflare's public STUN service, and serves the
+  same configuration to both browsers. Setting it explicitly to empty keeps the
+  page free of outside servers.
+- A Rooms deployment can also keep a TURN issuer token on its server and give
+  each new browser connection short-lived TURN credentials.
+- The native sidecar gathers only host candidates, so a native peer connects
+  on loopback or a LAN.
+
+A TURN relay carries bytes only when ICE finds no direct path. Even then it
+sits under DTLS, so it sees timing and volume but never the keyed session.
 
 # Three-party handoff over WebRTC
 

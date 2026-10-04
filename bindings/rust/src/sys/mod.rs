@@ -72,3 +72,6 @@ mod tcp_fns_gen;
 pub mod webrtc;
 #[cfg(feature = "webrtc")]
 mod webrtc_fns_gen;
+
+#[cfg(feature = "loam")]
+pub mod loam;

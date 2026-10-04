@@ -7,6 +7,38 @@ const f = @import("grant_fixture.zig");
 const core = f.core;
 const Ledger = core.GrantLedger;
 
+test "access dependency refusals preserve direct issuance derivation and policy editing state" {
+    var graph = try f.graphInit(std.testing.allocator);
+    defer graph.deinit() catch unreachable;
+    const resource = try graph.create(graph.revision(), f.kind, null);
+    var descriptor = f.descriptor;
+    descriptor.dependencies = &.{.{ .permission = f.post, .required = f.read }};
+    var ledger = try Ledger.init(std.testing.allocator, &graph, descriptor, .{ .capacity = 8 });
+    defer ledger.deinit() catch unreachable;
+    const full = try f.terms(.{ .object = resource }, &.{ f.read, f.post }, null);
+    var invalid = full;
+    invalid.policy.permissions = 2; // Direct calls can bypass a value constructor.
+    const initial = ledger.version();
+    try std.testing.expectError(error.MissingPrerequisite, ledger.issueRootCopying(initial, f.issue(invalid, 1)));
+    try std.testing.expectEqualDeep(initial, ledger.version());
+    const root = (try ledger.issueRootCopying(initial, f.issue(full, 2))).grant;
+    const before = ledger.version();
+    try std.testing.expectError(error.MissingPrerequisite, ledger.deriveCopying(before, root, f.issue(invalid, 0)));
+    try std.testing.expectError(error.MissingPrerequisite, ledger.setPolicyCopying(before, root, invalid));
+    var resources = graph.readView();
+    const policy = try core.Policy.init(descriptor);
+    const powers: core.Control.Powers = .{ .policy_ceiling = full };
+    const malformed: core.Control.Powers = .{ .policy_ceiling = invalid };
+    try std.testing.expectError(error.MissingPrerequisite, core.Control.validate(&resources, &policy, full, malformed));
+    try std.testing.expectError(error.MissingPrerequisite, core.Control.attenuate(&resources, &policy, powers, malformed));
+    try std.testing.expectError(error.MissingPrerequisite, core.Control.command(&resources, &policy, root, powers, .{ .set_policy = invalid }));
+    try std.testing.expectEqualDeep(before, ledger.version());
+    const child = (try ledger.deriveCopying(before, root, f.issue(full, 0))).grant;
+    try ledger.require(child, resource, .{ .permissions = &.{f.post} });
+    _ = try ledger.setPolicyCopying(ledger.version(), root, try f.terms(.{ .object = resource }, &.{f.read}, null));
+    try std.testing.expectError(error.Denied, ledger.require(child, resource, .{ .permissions = &.{f.post} }));
+}
+
 test "access child ceiling captures current access and survives parent edits" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;

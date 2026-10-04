@@ -5,6 +5,8 @@ Uses the public CLI from a foreign cwd. Docker is a recording fixture here;
 the release workflow separately runs the actual image on both Linux targets.
 Damaged inventories, unrelated executables, failed builds, and a missing
 database secret must fail without activating or destroying another product.
+The build runs ordinary cases and --deadline separately: the latter consumes
+the product's 15-second query budget and needs its own 30-second process limit.
 """
 import hashlib
 import fcntl
@@ -100,7 +102,7 @@ def installation(root, scratch):
     return link
 
 
-def deployment(binary, root, scratch):
+def docker_fixture(scratch):
     fakebin = scratch / "fake tools"
     fakebin.mkdir()
     docker = fakebin / "docker"
@@ -162,6 +164,11 @@ if a[:1] == ['compose'] and '--project-directory' in a:
     assert a[a.index('--project-directory') + 1] == str(config)
 ''')
     docker.chmod(0o755)
+    return fakebin
+
+
+def deployment(binary, root, scratch):
+    fakebin = docker_fixture(scratch)
     log = scratch / "docker.log"
     env = dict(PATH=f"{fakebin}:/usr/bin:/bin", HOME=str(scratch), DOCKER_LOG=str(log))
     workspace = scratch / "deployment config"
@@ -582,16 +589,22 @@ def interruption(binary, scratch):
 
 
 def main():
+    if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--deadline"):
+        raise SystemExit("usage: glowcap_host.py PRODUCT [--deadline]")
     root = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix="glowcap-host-") as temporary:
         scratch = Path(temporary)
         os.chdir(scratch)
+        if len(sys.argv) == 3:
+            docker_fixture(scratch)
+            deadline(root / "bin/glowcap", scratch)
+            print("glowcap-host-test: timed-out Docker child diagnostics and retirement passed")
+            return
         binary = installation(root, scratch)
         deployment(binary, root, scratch)
         reset_prompt(binary, scratch)
         child_output(binary, scratch)
         interruption(binary, scratch)
-        deadline(binary, scratch)
 
 
 if __name__ == "__main__":

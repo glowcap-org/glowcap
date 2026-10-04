@@ -16,6 +16,11 @@ import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY } from "../web/ui/command
 import { prepareComposerSend } from "../web/ui/composer/send.ts";
 import type { ComposerDraft } from "../web/ui/composer/send.ts";
 import type { Conv } from "../web/ui/types.ts";
+import {
+	SESSION_COMMAND_REQUIREMENTS,
+	SESSION_CONTENT,
+	SESSION_METHOD_REQUIREMENTS,
+} from "../lib/session_content_data.ts";
 
 import { initializeApplication } from "./support/application.ts";
 await initializeApplication();
@@ -24,6 +29,37 @@ const DIRECTORY_NO_CHAT = "This view does not carry messages. Use a command.";
 function fail(message: string): never {
 	throw new Error(message);
 }
+
+Deno.test("session content metadata keeps workspace, custody and target powers separate", () => {
+	const { participation, custody } = SESSION_CONTENT.groups;
+	const fields = new Set<string>([...participation, ...custody]);
+	if (fields.size !== participation.length + custody.length) fail("preset groups overlap");
+	if (
+		SESSION_CONTENT.presets.administrator.values.some((permission: string) =>
+			participation.some((field: string) => field === permission)
+		)
+	) {
+		fail("custody preset acquired participation");
+	}
+	if (SESSION_METHOD_REQUIREMENTS.roomBridgeForm.workspace.join() !== "observeWorkspace") {
+		fail("form inspection widened");
+	}
+	if (!SESSION_METHOD_REQUIREMENTS.command.targets.some((target) => target === "nestedCommand")) {
+		fail("command target missing");
+	}
+	if (SESSION_METHOD_REQUIREMENTS.facet !== null || SESSION_METHOD_REQUIREMENTS.revoke !== null) {
+		fail("legacy lifecycle admitted");
+	}
+	if (SESSION_COMMAND_REQUIREMENTS.linkRoom !== null) fail("plan builder became a callable command");
+	for (const name of ["selectArchive", "dropRoomManager", "dropRoomModerator"] as const) {
+		if (!SESSION_COMMAND_REQUIREMENTS[name].workspace.some((permission) => permission === "manageCustody")) {
+			fail(`${name} lost custody requirement`);
+		}
+	}
+	for (const name of ["leaveDirectory", "leaveConversation", "closeDirect"] as const) {
+		if (SESSION_COMMAND_REQUIREMENTS[name].targets.length) fail(`${name} cannot release unavailable custody`);
+	}
+});
 
 /** Read-only context is available; reaching an effect before required input
  * is admitted fails loudly. Rust interpretation cannot act through this port. */

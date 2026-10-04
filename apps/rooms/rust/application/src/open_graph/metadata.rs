@@ -182,9 +182,7 @@ impl Metadata {
 			.provider_name
 			.and_then(|value| bounded_text(value, MAX_SITE_BYTES));
 		let object_type = match input.object_type {
-			Some(value) if matches!(value, "link" | "photo" | "rich" | "video") => {
-				bounded_text(value, MAX_TYPE_BYTES)
-			}
+			Some(value) if matches!(value, "link" | "photo" | "rich" | "video") => bounded_text(value, MAX_TYPE_BYTES),
 			Some(_) => return None,
 			None => None,
 		};

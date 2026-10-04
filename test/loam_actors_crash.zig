@@ -26,23 +26,26 @@ pub fn main(init: std.process.Init) !void {
     defer server.deinit();
     const attachment = try hosting.Attachment.create(init.gpa, &server, &store, &actors.behaviors, .{ .sleep_policy = .every_turn });
     defer attachment.destroy() catch unreachable;
-    const publication: core.ObjectId = .{ .store = f.id, .incarnation = 1, .sequence = 3 };
     if (creating) {
-        try create(attachment, &db, publication);
+        try create(attachment, &db);
         return;
     }
-    const lease = try f.load(&store, &db, publication);
-    const swiss = try hosting.publication.restore(attachment, lease);
-    try store.release(lease);
-    store.evict();
+    try hosting.publication.listen(attachment, .{});
+    const swiss = actors.driver.Host.DurableSwiss.fromEntropy(entropy);
     if (store.cache.allocated_bytes != 0) return error.EagerRestore;
+    for (attachment.entries) |entry| if (entry.actor != null) return error.EagerRestore;
     var client = hosts.init(init.gpa, @splat(0x72), actors.driver.Host.Options.withFrameCap(4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &server, "127.0.0.1:9714");
     var root: CapturedRef = .{};
     try client.vowOn(try client.fetch(pair.a, swiss.slice()), .{ .ctx = &root, .func = CapturedRef.record });
     try pairs.pumpToQuiescence(&.{pair});
+    var lookup_answer: actors.Capture = .{};
+    try drain(attachment, &db, null, &lookup_answer);
+    try pairs.pumpToQuiescence(&.{pair});
     const target = try root.require();
+    store.evict();
+    if (server.giftables.count() != 0) return error.EagerRestore;
     const verifying = std.mem.startsWith(u8, mode, "verify-");
     if (!verifying and !std.mem.eql(u8, mode, "before") and !std.mem.eql(u8, mode, "after")) return error.InvalidArguments;
     var answer: actors.Capture = .{};
@@ -74,10 +77,10 @@ pub fn main(init: std.process.Init) !void {
     const returned = try client.liftCapability(pair.a, try back.require());
     defer client.releaseCapability(returned, 1) catch unreachable;
     if (!original.eql(returned)) return error.LostActorIdentity;
-    if (attachment.stats.loads != 3 or store.cache.allocated_bytes != 0) return error.InvalidResidency;
+    if (attachment.stats.loads != 4 or store.cache.allocated_bytes != 0) return error.InvalidResidency;
 }
 
-fn create(attachment: *hosting.Attachment, db: *Lmdb, expected_publication: core.ObjectId) !void {
+fn create(attachment: *hosting.Attachment, db: *Lmdb) !void {
     const store = attachment.store;
     try store.begin();
     var ids: [2]core.ObjectId = undefined;
@@ -102,7 +105,7 @@ fn create(attachment: *hosting.Attachment, db: *Lmdb, expected_publication: core
         record.edges = &.{try attachment.capture(caps[1 - i])};
         try store.putCopying(record, 1);
     }
-    if (!(try hosting.publication.stage(attachment, entropy, caps[0])).eql(expected_publication)) return error.InvalidBootstrap;
+    _ = try hosting.publication.stage(attachment, entropy, caps[0]);
     try f.commit(store, db);
 }
 
@@ -110,6 +113,7 @@ fn drain(attachment: *hosting.Attachment, db: *Lmdb, boundary: ?[]const u8, answ
     for (0..64) |_| {
         try attachment.advance();
         while (try attachment.nextWork()) |work| switch (work) {
+            .lookup => |request| try attachment.completeLookup(request.ticket, db.lookup(request)),
             .read => |read| try attachment.completeRead(read.ticket, db.read(read)),
             .write => |batch| {
                 if (answer.value != null) return error.PrematureReply;
@@ -122,7 +126,7 @@ fn drain(attachment: *hosting.Attachment, db: *Lmdb, boundary: ?[]const u8, answ
                 try attachment.completeWrite(batch.ticket, pending.finish());
             },
         };
-        if (attachment.pending_bytes == 0) return;
+        if (!attachment.hasPendingWork()) return;
     }
     return error.DidNotQuiesce;
 }

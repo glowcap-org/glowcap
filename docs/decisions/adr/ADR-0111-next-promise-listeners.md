@@ -59,8 +59,10 @@ listener was discarded.
 
 The neutral model uses `ListenMode`. Syrup and Cap'n Proto translate Goblins's
 V1.0 Boolean or next's integer at the codec edge. Same-peer promise fulfillment
-re-anchors a listener without notification. A far promise satisfies a
-shortening mode, and a settled value or break satisfies a settling mode. Every
+re-anchors a listener without notification. On next, a far promise satisfies a
+shortening mode, and a settled value or break satisfies a settling mode. V1.0
+has no paired shortening listener, so a far promise concludes every V1.0
+listener (ADR-0007). Every
 notification concludes its subscription.
 
 ## Consequences

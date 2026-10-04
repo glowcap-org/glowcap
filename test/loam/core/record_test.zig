@@ -13,13 +13,14 @@ test "loam records round trip bounded edges and reject every truncated envelope"
     const id: f.core.ObjectId = .{ .store = f.id, .incarnation = 1, .sequence = 9 };
     var record = f.record(id, "payload past the identity field");
     record.revision = 1;
-    record.edges = &.{.{ .target = id }};
+    record.edges = &.{ .{ .target = id }, .{ .target = id, .restoration = .recipe } };
     const bytes = try record.encodeAlloc(std.testing.allocator, f.limits.records, &f.schemas);
     defer std.testing.allocator.free(bytes);
     const decoded = try loam.records.View.decode(bytes, f.limits.records, &f.schemas);
     try std.testing.expectEqualStrings(record.payload, decoded.payload);
     var edges = decoded.edges();
     try std.testing.expect(edges.next().?.target.eql(id));
+    try std.testing.expectEqualDeep(record.edges[1], edges.next().?);
     for (0..bytes.len) |length| {
         if (loam.records.View.decode(bytes[0..length], f.limits.records, &f.schemas)) |_| return error.AcceptedTruncation else |_| {}
     }
@@ -29,6 +30,11 @@ test "loam records round trip bounded edges and reject every truncated envelope"
     try std.testing.expectError(error.UnsupportedSchema, loam.records.View.decode(bytes, f.limits.records, &.{}));
     const small_schema = [_]f.core.Schema{.{ .id = 7, .version = 1, .max_payload = 2, .max_edges = 8 }};
     try std.testing.expectError(error.RecordTooLarge, loam.records.View.decode(bytes, f.limits.records, &small_schema));
+    const kind_offset = @intFromPtr(decoded.edge_bytes.ptr) - @intFromPtr(bytes.ptr) + decoded.edge_bytes.len - 1;
+    bytes[kind_offset] = 'x';
+    // A valid checksum cannot make an unknown restoration kind acceptable.
+    std.mem.writeInt(u32, bytes[bytes.len - 4 ..][0..4], std.hash.Crc32.hash(bytes[0 .. bytes.len - 4]), .big);
+    try std.testing.expectError(error.Corrupt, loam.records.View.decode(bytes, f.limits.records, &f.schemas));
 }
 
 test "loam encoding refuses oversized records before allocating and uses one allocation" {
@@ -80,6 +86,10 @@ test "loam metadata detects corruption and refuses incarnation wrap" {
     var metadata: f.core.Metadata = .{ .store = f.id };
     const encoded = metadata.encode();
     try std.testing.expectEqualDeep(metadata, try f.core.Metadata.decode(&encoded));
+    var old = encoded;
+    old[7] = 2;
+    std.mem.writeInt(u32, old[170..174], std.hash.Crc32.hash(old[0..170]), .big);
+    try std.testing.expectError(error.Corrupt, f.core.Metadata.decode(&old));
     for (0..encoded.len) |i| {
         var bad = encoded;
         bad[i] ^= 1;

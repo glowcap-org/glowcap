@@ -8,7 +8,7 @@ use super::*;
 /// task has pulled off the wire, waiting for `endpoint_try_accept` to claim
 /// them. Built (and the task spawned) by `endpoint_set_nonblocking_accept`.
 pub(crate) struct AcceptState {
-	pub(crate) ready: Mutex<VecDeque<AcceptedRaw>>,
+	pub(crate) queue: Mutex<super::admission::Queue<AcceptedRaw>>,
 }
 
 /// One accepted connection the acceptor task produced but the loop has not yet

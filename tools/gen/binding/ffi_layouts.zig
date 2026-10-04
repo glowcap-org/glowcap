@@ -32,6 +32,7 @@
 const std = @import("std");
 
 const c = @import("c_abi");
+const loam = @import("c_abi_loam");
 const cd = @import("c_abi_host");
 const cdr = @import("c_abi_driver");
 const ct = @import("c_abi_net_transport_tcp");
@@ -303,6 +304,14 @@ fn generateWasmManifest(gpa: std.mem.Allocator) ![]u8 {
                 try out.appendSlice(gpa, "]}");
             }
         }
+    }
+    inline for (loam.contract_layouts) |entry| {
+        try out.print(gpa, ",\n  {{\"prefix\":\"{s}\",\"stem\":\"{s}\",\"fields\":[", .{ entry.stem, entry.stem });
+        inline for (@typeInfo(entry.Type).@"struct".field_names, 0..) |field, index| {
+            if (index != 0) try out.appendSlice(gpa, ",");
+            try out.print(gpa, "\"{s}\"", .{comptime upperName(field)});
+        }
+        try out.appendSlice(gpa, "]}");
     }
     try out.appendSlice(gpa, "\n]\n");
     return out.toOwnedSlice(gpa);

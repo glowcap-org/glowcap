@@ -54,11 +54,11 @@ fn progressSessionCloses(inst: *common.Instance, now_ms: i64) i32 {
 /// Seal application admission for one session and begin or escalate its
 /// terminal close. The caller supplies time; the core retains the deadline and
 /// owns escalation while the embedder keeps driving bytes.
-pub export fn glowcap_host_session_close(
+pub fn glowcap_host_session_close(
     raw: ?*GlowcapHostSession,
     options: ?*const c.GlowcapCloseOptions,
     now_ms: i64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
@@ -69,11 +69,11 @@ pub export fn glowcap_host_session_close(
 }
 
 /// Apply the caller's current monotonic time to one byte-fed session close.
-pub export fn glowcap_host_session_close_progress(
+pub fn glowcap_host_session_close_progress(
     raw: ?*GlowcapHostSession,
     now_ms: i64,
     out_state: ?*u32,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
@@ -88,7 +88,7 @@ pub export fn glowcap_host_session_close_progress(
 /// Observe one byte-fed session's owner lifecycle. CLOSED means the retryable
 /// close action crossed its delivery boundary; release remains separate and
 /// frees the retained shell.
-pub export fn glowcap_host_session_lifecycle_state(raw: ?*GlowcapHostSession, out_state: ?*u32) i32 {
+pub fn glowcap_host_session_lifecycle_state(raw: ?*GlowcapHostSession, out_state: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
@@ -117,11 +117,11 @@ pub export fn glowcap_host_session_lifecycle_state(raw: ?*GlowcapHostSession, ou
 /// the Host's unique per-session seed under a separate KDF domain; callers do
 /// not branch on transport policy or supply per-open entropy.
 /// `*out_session` is host-owned; release with `glowcap_host_session_release`.
-pub export fn glowcap_host_session_open_dialed_locator(
+pub fn glowcap_host_session_open_dialed_locator(
     host: ?*GlowcapHost,
     locator: ?*const shared.GlowcapLocatorView,
     out_session: ?*?*GlowcapHostSession,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(inst, "session_open_dialed_locator")) return GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -151,7 +151,7 @@ pub export fn glowcap_host_session_open_dialed_locator(
 /// The session signs the selected snapshot even when it names another
 /// transport. Sealed-channel entropy follows the dialed half's Host-owned
 /// derivation.
-pub export fn glowcap_host_session_open_accepted(
+pub fn glowcap_host_session_open_accepted(
     host: ?*GlowcapHost,
     transport: ?[*]const u8,
     transport_len: usize,
@@ -161,7 +161,7 @@ pub export fn glowcap_host_session_open_accepted(
     accepted_local_addr: ?[*]const u8,
     accepted_local_addr_len: usize,
     out_session: ?*?*GlowcapHostSession,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(inst, "session_open_accepted")) return GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -191,7 +191,7 @@ pub export fn glowcap_host_session_open_accepted(
 /// success. Targeted handoff wake work remains queued across allocator pressure;
 /// another cleanup failure condemns surviving sessions because retrying this
 /// consumed handle would be invalid.
-pub export fn glowcap_host_session_release(raw: ?*GlowcapHostSession) i32 {
+pub fn glowcap_host_session_release(raw: ?*GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_OK;
     const inst = instOf(session.host);
@@ -205,7 +205,7 @@ pub export fn glowcap_host_session_release(raw: ?*GlowcapHostSession) i32 {
 }
 
 /// Nonzero once the keyed handshake has completed and the session is open.
-pub export fn glowcap_host_session_is_open(raw: ?*GlowcapHostSession) i32 {
+pub fn glowcap_host_session_is_open(raw: ?*GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return 0;
     return if (session.sessionOpen()) 1 else 0;
@@ -215,12 +215,12 @@ pub export fn glowcap_host_session_is_open(raw: ?*GlowcapHostSession) i32 {
 /// outputs are required and written together. Before the keyed handshake opens,
 /// no settled profile exists and the call returns `GLOWCAP_ERR_WOULD_BLOCK`;
 /// after the CapTP session becomes terminal it returns `GLOWCAP_ERR_CLOSED`.
-pub export fn glowcap_host_session_profile(
+pub fn glowcap_host_session_profile(
     raw: ?*GlowcapHostSession,
     out_captp_version: ?*u32,
     out_codec: ?*u32,
     out_features: ?*u32,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const version = out_captp_version orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -237,11 +237,11 @@ pub export fn glowcap_host_session_profile(
 
 /// Borrow the actual netlayer symbol this session was opened through. Both
 /// outputs are required and remain valid until the session is released.
-pub export fn glowcap_host_session_transport_name(
+pub fn glowcap_host_session_transport_name(
     raw: ?*GlowcapHostSession,
     out_name: ?*?[*]const u8,
     out_name_len: ?*usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const name = out_name orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -254,10 +254,10 @@ pub export fn glowcap_host_session_transport_name(
 /// The id the live trace names this session's rows by (`GlowcapTraceEvent`'s
 /// `session`), so an embedder can annotate the same session a trace consumer
 /// is watching. Stable for the session's life and never reused by this host.
-pub export fn glowcap_host_session_trace_id(
+pub fn glowcap_host_session_trace_id(
     raw: ?*GlowcapHostSession,
     out_id: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const out = out_id orelse return GLOWCAP_ERR_NULL_POINTER;

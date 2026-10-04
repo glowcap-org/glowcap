@@ -85,7 +85,7 @@ pub(super) async fn stage<S: Source>(record: &Record, sources: &[S]) -> Result<V
 			offset += length;
 		}
 		staged.push(Staged {
-		digest: rooms_application::fields::lower_hex(&hash.finalize()),
+			digest: rooms_application::fields::lower_hex(&hash.finalize()),
 			blob: Blob::new_with_u8_array_sequence(&chunks)?,
 		});
 	}

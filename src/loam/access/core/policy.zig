@@ -1,4 +1,4 @@
-//! Runtime policy vocabulary shared by native and foreign consumers.
+//! Runtime policy vocabulary shared by Zig and foreign consumers.
 //! Stable keys name Boolean permissions and unsigned lower or upper bounds.
 //! Applications supply operation requirements and committed facts; this module
 //! owns their set and bound algebra. It performs no allocation or callbacks.
@@ -11,6 +11,10 @@ pub const Policy = struct {
     constraint_fields: [max_constraints]Constraint,
     permission_count: usize,
     constraint_count: usize,
+    /// Required bits use permission_keys' stable ordering. The 512 inline bytes
+    /// keep declaration ownership with the copied policy across cold reads and
+    /// foreign calls; no retained borrow, callback or heap allocation is needed.
+    prerequisite_masks: [max_permissions]u64 = @splat(0),
 
     pub const Id = enum(u128) { _ };
     pub const Key = enum(u64) { _ };
@@ -19,11 +23,13 @@ pub const Policy = struct {
     pub const Operator = enum { lower_bound, upper_bound };
     pub const Constraint = struct { key: Key, operator: Operator };
     pub const Bound = struct { key: Key, value: u64 };
+    pub const Dependency = struct { permission: Key, required: Key };
     pub const Descriptor = struct {
-        /// A schema identity fixes key meanings, ordering, and operators.
+        /// A schema identity fixes key meanings, ordering, operators and dependencies.
         id: Id,
         permissions: []const Key,
         constraints: []const Constraint = &.{},
+        dependencies: []const Dependency = &.{},
     };
     pub const Value = struct {
         schema: Id,
@@ -45,12 +51,14 @@ pub const Policy = struct {
         UnknownPermission,
         UnknownConstraint,
         WrongSchema,
+        MissingPrerequisite,
+        InvalidDependency,
     };
 
     /// Copies a bounded, strictly key-sorted descriptor into an immutable value.
     /// Reusing an identity for a different vocabulary is not schema evolution.
     pub fn init(descriptor: Descriptor) Error!Policy {
-        if (descriptor.permissions.len > max_permissions or descriptor.constraints.len > max_constraints) return error.PolicyLimit;
+        if (descriptor.permissions.len > max_permissions or descriptor.constraints.len > max_constraints or descriptor.dependencies.len > max_permissions * max_permissions) return error.PolicyLimit;
         for (descriptor.permissions, 0..) |key, i| {
             if (i != 0 and @backingInt(descriptor.permissions[i - 1]) >= @backingInt(key)) return error.NonCanonicalSchema;
         }
@@ -66,12 +74,44 @@ pub const Policy = struct {
         };
         @memcpy(self.permission_keys[0..self.permission_count], descriptor.permissions);
         @memcpy(self.constraint_fields[0..self.constraint_count], descriptor.constraints);
+        for (descriptor.dependencies) |dependency| {
+            const index = try self.permissionIndex(dependency.permission);
+            const required = try self.permissionIndex(dependency.required);
+            if (index == required) return error.InvalidDependency;
+            const bit = @as(u64, 1) << @intCast(required);
+            if (self.prerequisite_masks[index] & bit != 0) return error.DuplicateKey;
+            self.prerequisite_masks[index] |= bit;
+        }
         return self;
+    }
+
+    /// Decode the persisted/ABI matrix after constructing its vocabulary.
+    /// This copies no borrowed pointer and validates every matrix position.
+    pub fn withPrerequisiteMasks(self: Policy, masks: [max_permissions]u64) Error!Policy {
+        const declared = self.declaredMask();
+        for (masks, 0..) |required, index| {
+            if (index >= self.permission_count) {
+                if (required != 0) return error.UnknownPermission;
+            } else {
+                if (required & ~declared != 0) return error.UnknownPermission;
+                if (required & (@as(u64, 1) << @intCast(index)) != 0) return error.InvalidDependency;
+            }
+        }
+        var result = self;
+        result.prerequisite_masks = masks;
+        return result;
     }
 
     /// Constructs explicit policy terms from declared keys. Inputs are borrowed
     /// for this call; no pointer into them is retained.
     pub fn value(self: *const Policy, permissions: []const Key, bounds: []const Bound) Error!Value {
+        const result = try self.shape(permissions, bounds);
+        try self.validate(result);
+        return result;
+    }
+
+    /// Effects request individual permissions; they are not candidate terms.
+    fn shape(self: *const Policy, permissions: []const Key, bounds: []const Bound) Error!Value {
         var result: Value = .{ .schema = self.id, .permissions = try self.permissionMask(permissions), .bounds = undefined };
         @memset(&result.bounds, null);
         if (bounds.len > max_constraints) return error.PolicyLimit;
@@ -85,9 +125,15 @@ pub const Policy = struct {
 
     pub fn validate(self: *const Policy, terms: Value) Error!void {
         if (terms.schema != self.id) return error.WrongSchema;
-        const mask: u64 = if (self.permission_count == max_permissions) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(self.permission_count)) - 1;
+        const mask = self.declaredMask();
         if (terms.permissions & ~mask != 0) return error.UnknownPermission;
         for (terms.bounds[self.constraint_count..]) |bound| if (bound != null) return error.UnknownConstraint;
+        var selected = terms.permissions;
+        while (selected != 0) {
+            const index = @ctz(selected);
+            if (self.prerequisite_masks[index] & ~terms.permissions != 0) return error.MissingPrerequisite;
+            selected &= selected - 1;
+        }
     }
 
     pub fn isSubsetOf(self: *const Policy, child: Value, parent: Value) Error!bool {
@@ -124,7 +170,7 @@ pub const Policy = struct {
     /// facts refuse even if an earlier permission or fact already denies it.
     pub fn allows(self: *const Policy, terms: Value, requirement: Requirement) Error!bool {
         try self.validate(terms);
-        const requested = try self.value(requirement.permissions, requirement.facts);
+        const requested = try self.shape(requirement.permissions, requirement.facts);
         var allowed = requested.permissions & ~terms.permissions == 0;
         for (self.constraint_fields[0..self.constraint_count], 0..) |field, i| {
             if (requested.bounds[i]) |fact| {
@@ -145,14 +191,21 @@ pub const Policy = struct {
         if (keys.len > max_permissions) return error.PolicyLimit;
         var mask: u64 = 0;
         for (keys) |key| {
-            const index = for (self.permission_keys[0..self.permission_count], 0..) |declared, i| {
-                if (declared == key) break i;
-            } else return error.UnknownPermission;
+            const index = try self.permissionIndex(key);
             const bit = @as(u64, 1) << @intCast(index);
             if (mask & bit != 0) return error.DuplicateKey;
             mask |= bit;
         }
         return mask;
+    }
+
+    fn permissionIndex(self: *const Policy, key: Key) Error!usize {
+        for (self.permission_keys[0..self.permission_count], 0..) |declared, index| if (declared == key) return index;
+        return error.UnknownPermission;
+    }
+
+    fn declaredMask(self: *const Policy) u64 {
+        return if (self.permission_count == max_permissions) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(self.permission_count)) - 1;
     }
 
     fn constraintIndex(self: *const Policy, key: Key) Error!usize {

@@ -5,6 +5,7 @@
 extern crate alloc;
 
 pub mod bridge;
+pub mod content;
 pub mod directory;
 pub mod documents;
 pub mod failure;

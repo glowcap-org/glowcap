@@ -15,7 +15,6 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
     const peer_key = "<64 lowercase hex characters from the server>";
     const partner = glowcap.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
-    // From here, the CapTP workflow is transport-independent.
     const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
@@ -23,6 +22,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
     );
+    // From here, the CapTP workflow is transport-independent.
     defer session.deinit();
 
     const greeter = try session.fetch("greeter"); // a capability this peer published

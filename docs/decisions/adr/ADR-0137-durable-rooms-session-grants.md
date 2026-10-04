@@ -7,7 +7,7 @@ decision: "A durable Rooms session owns a bounded grant ledger outside its works
 supersedes: []
 superseded_by: []
 amends: [ADR-0134, ADR-0135]
-amended_by: []
+amended_by: [ADR-0183]
 ---
 
 # ADR-0137 Durable Rooms session grants

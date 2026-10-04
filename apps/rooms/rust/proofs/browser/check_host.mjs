@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 import { checkChannels } from "./check_channels.mjs";
 import { checkStorage } from "./check_storage.mjs";
 import { iceFixtures } from "./check_ice.mjs";
+import { snippet } from "./assets.mjs";
 
 const root = new URL("../../target/browser-host/pkg/", import.meta.url);
 const wasm = await readFile(new URL("rooms_contract_proofs_bg.wasm", root));
@@ -36,8 +37,20 @@ try {
 }
 
 const ice = iceFixtures();
-const server = createServer((request, response) => {
+const server = createServer(async (request, response) => {
 	if (ice.serve(request, response)) return;
+	const path = new URL(request.url, "http://localhost").pathname;
+	if (path.startsWith("/snippets/")) {
+		try {
+			const bytes = await snippet(root, path);
+			response.writeHead(200, { "Content-Type": "text/javascript" });
+			response.end(bytes);
+		} catch {
+			response.writeHead(404);
+			response.end();
+		}
+		return;
+	}
 	const asset = request.url === "/rooms_contract_proofs.js"
 		? ["text/javascript", script]
 		: request.url === "/rooms_contract_proofs_bg.wasm"
@@ -85,8 +98,8 @@ try {
 	});
 	await checkStorage(page);
 	await ice.check(page);
-	await checkChannels(page, { script, wasm });
-	await checkChannels(page, { script, wasm }, "iroh");
+	await checkChannels(page, { script, wasm, root });
+	await checkChannels(page, { script, wasm, root }, "iroh");
 	console.log(
 		`Rust async Host passed in Deno and Chromium; shared archive execution and revocable shares, IndexedDB contract/retention/rollback/eviction, Chromium session commands, native TCP/iroh forwarding, keyed/Noise relay, RTCDataChannel, signaling and ICE fetch passed; ${wasm.length} linked Wasm bytes.`,
 	);

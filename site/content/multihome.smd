@@ -6,122 +6,146 @@
 .draft = false,
 ---
 
-An OCapN locator names one transport and one designator, so a program listening
-on two transports is two peers as far as the wire can say. A sturdyref written
-against one of them is welded to that path. glowcap's multi-home prototype
-closes that gap: the `id` locator names a peer by a durable public key, and the
-paths that reach it ride underneath as hints. Use this page when one program
-should be reachable over more than one transport without giving every sturdyref
-a new address. The feature works in glowcap today, but the on-the-wire names
-are still glowcap's private trial profile (`glowcap-next`) until OCapN
-standardizes them. The standing section at the end says exactly what that means.
+Use this page when one program should be reachable over more than one
+transport, and you want its sturdyrefs to keep working when those transports
+change.
+
+A standard OCapN locator names one transport and one designator. So a program
+that listens on two transports looks like two separate peers, and a sturdyref
+written for one of them only works over that one path. glowcap's multi-home
+support solves this with the `id` locator. It names the peer by its durable
+public key and lists the paths that reach it as hints.
+
+Multi-homing works in glowcap today. Its wire names are not yet part of OCapN,
+so they live in glowcap's private trial profile, `glowcap-next`.
+[Standing]($link.ref('standing')) at the end explains what that means for you.
 
 # One peer, several routes
 
-The `id` locator puts the peer's durable public key in the designator, where
-every other keyed transport puts its own name. The transport symbol is `id`,
-and it is never a byte path of its own: it is a bundle of routes. Dialing it
-walks those routes in order, and what makes the answerer *the peer* is never
-the route: it is the channel proving the key the locator names.
+An `id` locator puts the peer's durable public key in the designator, the
+same place other keyed transports put their names. Its transport symbol is
+`id`, but `id` is not a byte path of its own. It is a bundle of routes, each
+of which is a real transport.
+
+Dialing an `id` locator tries its routes in order. What makes the answering
+program the right peer is never the route it came in on. It is the channel
+proving it holds the key the locator names.
 
 [Dialing one multi-home peer: the first route is down, so the dial moves on, and the next route's channel proves the key. That proof is what makes whoever answered the peer. The weak fallback can carry a signed gift, never the identity.]($image.siteAsset('diagram-multihome-dial.svg'))
 
-Written out, the routes ride in two hints on one `ocapn://` URI. Each route is
-itself a locator, percent-encoded inside the hint and separated by `|`; the
-form below is decoded for reading:
+The routes are written into two hints on a single `ocapn://` URI. Each route
+is itself a locator, percent-encoded inside the hint and separated by `|`.
+Decoded for reading, the shape is:
 
 ```
 ocapn://<durable key>.id?via=<route>|<route>&alt-locators=<route>
 ```
 
-The `via` hint carries the routes that count. A route qualifies only when its
-channel can prove a durable key by itself: [iroh]($link.page('transports/iroh'))
-authenticates its node id in the QUIC handshake, the
-[Noise paths]($link.page('transports/noise')) prove the dialed key while
-sealing the stream, and [WebRTC]($link.page('transports/webrtc')) binds the
-peer through its signaling authority. A cleartext keyed symbol does not
-qualify, because its key is only a dial target.
+The `via` hint lists the strong routes. A route is strong when its channel can
+prove a durable key on its own:
 
-The `alt-locators` hint carries weak fallbacks, such as a plain socket or an
-[onion]($link.page('transports/onion')) address. A weak route can complete the
-one handoff its signed gift authorized, and nothing more: it never establishes
-the outer identity, never enters the identity's cache, and a sturdyref never
-dials it.
+- [iroh]($link.page('transports/iroh')) authenticates its node id in the QUIC
+  handshake.
+- The [Noise paths]($link.page('transports/noise')) prove the dialed key
+  while sealing the stream.
+- [WebRTC]($link.page('transports/webrtc')) binds the peer through its
+  signaling authority, so it is as strong as your trust in that authority.
 
-Each list is bounded to eight routes, the two together to a few kilobytes,
-and every `via` route must name the same key as the designator, so an untrusted
-locator cannot buy unbounded work or smuggle in a second identity.
+A cleartext keyed route is not strong, because its key is only an address to
+dial and nothing proves it.
+
+The `alt-locators` hint lists weak fallbacks, such as a plain socket or an
+[onion]($link.page('transports/onion')) address. Tor proves an onion service
+only to the side that dials it, so an onion route cannot prove a peer in both
+directions. A weak route can complete
+one handoff that a signed gift already authorized, and nothing more. It never
+establishes the peer's identity, it never enters the identity cache, and a
+sturdyref never dials it.
+
+Each list holds at most eight routes, and the two together are limited to a
+few kilobytes. Every `via` route must name the same key as the designator.
+These limits mean an untrusted locator cannot cause unbounded work or slip in
+a second identity.
 
 # What the other peer sees
 
-Route vocabulary is a negotiated feature named `multi_location`, offered under
-glowcap's own `glowcap-next` profile and stamped into both signed hellos before
-either side may use it. A first hello never carries it. The floor is per
-session: one process can speak route vocabulary with another glowcap host while
-its session with a [Spritely Goblins](https://spritely.institute/) vat stays on
-the standard profile.
+Routes are a negotiated feature called `multi_location`. glowcap offers it
+under its own `glowcap-next` profile, and both sides must record it in their
+signed hellos before either may use it. A first hello never includes it.
+
+The decision is made per session. One process can use routes with another
+glowcap host while its session with a
+[Spritely Goblins](https://spritely.institute/) vat stays on the standard
+profile.
 
 [A negotiated partner receives the id bundle intact. A baseline partner gets one concrete route it can dial, with the private vocabulary stripped, and when no such route exists the give is refused before anything is sent.]($image.siteAsset('diagram-multihome-lowering.svg'))
 
-A handoff can cross those two worlds, because a signed give travels from an
-exporter session to a recipient session. The give keeps its route vocabulary
-only when both sessions negotiated it. A baseline recipient is handed one
-concrete route on a transport it demonstrably participates in, with the
-private vocabulary stripped; when no such route exists, the give is refused
-before anything is sent. The fallback is never to serialize experimental
-vocabulary and hope the other side ignores it, so the Goblins-facing wire is
-unchanged with the prototype present.
+A handoff can cross between those two kinds of session, because a signed give
+travels from the exporter's session to the recipient's. The give keeps its
+routes only when both sessions negotiated `multi_location`. Otherwise glowcap
+gives the recipient one concrete route on a transport that recipient is known
+to use, with the private fields removed. If no such route exists, glowcap
+refuses the give before sending anything.
 
-# Sturdyrefs that survive a transport
+glowcap never sends experimental fields in the hope that the other side will
+ignore them. That is why the wire a Goblins peer sees is the same whether or
+not multi-homing is in use.
 
-The payoff for durable references: a sturdyref written against an `id`
-locator names the peer's key, so the peer can move between transports, or
-bring a second listener up, without every stored reference going stale.
+# Sturdyrefs that survive a transport change
 
-Redeeming one is gated the same way. A Host that opted into `multi_location`
-first reuses any session whose channel already authenticated that key, on any
-transport. Otherwise it stages the concrete `via` routes and races the first
-two in publisher order, refilling that window from the list as attempts fail;
-the first channel that proves the key carries the fetch, and the losing dials
-are cancelled. Only after every strong route fails does it try the weak
-fallbacks, one at a time in their declared order. The
+This is where multi-homing pays off. A sturdyref written against an `id`
+locator names the peer's key, not one of its paths. The peer can move to a
+different transport, or add a second listener, and stored references keep
+working.
+
+Redeeming such a sturdyref works like this, on a Host that has opted into
+`multi_location`:
+
+1. If a session already exists whose channel proved that key, on any
+   transport, the Host reuses it.
+2. Otherwise it tries the strong `via` routes, two at a time, in the order the
+   publisher listed them. When one attempt fails, it starts the next route on
+   the list. The first channel that proves the key carries the fetch, and the
+   other dials are cancelled.
+3. Only after every strong route fails does it try the weak fallbacks, one at
+   a time, in their listed order.
+
+The
 [multi-home route diagrams](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/08-multihome-routes.md)
-draw each of these flows one at a time.
+draw each of these flows.
 
-# Rooms runs it
+# Rooms uses it
 
-Directory peering in the [rooms app]($link.page('examples')) is the live
-consumer. A server started with `--peering` can list a durable room in another
-directory through one identity route: its key-proving iroh and Noise listeners
-ride under `via`, while onion and plain-socket listeners stay behind as weak
-fallbacks. A reader joins the room over whichever path
-that reader can open, and the room link does not choose a transport for every
-future reader. The foreign listing belongs to the publisher's destination
-session; revoke or disconnect removes discovery, while a room already handed
-to a reader stays live.
+Directory peering in the [Rooms app]($link.page('examples')) uses multi-homing
+live. A Rooms server started with `--peering` can list one of its durable
+rooms in another server's directory under a single `id` locator. Its iroh and
+Noise listeners, which prove the key, go under `via`. Its onion and plain
+socket listeners go under `alt-locators` as weak fallbacks.
 
-# Standing
+Each reader then joins the room over whichever path that reader can open, so
+the listing does not pick one transport for everyone. The listing belongs to
+the publisher's session with that directory. Revoking or disconnecting it
+removes the room from the directory, but a room already handed to a reader
+stays live.
 
-Multi-homing is something the OCapN community has wanted for years and not yet
-specified; the meeting record reaches from multi-netlayer locators to a
-transport-agnostic vat id. glowcap builds it now because it already holds the
-ingredients: keyed transports on several byte paths, and a sealed channel that
-proves a durable key over any of them.
+# [Standing]($section.id('standing'))
 
-Everything above this section is built and held by the build's checks. That
-covers the bundle vocabulary, the ordered dial with its bounded race and
-identity discipline, the per-session negotiation and lowering, `id`
-sturdyrefs, and the rooms peering suite that exercises them live.
+The OCapN community has wanted multi-homing for years but has not specified
+it yet. Its meeting notes discuss ideas ranging from locators that name
+several netlayers to a vat id that does not depend on any transport. glowcap
+builds it now because it already has the pieces: keyed transports over
+several kinds of byte path, and a sealed channel that proves a durable key
+over any of them.
 
-One shape ships. An earlier design carried a second, comparison-only
-vocabulary beside this one so their costs could be weighed; the comparison is
-[settled](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0125-identity-route-multihome.md),
-and only the `id` locator described above remains. The alternative supplied a
-list but no proof that its entries reached one peer, drove no dial, and backed
-no sturdyref, so keeping it would have grown the vocabulary without growing
-what the product could do. What stays open is the wire vocabulary itself,
-which remains a `glowcap-next` extension until OCapN specifies a compatible
-shape. Peers that never agree on the extension never see these route hints. A
-Goblins peer keeps getting ordinary locators.
-[What you can depend on]($link.page('stability')) is the wider evidence
-picture behind every claim like that one.
+Everything described above is built and covered by the build checks. That
+includes the route bundle, the ordered dial with its bounded race and identity
+rules, the per-session negotiation and fallback, `id` sturdyrefs, and the
+Rooms peering suite that exercises them live. The decision record behind this
+design is
+[ADR-0125](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0125-identity-route-multihome.md).
+
+What remains open is the wire format. It stays a `glowcap-next` extension
+until OCapN specifies a compatible one. Peers that never agree on the
+extension never see these route hints, and a Goblins peer keeps getting
+ordinary locators. [What you can depend on]($link.page('stability')) covers
+the evidence behind claims like these.

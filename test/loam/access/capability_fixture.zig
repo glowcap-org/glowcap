@@ -16,7 +16,7 @@ pub fn load(store: *f.loam.core.Store, backend: anytype, id: f.loam.core.ObjectI
 }
 
 pub fn descriptor(caps: *storage.Capabilities, backend: anytype, owner: f.loam.core.ObjectId, grant: core.GrantId, powers: ?core.Control.Powers, rooted: bool) !f.loam.core.ObjectId {
-    var read = try storage.Read.init(a, caps.store, owner, 4);
+    var read = try storage.Read.init(caps.allocator, caps.store, owner, 4);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     try caps.store.begin();

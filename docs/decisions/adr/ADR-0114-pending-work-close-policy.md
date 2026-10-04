@@ -45,7 +45,9 @@ cancel already in progress. Cancelling one waiter does not cancel the shared
 close operation.
 
 Pending work includes transport opens, Host action drains, locally initiated
-vows, and deferred hosted answers that were admitted before close. Live sessions
+vows, and deferred hosted answers that were admitted before close. A close
+requested inside a running Vat turn takes effect when that turn returns, so the
+turn's own reply has already settled and is not pending work the cancel breaks. Live sessions
 and published capabilities are resources, not pending operations. During a
 finish, existing sessions remain protocol-responsive so admitted operations can
 settle. A new application operation or a new deferred answer is refused and

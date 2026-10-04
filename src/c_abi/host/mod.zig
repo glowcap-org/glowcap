@@ -90,6 +90,8 @@ pub const GlowcapLocatorView = shared.GlowcapLocatorView;
 pub const GLOWCAP_DESIGNATOR_SCHEME_ADDRESS = shared.transport_provider.GLOWCAP_DESIGNATOR_SCHEME_ADDRESS;
 pub const GLOWCAP_DESIGNATOR_SCHEME_KEY = shared.transport_provider.GLOWCAP_DESIGNATOR_SCHEME_KEY;
 pub const GLOWCAP_HOST_OUTBOUND_PREFIX_CAP: usize = 32;
+pub const GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT: u32 = 0;
+pub const GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED: u32 = std.math.maxInt(u32);
 pub const GLOWCAP_HOST_DURABLE_ENTROPY_LEN: usize = engine.durable_swiss_entropy_len;
 pub const GLOWCAP_HOST_DURABLE_SWISS_LEN: usize = engine.durable_swiss_len;
 comptime {
@@ -567,7 +569,7 @@ pub const GLOWCAP_HOST_ARCHIVE_FINGERPRINT = shared.archive_contract.fingerprint
     .{ shared.contract_layouts, contract_layouts },
 );
 
-pub export fn glowcap_host_archive_fingerprint() u64 {
+pub fn glowcap_host_archive_fingerprint() callconv(.c) u64 {
     return GLOWCAP_HOST_ARCHIVE_FINGERPRINT;
 }
 

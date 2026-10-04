@@ -17,6 +17,20 @@ use crate::sys::{self, host as ffi_host};
 use crate::{Error, FailureLayer, FailureScope, Result};
 
 enum PendingRelease {
+	#[cfg(feature = "loam")]
+	Loam(Rc<crate::loam::AttachmentInner>),
+	#[cfg(feature = "loam")]
+	LoamWork {
+		owner: Rc<crate::loam::AttachmentInner>,
+		raw: *mut crate::sys::loam::GlowcapLoamWork,
+	},
+	#[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
+	LoamStore(*mut crate::sys::loam::GlowcapLoamLmdb),
+	#[cfg(all(feature = "loam", target_arch = "wasm32"))]
+	BrowserLoamStore {
+		backend: crate::loam::browser::Storage,
+		store: *mut crate::sys::loam::GlowcapLoamStore,
+	},
 	Session(Rc<SessionShared>),
 	Host {
 		raw: *mut ffi_host::GlowcapHost,
@@ -150,6 +164,33 @@ pub(crate) fn drain() {
 			return;
 		};
 		match item {
+			#[cfg(feature = "loam")]
+			PendingRelease::Loam(owner) => {
+				if !owner.close_from_drop() {
+					park_loam(owner);
+				}
+			}
+			#[cfg(feature = "loam")]
+			PendingRelease::LoamWork { owner, raw } => {
+				if !crate::loam::work::finish_retired(&owner, raw) {
+					park_loam_work(owner, raw);
+				}
+			}
+			#[cfg(all(feature = "loam", target_arch = "wasm32"))]
+			PendingRelease::BrowserLoamStore { backend, store } => backend.retire(store),
+			#[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
+			PendingRelease::LoamStore(raw) => {
+				let mut rc = unsafe { crate::sys::loam::glowcap_loam_lmdb_release(raw) };
+				if rc == crate::sys::loam::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED {
+					let recovered = unsafe { crate::sys::loam::glowcap_loam_lmdb_recover(raw) };
+					if recovered == sys::OK || recovered == crate::sys::loam::GLOWCAP_LOAM_ERR_UNCHANGED {
+						rc = unsafe { crate::sys::loam::glowcap_loam_lmdb_release(raw) };
+					}
+				}
+				if rc != sys::OK {
+					park_loam_store(raw);
+				}
+			}
 			PendingRelease::Session(shared) => {
 				if shared.finish_native_release().is_err() {
 					park_session(shared);
@@ -263,6 +304,20 @@ pub(crate) fn park_test_release(
 	});
 }
 
+#[cfg(feature = "loam")]
+pub(crate) fn park_loam(owner: Rc<crate::loam::AttachmentInner>) {
+	PENDING.with(|pending| pending.borrow_mut().push_back(PendingRelease::Loam(owner)));
+}
+#[cfg(feature = "loam")]
+pub(crate) fn park_loam_work(owner: Rc<crate::loam::AttachmentInner>, raw: *mut crate::sys::loam::GlowcapLoamWork) {
+	PENDING.with(|pending| pending.borrow_mut().push_back(PendingRelease::LoamWork { owner, raw }));
+}
+
+#[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
+pub(crate) fn park_loam_store(raw: *mut crate::sys::loam::GlowcapLoamLmdb) {
+	PENDING.with(|pending| pending.borrow_mut().push_back(PendingRelease::LoamStore(raw)));
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -295,4 +350,16 @@ mod tests {
 		assert_eq!(terminal.secondary_error_count(), 1);
 		assert_eq!(terminal.secondary_errors(), &[release]);
 	}
+}
+
+#[cfg(all(feature = "loam", target_arch = "wasm32"))]
+pub(crate) fn park_browser_loam_store(
+	backend: crate::loam::browser::Storage,
+	store: *mut crate::sys::loam::GlowcapLoamStore,
+) {
+	PENDING.with(|pending| {
+		pending
+			.borrow_mut()
+			.push_back(PendingRelease::BrowserLoamStore { backend, store })
+	});
 }

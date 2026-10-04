@@ -58,21 +58,24 @@ correctly never receives that private vocabulary.
 
 ## Known gaps
 
-- glowcap has live Goblins coverage in all three handoff roles over TCP: gifter,
-  recipient, and exporter. The exporter check proves exact-object identity: the Goblins
-  gifter primes the glowcap-hosted actor, glowcap replaces the alias with a
-  decoy, and the Goblins recipient's withdrawn call must observe the primed
-  original. `goblins-rooms-dm-iroh` puts all three protocol roles in one live
-  iroh topology: the glowcap room gifts, a Goblins vat exports, and a browser
-  redeems; the vat also acts as recipient when it starts a direct message to a
-  native glowcap exporter. `goblins-handoff-iroh` adds Goblins as gifter and
-  exporter, with glowcap redeeming on a separate QUIC-authenticated session
-  after the exporter changes its advertised `direct-addresses`. It changes
-  routing advice while retaining the original reachable address; this proves
-  session snapshot handling, not network migration. Separately, the
-  upstream suite exercises glowcap in all three handoff roles over onion on
-  demand with `ocapn-conformance-onion`. These are distinct outside
-  authorities, not one general non-TCP proof.
+- **Handoff coverage is split across transports.** These are separate outside
+  checks, not one general proof for every transport other than TCP:
+  - Over TCP, live Goblins covers glowcap in all three handoff roles: gifter,
+    recipient, and exporter. The exporter check proves exact-object identity.
+    The Goblins gifter primes the glowcap-hosted actor, glowcap replaces the
+    alias with a decoy, and the Goblins recipient's withdrawn call must reach
+    the primed original.
+  - `goblins-rooms-dm-iroh` puts all three roles in one live iroh topology:
+    the glowcap room gifts, a Goblins vat exports, and a browser redeems. The
+    vat also acts as recipient when it starts a direct message to a native
+    glowcap exporter.
+  - `goblins-handoff-iroh` makes Goblins the gifter and exporter, with glowcap
+    redeeming on a separate QUIC-authenticated session after the exporter
+    changes its advertised `direct-addresses`. It changes the routing advice
+    but keeps the original address reachable, so it proves session snapshot
+    handling, not network migration.
+  - On demand, `ocapn-conformance-onion` runs the upstream suite against
+    glowcap in all three handoff roles over onion.
 - **Goblins indexes an exporter session by the complete locator.** glowcap
   embeds the peer-owned advertised snapshot rather than reconstructing it at
   the handoff site. This is stable for Goblins Onion, whose locator is
@@ -80,11 +83,12 @@ correctly never receives that private vocabulary.
   `direct-addresses`; the replacement snapshot applies to subsequent sessions
   and gifts. Goblins' full-value lookup remains worth an upstream report, but
   it is not a glowcap architecture boundary.
-- Every CapTP session uses a fresh signing key. Durable provenance
-  comes only from authenticated channel realization: iroh supplies its QUIC
-  endpoint id and WebRTC supplies the identity authorized by signaling. Raw
+- Every CapTP session uses a fresh signing key, so a durable identity can only
+  come from an authenticated channel. iroh supplies its QUIC endpoint id,
+  `noise-tcp` and `noise-relay` prove the dialed key in their Noise handshake
+  (ADR-0107), and WebRTC supplies the identity its signaling authorized. Raw
   keyed TCP and keyed relay report `unauthenticated`; matching the dialed key
-  remains a target check, not proof.
+  there only checks the target, and proves nothing.
 - **Pinned Goblins can reject a valid receive certificate from an independent
   receiver.** It retains `handoff-count` on the Gifter-Exporter session even
   though the signed count belongs to the Receiver-Exporter session. Two

@@ -109,3 +109,4 @@ apps/rooms/web/deploy/previous-image
 apps/ocapnviz/node_modules/
 apps/ocapnviz/.vite/
 apps/ocapnviz/vite.config.ts.timestamp-*.mjs
+bindings/proofs/loam_browser/rust/Cargo.lock

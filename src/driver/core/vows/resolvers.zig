@@ -10,6 +10,7 @@ const host_mod = @import("../host.zig");
 const host_pump = @import("../host/pump.zig");
 const settlement = @import("settlement.zig");
 const vows = @import("../vows.zig");
+const lower = @import("../host/capabilities/lower.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -58,6 +59,7 @@ pub fn deferTurn(self: *Host, session: *HostSession, turn: *actors.Turn) !u64 {
     });
     turn.forwardReservedVow(forward_reservation, pair.vow);
     row.forwarded_peer = session.peer_handle;
+    row.forwarded_local = turn.origin == .eventual;
     self.beginSessionOperation(session);
     return resolver_id;
 }
@@ -70,14 +72,14 @@ pub fn deferTurn(self: *Host, session: *HostSession, turn: *actors.Turn) !u64 {
 pub fn fulfill(self: *Host, resolver_id: u64, value: model.Argument) !void {
     try self.refuseReentry();
     if (!model.argumentIsPlainData(&value)) return HostError.ForeignArgument;
-    try settle(self, resolver_id, .{ .fulfilled = value });
+    try settle(self, resolver_id, .{ .fulfilled = value }, null);
 }
 
 /// Settle an owning-thread application value in the deferred caller's session.
 /// Capability projections remain rollback-owned until settlement commits. This
 /// path borrows leaf data and allocates only lowering containers in `arena`;
-/// the existing Vat settlement scope owns the listener lifetime. Cross-session
-/// authority still requires ordinary send/handoff machinery and is refused here.
+/// the existing Vat settlement scope owns the listener lifetime. Wire answers
+/// transfer foreign occurrences through Node's ordinary outbound staging.
 pub fn fulfillValue(self: *Host, resolver_id: u64, value: @import("../value.zig").Value, arena: std.mem.Allocator) !void {
     try self.refuseReentry();
     if (resolver_id == 0 or resolver_id >= self.next_resolver) return HostError.NoSuchResolver;
@@ -85,18 +87,25 @@ pub fn fulfillValue(self: *Host, resolver_id: u64, value: @import("../value.zig"
     const row = self.vows.get(entry.vow_id) orelse unreachable;
     const peer = row.forwarded_peer orelse return HostError.ForeignArgument;
     const session = self.sessions.get(peer) orelse return HostError.ForeignArgument;
+    const local_answer = row.forwarded_local;
     var prepared = try self.prepareValues(session, arena, &.{value});
     defer prepared.deinit();
-    try @import("../host/capabilities/routing.zig").validateRoutedArguments(self, session, prepared.values);
-    try settle(self, resolver_id, .{ .fulfilled = prepared.values[0] });
-    _ = prepared.commit();
+    const retained = try self.retainValueCapabilities(arena, &.{value});
+    defer lower.releaseUntransferredCapabilityRetains(self, retained);
+    // Only the served wire answer produces outbound occurrences. Local
+    // listeners may enqueue their own sends, each with its own staging scope.
+    const staging: ?Staging = if (local_answer) null else .{ .arena = arena, .args = prepared.values, .retained = retained };
+    try settle(self, resolver_id, .{ .fulfilled = prepared.values[0] }, staging);
+    // Local listeners have acquired their own canonical retains synchronously.
+    // Only a wire answer transfers a projection into session-owned authority.
+    if (local_answer) prepared.finishLocalBorrow() else _ = prepared.commit();
 }
 
 /// Break a resolver vow. `reason` is borrowed for this call; ownership and
 /// retry behavior match `fulfill`.
 pub fn breakVow(self: *Host, resolver_id: u64, reason: []const u8) !void {
     try self.refuseReentry();
-    try settle(self, resolver_id, .{ .broken = reason });
+    try settle(self, resolver_id, .{ .broken = reason }, null);
 }
 
 /// Relinquish a resolver's answer. Session teardown may have consumed the
@@ -109,7 +118,9 @@ pub fn abandon(self: *Host, resolver_id: u64, reason: []const u8) !void {
     };
 }
 
-fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution) !void {
+const Staging = struct { arena: std.mem.Allocator, args: []const model.Argument, retained: []lower.StagedCapabilityRetain };
+
+fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution, staging: ?Staging) !void {
     // An id this Host never minted is a caller defect, distinct from a
     // consumed settle authority.
     if (resolver_id == 0 or resolver_id >= self.next_resolver) return HostError.NoSuchResolver;
@@ -118,7 +129,13 @@ fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution) !void {
     const row = self.vows.get(entry.vow_id) orelse unreachable;
     const forwarded_peer = row.forwarded_peer;
     switch (resolution) {
-        .fulfilled => |value| try self.vat.fulfillVow(entry.vat_resolver, value),
+        .fulfilled => |value| {
+            if (staging) |context| {
+                const leases = try lower.beginOutboundStagingLeases(self, context.arena, context.args, context.retained);
+                defer lower.finishOutboundStagingLeases(self, context.retained, leases);
+                try self.vat.fulfillVow(entry.vat_resolver, value);
+            } else try self.vat.fulfillVow(entry.vat_resolver, value);
+        },
         .broken => |reason| try self.vat.breakVow(entry.vat_resolver, reason),
         .give => unreachable,
     }

@@ -266,7 +266,7 @@ pub const GIF = struct {
         if (image.animation.frames.items.len > 1) {
             // Multi-frame animated GIF - write each frame with its bounds
             for (image.animation.frames.items) |frame| {
-                const delay_cs: u16 = @intFromFloat(frame.duration * 100.0);
+                const delay_cs: u16 = @trunc(frame.duration * 100.0);
                 const disposal: DisposeMethod = @enumFromInt(frame.disposal);
 
                 // Use frame bounds if set, otherwise use full image dimensions
@@ -391,9 +391,22 @@ pub const GIF = struct {
         return try self.render();
     }
 
+    // A zero byte is not a block. Some encoders write one before the trailer.
+    fn takeDataBlock(self: *GIF, context: *ReaderContext) Image.ReadError!DataBlockKind {
+        _ = self;
+        while (true) {
+            const byte = context.reader.takeByte() catch |err| switch (err) {
+                error.EndOfStream => return error.EndOfStream,
+                else => return Image.ReadError.InvalidData,
+            };
+            if (byte == 0) continue;
+            return std.enums.fromInt(DataBlockKind, byte) orelse return Image.ReadError.InvalidData;
+        }
+    }
+
     // <Data> ::= <Graphic Block> | <Special-Purpose Block>
     fn readData(self: *GIF, context: *ReaderContext) Image.ReadError!void {
-        var current_block = context.reader.takeEnum(DataBlockKind, .little) catch {
+        var current_block = self.takeDataBlock(context) catch {
             return Image.ReadError.InvalidData;
         };
 
@@ -425,7 +438,7 @@ pub const GIF = struct {
                             else => {},
                         }
                     } else {
-                        current_block = context.reader.takeEnum(DataBlockKind, .little) catch {
+                        current_block = self.takeDataBlock(context) catch {
                             return Image.ReadError.InvalidData;
                         };
                         continue;
@@ -437,13 +450,27 @@ pub const GIF = struct {
             }
 
             if (is_graphic_block) {
-                try self.readGraphicBlock(context, current_block, extension_kind_opt);
+                const frames_before = self.frames.items.len;
+                self.readGraphicBlock(context, current_block, extension_kind_opt) catch |err| switch (err) {
+                    // The file ended inside this frame. Drop it and keep the frames that finished.
+                    error.EndOfStream => {
+                        if (self.frames.items.len > frames_before) {
+                            var frame = self.frames.pop().?;
+                            frame.deinit(self.arena_allocator.allocator());
+                        }
+                        if (self.frames.items.len == 0) return error.EndOfStream;
+                        return;
+                    },
+                    else => |e| return e,
+                };
             } else {
                 try self.readSpecialPurposeBlock(context, extension_kind_opt.?);
             }
 
-            current_block = context.reader.takeEnum(DataBlockKind, .little) catch {
-                return Image.ReadError.InvalidData;
+            // End of file between blocks keeps the frames already read.
+            current_block = self.takeDataBlock(context) catch |err| switch (err) {
+                error.EndOfStream => return,
+                else => return err,
             };
         }
     }
@@ -458,8 +485,8 @@ pub const GIF = struct {
                 context.current_frame_data.?.graphics_control = blk: {
                     var graphics_control: GraphicControlExtension = undefined;
 
-                    // Eat block size
-                    context.reader.toss(1);
+                    // takeByte refills. toss aborts when this byte is not already buffered.
+                    _ = try context.reader.takeByte();
 
                     graphics_control.flags = try context.reader.takeStruct(GraphicControlExtensionFlags, .little);
                     graphics_control.delay_time = try context.reader.takeInt(u16, .little);
@@ -467,14 +494,14 @@ pub const GIF = struct {
                     if (graphics_control.flags.has_transparent_color) {
                         graphics_control.transparent_color_index = try context.reader.takeByte();
                     } else {
-                        // Eat transparent index byte
-                        context.reader.toss(1);
+                        // Eat transparent index byte.
+                        _ = try context.reader.takeByte();
 
                         graphics_control.transparent_color_index = 0;
                     }
 
-                    // Eat block terminator
-                    context.reader.toss(1);
+                    // Eat block terminator.
+                    _ = try context.reader.takeByte();
 
                     break :blk graphics_control;
                 };
@@ -524,6 +551,15 @@ pub const GIF = struct {
                         const sub_data_size = try context.reader.takeByte();
                         try context.reader.discardAll(sub_data_size + 1);
                     },
+                    // A graphic-control extension applies to the next image. Encoders
+                    // sometimes place the Netscape loop block, or a comment, between them.
+                    .comment, .application_extension => {
+                        try self.readSpecialPurposeBlock(context, extension_kind);
+                        const next_block = context.reader.takeEnum(DataBlockKind, .little) catch {
+                            return Image.ReadError.InvalidData;
+                        };
+                        try self.readGraphicRenderingBlock(context, next_block, null);
+                    },
                     else => {
                         return Image.ReadError.InvalidData;
                     },
@@ -569,8 +605,8 @@ pub const GIF = struct {
                 const new_application_info = blk: {
                     var application_info: ApplicationExtension = undefined;
 
-                    // Eat block size
-                    context.reader.toss(1);
+                    // Eat block size.
+                    _ = try context.reader.takeByte();
 
                     _ = try context.reader.readSliceAll(application_info.application_identifier[0..]);
                     _ = try context.reader.readSliceAll(application_info.authentification_code[0..]);
@@ -722,7 +758,7 @@ pub const GIF = struct {
             var dispose_method: DisposeMethod = .none;
 
             if (frame.graphics_control) |graphics_control| {
-                current_animation_frame.duration = @as(f32, @floatFromInt(graphics_control.delay_time)) * (1.0 / 100.0);
+                current_animation_frame.duration = @as(f32, graphics_control.delay_time) * (1.0 / 100.0);
                 if (graphics_control.flags.has_transparent_color) {
                     transparency_index_opt = graphics_control.transparent_color_index;
                 }

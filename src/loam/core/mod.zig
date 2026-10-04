@@ -6,6 +6,7 @@ const transaction = @import("transaction.zig");
 const residency = @import("residency.zig");
 const collection = @import("collection.zig");
 const retention = @import("retention.zig");
+const custody = @import("collection_custody.zig");
 pub const Record = records.Record;
 pub const RecordView = records.View;
 pub const Edge = records.Edge;
@@ -27,6 +28,8 @@ pub const metadata_key = transaction.metadata_key;
 pub const CollectionProgress = collection.Progress;
 pub const CollectionRow = collection.Row;
 pub const Retention = retention.Retention;
+pub const NameLookup = @import("names.zig").Lookup;
+pub const NameResult = @import("names.zig").Result;
 
 pub const Store = struct {
     allocator: std.mem.Allocator,
@@ -34,6 +37,7 @@ pub const Store = struct {
     cache: residency.Cache,
     retentions: retention.Registry,
     collection_work: ?collection.Request = null,
+    collector: ?custody.Custody = null,
     changes: []Mutation,
     count: usize = 0,
     staged_bytes: usize = 0,
@@ -57,14 +61,21 @@ pub const Store = struct {
         max_collection_roots: usize = 4096,
     };
 
-    /// Schemas are borrowed until deinit. Metadata comes from an exclusively
-    /// claimed backend; constructing another Store with the same claim is invalid.
-    pub fn init(allocator: std.mem.Allocator, metadata: Metadata, schemas: []const Schema, limits: Limits) !Store {
-        if (metadata.incarnation == 0 or limits.max_changes == 0 or schemas.len == 0) return error.InvalidLimits;
+    /// Validate a Store configuration without opening or claiming a backend.
+    pub fn validateConfiguration(schemas: []const Schema, limits: Limits) !void {
+        if (limits.max_changes == 0 or schemas.len == 0) return error.InvalidLimits;
         for (schemas, 0..) |schema, i| {
             if (schema.version == 0) return error.UnsupportedSchema;
             for (schemas[0..i]) |prior| if (prior.id == schema.id and prior.version == schema.version) return error.DuplicateSchema;
         }
+        try residency.Cache.validateLimits(limits.cache_slots, limits.max_leases, limits.resident_bytes, limits.records);
+    }
+
+    /// Schemas are borrowed until deinit. Metadata comes from an exclusively
+    /// claimed backend; constructing another Store with the same claim is invalid.
+    pub fn init(allocator: std.mem.Allocator, metadata: Metadata, schemas: []const Schema, limits: Limits) !Store {
+        if (metadata.incarnation == 0) return error.InvalidLimits;
+        try validateConfiguration(schemas, limits);
         var cache = try residency.Cache.init(allocator, limits.cache_slots, limits.max_leases, limits.resident_bytes, limits.records, schemas);
         errdefer cache.deinit() catch unreachable;
         var retentions = try retention.Registry.init(allocator, limits.max_retentions);
@@ -79,6 +90,7 @@ pub const Store = struct {
         for (self.retentions.entries) |entry| if (entry.sequence != 0) return error.Busy;
         try self.cache.deinit();
         try self.retentions.deinit(self.allocator);
+        if (self.collector) |*work| work.deinit();
         self.allocator.free(self.changes);
         self.* = undefined;
     }
@@ -86,7 +98,7 @@ pub const Store = struct {
     pub fn acquire(self: *Store, id: ObjectId) !Acquisition {
         if (self.collection_work != null) return error.Busy;
         if (self.phase == .uncertain) return error.RecoveryRequired;
-        return self.cache.acquire(self.metadata, id);
+        return self.cache.acquire(self.metadata, id, self.collectionCustody());
     }
 
     pub fn completeRead(self: *Store, ticket: Ticket, result: ReadResult) !void {
@@ -127,7 +139,7 @@ pub const Store = struct {
     pub fn resident(self: *Store, id: ObjectId) !Lease {
         if (self.collection_work != null) return error.Busy;
         if (self.phase == .uncertain) return error.RecoveryRequired;
-        return self.cache.resident(self.metadata, id);
+        return self.cache.resident(self.metadata, id, self.collectionCustody());
     }
 
     pub fn evictObject(self: *Store, id: ObjectId) !bool {
@@ -164,7 +176,6 @@ pub const Store = struct {
     pub fn putCopying(self: *Store, record: Record, expected: ?u64) !void {
         if (self.phase != .staging) return error.WrongPhase;
         if (record.id.store != self.metadata.store) return error.ForeignObject;
-        if (self.count == self.changes.len) return error.ChangeCapacity;
         if (self.stagedIndex(record.id)) |index| {
             const existing = self.changes[index];
             if (existing.bytes == null or !std.meta.eql(existing.expected, expected)) return error.DuplicateMutation;
@@ -177,6 +188,7 @@ pub const Store = struct {
             self.staged_bytes = self.staged_bytes - old_len + bytes.len;
             return;
         }
+        if (self.count == self.changes.len) return error.ChangeCapacity;
         if (expected == null and (record.id.incarnation != self.metadata.incarnation or record.id.sequence > self.object_sequence or record.id.sequence <= self.creation_floor)) return error.InvalidObject;
         const bytes = try self.encodeProposed(record, 0);
         errdefer self.allocator.free(bytes);
@@ -204,8 +216,8 @@ pub const Store = struct {
     /// The transaction's own staged proposal for `id`, decoded for read-back, or
     /// null when this transaction staged none. Staging consults it to compose
     /// further changes onto the same record: each stage then re-proposes the
-    /// record with the composed delta. The view and the expectation borrow
-    /// store-owned memory until the transaction reaches a terminal outcome.
+    /// record with the composed delta. The view borrows store-owned memory until
+    /// that row is re-proposed or the transaction ends; the expectation is copied.
     pub fn proposed(self: *Store, id: ObjectId) !?Proposed {
         if (self.phase != .staging) return null;
         for (self.changes[0..self.count]) |change| {
@@ -297,6 +309,13 @@ pub const Store = struct {
         if (resolution != .committed) return error.RecoveryRequired;
         self.cache.install(self.metadata, meta, self.changes[0..self.count], self.collection_work != null);
         self.metadata = meta;
+        if (self.collection_work) |work| {
+            self.collector.?.acknowledge(work.roots.len);
+            if (meta.collection.phase == .idle) {
+                self.collector.?.deinit();
+                self.collector = null;
+            }
+        }
         if (self.retain_committed) for (self.changes[0..self.count]) |*change| {
             if (change.bytes) |bytes| {
                 if (self.cache.adoptCommitted(meta, change.id, @constCast(bytes))) change.bytes = null;
@@ -306,11 +325,7 @@ pub const Store = struct {
     }
 
     fn discard(self: *Store) void {
-        if (self.collection_work) |work| {
-            self.allocator.free(work.roots);
-            self.allocator.free(work.scratch);
-            self.collection_work = null;
-        }
+        self.collection_work = null;
         for (self.changes[0..self.count]) |change| if (change.bytes) |bytes| self.allocator.free(bytes);
         self.count = 0;
         self.staged_bytes = 0;
@@ -325,7 +340,11 @@ pub const Store = struct {
     pub fn retain(self: *Store, id: ObjectId) !Retention {
         if (self.phase == .uncertain) return error.RecoveryRequired;
         if (self.collection_work != null) return error.Busy;
-        return self.retentions.retain(self.metadata, id);
+        const prepared = try self.retentions.prepare(self.metadata, id);
+        if (self.collectionCustody()) |work| try work.reserve(1);
+        const token = self.retentions.install(prepared);
+        if (self.collectionCustody()) |work| work.append(id);
+        return token;
     }
 
     pub fn releaseRetention(self: *Store, token: Retention) !void {
@@ -339,30 +358,49 @@ pub const Store = struct {
         if (work_limit == 0) return error.InvalidLimits;
         try self.begin();
         errdefer self.discard();
-        var roots: std.ArrayList(ObjectId) = .empty;
-        errdefer roots.deinit(self.allocator);
-        for (self.retentions.entries) |entry| if (entry.sequence != 0) try self.addCollectionRoot(&roots, entry.id);
-        for (self.cache.slots) |slot| {
-            if (slot.id == null or (slot.pins == 0 and slot.loading == null)) continue;
-            try self.addCollectionRoot(&roots, slot.id.?);
-            if (slot.loading == null) {
-                const portrait = try RecordView.decode(slot.bytes.?[0..slot.length], self.limits.records, self.cache.schemas);
-                // A pinned historical portrait can still expose its old edges.
-                var edges = portrait.edges();
-                while (edges.next()) |edge| if (edge.strength == .strong) try self.addCollectionRoot(&roots, edge.target);
-            }
-        }
-        const scratch = try self.allocator.alloc(u8, self.limits.records.max_record_bytes);
-        errdefer self.allocator.free(scratch);
-        const owned = try roots.toOwnedSlice(self.allocator);
-        self.collection_work = .{ .roots = owned, .work_limit = work_limit, .scratch = scratch };
+        if (self.collector == null) try self.captureCollectionCustody();
+        const work = &self.collector.?;
+        self.collection_work = .{
+            .roots = if (self.metadata.collection.phase == .idle or self.metadata.collection.tracing()) work.roots.items else &.{},
+            .work_limit = work_limit,
+            .scratch = work.scratch,
+        };
         self.digest = Batch.fingerprint(self.ticket.?, &.{}, self.collection_work);
         self.phase = .prepared;
         return self.ticket.?;
     }
 
-    fn addCollectionRoot(self: *Store, roots: *std.ArrayList(ObjectId), id: ObjectId) !void {
-        if (roots.items.len == self.limits.max_collection_roots) return error.RetentionCapacity;
-        try roots.append(self.allocator, id);
+    fn captureCollectionCustody(self: *Store) !void {
+        var work = try custody.Custody.init(self.allocator, self.limits.max_collection_roots, self.limits.records.max_record_bytes);
+        errdefer work.deinit();
+        for (self.retentions.entries) |entry| if (entry.sequence != 0) {
+            try work.reserve(1);
+            work.append(entry.id);
+        };
+        for (self.cache.slots) |*slot| {
+            if (slot.id() == null or (slot.pins == 0 and slot.contents != .loading)) continue;
+            if (slot.contents == .resident) {
+                const portrait = slot.contents.resident.view;
+                try work.reserveRecord(portrait);
+                work.appendRecord(portrait);
+            } else {
+                try work.reserve(1);
+                work.append(slot.id().?);
+            }
+        }
+        // Publish tracking only after every holder fits. A failed capture leaves
+        // all portraits unmodified, so retry cannot mistake them for shaded data.
+        for (self.cache.slots) |*slot| if (slot.contents == .resident) {
+            slot.contents.resident.collection_reported = slot.pins != 0;
+        };
+        self.collector = work;
+    }
+
+    fn collectionCustody(self: *Store) ?*custody.Custody {
+        // Finishing cannot delete another record. Its surviving holders are
+        // captured at the next cycle, so admission creates no mark obligation.
+        if (self.metadata.collection.phase == .finishing) return null;
+        if (self.collector) |*work| return work;
+        return null;
     }
 };

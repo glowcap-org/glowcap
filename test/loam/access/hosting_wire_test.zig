@@ -22,8 +22,10 @@ test "loam managed hosting hands a disclosed stored reference to a CapTP caller"
     defer host.deinit();
     var client = h.host_support.init(h.a, @splat(0x62), h.driver.Host.Options.withFrameCap(4096));
     defer client.deinit();
+    const endpoint_lease = try h.c.load(&store, &backend, data.use);
+    defer store.release(endpoint_lease) catch unreachable;
     try store.begin();
-    const pub_id = try h.loam.hosting.publication.stage(host.attached, @splat(0x43), host.use);
+    const pub_id = try h.access.stagePublication(&store, endpoint_lease, @splat(0x43));
     try h.f.commit(&store, &backend);
     const lease = try h.c.load(&store, &backend, pub_id);
     const swiss = try h.loam.hosting.publication.restore(host.attached, lease);
@@ -44,7 +46,7 @@ test "loam managed hosting hands a disclosed stored reference to a CapTP caller"
     // It is the disclosed field's target: writes through it and reads through
     // the fetched use observe one shared content record.
     var changed: CapturedInt = .{};
-    try client.vowOn(try client.send(pair.a, peer, .{ .verb = "add", .args = &.{.{ .integer = 5 }} }), .{ .ctx = &changed, .func = CapturedInt.record });
+    try client.vowOn(try client.send(pair.a, peer, .{ .verb = "mutate", .args = &.{ .{ .integer = 1 }, .{ .string = "add" }, .{ .integer = 5 } } }), .{ .ctx = &changed, .func = CapturedInt.record });
     try pair_support.pumpToQuiescence(&.{pair});
     try host.drain(&backend);
     try pair_support.pumpToQuiescence(&.{pair});
@@ -57,8 +59,8 @@ test "loam managed hosting hands a disclosed stored reference to a CapTP caller"
     try std.testing.expectEqual(@as(i64, 5), observed.value.?);
     // The same method returning a capability it never declared breaks over the
     // wire instead of handing out the attachment's own endpoint.
-    h.smuggle = host.use;
-    defer h.smuggle = null;
+    host.application.smuggle = host.use;
+    defer host.application.smuggle = null;
     var smuggled: CapturedRef = .{};
     try client.vowOn(try client.send(pair.a, use, .{ .verb = "smuggle", .args = &.{} }), .{ .ctx = &smuggled, .func = CapturedRef.record });
     try pair_support.pumpToQuiescence(&.{pair});
@@ -81,8 +83,10 @@ test "loam managed hosting returns a facet dependent on invoking and target gran
     defer host.host.releaseCapability(target_control, 1) catch unreachable;
     var client = h.host_support.init(h.a, @splat(0x62), h.driver.Host.Options.withFrameCap(4096));
     defer client.deinit();
+    const endpoint_lease = try h.c.load(&store, &backend, data.use);
+    defer store.release(endpoint_lease) catch unreachable;
     try store.begin();
-    const pub_id = try h.loam.hosting.publication.stage(host.attached, @splat(0x44), host.use);
+    const pub_id = try h.access.stagePublication(&store, endpoint_lease, @splat(0x44));
     try h.f.commit(&store, &backend);
     const lease = try h.c.load(&store, &backend, pub_id);
     const swiss = try h.loam.hosting.publication.restore(host.attached, lease);
@@ -108,7 +112,7 @@ test "loam managed hosting returns a facet dependent on invoking and target gran
     try std.testing.expect(!std.meta.eql(facet, target));
 
     var added: CapturedInt = .{};
-    try client.vowOn(try client.send(pair.a, facet, .{ .verb = "add", .args = &.{.{ .integer = 3 }} }), .{ .ctx = &added, .func = CapturedInt.record });
+    try client.vowOn(try client.send(pair.a, facet, .{ .verb = "mutate", .args = &.{ .{ .integer = 1 }, .{ .string = "add" }, .{ .integer = 3 } } }), .{ .ctx = &added, .func = CapturedInt.record });
     try pair_support.pumpToQuiescence(&.{pair});
     try host.drain(&backend);
     try pair_support.pumpToQuiescence(&.{pair});
@@ -190,8 +194,8 @@ test "loam managed hosting returns a facet dependent on invoking and target gran
     try host.drain(&backend);
     try pair_support.pumpToQuiescence(&.{pair});
     try std.testing.expect(weak.broken);
-    h.smuggle = target_control;
-    defer h.smuggle = null;
+    host.application.smuggle = target_control;
+    defer host.application.smuggle = null;
     var controller: CapturedRef = .{};
     try client.vowOn(try client.send(pair.a, use, .{ .verb = "smuggle", .args = &.{} }), .{ .ctx = &controller, .func = CapturedRef.record });
     try pair_support.pumpToQuiescence(&.{pair});
@@ -213,8 +217,11 @@ test "loam managed hosting held CapTP use observes pause and resume through a se
     defer client.deinit();
     var swiss: [2]h.driver.Host.DurableSwiss = undefined;
     for ([_]h.driver.Capability{ host.use, host.control }, 0..) |ref, i| {
+        const target = try host.attached.capture(ref);
+        const endpoint_lease = try h.c.load(&store, &backend, target.target);
+        defer store.release(endpoint_lease) catch unreachable;
         try store.begin();
-        const pub_id = try h.loam.hosting.publication.stage(host.attached, @splat(@as(u8, @intCast(i + 1))), ref);
+        const pub_id = try h.access.stagePublication(&store, endpoint_lease, @splat(@as(u8, @intCast(i + 1))));
         try h.f.commit(&store, &backend);
         const lease = try h.c.load(&store, &backend, pub_id);
         swiss[i] = try h.loam.hosting.publication.restore(host.attached, lease);

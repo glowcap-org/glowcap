@@ -111,8 +111,8 @@ pub const PreparedPipelinedCall = struct {
 /// call. A settled answer dispatches the call right now, through the same
 /// `dispatchDrainedCall` path a queued call takes on drain, against its kept
 /// resolution, the case a live Goblins enliven-and-call in one breath hits,
-/// since we auto-serve the bootstrap fetch synchronously and the answer settles
-/// before the pipelined frame is processed. The settled-vs-pending split is the
+/// when bootstrap lookup resolves before the pipelined frame is processed.
+/// A deferred bootstrap lookup uses the same pending-answer queue. The settled-vs-pending split is the
 /// stored resolution itself (the `applySentResolve` invariant: a settled inbound
 /// answer always holds its resolution), not the status flag, so a call arriving while
 /// the answer's own resolve is queued-but-unemitted is dispatched against the

@@ -91,22 +91,21 @@ pub fn checkOwnerIfClaimed(self: *const Host) error{WrongThread}!void {
 pub fn admitConfigurationMutation(self: *Host) error{ ReenteredHost, WrongThread, HostClosing }!void {
     try checkOwnerIfClaimed(self);
     try admitApplicationOperation(self);
-    if (self.in_callback) return error.ReenteredHost;
+    if (withinCallback(self)) return error.ReenteredHost;
 }
 
-/// Refuse a top-level verb when the callback latch is held (and pin the
-/// owning thread under runtime safety).
+/// Refuse independent driving during a Host callback or native Vat execution
+/// and pin the owning thread under runtime safety.
 pub fn refuseReentry(self: *Host) error{ ReenteredHost, WrongThread }!void {
     try claimOwner(self);
-    if (self.in_callback) return error.ReenteredHost;
+    if (withinCallback(self)) return error.ReenteredHost;
 }
 
-/// Whether the current Host execution is inside a callback window. This
-/// is an adapter-lifetime query, not an admission decision: callers use it
-/// only to keep borrowed callback storage alive and ask `refuseReentry`
-/// when they need to admit a top-level operation.
+/// Whether a Host callback or native Vat execution owns the current boundary.
+/// This lifetime query keeps borrowed callback storage alive; top-level
+/// admission uses refuseReentry instead.
 pub fn withinCallback(self: *const Host) bool {
-    return self.in_callback;
+    return self.in_callback or self.vat.isExecuting();
 }
 
 pub fn checkLive(session: *const HostSession) HostError!void {

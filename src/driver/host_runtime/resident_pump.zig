@@ -88,6 +88,7 @@ fn handleResidentEvent(
         // over-limit arrival closes here without a session or retained buffers.
         // Level-shaped readiness brings the next accept through a later step.
         if (!Internal.pendingOpenSlotAvailable(self)) return 0;
+        if (!listener.observation.observer.can_accept(listener.observation.observer.ctx)) return 0;
         try startAcceptedConn(
             self,
             resident_index,

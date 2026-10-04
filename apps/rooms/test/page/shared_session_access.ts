@@ -11,6 +11,7 @@ import type { Browser, Page } from "playwright";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { proveAttachedSessionHolding } from "./holdings.ts";
 import { fail } from "./harness.ts";
+import { cannotSendReadOnly } from "../../lib/text/conversation.ts";
 
 /** Sent while the shared link has its access, to establish that a line reaches
  * the browser holding it at all. */
@@ -149,7 +150,7 @@ export async function proveObserveGrantIsAttenuatedThenRevoked(
 	]);
 	await observing.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 	await namedRoomRow(observing, "mirror-one").waitFor();
-	if (await composerSaid(observing) !== "This session capability is read only.") {
+	if (await composerSaid(observing) !== cannotSendReadOnly) {
 		fail(`an observe grant painted a composer that claimed it could send: ${await composerSaid(observing)}`);
 	}
 	if (
@@ -445,10 +446,8 @@ export async function proveObserveGrantIsAttenuatedThenRevoked(
 	await namedRoomRow(observing, PAUSED_ERA_ROOM).waitFor({ timeout: 30_000 })
 		.catch(() => fail("a resumed link was not given back the session it may read again"));
 	await observing.waitForFunction(
-		() =>
-			document.getElementById("composerAvailability")?.textContent?.trim() ===
-				"This session capability is read only.",
-		undefined,
+		(readOnly) => document.getElementById("composerAvailability")?.textContent?.trim() === readOnly,
+		cannotSendReadOnly,
 		{ timeout: 30_000 },
 	).catch(async () =>
 		fail(`lifting a pause did not give back the access it was issued with: ${await composerSaid(observing)}`)

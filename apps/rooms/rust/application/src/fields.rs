@@ -4,8 +4,8 @@ mod hex;
 use crate::text::DocumentText;
 use alloc::{boxed::Box, vec::Vec};
 use core::fmt;
-pub use hex::lower_hex;
 pub(crate) use hex::Hex;
+pub use hex::lower_hex;
 use serde::{
 	Deserialize, Deserializer, Serialize,
 	de::{Error, SeqAccess, Visitor},

@@ -320,8 +320,10 @@ uint64_t glowcap_host_archive_fingerprint(void);
    GLOWCAP_CAPTP_V1_0 with GLOWCAP_CODEC_SYRUP remains the interop floor; callers
    may pass GLOWCAP_FEATURE_FULL on that same wire version, and the hello and
    settled session use only the v1.0-eligible subset.
-   local_turn_budget is 0 = unbounded (same default as Zig Host + Bridge);
-   nonzero caps local-turn amplification per drive (ADR-0076).
+   local_turn_budget caps local-turn amplification per session (ADR-0076):
+   GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT applies the Zig Host's finite default,
+   GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED turns the cap off, and any other value
+   is the cap.
    *out_host receives the handle; release with glowcap_host_release. */
 int32_t glowcap_host_new(const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t captp_version, uint32_t features, uint32_t local_turn_budget, GlowcapHost **out_host);
 /* glowcap_host_new allocating every byte the host owns through context's host
@@ -446,6 +448,10 @@ int32_t glowcap_host_session_open_accepted(GlowcapHost *host, const uint8_t *tra
 #define GLOWCAP_DESIGNATOR_SCHEME_ADDRESS 0
 /* glowcap_host_session_open_accepted designator_scheme: the listener designator names a peer key. */
 #define GLOWCAP_DESIGNATOR_SCHEME_KEY 1
+/* glowcap_host_new local_turn_budget: the Host's finite default cap, the same one the Zig Host applies. */
+#define GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT 0
+/* glowcap_host_new local_turn_budget: no cap. Safe only when every partner is trusted. */
+#define GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED 4294967295
 /* Minimum out_prefix capacity for glowcap_host_session_take_outbound. */
 #define GLOWCAP_HOST_OUTBOUND_PREFIX_CAP 32
 /* Exact caller-supplied entropy length for glowcap_host_publish_durable. */
@@ -813,9 +819,9 @@ int32_t glowcap_host_next_trace(GlowcapHost *host, GlowcapTraceEvent *out_event)
    this host never minted refuses as NOT_FOUND. */
 int32_t glowcap_host_resolver_fulfill(GlowcapHost *host, uint64_t resolver_id, const GlowcapArgument *value);
 /* Fulfill a deferred answer with an owning-thread application value.
-   Capabilities are projected in the original caller session. A stale or
-   cross-session capability refuses the whole value and preserves the resolver
-   for retry; this seam does not perform a three-party handoff. Top-level and
+   Capabilities are projected in the original caller session, using ordinary
+   handoff staging for foreign authority. Failed preparation preserves the
+   resolver for retry. Top-level and
    consume-on-success, like resolver_fulfill. Plain worker/mailbox data continues
    to use resolver_fulfill. */
 int32_t glowcap_host_resolver_fulfill_value(GlowcapHost *host, uint64_t resolver_id, const GlowcapArgument *value);

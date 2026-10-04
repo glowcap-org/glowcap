@@ -34,8 +34,22 @@ pub const ObjectId = struct {
         return id;
     }
 };
-pub const Edge = struct { target: ObjectId, strength: enum { strong, weak } = .strong };
-pub const Schema = struct { id: u64, version: u32, max_payload: usize, max_edges: usize };
+pub const Edge = struct {
+    target: ObjectId,
+    strength: enum { strong, weak } = .strong,
+    /// The hosting layer interprets recipe records. Tracing follows the same
+    /// strong dependency in either case; the portable core never restores it.
+    restoration: enum { object, recipe } = .object,
+};
+pub const Schema = struct {
+    id: u64,
+    version: u32,
+    max_payload: usize,
+    max_edges: usize,
+    /// Optional immutable 128-bit discovery name inside the payload. The
+    /// storage transaction indexes it by schema; a name never changes targets.
+    name_offset: ?usize = null,
+};
 pub const Limits = struct { max_record_bytes: usize = 64 * 1024, max_edges: usize = 256 };
 pub const Error = error{ Corrupt, UnsupportedSchema, RecordTooLarge, ForeignObject, InvalidRecord };
 
@@ -71,7 +85,7 @@ pub const Record = struct {
     fn write(sink: anytype, self: Record) !void {
         try syntax.beginRecord(sink);
         try syntax.writeSymbol(sink, "loam:record");
-        try syntax.writePositiveInt(sink, 1);
+        try syntax.writePositiveInt(sink, 2);
         try syntax.writeBytes(sink, &self.id.key());
         try syntax.writePositiveInt(sink, self.revision);
         try syntax.writePositiveInt(sink, self.schema);
@@ -82,6 +96,7 @@ pub const Record = struct {
         for (self.edges) |edge| {
             try syntax.writeBytes(sink, &edge.target.key());
             try syntax.writeBool(sink, edge.strength == .strong);
+            try syntax.writeBool(sink, edge.restoration == .recipe);
         }
         try syntax.endList(sink);
         try syntax.endRecord(sink);
@@ -120,7 +135,7 @@ pub const View = struct {
         var cursor: usize = 0;
         try syntax.readByte(bytes, &cursor, '<');
         if (!std.mem.eql(u8, try syntax.readSymbol(bytes, &cursor), "loam:record")) return error.Corrupt;
-        if (try syntax.readPositiveInt(bytes, &cursor) != 1) return error.Corrupt;
+        if (try syntax.readPositiveInt(bytes, &cursor) != 2) return error.Corrupt;
         const id = try ObjectId.fromKey(try syntax.readBytesLimited(bytes, &cursor, bytes.len));
         const revision = try syntax.readPositiveInt(bytes, &cursor);
         if (revision == 0) return error.Corrupt;
@@ -137,6 +152,7 @@ pub const View = struct {
             if (count >= @min(schema.max_edges, limits.max_edges)) return error.RecordTooLarge;
             const target = try ObjectId.fromKey(try syntax.readBytesLimited(bytes, &cursor, bytes.len));
             if (target.store != id.store) return error.Corrupt;
+            _ = try syntax.readBool(bytes, &cursor);
             _ = try syntax.readBool(bytes, &cursor);
             count += 1;
         }
@@ -156,7 +172,8 @@ pub const EdgeIterator = struct {
         if (self.cursor == self.bytes.len) return null;
         const key = syntax.readBytesLimited(self.bytes, &self.cursor, self.bytes.len) catch unreachable;
         const strong = syntax.readBool(self.bytes, &self.cursor) catch unreachable;
-        return .{ .target = ObjectId.fromKey(key) catch unreachable, .strength = if (strong) .strong else .weak };
+        const recipe = syntax.readBool(self.bytes, &self.cursor) catch unreachable;
+        return .{ .target = ObjectId.fromKey(key) catch unreachable, .strength = if (strong) .strong else .weak, .restoration = if (recipe) .recipe else .object };
     }
 };
 

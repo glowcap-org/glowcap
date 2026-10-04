@@ -36,14 +36,17 @@
 //! More layers live under `src/` but not on this namespace, because a Zig
 //! consumer reaches them through sharper roots. `c_abi` is the C interface; it
 //! is compiled into archive families, and a C consumer reaches it through the
-//! generated headers. `persistent` and `diagnostics` are opt-in module roots.
+//! generated headers. `diagnostics` is an opt-in module root.
 //! `oracle` runs fixed scenarios and hands back their wire bytes; it is the test
 //! suite's reference of truth, not part of the runtime path, and tests import it
 //! directly.
 //!
-//! The whole core, foundation through engine, is deterministic, synchronous, and
-//! free of I/O. The adapters are where the outside world gets in. For the bigger
-//! picture, see `docs/architecture.md`.
+//! The protocol layers, foundation through engine, are deterministic,
+//! synchronous, and free of I/O. So are `actors`, Loam, and `driver.core`:
+//! every layer `build.zig` marks `.core`, which `tools/check/arch_check.zig`
+//! keeps free of `std.Io`, sockets, and threads. `net`, `driver`, and `c_abi`
+//! are where the outside world gets in. For the bigger picture, see
+//! `docs/architecture.md`.
 
 pub const foundation = @import("foundation");
 

@@ -514,11 +514,8 @@ fn applyDecodedOwnedFrame(
         switch (action) {
             .fetch => |req| {
                 const scope = if (self.node_services) |services| services.peer_handle else null;
-                try outbound.enqueueAnswerResolutionOwned(
-                    self,
-                    req.answer,
-                    try bootstrap.resolveForSwissnum(&self.session_state, self.localObjectProjection(), scope, req),
-                );
+                if (try bootstrap.resolveForSwissnum(&self.session_state, self.localObjectProjection(), scope, req)) |resolution|
+                    try outbound.enqueueAnswerResolutionOwned(self, req.answer, resolution);
             },
             .deposit_gift => |req| {
                 const scope = if (self.node_services) |services| services.peer_handle else null;

@@ -7,7 +7,7 @@ decision: "Attach bounded record-backed actors to the existing Host/Vat, restori
 supersedes: []
 superseded_by: []
 amends: [ADR-0162]
-amended_by: [ADR-0164, ADR-0165]
+amended_by: [ADR-0164, ADR-0165, ADR-0182]
 ---
 
 # ADR-0163 Record-backed sleepy actors

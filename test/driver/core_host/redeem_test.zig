@@ -315,7 +315,7 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
                 acted = true;
                 switch (action) {
                     .settled => |s| if (s.vow_id == parked_vow) {
-                        try std.testing.expect(s.value == .reference);
+                        try std.testing.expect(s.value == .capability);
                         saw_parked = true;
                     },
                     else => {},
@@ -514,7 +514,7 @@ test "core host: ordinary sturdyrefs retry alternative locators and settle" {
                 acted = true;
                 switch (action) {
                     .settled => |result| if (result.vow_id == vow_id) {
-                        try std.testing.expect(result.value == .reference);
+                        try std.testing.expect(result.value == .capability);
                         settled = true;
                     },
                     .dial => return error.UnexpectedDial,

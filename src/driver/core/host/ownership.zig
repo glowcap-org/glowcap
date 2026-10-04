@@ -82,6 +82,7 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     var break_it = self.sessions.valueIterator();
     while (break_it.next()) |session| {
         session.*.served.port.breakFarVows(session.*.served.closeReason("host released"));
+        _ = self.capabilities.invalidatePeer(session.*.peer_handle);
     }
     var free_it = self.sessions.valueIterator();
     while (free_it.next()) |session| {
@@ -93,12 +94,15 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
         };
         sessions.freeSessionShell(self, session.*);
     }
-    self.sessions.deinit(self.allocator);
+    // Actor destructors may consume remote retains. They must see an empty,
+    // valid session index and release-only capability rows, never freed shells.
+    self.sessions.clearRetainingCapacity();
     // Provisional exporter peers can retain local actor roots, so the Node
     // retires while the Vat those projections name is still alive.
     host_pump.deinitParkedNodeActions(self);
     self.node.deinit();
     self.vat.deinit();
+    self.sessions.deinit(self.allocator);
     var giftables = self.giftables.valueIterator();
     while (giftables.next()) |row| self.allocator.free(@constCast(row.name));
     self.giftables.deinit(self.allocator);
@@ -112,8 +116,8 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
             self.allocator.free(@constCast(transport.*));
     }
     self.transport_profiles.deinit(self.allocator);
-    if (self.last_action) |last| action.freePayload(self.allocator, last);
-    for (self.actions.unpopped()) |queued| action.freePayload(self.allocator, queued);
+    if (self.last_action) |last| action.freeStorage(self.allocator, last);
+    for (self.actions.unpopped()) |queued| action.freeStorage(self.allocator, queued);
     self.actions.deinit(self.allocator);
     // Far rows retired through the break above; only never-fired local rows
     // remain after the Vats are gone.

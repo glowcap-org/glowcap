@@ -173,6 +173,8 @@ const constants = [_]Const{
     // Local Forward hop bound (usize, libglowcap_host).
     con("MAX_LOCAL_FORWARD_HOPS", cd.GLOWCAP_MAX_LOCAL_FORWARD_HOPS, .usize, null),
     con("HANDSHAKE_TIMEOUT_MS", cd.GLOWCAP_HANDSHAKE_TIMEOUT_MS, .usize, null),
+    con("LOCAL_TURN_BUDGET_DEFAULT", cd.GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT, .uint, null),
+    con("LOCAL_TURN_BUDGET_UNBOUNDED", cd.GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED, .uint, null),
     con("HOST_OUTBOUND_PREFIX_CAP", cd.GLOWCAP_HOST_OUTBOUND_PREFIX_CAP, .usize, null),
     con("HOST_DURABLE_ENTROPY_LEN", cd.GLOWCAP_HOST_DURABLE_ENTROPY_LEN, .usize, null),
     con("HOST_DURABLE_SWISS_LEN", cd.GLOWCAP_HOST_DURABLE_SWISS_LEN, .usize, null),

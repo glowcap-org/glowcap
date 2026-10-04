@@ -22,7 +22,7 @@ pub const Metadata = struct {
 
     pub fn encode(self: Metadata) [encoded_size]u8 {
         var bytes: [encoded_size]u8 = undefined;
-        @memcpy(bytes[0..8], "LOAM\x00\x00\x00\x01");
+        @memcpy(bytes[0..8], "LOAM\x00\x00\x00\x03");
         std.mem.writeInt(u128, bytes[8..24], @backingInt(self.store), .big);
         const values = [_]u64{ self.incarnation, self.revision, self.objects, self.record_bytes, self.roots, self.last_sequence };
         for (values, 0..) |value, i| std.mem.writeInt(u64, bytes[24 + i * 8 ..][0..8], value, .big);
@@ -33,7 +33,7 @@ pub const Metadata = struct {
     }
 
     pub fn decode(bytes: []const u8) !Metadata {
-        if (bytes.len != encoded_size or !std.mem.eql(u8, bytes[0..8], "LOAM\x00\x00\x00\x01")) return error.Corrupt;
+        if (bytes.len != encoded_size or !std.mem.eql(u8, bytes[0..8], "LOAM\x00\x00\x00\x03")) return error.Corrupt;
         if (std.hash.Crc32.hash(bytes[0..170]) != std.mem.readInt(u32, bytes[170..174], .big)) return error.Corrupt;
         const result: Metadata = .{
             .store = @fromBackingInt(std.mem.readInt(u128, bytes[8..24], .big)),
@@ -105,9 +105,9 @@ pub const Batch = struct {
         return hash.finalResult();
     }
 
-    /// Validates the entire delta before writing. `kv` supplies transaction-local
-    /// bounded get/put/remove operations; all borrowed values remain valid until
-    /// this function begins its write pass. Failure requires backend abort.
+    /// Validates record deltas before writing; index and tracing refusals still
+    /// require atomic backend abort. `kv` supplies bounded transaction-local
+    /// get/put/remove operations. Borrows stay valid until the write pass.
     pub fn apply(self: Batch, kv: anytype) !Metadata {
         if (!std.mem.eql(u8, &self.digest, &fingerprint(self.ticket, self.changes, self.collection))) return error.Corrupt;
         const old = try Metadata.decode((try kv.get(metadata_key)) orelse return error.Corrupt);
@@ -119,18 +119,22 @@ pub const Batch = struct {
         for (self.changes, 0..) |change, i| {
             if (change.id.store != old.store) return error.ForeignObject;
             for (self.changes[0..i]) |prior| if (prior.id.eql(change.id)) return error.DuplicateMutation;
+            const proposed = if (change.bytes) |bytes| try records.View.decode(bytes, self.limits, self.schemas) else null;
             const previous = try kv.get(&change.id.key());
             if (previous) |bytes| {
                 const view = try records.View.decode(bytes, self.limits, self.schemas);
                 if (!view.id.eql(change.id) or view.revision > old.revision) return error.Corrupt;
                 if (change.expected == null or view.revision != change.expected.?) return error.RevisionConflict;
+                if (proposed) |replacement| {
+                    if (!std.meta.eql(try @import("names.zig").of(view, self.schemas), try @import("names.zig").of(replacement, self.schemas))) return error.NameChanged;
+                }
                 if (change.bytes == null and view.rooted) return error.Rooted;
                 next.record_bytes = std.math.sub(u64, next.record_bytes, bytes.len) catch return error.Corrupt;
                 next.objects = std.math.sub(u64, next.objects, 1) catch return error.Corrupt;
                 next.roots = std.math.sub(u64, next.roots, @intFromBool(view.rooted)) catch return error.Corrupt;
             } else if (change.expected != null or change.bytes == null) return error.Gone;
-            if (change.bytes) |bytes| {
-                const view = try records.View.decode(bytes, self.limits, self.schemas);
+            if (proposed) |view| {
+                const bytes = change.bytes.?;
                 if (!view.id.eql(change.id) or view.revision != next.revision) return error.Corrupt;
                 if (previous == null and change.id.incarnation != old.incarnation) return error.StaleWriter;
                 var edges = view.edges();
@@ -157,7 +161,9 @@ pub const Batch = struct {
         for (self.changes) |change| if (change.bytes) |bytes| {
             // Proposed bytes belong to the immutable batch, so backend writes
             // cannot invalidate the edge iterator used by the barrier.
-            try collection.writeBarrier(&next.collection, kv, try records.View.decode(bytes, self.limits, self.schemas));
+            const view = try records.View.decode(bytes, self.limits, self.schemas);
+            try @import("names.zig").install(kv, view, self.schemas);
+            try collection.writeBarrier(&next.collection, kv, view);
         };
         if (self.collection) |request| try collection.apply(request, &next, kv, self.limits, self.schemas);
         try kv.put(metadata_key, &next.encode());

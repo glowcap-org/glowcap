@@ -42,8 +42,30 @@ pub fn connect(
     );
     errdefer shared.runtime.deinit();
 
+    return finishConnect(shared, locator);
+}
+
+/// Dial through borrowed stream or multiplexed providers. Contexts remain
+/// stable until this Session and every session opened by handoff have retired.
+pub fn connectProviders(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    providers: []const host_runtime.HostRuntime.ProviderRegistration,
+    locator: model.PeerLocator,
+    identity: Identity,
+    opts: SessionOptions,
+) !*Session {
+    const shared = try allocator.create(SharedRuntime);
+    errdefer allocator.destroy(shared);
+    shared.* = SharedRuntime.init(allocator, try host_runtime.HostRuntime.initProviders(allocator, io, providers, identity, opts));
+    errdefer shared.runtime.deinit();
+    return finishConnect(shared, locator);
+}
+
+fn finishConnect(shared: *SharedRuntime, locator: model.PeerLocator) !*Session {
     const hs = try shared.runtime.connectLocator(locator, .inherit);
-    const session = try Session.adoptRetained(&shared.runtime, hs, shared, allocator);
+    errdefer shared.runtime.releaseWire(hs) catch |err| shared.runtime.noteTerminalFailure(err);
+    const session = try Session.adoptRetained(&shared.runtime, hs, shared, shared.allocator);
     std.debug.assert(!shared.releaseImplicit());
     return session;
 }

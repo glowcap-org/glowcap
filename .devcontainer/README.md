@@ -231,7 +231,7 @@ in [`checksums.sh`](checksums.sh).
 
 | Group | Tools | Installer |
 | --- | --- | --- |
-| Base image | The Debian image both this container and the rooms deploy image build on, pinned by digest | `Dockerfile` |
+| Base images | Debian for development and distroless Debian for the Rooms runtime, pinned by digest | `Dockerfile`, `apps/rooms/web/deploy/rooms.Dockerfile` |
 | Production database | PostgreSQL's latest stable Alpine image, pinned by version and digest | `apps/rooms/web/deploy/docker-compose.yml` |
 | Workspace shell | zsh (`/bin/zsh`), which the pane runtime execs | `Dockerfile` |
 | Zig | Zig and its matching ZLS language server | `image/zig.sh`, `image/zls.sh` |
@@ -246,6 +246,11 @@ in [`checksums.sh`](checksums.sh).
 The Rust browser target and `wasm-bindgen` compiler are installed by the image.
 The compiler version comes from `apps/rooms/rust/Cargo.lock`; the image copies
 that lockfile and verifies its installed compiler against it.
+
+ZLS is built from the checksummed source revision in `pins.sh`.
+`image/zls.sh` applies `image/patches/zls-directory-contents.patch` for the
+pinned Zig's build API. A ZLS refresh must recheck or remove that patch and
+compile with the selected Zig before the image can be considered verified.
 
 The image also puts the repository's own CapTP CLI on PATH: `glowcap` links to
 the repo-root development launcher, which runs `zig-out/product/bin/glowcap`.
@@ -309,6 +314,21 @@ row, and `test/env-sync.sh` reads the same row to check it.
 Host-side startup also uses the `DEVCONTAINER_CLI_VERSION` pin. An installed
 CLI is used only when its version matches; otherwise `npx` runs the pinned
 release.
+
+The pin report covers image tools and conformance submodules. A complete
+dependency refresh also checks these owners:
+
+| Dependency | Update and evidence |
+| --- | --- |
+| Devcontainer features | Run the pinned `@devcontainers/cli`'s `upgrade --workspace-folder .`; rebuild to exercise the regenerated feature lock |
+| Rust crates | Update direct requirements, then `cargo update` in each crate or workspace; run the affected Zig build steps and `runtime-check` |
+| Deno packages | Update imports and task specifiers together, then `deno update --frozen=false` in each scope; normal builds keep frozen locks |
+| Python packages | Update direct requirements, then `uv lock --upgrade --project <directory>`; run binding and conformance checks |
+| Vendored code and Zig packages | Review upstream changes, retain only required compiler adaptations, record exact revisions, and exercise the consuming build steps, including `site` |
+| CI actions | Resolve current releases to full commit hashes; keep workflow references immutable |
+
+An update is verified only with the new tool or dependency in use. Source
+checks alone do not prove a new base image or feature installation.
 
 ## Persistent paths
 
@@ -492,4 +512,4 @@ tests run in `zig build infrastructure-check`, so a source-only edit does not
 create temporary repositories or exercise host workflow.
 
 Cursor users can enable Serena from [`.cursor/mcp.json`](../.cursor/mcp.json).
-The [Serena rule](../.agents/rules/serena-mcp.md) covers project use.
+The [Serena skill](../.agents/skills/serena/SKILL.md) covers project use.

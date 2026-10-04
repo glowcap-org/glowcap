@@ -1,17 +1,20 @@
 # Managed access implementation and acceptance
 
-Status: active plan. This document orders managed access implementation and
-names the evidence that lets each slice leave the plan. The
-[storage contract](storage.md) owns durable records, trust boundaries,
-recovery, and performance requirements. These are managed access acceptance
-slices within the
-[Loam implementation stages](../architecture.md#implementation-order-and-acceptance).
+Status: active plan. This document names the evidence managed access must
+provide at each integration surface. The [storage contract](storage.md) owns
+durable records, trust boundaries, recovery and performance requirements.
+The [completion queue](../completion.md#execution-order) owns the priority and
+prerequisites of remaining native tasks; these acceptance groups do not form
+a second task queue.
 
-Loam establishes the record and transaction core, native backend, and ordinary
-sleepy actors first. Slices 1–4 below exercise access participation in that
-foundation and reuse its storage and Host integration. Slice 5 extends that
-evidence to browser consumers and Rooms. Slice 6 records measurements throughout
-the work. The [Rooms plan](../../rooms/access-grants.md#ordered-implementation-and-exit-criteria)
+Groups 1–4 exercise access participation in the shared record, transaction,
+backend and Host foundation. Preserve their implemented evidence and extend
+it with each feature. Group 5 follows the native
+[readiness checkpoint](../architecture.md#readiness-before-the-c-abi) and
+extends the same contracts to Rooms. The [browser profile](../../../loam/browser.md)
+records the implemented fixed-resource projection. Group 6 applies
+throughout, not after integration. The
+[Rooms plan](../../rooms/access-grants.md#ordered-implementation-and-exit-criteria)
 owns application rollout.
 
 ## Current standing
@@ -39,10 +42,20 @@ supplies dependent local facets, dual current-grant admission, and
 transactional strong-field replacement and removal with abort and reopen
 evidence.
 
-General operation receipts, scoped retained events, and broader workload and
-process-loss proofs remain required by the acceptance slices below.
+Native general operation receipts, scoped retained events, sustained workloads
+and process-loss proofs are recorded in the [shipped inventory](../../../shipped.md#resource-models).
+The [first C/Rust lifecycle](../../../loam/c-and-rust.md)
+adds consumer projection and ownership evidence, including bounded managed
+children, editable policy and attenuated controls. Browser execution has
+[Chromium lifecycle and ownership evidence](../../../loam/browser.md). Rooms still needs
+its own applicable acceptance slices; Zig proof does not substitute for them.
 
 ## Implementation sequence and exit evidence
+
+The groups below follow integration surfaces. Use the completion queue for
+what to implement next and its deletion criteria; satisfy the applicable
+groups in the same change. Existing evidence is a starting point, not proof
+of a new method's failure or cost contract.
 
 1. **Shared records and storage effects.** Bind the codecs and record-view
    misses to Loam leases, continuation ownership, and transaction batches. Adapt
@@ -69,8 +82,8 @@ process-loss proofs remain required by the acceptance slices below.
    Loam's publication and deferred-lookup support. Prove warm near calls, cold
    calls, durable restoration, disconnected callers, reply capability
    restrictions, and unrelated-actor progress during slow storage.
-5. **Browser and Rooms adoption.** Execute the same core fixtures through the
-   IndexedDB adapter and real browser exports. Consolidate authority-relevant
+5. **Rooms adoption.** The fixed-resource IndexedDB consumer is proved.
+   Consolidate authority-relevant
    content into its atomic owner store; remove superseded session-specific
    grants and independent commit paths in the owning integration slice. No
    automatic reset, prerelease migration stack, or silently volatile fallback.

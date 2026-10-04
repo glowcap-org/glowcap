@@ -48,6 +48,7 @@ extern "C" {
 }
 
 async fn run() -> Result<(), String> {
+	crate::content_policy::run();
 	packet_channel::run().await;
 	let caller = Host::with_options(HostOptions::default()).map_err(message)?;
 	let server = Host::with_options(HostOptions::default()).map_err(message)?;

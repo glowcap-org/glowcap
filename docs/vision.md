@@ -41,12 +41,15 @@ provenance and upstream-contact policy live in
 
 ## Scale
 
-The destination is 500,000 live CapTP sessions on one node.
+The destination is 500,000 live CapTP sessions on one node, for every way an
+application can run glowcap.
 
-That is a target. A recorded run has to hold that many real socket sessions
-with acceptable memory and scheduling cost. Until then, per-session footprint
-checks and allocation budgets keep the design moving in the right direction.
-[The route to 1.0](ladder.md) records the measured numbers.
+A recorded run has held that many signed sessions on the TCP completion loop.
+`driver.Session`, `HostRuntime`, and the bindings run a different loop that
+gives every connection its own read and write buffers, so the number does not
+carry over to them yet. Per-session footprint checks and allocation budgets
+cover the rest of the design. [The route to 1.0](ladder.md) records the
+measured numbers.
 
 The core cannot create scale by itself; the connection loop and operating
 system do the serving. Its responsibility is to avoid making the target
@@ -74,12 +77,14 @@ should not grow framework policy to serve one runtime.
 Loam is the persistence foundation within glowcap. Applications should
 be able to store objects containing capabilities, retain their exact authority,
 and restore them after restart without building their own reference database.
-Bounded residency lets a durable graph grow beyond memory. Sleepy actors use
-the existing Vat and Host while their eligible behavior state leaves RAM.
+Bounded residency lets a durable graph grow beyond memory. Sleepy actors run
+on the existing Vat and Host, and their state leaves memory between calls.
 
-Loam includes resource access lifecycle management through its managed access extension.
-Managed access supplies scopes, grants, delegation, editable facets, pause/revoke, and
-authorized observation. Applications define their domain operations and content.
+Loam's managed access is for applications that share resources with people.
+It records grants over a resource and what sits below it, lets a holder share
+onward but never more widely, can pause or revoke a grant, and shows who holds
+access. Applications define their domain
+operations and content.
 Ordinary objects require no resource-management state, and both kinds can
 participate in the same persistence transaction.
 

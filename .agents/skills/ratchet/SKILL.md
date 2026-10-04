@@ -3,9 +3,7 @@ name: ratchet
 description: >-
   Use when a session learned something the scaffolding does not already teach,
   after any human correction, or when landing a new rule, skill, or build
-  check: encode the lesson at the strongest layer that can hold it, validate
-  it against the defect it claims to catch, and prune what stopped paying
-  rent. Not for ordinary code work (work) or structural cleanup
+  check. Not for ordinary code work (work) or structural cleanup
   (smell-annihilation).
 ---
 
@@ -22,11 +20,15 @@ One sentence: the mistake a future agent could repeat, or the move that
 worked and is not yet taught. If it does not fit in one sentence, it is a
 topic, not a lesson; split it.
 
+Check the existing owner first. If it already teaches or enforces the lesson,
+report that and add nothing. The review is required; a new rule is not.
+
 ## 2. Choose the strongest layer
 
 | The lesson is…                 | It lands as                    | Where                                                                  |
 | ------------------------------ | ------------------------------ | ---------------------------------------------------------------------- |
-| Mechanically checkable         | a build check                  | `tools/check/source_check/` (§3), or `arch_check.zig` for layer imports  |
+| Static cross-file fact         | a source check                 | `tools/check/source_check/` (§3), or `arch_check.zig` for layer imports  |
+| Executable workflow behavior   | a behavioral regression test  | `tools/check/`, wired into `infrastructure-check` for agent/container workflows |
 | A semantic or protocol fact    | a test, fixture, or scenario   | the placement map in [tests](../../rules/tests.md)                     |
 | A judgment no check can hold   | the sharpest rule line         | the rule that owns the surface, per the [index](../../README.md)       |
 | A line that stopped paying rent | a deletion                    | wherever it sits                                                       |
@@ -36,17 +38,21 @@ not yet written; when the check lands, the sentence shrinks to a pointer.
 
 ## 3. Landing a check
 
-- Put the check beside its concern under
+- Test behavior by driving the owning interface and observing effects and
+  failures. A substring in a script does not prove the script's behavior.
+  Put static cross-file checks beside their concern under
   [`tools/check/source_check/`](../../../tools/check/source_check/) and wire it
   in [`source_check.zig`](../../../tools/check/source_check.zig). Layer-import
   checks belong in `arch_check.zig`; runtime dependency checks belong in
-  `toolchain_check.zig`.
+  `toolchain_check.zig`. Executable workflow regressions use their owning
+  behavior gate instead of growing the static gate.
 - A substring claim is one `Ban` row in a table joined into `bans.all`;
   prefer a row over bespoke code. Anything needing parsing or cross-file
   state is a `pub fn check…` in the owning module, called from the driver.
 - **Validate the check against the defect it claims to catch.** Introduce the
-  violation, watch `zig build source-check` name it, then remove it. A check
-  that has never fired has proven nothing — the same discipline
+  violation, watch the owning check fail for that reason, then restore the
+  correct behavior and require a pass. A check that has never fired has proven
+  nothing — the same discipline
   [tests](../../rules/tests.md) demands of a new property target.
 - Checks pay rent too: prefer one general check to fifty string bans, and
   retire stale tombstones per agent-scaffolding's "The gate accretes too."

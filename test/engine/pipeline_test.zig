@@ -59,7 +59,7 @@ test "borrowedListenerFire builds the break resolver-method call" {
 
 test "classifyListenerDrain fires once on a non-promise fulfillment" {
     const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .mode = .settling_only };
-    const action = pipeline.classifyListenerDrain(entry, .{ .fulfill = .{ .bytes = "v" } });
+    const action = pipeline.classifyListenerDrain(entry, .{ .fulfill = .{ .bytes = "v" } }, .next);
     try std.testing.expect(action == .fire);
     try std.testing.expectEqual(@as(u64, 2), action.fire);
 }
@@ -69,6 +69,7 @@ test "classifyListenerDrain keeps a settling listener on a same-peer promise" {
     const action = pipeline.classifyListenerDrain(
         entry,
         .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(8) } } } },
+        .next,
     );
     try std.testing.expect(action == .reinstall);
     try std.testing.expectEqual(@as(u64, 8), action.reinstall.next_answer.int());
@@ -79,7 +80,24 @@ test "classifyListenerDrain keeps a combined listener on a same-peer promise" {
     const action = pipeline.classifyListenerDrain(
         entry,
         .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(8) } } } },
+        .next,
     );
     try std.testing.expect(action == .reinstall);
     try std.testing.expectEqual(@as(u64, 8), action.reinstall.next_answer.int());
+}
+
+test "classifyListenerDrain concludes listeners on a far promise by profile" {
+    const far_promise: model.Resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.promise(12) } } };
+    const settling = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .mode = .settling_only };
+    const shortening = session.ListenerEntry{ .listener = .{ .import_position = .from(3) }, .mode = .shortening_only };
+    const combined = session.ListenerEntry{ .listener = .{ .import_position = .from(4) }, .mode = .shortening_or_settling };
+
+    // V1.0 has no paired shortening listener, so every mode hears the far promise.
+    try std.testing.expectEqual(@as(u64, 2), pipeline.classifyListenerDrain(settling, far_promise, .v1_0).fire);
+    try std.testing.expectEqual(@as(u64, 4), pipeline.classifyListenerDrain(combined, far_promise, .v1_0).fire);
+
+    // On next a settling listener is reissued by its paired shortening listener.
+    try std.testing.expect(pipeline.classifyListenerDrain(settling, far_promise, .next) == .discard);
+    try std.testing.expectEqual(@as(u64, 3), pipeline.classifyListenerDrain(shortening, far_promise, .next).fire);
+    try std.testing.expectEqual(@as(u64, 4), pipeline.classifyListenerDrain(combined, far_promise, .next).fire);
 }

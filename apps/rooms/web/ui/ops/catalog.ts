@@ -2,8 +2,7 @@
 //
 // The same capability wears several faces on this surface: the bundle toggle
 // that includes it, the short name a notice calls it by, and the value
-// modal's ask. Each used to keep its own list, and four lists about one fact drift;
-// this table is the one they all read, keyed by the `OpsCap` vocabulary the
+// modal's ask. Four lists about one fact would drift, so this table is the one they all read, keyed by the `OpsCap` vocabulary the
 // store already speaks.
 
 import type { OpsCap } from "../types.ts";

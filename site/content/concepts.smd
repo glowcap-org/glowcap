@@ -6,8 +6,8 @@
 .draft = false,
 ---
 
-If capabilities are new, read [Why OCapN]($link.page('why')) first. This page
-assumes the why and explains the machinery. To see where `Session`, `Host`, and
+If capabilities are new to you, read [Why OCapN]($link.page('why')) first.
+That page explains why capabilities matter; this one explains how they work. To see where `Session`, `Host`, and
 `Peer` fit, use [modules]($link.page('modules')).
 
 # A capability is a reference
@@ -29,9 +29,9 @@ the wrapper, and you have attenuated. Cut the wrapper and you have revoked.
 
 [A capability is a reference. Pass it as an argument and the partner can call it; without it there is nothing else to reach for.]($image.siteAsset('diagram-capability.svg'))
 
-A call itself is a two-beat exchange. Your deliver goes out and you are
-immediately holding a promise for the answer; the partner's resolve, whenever
-it lands, settles that promise into a result.
+A call takes two messages. Your side sends a `deliver` message, and you
+immediately hold a promise for the answer. Later, the partner sends back a
+`resolve` message, which settles that promise into a result.
 
 [A single call, start to finish: you deliver it and immediately hold a promise, and the partner's resolve settles that promise to a result.]($image.siteAsset('diagram-call.svg'))
 
@@ -56,12 +56,21 @@ published name from it and get back a live reference. From there you are in
 the reference-passing world and the locator has done its whole job.
 
 A **sturdyref** is a locator with a **swiss number** on the end, and it names
-one object. It is the form you can write in a config file.
-glowcap does not persist the object for you: after a restart, the application
-must restore the same identity and register the same swiss number. Redeeming
-one is a dial and fetch aimed at that object. The standard `Host` does not
-provide that durable store today; its default bootstrap registry is
-process-local.
+one object. It is a reference you can write down, for example in a config
+file. Redeeming a sturdyref means dialing the peer and fetching that object.
+
+The name you fetch is the swiss number. Anyone who can reach the peer and
+knows the name can fetch the object, so a name is only as private as it is
+hard to guess. The examples publish short names like `"greeter"` to keep them
+readable, and anyone can fetch those. Give anything private a long random
+name.
+
+A sturdyref still works after a restart only if the peer comes back with the
+same identity and can still answer for that swiss number. The standard
+`Host`'s default bootstrap registry lives only as long as the process, so on
+its own the application must register every name again.
+[Loam]($link.page('loam')), glowcap's storage layer, keeps objects and their
+names on disk, and restores an object when a peer fetches its name.
 
 | Word | What it is |
 | --- | --- |
@@ -99,10 +108,11 @@ diagrams draw the flow the code is checked against.
 
 # Three-party handoff
 
-Alice holds a reference to Carol's object and wants Bob to have it. Routing
-Bob through Alice forever would leave Alice proxying a relationship she has
-no part in, so CapTP gives her a way to make an introduction Bob can present
-to Carol himself. After that the two of them talk directly.
+Alice holds a reference to Carol's object and wants Bob to have it. Alice
+could pass Bob's calls along to Carol herself, but then she would sit in the
+middle of their relationship forever. Instead, CapTP lets her write an
+introduction that Bob presents to Carol himself. After that, Bob and Carol
+talk directly.
 
 The handoff runs in four stages:
 
@@ -111,12 +121,12 @@ The handoff runs in four stages:
 3. Bob **redeems** with Carol and gets a live reference.
 4. Alice is off the path.
 
-In glowcap you never see the gift bytes. A call that answers with an
-introduction settles as the introduced capability, inside the wait you were
-already in, so there is no redeem step to write. That holds in every API:
-native Zig, the completion loop, and all four bindings.
-In the rooms chat, the _Message_ button is that introduction: the room hands
-you a live reference to the other member.
+In glowcap you never handle the gift bytes. When a call's answer is an
+introduction, glowcap redeems it for you, and the call you were already
+waiting on settles as the introduced capability. There is no redeem step to
+write. This holds for the Zig Host, the completion loop, and all four
+bindings. Only the low-level `BlockingSession` hands the gift to you. In the Rooms chat, the _Message_ button is this kind of
+introduction: the room hands you a live reference to the other member.
 
 Chapter 02,
 [introduce and redeem](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig),
@@ -127,11 +137,12 @@ diagrams draw it.
 # Which dialect answers
 
 Two peers have to agree on a CapTP **version** and a **codec** before
-anything else can happen. Each side carries a ranked menu of what it can
-speak, both sides run the same intersection rule, and the most-preferred
-entry both offer wins. The menus themselves stay local: what crosses the
-wire is each side's signed hello, naming the version it selected and the
-optional features it offers. If the menus share nothing, no session opens.
+anything else can happen. Each side has a ranked menu of what it can speak.
+Both sides apply the same rule to the two menus, and the most preferred entry
+they share wins. If the menus share nothing, no session opens.
+
+The menus never cross the wire. What each side sends is a signed hello that
+names the version it chose and the optional features it offers.
 
 [Syrup](https://github.com/ocapn/syrup) and Cap'n Proto are codecs, two ways
 of writing the same message down. Session logic never changes with the codec,
@@ -142,22 +153,27 @@ and
 
 [The dialect depends on who answers: the canonical floor against Goblins, glowcap's own profile between two glowcap peers.]($image.siteAsset('diagram-dialects.svg'))
 
-Against a Goblins peer the menu lands on CapTP 1.0 over Syrup, the interop
-floor, and when glowcap and Goblins disagree there, glowcap treats it as
-glowcap's bug. Two glowcap peers can negotiate up to `glowcap-next`, usually
-with Cap'n Proto. Application code cannot tell the difference.
+With a Goblins peer, the choice is CapTP 1.0 over Syrup, the shared baseline
+for interop. If glowcap and Goblins disagree there, glowcap treats it as a
+glowcap bug. Two glowcap peers can negotiate up to `glowcap-next`, glowcap's
+own trial profile, usually with Cap'n Proto.
+[What a CapTP 1.0 peer sees]($link.page('protocol')) lists the one place
+application code can tell them apart.
 
 [A friendly goblin sizing up the glowcap mark. glowcap tests its wire behavior against a real Goblins peer, so both sides have to understand the same conversation.]($image.siteAsset('glowcap-goblin-512.png'))
 
 # Distributed GC
 
-Export table slots carry reference counts, and answer slots hold a single
-reference that is released outright. With GC enabled on a binding, dropping a
-projected far reference makes the engine tell the peer, with `op:gc-exports`
-or `op:gc-answers`, so unused slots leave the tables. That covers fetch
-results, fulfilled far answers, and capabilities nested in delivered
-arguments. It is a per-session opt-in, off by default; without it, rows stay
-until the session tears down. The
+Each session keeps tables of the references it has exported and the answers
+it is holding. An export slot counts how many times it was handed out. An
+answer slot holds one reference and is released all at once.
+
+Distributed garbage collection is off by default, and you turn it on per
+session. When it is on and your program drops a far reference, glowcap tells
+the peer with `op:gc-exports` or `op:gc-answers`, and the peer frees the
+unused slot. This covers fetch results, fulfilled far answers, and
+capabilities nested inside delivered arguments. When it is off, table entries
+stay until the session ends. The
 [GC](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/05-gc.md)
 diagrams draw it.
 

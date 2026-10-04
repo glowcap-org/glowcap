@@ -31,31 +31,40 @@ proxies, three-party redemption.
 
 ## The adapter
 
-[`adapter.ts`](adapter.ts) implements the runtime's two host seams:
+[`adapter.ts`](adapter.ts) connects the shared runtime to the browser. It
+supplies four things the native runtimes get from the operating system:
 
-- **FFI over linear memory.** The wasm module exports the same `glowcap_*` C ABI the dlopen runtimes
-  load. JavaScript cannot lend wasm a view of its own buffers, so every buffer argument is copied
-  into linear memory before a call and copied back after it (that is how C out-parameters land);
-  both copies are the named cost of the linear-memory boundary. Staged copies live in a generational
-  arena freed two call-windows later, because a call's returned views legally alias its staged
-  inputs.
-- **Struct layout from the module itself.** Field offsets differ between the 64-bit dlopen targets
-  and wasm32, so the adapter reads the module's own layout descriptor (`glowcap_wasm_abi_layout`)
-  and hands the runtime a layout the marshallers read through (`runtime/internal/layout.ts`). The
-  descriptor, the generated manifest in `@glowcap/abi`, and the 64-bit mirror are held in lockstep
-  by `zig build wasm-abi-layout-check`.
-- **Two hosted-object callback seams.** The module imports exactly behavior dispatch and hosted
-  actor retirement (`zig build wasm-import-check` pins both). Every wasm-hosted object dispatches
-  by ctx id, and native retirement drops its JavaScript owner at the actor's last root, so alias
-  churn does not accumulate behavior rows. A custom-allocator `Context` remains dlopen-only and
-  refuses loudly.
-- **Sockets over WebSocket.** `connect` opens a WebSocket to `ws://host:port/` by default; pass
-  `wsUrl` to route every dial through a byte gateway instead. The socket carries raw OCapN frames
-  (the host's stream delimiter owns framing), so the accepting side is a byte bearer, never a
-  protocol translator. A browser cannot bind a listener; `listen` refuses. Outbound writes wait for
-  the browser send buffer to fall below its high-water. Inbound bytes enter a bounded queue because
-  browser WebSockets cannot pause their producer; overflow closes the socket instead of growing tab
-  memory.
+- **FFI over linear memory.** The Wasm module exports the same `glowcap_*` C
+  ABI that the native runtimes load. JavaScript cannot lend Wasm a view of its
+  own buffers, so every buffer argument is copied into linear memory before a
+  call and copied back afterwards; that is how C out-parameters return. Both
+  copies are the named cost of crossing into linear memory. Staged copies live
+  in an arena that is freed two calls later, because a call's returned views
+  may point into its staged inputs.
+- **Struct layout from the module itself.** Field offsets differ between the
+  64-bit native targets and wasm32. So the adapter reads the module's own
+  layout descriptor (`glowcap_wasm_abi_layout`) and gives the runtime a layout
+  its marshallers read through (`runtime/internal/layout.ts`).
+  `zig build wasm-abi-layout-check` keeps the descriptor, the generated
+  manifest in `@glowcap/abi`, and the 64-bit mirror in agreement.
+- **Two callbacks for hosted objects.** The module imports exactly two
+  functions: behavior dispatch and hosted actor retirement.
+  `zig build wasm-import-check` pins both. Every Wasm-hosted object dispatches
+  by context id, and retirement drops its JavaScript owner when the actor's
+  last root goes, so repeated aliases do not pile up behavior entries. A
+  `Context` with a custom allocator works only in the native runtimes, and is
+  refused with an error here.
+- **Sockets over WebSocket.** `connect` opens a WebSocket to `ws://host:port/`
+  by default. Pass `wsUrl` to route every dial through a byte gateway instead.
+  - The socket carries raw OCapN frames, and the Host's stream delimiter does
+    the framing. So the accepting side only passes bytes along; it never
+    translates the protocol.
+  - A browser cannot bind a listener, so `listen` refuses.
+  - Outbound writes wait until the browser's send buffer drops below its
+    high-water mark.
+  - Browser WebSockets cannot pause the sender, so inbound bytes go into a
+    bounded queue. If it overflows, the socket closes instead of growing the
+    tab's memory.
 
 ## Byte-transparent relay
 
@@ -64,7 +73,7 @@ and forwards bytes without parsing CapTP frames, so the keyed or Noise handshake
 authority run end to end unchanged. Pass `wsUrl` to `init()` with a function that maps
 `(host, port)` to the relay's URL, for example `` (h, p) => `ws://relay/relay?to=${h}:${p}` ``. The
 reference relay ships as [`@glowcap/relay`](../relay/README.md). The rooms app wraps it at
-[`apps/rooms/web/relay.ts`](../../../apps/rooms/web/relay.ts), which allow-lists the room server's
+[`apps/rooms/rust/services/src/web/relay.rs`](../../../apps/rooms/rust/services/src/web/relay.rs), which allow-lists the room server's
 own port for TCP targets, checks the `Origin` header on the upgrade, caps live sessions, times out
 idle pairs, and bounds bytes per session. `zig build deno-relay-test` proves a keyed OCapN session
 from this binding through that relay to a native TCP host.

@@ -107,7 +107,7 @@ test "core host: pending id enliven reuses an authenticated via session" {
                     .dial => return error.UnexpectedDial,
                     .cancel_dial => |cancel| try host.dialCancelled(cancel.ticket, cancel.route_index),
                     .settled => |result| if (result.vow_id == vow_id) {
-                        try std.testing.expect(result.value == .reference);
+                        try std.testing.expect(result.value == .capability);
                         settled = true;
                     },
                     else => {},

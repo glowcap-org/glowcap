@@ -144,7 +144,7 @@ the shape harder to change. Name which principle a finding breaks.
 - Behavior gaps hiding inside duplication (a hand-rolled copy that dropped
   something the canonical path does — unification fixes these for free).
 - A wire-path or steady-state allocation/copy that is neither forbidden, named
-  in the [memory ledger](../../rules/memory-ledger.md), nor pinned by a
+  in the [memory ledger](../memory-ledger/SKILL.md), nor pinned by a
   budget/bench.
 - An owned value that is really a key into a durable owner already on the path
   (drop the copy; retain through the owner).
@@ -195,7 +195,7 @@ the next agent inherits a higher floor.
 - **Layer bans:** `build.zig` `layer_table` + `arch-check` (`core = true` bans
   `std.Io`).
 - **Cost authority:** [memory](../../rules/memory.md) and its
-  [ledger](../../rules/memory-ledger.md), ladder Step 2,
+  [ledger](../memory-ledger/SKILL.md), ladder Step 2,
   `test/engine/alloc_budget_test.zig`, `test/engine/footprint_budget_test.zig`,
   `test/codec/encode_budget_test.zig`, `bench/*` ceilings.
 - **Prerelease posture:** [`.agents/rules/prerelease.md`](../../rules/prerelease.md).

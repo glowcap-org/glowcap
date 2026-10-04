@@ -34,21 +34,27 @@ attachment with call-owned working-set preparation and transaction participants.
 Managed use endpoints authorize a fixed resource/content binding; controls
 prepare permitted edits. Preparation restarts after intervening commits and
 retires submitted reads before releasing its state. Native reopen/recovery
-tests cover this extension; the existing process-kill proof covers the ordinary
-record-backed actor profile.
+tests cover this extension. The [managed process proof](../../../test/loam_managed_crash.zig)
+also covers issuance, revocation, content mutation and reference removal through
+CapTP across commit, local installation and undelivered-reply boundaries.
 
 [ADR-0170](../../decisions/adr/ADR-0170-durable-facet-derivation.md) adds
 fixed-resource derivation and bounded receipts. The same attachment stages
 records in the Vat, reserves hidden publication custody at the top-level Host
 boundary, and activates it only after confirmed commit.
 
-The full contract below remains the destination. This profile accepts plain
-request arguments and returns local capability edges through Host/CapTP;
-it does not yet support foreign fields, general returned-capability attenuation, durable event
-intentions, browser storage, cross-vat roots, or foreign
-language borrow APIs. Administrative publication retirement through the attachment's
+The full contract below remains the destination. This profile accepts owned
+capability arguments and returns local capability edges through Host/CapTP;
+typed [local and foreign fields](../../loam/references.md) preserve exact
+authority and restoration dependencies. It does not support general
+returned-capability attenuation, durable event intentions, or foreign
+language borrow APIs. Browser fixed-resource execution has its own
+[consumer profile](../../loam/browser.md). Administrative publication retirement through the attachment's
 write lane applies discovery removal at the commit outcome, fails closed on
-unknown outcomes, and re-publishes when recovery proves the batch absent.
+unknown outcomes, and restores discovery when recovery proves the batch absent.
+Opt-in cold publication lookup coalesces fetches through the same cache and
+restores exact targets without scanning or eagerly creating endpoints
+([ADR-0176](../../decisions/adr/ADR-0176-on-demand-durable-publication-discovery.md)).
 Timers, subscriptions, native handles, and unresolved promises have no durable
 representation here. Pending calls are volatile. Workload and tail-latency
 measurements remain required; functional tests do not establish the scale goal.

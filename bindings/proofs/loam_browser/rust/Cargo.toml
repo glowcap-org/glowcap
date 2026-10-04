@@ -1,0 +1,17 @@
+[package]
+name = "loam-browser-proof"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+glowcap = { package = "glowcap-rust-dogfood", path = "../../../rust", default-features = false, features = ["loam"] }
+wasm-bindgen = "=0.2.128"
+wasm-bindgen-futures = "=0.4.78"
+js-sys = "=0.3.105"
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["rt", "io-util", "sync", "macros"] }

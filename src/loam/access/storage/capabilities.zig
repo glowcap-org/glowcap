@@ -15,8 +15,9 @@ pub const Capabilities = struct {
     limits: Limits,
     references: usize = 0,
     operations: usize = 0,
+    observations: usize = 0,
     pub const Limits = struct { max_references: usize = 128, max_operations: usize = 32 };
-    pub const Staged = struct { change: core.GrantPlan.Change, derived_use: ?loam.ObjectId = null };
+    pub const Staged = struct { change: core.GrantPlan.Change, derived_use: ?loam.ObjectId = null, derived_control: ?loam.ObjectId = null };
 
     /// Store and this owner stay at stable addresses until deinit succeeds.
     pub fn init(allocator: std.mem.Allocator, store: *loam.Store, limits: Limits) !Capabilities {
@@ -25,7 +26,7 @@ pub const Capabilities = struct {
     }
 
     pub fn deinit(self: *Capabilities) !void {
-        if (self.references != 0 or self.operations != 0) return error.Busy;
+        if (self.references != 0 or self.operations != 0 or self.observations != 0) return error.Busy;
         self.* = undefined;
     }
 
@@ -51,6 +52,10 @@ pub const Capabilities = struct {
 
     fn restore(self: *Capabilities, lease: loam.Lease, role: Descriptor.Role) !*Binding {
         const row = try self.store.currentView(lease);
+        if (row.schema == records.profile.terminal) {
+            if ((try records.TerminalRecord.decode(row)).kind != .capability) return error.InvalidRecord;
+            return error.CapabilityRetired;
+        }
         var scratch: [core.max_scope_objects * @sizeOf(core.ResourceId)]u8 align(@alignOf(core.ResourceId)) = undefined;
         var fixed = std.heap.FixedBufferAllocator.init(&scratch);
         const decoded = try Descriptor.decodeOwned(fixed.allocator(), row);
@@ -71,18 +76,32 @@ pub const Capabilities = struct {
         if (state.binding.owner != self) return error.ForeignOperation;
         try state.opened();
         if (state.staged) return error.WrongPhase;
-        const plan = if (state.plan) |*plan| plan else return error.NoPreparedChange;
-        const result = try staging.grant(&state.read.?, plan, state.append);
+        const prepared = if (state.prepared == .grant) &state.prepared.grant else return error.NoPreparedChange;
+        const plan = &prepared.plan;
+        const result = try staging.grant(&state.read.?, plan, prepared.append);
         errdefer if (self.store.phase == .staging) self.store.abort() catch unreachable;
         var derived: ?loam.ObjectId = null;
-        if (plan.delta == .issue) derived = try create.descriptor(self.store, .{
+        if (plan.delta == .issue) derived = try create.descriptor(&state.read.?, .{
             .owner = state.read.?.owner_object,
             .grant_object = result.object,
             .grant = result.change.grant,
             .role = .use,
         }, root_derived);
+        var control: ?loam.ObjectId = null;
+        if (prepared.powers) |powers| control = try create.descriptor(&state.read.?, .{
+            .owner = state.read.?.owner_object,
+            .grant_object = result.object,
+            .grant = result.change.grant,
+            .role = .control,
+            .powers = powers.powers,
+        }, root_derived);
         state.staged = true;
-        return .{ .change = result.change, .derived_use = derived };
+        return .{ .change = result.change, .derived_use = derived, .derived_control = control };
+    }
+    pub fn stageAttenuatedControl(self: *Capabilities, operation: *Operation, rooted: bool) !loam.ObjectId {
+        const state = op.state(operation);
+        if (state.binding.owner != self) return error.ForeignOperation;
+        return op.stageAttenuatedControl(state, rooted);
     }
 };
 

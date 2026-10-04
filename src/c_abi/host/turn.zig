@@ -26,10 +26,10 @@ const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
 /// handle is Host-owned and valid for the same lifetime as that session; the
 /// caller must not release it. This is a projection of authority already held
 /// by the turn, not a second session lookup or routing decision.
-pub export fn glowcap_host_turn_session(
+pub fn glowcap_host_turn_session(
     turn: ?*GlowcapHostTurn,
     out_session: ?*?*c.GlowcapHostSession,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_session orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -43,10 +43,10 @@ pub export fn glowcap_host_turn_session(
 /// are reserved before publication, so refusal leaves no live resolver and no
 /// forwarded effect. The behavior returns normally after success; its return
 /// value resolves nothing once the turn is deferred.
-pub export fn glowcap_host_turn_defer(
+pub fn glowcap_host_turn_defer(
     turn: ?*GlowcapHostTurn,
     out_resolver_id: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_resolver_id orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -65,7 +65,7 @@ pub export fn glowcap_host_turn_defer(
 /// `*out_reply` gets a void placeholder; pass your behavior's own `out_reply`
 /// and return `GLOWCAP_OK`. The written reply is BORROWED — valid until the
 /// next turn verb or drive on this host.
-pub export fn glowcap_host_turn_forward(
+pub fn glowcap_host_turn_forward(
     turn: ?*GlowcapHostTurn,
     target: ?*const shared.GlowcapReference,
     verb: ?[*]const u8,
@@ -73,7 +73,7 @@ pub export fn glowcap_host_turn_forward(
     args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
     out_reply: ?*shared.GlowcapArgument,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -96,7 +96,7 @@ pub export fn glowcap_host_turn_forward(
 /// vow for the answer — the same routing and refusals as
 /// `glowcap_host_session_send`, on the turn's own session. The send encodes
 /// when the enclosing top-level call unwinds.
-pub export fn glowcap_host_turn_send(
+pub fn glowcap_host_turn_send(
     turn: ?*GlowcapHostTurn,
     target: ?*const shared.GlowcapReference,
     verb: ?[*]const u8,
@@ -104,7 +104,7 @@ pub export fn glowcap_host_turn_send(
     args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -123,14 +123,14 @@ pub export fn glowcap_host_turn_send(
 
 /// From inside a behavior callback, fire-and-forget eventual-send —
 /// `glowcap_host_turn_send` with no answer and no vow.
-pub export fn glowcap_host_turn_tell(
+pub fn glowcap_host_turn_tell(
     turn: ?*GlowcapHostTurn,
     target: ?*const shared.GlowcapReference,
     verb: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -152,13 +152,13 @@ pub export fn glowcap_host_turn_tell(
 /// `create`, a caretaker wrapping a target), the turn-time form of
 /// `glowcap_host_session_spawn`. Same `free` contract; `*out_ref` receives the
 /// opaque Host-scoped capability.
-pub export fn glowcap_host_turn_spawn(
+pub fn glowcap_host_turn_spawn(
     turn: ?*GlowcapHostTurn,
     behavior: ?c.GlowcapHostBehavior,
     ctx: ?*anyopaque,
     free: ?c.GlowcapHostCtxFree,
     out_ref: ?*shared.GlowcapReference,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const b = behavior orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -179,7 +179,7 @@ pub export fn glowcap_host_turn_spawn(
 /// unwinds. A no-answer tell breaks nothing. Leave
 /// `out_reply` untouched and return `GLOWCAP_OK` from the behavior, whose
 /// return value then resolves nothing. `message` is borrowed and copied.
-pub export fn glowcap_host_turn_break(turn: ?*GlowcapHostTurn, message: ?[*]const u8, message_len: usize) i32 {
+pub fn glowcap_host_turn_break(turn: ?*GlowcapHostTurn, message: ?[*]const u8, message_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const msg = shared.sliceFromC(message, message_len) catch |err| return shared.marshalErrorToCode(err);

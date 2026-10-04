@@ -124,8 +124,8 @@
 	color: var(--accent);
 	font-weight: 700;
 }
-/* Before the first join there is no room, and the header used to name one
-   anyway: a `#` and the word "rooms", which reads as a room called rooms. The
+/* Before the first join there is no room. A `#` and the word "rooms" would
+   read as a room called rooms. The
    sigil is what claims a room, so it stays off until there is one, and the line
    holds the state instead — in the muted register the roster and the rails use
    for the same moment. */

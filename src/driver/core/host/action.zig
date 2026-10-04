@@ -5,7 +5,8 @@
 
 const std = @import("std");
 
-const model = @import("model");
+const value_mod = @import("../value.zig");
+const lower = @import("capabilities/lower.zig");
 const engine = @import("engine");
 
 const host_mod = @import("../host.zig");
@@ -87,12 +88,16 @@ pub const HostAction = union(enum) {
     /// `provideGiftId(ticket, bytes)`. Entropy is a host effect like dialing;
     /// the sans-io host never generates it.
     need_gift_id: struct { ticket: u64 },
-    /// A host vow with no in-process listener settled fulfilled: `value` is a
-    /// deep clone the host owns, valid until the next `nextAction` call,
-    /// which frees it. Route it to whatever awaits the vow. `peer_handle` is the
-    /// session the value belongs to, and is never absent: a fulfilled value
-    /// may carry a capability, which only its own session can project.
-    settled: struct { peer_handle: engine.PeerHandle, vow_id: u64, value: model.Argument },
+    /// A fulfilled completion owns its Value storage and every capability
+    /// occurrence until the action is freed. Projection grants the consumer
+    /// independent retains. The originating peer is diagnostic context, not
+    /// the lifetime owner of local or third-party capabilities in the value.
+    settled: struct {
+        peer_handle: engine.PeerHandle,
+        vow_id: u64,
+        value: value_mod.Value,
+        storage: std.heap.ArenaAllocator.State = .init,
+    },
     /// A host vow with no in-process listener settled broken: `message` is
     /// host-owned with the same until-next-`nextAction` lifetime. An empty
     /// reason stays empty; failure to retain a nonempty reason is represented
@@ -113,10 +118,21 @@ pub const HostAction = union(enum) {
     resume_work,
 };
 
-/// Free every owned byte view a `HostAction` may carry. POD arms are no-ops.
-pub fn freePayload(allocator: std.mem.Allocator, action: HostAction) void {
+/// Release live capability custody before reclaiming its Value storage.
+pub fn freePayload(self: *Host, action: HostAction) void {
+    if (action == .settled)
+        lower.releaseValueCapabilitiesTerminalAt(self, &.{action.settled.value}, null);
+    freeStorage(self.allocator, action);
+}
+
+/// Aggregate teardown already retired Session/Node/Vat authority. Reclaim only
+/// storage at that barrier; issuing live capability effects there is invalid.
+pub fn freeStorage(allocator: std.mem.Allocator, action: HostAction) void {
     switch (action) {
-        .settled => |s| model.freeArgument(allocator, s.value),
+        .settled => |s| {
+            var arena = s.storage.promote(allocator);
+            arena.deinit();
+        },
         .failed => |f| f.message.deinit(allocator),
         .dial, .cancel_dial, .flush, .close, .need_gift_id, .resume_work => {},
     }
@@ -143,8 +159,8 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
         self,
     );
     if (self.last_action) |last| {
-        freePayload(self.allocator, last);
         self.last_action = null;
+        freePayload(self, last);
     }
     const action = popAction(
         self,
@@ -213,7 +229,7 @@ pub fn takeAction(self: *Host) HostError!?HostAction {
 /// Free an action `takeAction` transferred, once its payload is consumed
 /// (a moved-out payload is the new owner's to free instead).
 pub fn freeAdopted(self: *Host, action: HostAction) void {
-    freePayload(self.allocator, action);
+    freePayload(self, action);
 }
 
 /// Put a popped, retryable external-effect action back on the FIFO after its

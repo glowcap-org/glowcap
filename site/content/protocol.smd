@@ -24,7 +24,7 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | --- | --- |
 | `op:start-session` | Opens a session. Each side announces its location and the keys that bind the connection. |
 | `op:deliver` | Calls a method on a reference. With an answer position the caller holds a promise; with `#f` it is a one-way send. |
-| `op:resolve` | Settles a promise to its final value, or to a break if the call failed. |
+| `op:resolve` | Settles an answer to its value or a break. glowcap never sends it to a live peer: CapTP 1.0 settles through the resolver below, and `glowcap-next` through `op:listen`. The codec reads and writes it for the reference fixtures. |
 | `op:listen` | Subscribes to a promise's resolution, so a waiter is told the answer the moment it lands. |
 | `op:abort` | Ends the session with a typed reason. A refused handshake is answered the same way, before the session ever opens. |
 | `op:get` | Projects a named field off an answer without waiting for the whole result to settle. |
@@ -32,6 +32,32 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | `op:untag` | Unwraps a tagged value projected off an answer. glowcap accepts it on every 1.0 session and sends it only when the partner advertises the `untag` feature, so a silent Goblins peer never sees one. |
 | `op:gc-exports` | Tells the peer that some exported references are no longer held, so it can drop them. |
 | `op:gc-answers` | Tells the peer that some answers are no longer needed, so it can release them. |
+
+# How a promise settles
+
+On a CapTP 1.0 session, a caller that wants an answer passes a **resolver**
+with its `op:deliver`: a reference the callee calls back. The answer comes
+home as one more `op:deliver`, to that resolver, carrying
+`['fulfill <value>]` or `['break <error>]`. Goblins and glowcap both settle
+promises this way.
+
+`glowcap-next` is glowcap's own trial profile, which two glowcap peers can
+choose. It drops the resolver; a waiter sends `op:listen` instead.
+
+# What a CapTP 1.0 peer sees from glowcap
+
+A Goblins peer, or any other CapTP 1.0 implementation, sees plain CapTP 1.0
+over Syrup. glowcap's preferences travel as three hints on the location its
+hello signs: `glowcap/captp-version`, `glowcap/codec`, and `glowcap/features`.
+A peer that doesn't know them ignores them, and the session settles the 1.0
+baseline. Onion locators carry no hints, because Goblins refuses a hinted
+onion address, so an onion session runs the baseline even between two glowcap
+peers.
+
+glowcap sends `op:untag` only to a partner that lists the `untag` feature.
+Application code makes the same calls under either profile. The one
+difference is `session.listen`, which accepts a live far object on 1.0 but
+only a far promise on `glowcap-next`.
 
 # Reference descriptors
 

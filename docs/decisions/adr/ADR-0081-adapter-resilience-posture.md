@@ -6,7 +6,7 @@ tags: [resilience, net, driver, c-abi, error-handling]
 decision: "The adapter layer fails closed with a typed reason a caller can act on: dial faults carry a transient/refused/unreachable/invalid axis, every blocking read on an untrusted partner is bounded, a vanished peer surfaces through on_close, and no path that settles protocol state swallows its error."
 supersedes: []
 superseded_by: []
-amended_by: [ADR-0113]
+amended_by: [ADR-0113, ADR-0184]
 ---
 
 # ADR-0081 Adapter resilience posture

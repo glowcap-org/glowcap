@@ -17,6 +17,8 @@ const jsonStringEquals = util.jsonStringEquals;
 const doc_c_abi_header_paths = [_][]const u8{
     "include/glowcap_ocapn.h",
     "include/glowcap_host.h",
+    "include/glowcap_loam.h",
+    "include/glowcap_loam_lmdb.h",
     "include/glowcap_driver.h",
     "include/glowcap_transport_provider.h",
     "include/glowcap_net_transport_tcp.h",
@@ -70,6 +72,8 @@ pub fn checkDeletedNodeCProjection(
     const paths = [_][]const u8{
         "include/glowcap_ocapn.h",
         "include/glowcap_host.h",
+        "include/glowcap_loam.h",
+        "include/glowcap_loam_lmdb.h",
         "bindings/ts/runtime/internal/ffi/ocapn.ts",
         "bindings/python/glowcap/_ffi_ocapn.py",
         "bindings/racket/private/ffi-ocapn.rkt",

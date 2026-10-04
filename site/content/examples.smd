@@ -38,13 +38,16 @@ and call, over a local TCP socket so the API is unobscured.
 zig build examples
 ```
 
-Two later chapters isolate the capability moves that are easiest to miss:
+Three later chapters isolate the moves that are easiest to miss:
 
 - [02_introduce_and_redeem.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig)
   hands a capability to a third peer and leaves the introducer behind.
 - [06_pipeline_and_attenuate.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/06_pipeline_and_attenuate.zig)
   calls through an unresolved promise and wraps a capability with a smaller
   interface.
+- [07_durable_card.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/07_durable_card.zig)
+  keeps a card in [Loam]($link.page('loam')), restarts everything, and finds
+  the card's state still there.
 
 The [complete example guide](https://github.com/jimisaacs/glowcap/blob/main/examples/README.md)
 continues down through actors, bootstrap lookup, the raw engine, and the

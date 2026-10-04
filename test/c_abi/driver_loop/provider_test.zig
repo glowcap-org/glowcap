@@ -67,6 +67,30 @@ const CallbackRetirement = typed_resident.CallbackRetirement;
 const callbackRetirementBehavior = typed_resident.callbackRetirementBehavior;
 const reentrantSessionReleaseBehavior = typed_resident.reentrantSessionReleaseBehavior;
 
+test "provider dial admission pressure retains would-block classification through C" {
+    var resident = AsyncFailureResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
+    defer resident.wake.deinit();
+    const owned_loop = try newLoop(0x57);
+    defer owned_loop.deinit();
+    const loop = owned_loop.raw;
+    var table = resident.table();
+    table.start_connect = struct {
+        fn refuse(_: ?*anyopaque, _: u64, _: ?*const cdrv.GlowcapLocatorView, _: ?*const cdrv.GlowcapTransportOperationOptions, failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
+            return providerFailure(failure, c.GLOWCAP_ERR_WOULD_BLOCK, "DialAdmissionFull");
+        }
+    }.refuse;
+    try expectOk(addMultiplexedProvider(loop, &table, "bounded-dial"));
+    var ticket: u64 = 0;
+    try expectOk(try dialParts(loop, "bounded-dial", "peer", "", &ticket));
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    try expectOk(cdrv.glowcap_driver_next_event(loop, &event));
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_OPEN_FAILED, event.kind);
+    try std.testing.expectEqual(ticket, event.operation_id);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, event.primary_result);
+    try std.testing.expectEqualStrings("DialAdmissionFull", event.primary_name.?[0..event.primary_name_len]);
+    try std.testing.expect(resident.pending == null);
+}
+
 test "a resident cannot return a count beyond the borrowed C buffer" {
     var resident = InvalidMultiplexedResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
     defer resident.wake.deinit();

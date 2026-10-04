@@ -21,14 +21,14 @@
     "react-dom": "npm:react-dom@19.3.0",
     "react-dom/client": "npm:react-dom@19.3.0/client",
     "react-dom/server": "npm:react-dom@19.3.0/server",
-		"react-router": "npm:react-router@8.3.1",
+		"react-router": "npm:react-router@8.4.0",
 		"zustand": "npm:zustand@5.0.15",
 		"zustand/vanilla": "npm:zustand@5.0.15/vanilla",
 		"zustand/react/shallow": "npm:zustand@5.0.15/react/shallow",
 		"@types/react": "npm:@types/react@19.3.0",
     "@types/react-dom": "npm:@types/react-dom@19.3.0",
-    "zod": "npm:zod@4.6.4",
-    "zod/mini": "npm:zod@4.6.4/mini"
+    "zod": "npm:zod@4.6.5",
+    "zod/mini": "npm:zod@4.6.5/mini"
   },
   "lock": {
     "path": "./deno.lock",

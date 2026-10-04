@@ -65,9 +65,14 @@ there directly; a released or cyclic chain breaks only the dependent call.
 
 [`pipeline.classifyListenerDrain`](../../../src/ocapn/engine/pipeline.zig)
 decides each listener's fate from the resolution and its mode. A same-peer
-promise fulfillment re-anchors the listener without notification. A far
-promise fires a mode that requested shortening, while a settled value or break
-fires a mode that requested settlement. Every notification concludes that
+promise fulfillment re-anchors the listener without notification. A settled
+value or break fires a mode that requested settlement. A far promise is a
+promise the listener's own peer hosts. On V1.0 it fires every listener: the
+spec exempts only same-peer promises, Goblins listens with wants-partial `#f`
+and no second listener, and the listener's peer follows its own promise
+locally. On next it fires only a mode that requested shortening, because each
+settling listener there is paired with a shortening one that reissues it
+(ADR-0111). Every notification concludes that
 subscription and is sent through
 [`pipeline.borrowedListenerFire`](../../../src/ocapn/engine/pipeline.zig),
 which builds the resolver-method `op:deliver` (`[Symbol("fulfill"), payload]` or

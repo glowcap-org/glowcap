@@ -6,6 +6,7 @@ const std = @import("std");
 const util = @import("../util.zig");
 
 const appendViolation = util.appendViolation;
+const living_state = @import("living_state.zig");
 
 pub fn checkPlanningDocRoles(
     io: std.Io,
@@ -59,32 +60,23 @@ pub fn checkPlanningDocRoles(
     }
 }
 
-/// The doc-drift living-state registry is itself a living-state surface, so it
-/// is held honest in both directions. Forward: a registered non-glob path must
-/// exist — an entry naming a deleted file is a broken promise. Reverse: every
-/// top-level `docs/*.md` file, and every `docs/planning/*.md` that declares
-/// `Status: living-state`, must appear in the registry — a doc that claims
-/// living-state but is registered nowhere is ungoverned, which is exactly how
-/// `docs/roadmap.md` once shipped outside the table.
+/// The living-state registry (`living_state.surfaces`) is held honest in both
+/// directions. Forward: a registered non-glob path must exist, since an entry
+/// naming a deleted file is a broken promise. Reverse: every top-level
+/// `docs/*.md` file, every `docs/` subdirectory doc that declares itself a
+/// living-state surface, and every `docs/planning/*.md` that declares
+/// `Status: living-state` must be registered, so no doc claims a maintenance
+/// discipline that no check holds.
 pub fn checkLivingStateRegistry(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const rule_path = ".agents/rules/doc-drift.md";
-    const rule = root.readFileAlloc(io, rule_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for living-state registry check with {s}", .{ rule_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(rule);
-
+    const rule_path = "tools/check/source_check/docs/living_state.zig";
     var registry = std.StringHashMap(void).init(gpa);
     defer registry.deinit();
-    _ = (try collectLivingStateRegistry(rule, &registry)) orelse {
-        try appendViolation(gpa, violations, "{s}: missing `## Living-State Surfaces` section", .{rule_path});
-        return;
-    };
+    for (living_state.surfaces) |entry| try registry.put(entry, {});
 
     // Forward: every registered non-glob path resolves.
     var entries = registry.keyIterator();
@@ -173,30 +165,6 @@ pub fn checkLivingStateRegistry(
     }
 }
 
-/// Collects every backtick span on the bullet lines of doc-drift's
-/// "Living-State Surfaces" section, the living-state registry. Spans are
-/// slices into `rule`, so they share its lifetime.
-fn collectLivingStateRegistry(rule: []const u8, out: *std.StringHashMap(void)) !?void {
-    const heading = "## Living-State Surfaces";
-    const section_start = std.mem.indexOf(u8, rule, heading) orelse return null;
-    const after_heading = rule[section_start + heading.len ..];
-    const section_end = std.mem.indexOf(u8, after_heading, "\n## ") orelse after_heading.len;
-    const section = after_heading[0..section_end];
-
-    var lines = std.mem.splitScalar(u8, section, '\n');
-    while (lines.next()) |line| {
-        const trimmed = std.mem.trimStart(u8, line, " \t");
-        if (!std.mem.startsWith(u8, trimmed, "- ")) continue;
-        var rest = trimmed;
-        while (std.mem.indexOfScalar(u8, rest, '`')) |open| {
-            const after_open = rest[open + 1 ..];
-            const close = std.mem.indexOfScalar(u8, after_open, '`') orelse break;
-            try out.put(after_open[0..close], {});
-            rest = after_open[close + 1 ..];
-        }
-    }
-}
-
 /// Returns true when the registry names `path` exactly or carries a glob
 /// entry whose fixed prefix (the text before the first `*`) covers it.
 fn registryCovers(registry: *const std.StringHashMap(void), path: []const u8) bool {
@@ -208,34 +176,4 @@ fn registryCovers(registry: *const std.StringHashMap(void), path: []const u8) bo
         if (std.mem.startsWith(u8, path, entry.*[0..star])) return true;
     }
     return false;
-}
-
-test "collectLivingStateRegistry reads bullet spans only, prose spans never" {
-    const gpa = std.testing.allocator;
-    var registry = std.StringHashMap(void).init(gpa);
-    defer registry.deinit();
-
-    const rule =
-        "## Living-State Surfaces\n\n" ++
-        "- `README.md`\n" ++
-        "- `.cursor/README.md`, `.cursor/*.json`\n" ++
-        "- living-state when they are a first-read contract;\n\n" ++
-        "`zig build source-check` holds this registry honest.\n\n" ++
-        "## Discipline\n\n" ++
-        "- `not-in-the-registry.md`\n";
-    _ = (try collectLivingStateRegistry(rule, &registry)).?;
-
-    // Bullet spans inside the section are the registry.
-    try std.testing.expect(registry.contains("README.md"));
-    try std.testing.expect(registry.contains(".cursor/README.md"));
-    try std.testing.expect(registry.contains(".cursor/*.json"));
-    // A span in prose is a sentence, not a registration; a span in another
-    // section is out of scope.
-    try std.testing.expect(!registry.contains("zig build source-check"));
-    try std.testing.expect(!registry.contains("not-in-the-registry.md"));
-
-    // A rule with no registry section reports null rather than an empty set.
-    var empty = std.StringHashMap(void).init(gpa);
-    defer empty.deinit();
-    try std.testing.expect((try collectLivingStateRegistry("# no section here\n", &empty)) == null);
 }

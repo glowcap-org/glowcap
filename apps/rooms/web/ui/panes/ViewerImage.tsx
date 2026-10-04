@@ -58,6 +58,9 @@ export function ViewerImage(
 		const style = getComputedStyle(box);
 		const width = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
 		const height = box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+		// A cached image can load before the dialog has layout. That box says
+		// nothing about fit; ResizeObserver measures once the stage is visible.
+		if (width <= 0 || height <= 0) return;
 		onMeasure(pic.naturalWidth > width + 1 || pic.naturalHeight > height + 1);
 	}, [onMeasure]);
 

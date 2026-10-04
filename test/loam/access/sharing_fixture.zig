@@ -41,7 +41,7 @@ pub const Client = struct {
     }
 };
 
-fn decode(_: std.mem.Allocator, resource: h.c.core.ResourceId, args: []const h.driver.Value) !h.c.core.GrantLedger.Issue {
+pub fn decode(_: ?*anyopaque, _: std.mem.Allocator, resource: h.c.core.ResourceId, args: []const h.driver.Value) !h.c.core.GrantLedger.Issue {
     if ((args.len != 2 and args.len != 3) or args[0] != .integer or args[1] != .integer) return error.InvalidArguments;
     const permissions: []const h.c.core.Policy.Key = if (args[0].integer == 0) &.{h.f.vocabulary.read} else &.{ h.f.vocabulary.read, h.f.vocabulary.post };
     const terms = try h.f.vocabulary.terms(.{ .object = resource }, permissions, null);

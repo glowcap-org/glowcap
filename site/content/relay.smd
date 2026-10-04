@@ -126,6 +126,13 @@ evidence remains on the roadmap.
 >     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
 >     const partner = glowcap.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
+>     const session = try glowcap.driver.connect(
+>         allocator,
+>         &netlayers,
+>         partner,
+>         .ephemeral,
+>         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
+>     );
 > ```
 > **TypeScript**
 > ```ts
@@ -212,6 +219,13 @@ evidence remains on the roadmap.
 >     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
 >     const partner = glowcap.net.relay.keyed.locator(peer_key, relay_url, &hint_storage);
+>     const session = try glowcap.driver.connect(
+>         allocator,
+>         &netlayers,
+>         partner,
+>         .ephemeral,
+>         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
+>     );
 > ```
 > **TypeScript**
 > ```ts
@@ -410,10 +424,10 @@ deno run --allow-net --allow-ffi --allow-env --allow-read \
 
 It relays wherever a WebSocket points it, named by `?to=` or `?locator=`, and
 reclaims a silent session once its idle timeout passes (`GLOWCAP_RELAY_IDLE_MS`,
-one minute by default). Target allowlists and admission caps are left to the
-embedding app. The rooms relay
-([`relay.ts`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/rust/services/src/web/relay.rs))
-shows how an embedding adds target policy and admission limits. The
+one minute by default). Allowlists of targets and limits on admission are up to
+the application that embeds it. The Rooms relay
+([`relay.rs`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/rust/services/src/web/relay.rs))
+is an example of adding both. The
 [relay README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/relay/README.md)
 covers the package itself, and the Python, Rust, and Racket relays take the
 same relay contract.

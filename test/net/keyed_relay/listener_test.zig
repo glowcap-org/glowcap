@@ -104,6 +104,105 @@ fn waitOnRegisteredListener(listener: net.netlayer.Listener, out_err: *?anyerror
     out_err.* = error.UnexpectedReadiness;
 }
 
+fn serveReadinessRegistrations(
+    io: Io,
+    server: *ip.Server,
+    first_seen: *std.atomic.Value(bool),
+    send_data: *std.atomic.Value(bool),
+    replacement_seen: *std.atomic.Value(bool),
+    release: *std.atomic.Value(bool),
+) !void {
+    var first: ws_relay.Leg = .{ .stream = try server.accept(io), .io = io };
+    first.wire();
+    defer first.close();
+    try confirmRegistration(&first);
+    first_seen.store(true, .release);
+    try wait.untilFlag(io, wait.default_deadline_ms, send_data);
+    if (release.load(.acquire)) return;
+    try ws_relay.writeServerFrame(&first, .binary, "pending");
+
+    var replacement: ws_relay.Leg = .{ .stream = try server.accept(io), .io = io };
+    replacement.wire();
+    defer replacement.close();
+    try confirmRegistration(&replacement);
+    replacement_seen.store(true, .release);
+    try wait.untilFlag(io, wait.default_deadline_ms, release);
+}
+
+fn confirmRegistration(leg: *ws_relay.Leg) !void {
+    try ws_relay.serveUpgrade(leg);
+    try ws_relay.writeServerFrame(leg, .ping, "ready");
+    var payload: [16]u8 = undefined;
+    const pong = try ws_relay.readClientFrame(leg, &payload);
+    try std.testing.expectEqual(keyed_relay.Opcode.pong, pong.opcode);
+    try std.testing.expectEqualStrings("ready", pong.payload);
+}
+
+test "keyed-relay listener readiness clears idle hints and retains unclaimed arrivals" {
+    const allocator = std.testing.allocator;
+    var threaded = Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const relay_addr: ip.IpAddress = .{ .ip4 = .loopback(0) };
+    var server = try ip.IpAddress.listen(&relay_addr, io, .{ .reuse_address = true });
+    defer server.deinit(io);
+    var url_buf: [64]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "ws://127.0.0.1:{d}/register", .{server.socket.address.getPort()});
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x6f)));
+    var resident = try keyed_relay.Resident.initRegistered(allocator, io, url, url, identity.publicKey());
+    defer std.debug.assert(resident.deinit() == null);
+    var first_seen = std.atomic.Value(bool).init(false);
+    var send_data = std.atomic.Value(bool).init(false);
+    var replacement_seen = std.atomic.Value(bool).init(false);
+    var release = std.atomic.Value(bool).init(false);
+    var relay = try io.concurrent(serveReadinessRegistrations, .{
+        io, &server, &first_seen, &send_data, &replacement_seen, &release,
+    });
+    defer {
+        send_data.store(true, .release);
+        release.store(true, .release);
+        _ = relay.cancel(io) catch {};
+    }
+    const listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
+        .designator = "",
+        .identity = identity.publicKey(),
+    });
+    var listener_live = true;
+    defer if (listener_live) {
+        _ = listener.close();
+    };
+    defer {
+        send_data.store(true, .release);
+        release.store(true, .release);
+    }
+    var fds = [_]std.posix.pollfd{.{ .fd = listener.readinessFd().?, .events = std.posix.POLL.IN, .revents = 0 }};
+    try wait.untilFlag(io, wait.default_deadline_ms, &first_seen);
+    try std.testing.expect(!try listener.waitAcceptable(0));
+    try std.testing.expectEqual(@as(usize, 0), try net.poll.wait(&fds, 0));
+
+    send_data.store(true, .release);
+    try std.testing.expectEqual(@as(usize, 1), try net.poll.wait(&fds, 1000));
+    for (0..2) |_| {
+        try std.testing.expect(try listener.waitAcceptable(0));
+        try std.testing.expectEqual(@as(usize, 1), try net.poll.wait(&fds, 0));
+    }
+    var peer = stubNegotiatingPeer(allocator);
+    defer peer.deinit();
+    var read_buf: [64]u8 = undefined;
+    var write_buf: [64]u8 = undefined;
+    var conn = try listener.accept(&peer, .{ .read = &read_buf, .write = &write_buf });
+    defer conn.deinit();
+    try wait.untilFlag(io, wait.default_deadline_ms, &replacement_seen);
+    try std.testing.expect(!try listener.waitAcceptable(0));
+    // Completion publishes state before its final wake. A late old hint may
+    // follow this probe, but cannot invent an acceptable replacement stream.
+    try std.testing.expect(!try listener.waitAcceptable(20));
+    try std.testing.expectEqual(null, listener.close());
+    listener_live = false;
+    release.store(true, .release);
+    try relay.await(io);
+}
+
 fn stallInitialRegistration(
     io: Io,
     server: *ip.Server,

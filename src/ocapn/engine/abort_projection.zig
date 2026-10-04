@@ -121,8 +121,9 @@ pub fn classify(err: anyerror) Classification {
         } },
         // ── resource bounds to resource_exhausted (ADR-0025) ──────────
         // The session table caps plus the parse-stage nesting and stream
-        // frame-size bounds, and the engine's drain-time local-delivery bound
-        // (ADR-0007): a partner cannot push any of them past its cap.
+        // frame-size bounds, the engine's drain-time local-delivery bound
+        // (ADR-0007), and the Host's local-turn amplification budget
+        // (ADR-0076): a partner cannot push any of them past its cap.
         error.InboundAnswerCapExceeded,
         error.RetainedAnswerCapExceeded,
         error.ListenerCapExceeded,
@@ -137,6 +138,7 @@ pub fn classify(err: anyerror) Classification {
         error.OutboundAnswerSpaceExhausted,
         error.FrameTooLarge,
         error.LocalDeliveryCapExceeded,
+        error.LocalTurnLimitExceeded,
         error.OutboundBackpressure,
         => .{ .domain = .session, .abort = .{
             .kind = .resource_exhausted,

@@ -135,17 +135,12 @@ the issuance contract.
 
 ## Powers and useful presets
 
-The following is the proposed first rights inventory. Phase 1 must map every
-wire operation and returned capability to it before implementing the ledger.
-A missing operation in that inventory blocks the corresponding vertical slice.
-
-| Resource | Separately meaningful powers | Presets and constraints |
-| --- | --- | --- |
-| Directory | Browse/watch public listings; register presence and hold a name; request introductions and use authorized signaling; create rooms; publish listings. Access administration remains separate. | Visitor, member, creator, and publisher are bundles of named powers. Creation and publication are distinct. Registration must not imply the right to create rooms. |
-| Room | Receive live messages; read retained history; post and edit one's own lines; upload/post files; change topic; issue invitations. Live moderation and grant administration remain separate. | Observer and participant remain useful bundles. Participant can be narrowed, including speak without inviting. Files and topic no longer become unavoidable consequences of speech. |
-| Session | Observe live state; request workspace interactions; read retained history and archived files; administer attachment grants. | Observer, collaborator, and administrator are useful bundles, not a required tier hierarchy. Define each from the effects it permits. Session access is also bounded by the room/directory capabilities the session holds. |
-| Collection and conversation | List scoped entries; read or post within a discussion; create nested collections; rename or reorganize within authorized source and destination scopes. | Shared collection operations support recursive rooms. Thread views do not introduce a separate implicit authority hierarchy. |
-| Message, file, and archive | Read the specified content; obtain authorized attachment facets; edit or withdraw where the source exposes those operations. | Scope identifies the exact content or bounded collection. Reading one item does not grant access to its parent or siblings. |
+The [operation authority contract](authority.md) owns the exact permission
+keys, every current method and nested command, returned capability dependencies,
+and retirement owners. The [editor contract](access-editor.md#preset-definitions-and-public-defaults)
+owns preset expansions, independent fields, public defaults and Custom matching.
+Implementation must serve no callable method without its declared requirement
+and returned-capability contract.
 
 Typing follows speaking; away/presence and leave follow an active membership.
 File upload requires an active membership, file authority, and the room's
@@ -338,13 +333,11 @@ aggregate bytes. Limits charge against the resource as well as each branch,
 so creating more children does not multiply a quota. Retiring a creation grant
 does not release the resource cost of rooms that still exist.
 
-The session ledger's current 32-active, 256-lifetime, and 128 KiB document
-limits are measurement inputs, not design constraints. Phase 1 sets
-measured limits per owner and records startup, message-admission, and large
-branch-revocation budgets. An ordinary operation performs no ledger serialization
-or allocation proportional to total grants. Paginate inventories with bounded,
-revision-aware cursors; stale cursors request a fresh view. Exhaustion refuses
-new issuance and never evicts live authority or silently drops revocations.
+The [storage and budget contract](persistence.md) defines application schemas,
+per-owner and aggregate quotas, transaction limits, and startup, admission and
+branch-revocation acceptance. Its selected operating limits use native workload
+evidence as inputs. Rooms measurements must accompany implementation; native
+foundation results do not establish application or browser performance.
 
 Logs, traces, snapshots, clipboard affordances, and exports must distinguish
 management IDs from bearer secrets. Grant inventories expose only the scope a
@@ -399,19 +392,9 @@ exhaustion, and lost acknowledgements in the first completed UI slice.
 
 ## Implementation inventory
 
-The source paths below identify reusable mechanisms and replacement sites for
-the model above. They neither establish compatibility requirements nor imply
-that the proposed controls already exist.
-
-| Surface | Present implementation | Work this plan owns |
-| --- | --- | --- |
-| Session grants | The [grant ledger](../../../apps/rooms/rust/application/src/grants.rs) stores rights, history access, suspension, labels, and revocation. [Session facets](../../../apps/rooms/rust/runtime/src/service/facet.rs) consult current access. | Reuse validated persistence and revocation mechanisms where they fit the common lifecycle; replace the session-specific grant contract. |
-| Session editing | [SessionGrantEdit](../../../apps/rooms/web/ui/settings/SessionGrantEdit.tsx) edits rights, history, and suspension; SessionAccess issues and revokes grants. | Reuse the interaction structure across resource types. |
-| Room memberships | [Seat parsing](../../../apps/rooms/rust/application/src/room/membership.rs) receives observer/participant membership and separate topic/file references. [Room policy](../../../apps/rooms/rust/application/src/server/rooms/membership.rs) enforces the live seat. | Give continuing room access an editable policy independent of a live seat. |
-| Invitations | The room can mint observer or participant invitations. [Admission](../../../apps/rooms/rust/application/src/server/invitation.rs) arbitrates competing receipts and one successful subscription. | Durable, individually manageable offers and accepted grants, with explicit lifetime and delegation. |
-| Browser invitations | [The sharing gesture](../../../apps/rooms/rust/browser/src/attached/sharing.rs) runs `offerRoom`; its input does not choose membership rights. | Show the authority being offered and stop silently substituting a broad reusable room link for limited access. |
-| Directory access | The [directory root](../../../apps/rooms/rust/services/src/server/behavior.rs) offers discovery, registration, creation, introductions, and signaling. A [name capability](../../../apps/rooms/rust/services/src/server/registration.rs) carries registration authority. | Distinguish intentionally public operations from individually granted directory powers. |
-| Room administration | Managers control publication and links; moderators can remove a live member. [RoomAccess](../../../apps/rooms/web/ui/cards/RoomAccess.tsx) edits public presets. | Represent moderation and access administration as explicit powers; add exact-grant management and per-membership access inspection. |
+The [consumer and recovery inventory](integration.md) owns current source paths,
+replacement boundaries and exact removals. Existing code supplies mechanisms
+to reuse where they meet the contract; it creates no compatibility obligation.
 
 [ADR-0137](../../decisions/adr/ADR-0137-durable-rooms-session-grants.md) establishes
 the session ledger and persist-before-publication discipline.
@@ -444,7 +427,8 @@ contracts remain independent of both chat content and transport execution.
 Introduce explicit use and management objects with typed methods for describing
 current access, issuing bounded children/offers, editing policy, suspending,
 resuming, revoking, and observing scoped changes. Managed access owns these common
-application schemas; Phase 1 assigns their names and contracts there. Rooms
+application schemas; the [operation matrix](authority.md#common-use-and-control-methods)
+assigns their interfaces and application extensions. Rooms
 owns its content methods and references the common definitions. Inspection by an ID is authorized through a held
 management object, never a globally callable grant registry.
 
@@ -464,42 +448,41 @@ a directory label or a foreign grant record.
 
 ## Ordered implementation and exit criteria
 
-The phases implement one settled design; they are not successive public
-contracts. The first phase resolves recursive resources, both sharing modes,
-and the editor across the supported content types. Later phases divide engineering work, without preserving an
-old path or inventing a temporary adapter to make an incomplete surface look
-complete. A phase cannot claim system completion while a sibling surface still
-uses a bypass or copied authority model.
+The phase 1 design is owned by
+[ADR-0183](../../decisions/adr/ADR-0183-rooms-scoped-sharing-and-recovery.md)
+and the linked operation, editor, content, storage, consumer and
+[scenario contracts](scenarios.md). The remaining phases implement that contract;
+they do not preserve an old path or invent a temporary adapter. A phase cannot
+claim system completion while a sibling surface still uses a bypass or copied
+authority model. The design does not claim shipped Rooms integration.
 
 The [Loam implementation order](../loam/architecture.md#implementation-order-and-acceptance)
-owns the shared foundation. Rooms phase 1 refines the application contract in
-parallel; phase 2 consumes Loam persistence, sleepy hosting, managed access,
-and the foreign/browser interfaces before replacing session access.
+owns the shared foundation, with remaining native task priority in the
+[completion queue](../loam/completion.md#execution-order). The next Rooms phase
+follows the native implementation/Linux checkpoint and the proved C/Rust and
+browser consumer path. macOS acceptance remains maintainer-owned and outside
+this agent sequence; it cannot be replaced by Linux measurements or a
+documentation change.
 
-1. **Settle recursive resources and the complete sharing contract.** Design
-   the inventories, individual editors, invitation/acceptance flow, and
-   recipient status view together. Include stable conversation identity,
-   source provenance, scope attenuation, direct sharing, durable facets, and
-   cross-owner dependencies. Resolve reorganization's identity and audience
-   contract from the content plan. Walk the opening scenarios through
-   issue, use, change, delegation, reconnect, and revocation. Write an ADR
-   amending or superseding the relevant parts of ADR-0137 and ADR-0139. Record
-   the exact right-to-method and derived-capability matrix, invitation modes,
-   preset groups and their replacement scope, independent controls, Custom
-   matching, public defaults, management
-   ceilings, persistent schemas, and per-owner budgets. Include source paths
-   for every consumer and current recovery route, including what is deleted.
-   Exit when the complete interaction contract is reviewable and no operation,
-   including history, names, signaling, and returned file/line capabilities,
-   lacks a declared authority and retirement owner.
-2. **Build the common lifecycle and integrate session access.** First complete
-   the record, backend, recovery, and bounded-working-set stages in the
+2. **Build the common lifecycle and integrate session access.** Use
+   the implemented native [Loam readiness checkpoint](../loam/architecture.md#readiness-before-the-c-abi),
+   including management, resource lifecycle, observation, retries, retirement,
+   restoration and maintenance. Shared fixed-resource C/Rust and browser
+   registration, lifecycle and bounded managed-control helpers have consumer
+   evidence in the [lifecycle guide](../../loam/c-and-rust.md) and
+   [browser guide](../../loam/browser.md). Preserve those contracts under the
    [managed access acceptance plan](../loam/access/acceptance.md#implementation-sequence-and-exit-evidence).
-   Establish those contracts before freezing the hosted API or adding a second
-   application persistence path. Implement the
-   Zig design at `src/loam/access/`, keeping the resource and access model independent
-   of Rooms. Provide runtime schema registration, native Zig helpers, and the
-   Rust binding over the same implementation. Integrate existing actors and
+   Reuse the Zig design at `src/loam/access/`, keeping the resource and access
+   model independent of Rooms. Session schema, requirement, preset and typed
+   custody declarations are implemented in `rooms-application::content`;
+   [scope and evidence](integration.md#shared-prerequisite-and-remaining-order)
+   distinguish the declarations, shared reference-field front and bounded codecs
+   from runtime integration. Persisted permission dependencies are implemented;
+   project scope-aware applicability, exact targets and management through the shared runtime
+   registration before replacing session persistence. General graph editing
+   follows with recursive content. The completed declaration prerequisite does not complete
+   this phase or its session-specific replacement obligations.
+   Integrate existing actors and
    Host APIs without introducing another engine, driver, Host, or event loop.
    Establish content ownership within `rooms-application`, which supplies
    concrete requirements and content facts. Prove the shared Zig model

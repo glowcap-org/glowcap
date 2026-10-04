@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" width="720" height="400" role="img" aria-label="Kept: a root record, the board, holds strong edges to two columns, and both columns hold a strong edge to the same card. Reclaimed: a preview that only a weak edge reaches, and an old card and an old column that point at each other but hang from no root.">
+  <style>
+    text { font-family: var(--font-sans, system-ui, sans-serif); fill: var(--ink, #3a3027); paint-order: stroke; stroke: var(--paper-raised, #fff9ee); stroke-width: 3px; stroke-linejoin: round; }
+    .title { font-size: 14px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink-soft, #6b5d4d); }
+    .tag { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .note { font-size: 12.5px; }
+    .ink-warm { fill: var(--dia-accent-deep, #9d5209); }
+    .ink-danger { fill: var(--dia-danger, #b3403a); }
+    /* The finished picture is what collection leaves: the reclaimed band
+       stays drawn, faded, so the static diagram still says what went. */
+    .gone { opacity: 0.6; animation: lg-gone 10s ease-in-out infinite; }
+    .bead { visibility: hidden; }
+    @supports (offset-path: path("M0 0 L1 1")) { .bead { visibility: visible; } }
+    /* One 10s loop: two marks trace outward from the root along strong
+       edges, then everything they never reached fades and is named. */
+    .trace-a { offset-path: path("M180 112 L275 72 L425 72 L520 112"); animation: lg-trace 10s ease-in-out infinite; }
+    .trace-b { offset-path: path("M180 128 L275 168 L425 168 L520 128"); animation: lg-trace 10s ease-in-out infinite 0.4s; }
+    @keyframes lg-trace {
+      0%, 6% { offset-distance: 0%; opacity: 0; }
+      9% { opacity: 1; }
+      38% { offset-distance: 100%; opacity: 1; }
+      44%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    @keyframes lg-gone {
+      0%, 46% { opacity: 1; }
+      56%, 92% { opacity: 0.6; }
+      98%, 100% { opacity: 1; }
+    }
+    .verdict { animation: lg-verdict 10s ease-in-out infinite; }
+    @keyframes lg-verdict {
+      0%, 48% { opacity: 0; }
+      58%, 92% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .bead { visibility: hidden !important; }
+    }
+  </style>
+  <defs>
+    <marker id="lg-strong" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent, #c76f18)"/>
+    </marker>
+    <marker id="lg-weak" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--dia-muted, #8a7862)"/>
+    </marker>
+  </defs>
+
+  <!-- Kept: a diamond, root on the left, the shared card on the right.
+       Cards are 150 x 56 on columns at x = 30, 275, 520. -->
+  <text x="30" y="22" class="tag ink-warm">kept</text>
+
+  <text x="105" y="84" text-anchor="middle" class="tag ink-warm">root</text>
+  <rect x="30" y="92" width="150" height="56" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--accent, #c76f18)" stroke-width="2"/>
+  <text x="105" y="116" text-anchor="middle" class="title">board</text>
+  <text x="105" y="135" text-anchor="middle" class="sub">kept by its root flag</text>
+
+  <rect x="275" y="40" width="150" height="56" rx="12" fill="var(--dia-card, #ffffff)" stroke="var(--rule, #e7d4b7)"/>
+  <text x="350" y="64" text-anchor="middle" class="title">column: to do</text>
+  <text x="350" y="83" text-anchor="middle" class="sub">one strong edge in</text>
+
+  <rect x="275" y="144" width="150" height="56" rx="12" fill="var(--dia-card, #ffffff)" stroke="var(--rule, #e7d4b7)"/>
+  <text x="350" y="168" text-anchor="middle" class="title">column: done</text>
+  <text x="350" y="187" text-anchor="middle" class="sub">one strong edge in</text>
+
+  <rect x="520" y="92" width="150" height="56" rx="12" fill="var(--dia-card, #ffffff)" stroke="var(--rule, #e7d4b7)"/>
+  <text x="595" y="116" text-anchor="middle" class="title">card #12</text>
+  <text x="595" y="135" text-anchor="middle" class="sub">shared by both</text>
+
+  <path d="M180 112 L271 74" stroke="var(--accent, #c76f18)" stroke-width="2" fill="none" marker-end="url(#lg-strong)"/>
+  <path d="M180 128 L271 166" stroke="var(--accent, #c76f18)" stroke-width="2" fill="none" marker-end="url(#lg-strong)"/>
+  <path d="M425 72 L516 110" stroke="var(--accent, #c76f18)" stroke-width="2" fill="none" marker-end="url(#lg-strong)"/>
+  <path d="M425 168 L516 130" stroke="var(--accent, #c76f18)" stroke-width="2" fill="none" marker-end="url(#lg-strong)"/>
+
+  <!-- The line collection draws. -->
+  <path d="M30 230 L690 230" stroke="var(--rule, #e7d4b7)" stroke-width="1.5" stroke-dasharray="2 6" stroke-linecap="round"/>
+
+  <!-- Reclaimed: reached only weakly, or not from a root at all. -->
+  <text x="30" y="254" class="tag ink-danger">reclaimed</text>
+  <g class="gone">
+    <path d="M300 200 L176 262" stroke="var(--dia-muted, #8a7862)" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#lg-weak)"/>
+    <rect x="30" y="266" width="150" height="56" rx="12" fill="var(--dia-card, #ffffff)" stroke="var(--rule, #e7d4b7)" stroke-dasharray="5 4"/>
+    <text x="105" y="290" text-anchor="middle" class="title">preview</text>
+    <text x="105" y="309" text-anchor="middle" class="sub">only a weak edge in</text>
+
+    <rect x="275" y="266" width="150" height="56" rx="12" fill="var(--dia-card, #ffffff)" stroke="var(--rule, #e7d4b7)" stroke-dasharray="5 4"/>
+    <text x="350" y="290" text-anchor="middle" class="title">old card</text>
+    <text x="350" y="309" text-anchor="middle" class="sub">a cycle, no root</text>
+    <rect x="520" y="266" width="150" height="56" rx="12" fill="var(--dia-card, #ffffff)" stroke="var(--rule, #e7d4b7)" stroke-dasharray="5 4"/>
+    <text x="595" y="290" text-anchor="middle" class="title">old column</text>
+    <text x="595" y="309" text-anchor="middle" class="sub">a cycle, no root</text>
+    <path d="M425 284 L516 284" stroke="var(--accent, #c76f18)" stroke-width="2" fill="none" marker-end="url(#lg-strong)"/>
+    <path d="M520 304 L429 304" stroke="var(--accent, #c76f18)" stroke-width="2" fill="none" marker-end="url(#lg-strong)"/>
+  </g>
+
+  <text x="360" y="350" text-anchor="middle" class="note verdict ink-danger">No root reaches these through strong edges, so collection reclaims them, cycle and all.</text>
+
+  <!-- Legend, centered under the picture. -->
+  <path d="M188 382 L228 382" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#lg-strong)"/>
+  <text x="238" y="386" class="sub">strong edge: keeps its target</text>
+  <path d="M410 382 L450 382" stroke="var(--dia-muted, #8a7862)" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#lg-weak)"/>
+  <text x="460" y="386" class="sub">weak edge: does not</text>
+
+  <circle class="bead trace-a" r="5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"/>
+  <circle class="bead trace-b" r="5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"/>
+</svg>

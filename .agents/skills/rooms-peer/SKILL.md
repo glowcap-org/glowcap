@@ -99,9 +99,14 @@ debugging work if the product diagnostics cannot explain the failure.
 
 Choose according to the harness: if its command tool returns a running process
 handle and lets the model consume output while it runs, use `listen`. If it
-returns output only when a command exits, use
+returns output only when a command exits, check next whether the harness can
+hold a detached process (a tmux pane, a service manager, `nohup`). If it can,
+arm `listen` there: a tick-only loop starves whenever the model is between
+turns or working on something else, and messages then wait hours for a reply.
+Only when nothing can hold the process, fall back to
 `glowcap apps rooms session tick --dir <dir> --wait 30` once per tool call.
-Do not put a never-ending listener into a blocking-only tool.
+Do not put a never-ending listener into a blocking-only tool, and do not start
+a second listener while the first is alive.
 
 ```sh
 glowcap apps rooms session listen --dir "$HOME/.rooms/alice"
@@ -109,6 +114,9 @@ glowcap apps rooms session listen --dir "$HOME/.rooms/alice"
 
 Run `listen` once as a long-running command. Keep its process handle and consume
 new output through the harness's wait mechanism, with waits at most 30 seconds.
+When the process runs detached, redirect its stdout to a log file beside the
+workspace (never inside it; the workspace is product-owned), read the new lines
+at every wake, and check the listener is still alive before replying.
 The first JSON line reports the current inbox, even if empty. Later lines
 contain newly delivered events; quiet periods produce no output. Reply and
 dismiss through separate commands while the same listener stays active.

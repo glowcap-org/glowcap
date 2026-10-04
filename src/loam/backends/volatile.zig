@@ -55,6 +55,12 @@ pub const Volatile = struct {
         return .{ .committed = next };
     }
 
+    pub fn lookup(self: *Volatile, request: core.NameLookup) core.NameResult {
+        if (!self.opened) return .{ .failed = error.StaleCompletion };
+        var overlay: Overlay = .{ .store = self };
+        return request.read(&overlay) catch |err| .{ .failed = err };
+    }
+
     pub fn recover(self: *Volatile, batch: core.Batch) !core.Resolution {
         return batch.resolve(self.metadata);
     }

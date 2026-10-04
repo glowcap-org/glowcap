@@ -119,6 +119,8 @@ pub fn register(
     check_external_step.dependOn(goblins_reg.exporter_step);
     check_external_step.dependOn(fixture_gen_check_step);
     check_external_step.dependOn(rooms_web_proofs);
+    check_external_step.dependOn(&b.top_level_steps.get("loam-browser-test").?.step);
+    check_external_step.dependOn(&b.top_level_steps.get("rooms-rust-browser-test").?.step);
 
     // Hermetic C-ABI extract refuse matrix (ADR-0077): archive path escape / symlink
     // fixtures against each resolve port's hard-fail hygiene. `tar` is

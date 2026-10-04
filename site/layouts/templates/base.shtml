@@ -88,6 +88,7 @@
 					<span class="nav-heading">Understand</span>
 					<a class="$site.page('why').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('why').link()">Why OCapN</a>
 					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
+					<a class="$site.page('loam').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('loam').link()">Durable objects</a>
 					<span class="nav-heading">Build</span>
 					<a class="$site.page('start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('start').link()">Start building</a>
 					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Choose an API</a>
@@ -156,6 +157,7 @@
 					<h2>Learn</h2>
 					<a href="$site.page('why').link()">Why OCapN</a>
 					<a href="$site.page('concepts').link()">Concepts</a>
+					<a href="$site.page('loam').link()">Durable objects</a>
 					<a href="$site.page('protocol').link()">Protocol cheatsheet</a>
 				</nav>
 				<nav aria-label="Build">
@@ -368,7 +370,7 @@
 					// The img is still in the page, so the diagram is still shown —
 					// in its light palette, since the swap is what lets it follow
 					// the theme. Say so rather than nothing: a 404 here is a build
-					// or deploy fault, and it used to look identical to success.
+					// or deploy fault, and silence would make it look like success.
 					console.warn("glowcap: could not inline " + img.src + ":", why);
 					img.style.visibility = "visible";
 				}));

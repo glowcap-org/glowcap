@@ -356,6 +356,7 @@ pub const Peer = struct {
     pub const sendWithdrawGift = peer_handoffs.sendWithdrawGift;
     pub const sendDepositGift = peer_handoffs.sendDepositGift;
     pub const sendResolveHandoffGive = peer_handoffs.sendResolveHandoffGive;
+    pub const settleAnswerOwned = outbound.enqueueAnswerTargetResolutionOwned;
     pub const applyRelayedHandoffGive = peer_handoffs.applyRelayedHandoffGive;
 
     pub const sessionIsOpen = peer_session.isOpen;

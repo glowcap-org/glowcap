@@ -33,6 +33,9 @@ all = { level = "deny", priority = -1 }
 # archive and symbols — only for the transports it turns on.
 default = ["tcp", "inproc"]
 
+# Optional durable resources on the existing Host with LMDB or browser execution.
+loam = ["async", "dep:wasm-bindgen", "dep:js-sys", "dep:wasm-bindgen-futures"]
+
 # Blocking TCP transport. Links `libglowcap_net_transport_tcp` and compiles
 # `pub mod tcp` (the `glowcap_tcp_*` netlayer + its own `glowcap_tcp_last_error`).
 tcp = []
@@ -83,6 +86,7 @@ getrandom = { version = "0.4", features = ["wasm_js"], optional = true }
 web-time = { version = "1.1", optional = true }
 gloo-timers = { version = "0.4", features = ["futures"], optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
 js-sys = { version = "0.3", optional = true }
 web-sys = { version = "0.3", optional = true, features = ["Url", "WebSocket", "BinaryType", "RtcDataChannel", "RtcDataChannelState", "RtcDataChannelType", "Event", "MessageEvent", "CloseEvent", "RtcPeerConnection", "RtcPeerConnectionState", "RtcConfiguration", "RtcPeerConnectionIceEvent", "RtcIceCandidate", "RtcIceCandidateInit", "RtcDataChannelEvent", "RtcSessionDescriptionInit", "RtcSdpType"] }
 

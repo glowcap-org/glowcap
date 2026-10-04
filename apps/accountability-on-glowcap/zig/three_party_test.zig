@@ -60,8 +60,10 @@ fn serveExporter(args: ExporterArgs) !void {
     defer if (recipient) |session| session.deinit();
 
     while (!args.done.load(.acquire)) {
-        if (recipient == null and try args.server.waitAcceptable(20))
+        if (recipient == null and try args.server.waitAcceptable(20)) {
             recipient = try args.server.accept();
+            try recipient.?.attend();
+        }
         _ = gifter.stepReadable(20) catch |err| switch (err) {
             error.ConnectionClosed, error.ProtocolAbort => break,
             else => |cause| return cause,

@@ -1,12 +1,23 @@
 comptime {
     _ = @import("loam/core/store_test.zig");
+    _ = @import("loam/core/names_test.zig");
     _ = @import("loam/core/cache_commit_test.zig");
     _ = @import("loam/core/collection_test.zig");
+    _ = @import("loam/core/collection_custody_test.zig");
     _ = @import("loam/hosting/actors_test.zig");
+    _ = @import("loam/hosting/reference_test.zig");
     _ = @import("loam/hosting/wire_test.zig");
+    _ = @import("loam/hosting/arguments_test.zig");
+    _ = @import("loam/hosting/discovery_test.zig");
     _ = @import("loam/access/hosting_test.zig");
+    _ = @import("loam/access/registration_test.zig");
+    _ = @import("loam/access/reference_test.zig");
     _ = @import("loam/access/hosting_wire_test.zig");
     _ = @import("loam/access/sharing_test.zig");
+    _ = @import("loam/access/mutation_test.zig");
+    _ = @import("loam/access/management_test.zig");
+    _ = @import("loam/access/value_record_test.zig");
+    _ = @import("loam/access/resource_lifecycle_test.zig");
     _ = @import("loam/access/description_test.zig");
     _ = @import("loam/core/record_test.zig");
     _ = @import("api_surface_test.zig");
@@ -16,7 +27,13 @@ comptime {
     _ = @import("loam/access/resource_record_test.zig");
     _ = @import("loam/access/grant_view_test.zig");
     _ = @import("loam/access/grant_record_test.zig");
+    _ = @import("loam/access/change_history_test.zig");
+    _ = @import("loam/access/observation_test.zig");
+    _ = @import("loam/access/identity_registry_test.zig");
+    _ = @import("loam/access/maintenance_test.zig");
+    _ = @import("loam/access/observation_hosted_test.zig");
     _ = @import("loam/access/owner_test.zig");
+    _ = @import("loam/access/directory_edit_test.zig");
     _ = @import("loam/access/stored_capability_test.zig");
     _ = @import("loam/access/stored_capability_memory_test.zig");
     _ = @import("loam/access/stored_capability_record_test.zig");
@@ -160,6 +177,7 @@ comptime {
         _ = @import("net/linux_completion_test.zig");
     if (@import("builtin").os.tag == .linux) {
         _ = @import("driver/host_runtime_multiplexed/lifecycle_test.zig");
+        _ = @import("driver/host_runtime_multiplexed/native_server_test.zig");
         _ = @import("driver/host_runtime_multiplexed/conversation_test.zig");
         _ = @import("driver/host_runtime_multiplexed/provider_test.zig");
     }
@@ -266,6 +284,9 @@ comptime {
     _ = @import("driver/core_host/give/relayed_test.zig");
     _ = @import("driver/core_host/locator_test.zig");
     _ = @import("driver/core_host/redeem_test.zig");
+    _ = @import("driver/core_host/enliven_test.zig");
+    _ = @import("driver/core_host/owned_call_test.zig");
+    _ = @import("driver/core_host/completion_test.zig");
     _ = @import("driver/core_host/redeem/id_routes_test.zig");
     _ = @import("driver/core_host/redeem/route_completion_test.zig");
     _ = @import("driver/core_host/redeem/withdraw_test.zig");

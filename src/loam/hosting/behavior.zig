@@ -23,6 +23,7 @@ pub const Call = struct {
     view: core.RecordView,
     context: ?*anyopaque = null,
     preparation: ?Preparation = null,
+    references: ?*@import("references.zig").Set = null,
     transaction: ?Transaction = null,
     /// Materialize at the top-level Host boundary after staging, before write
     /// submission. Reserve custody here; expose no externally usable authority.
@@ -31,6 +32,9 @@ pub const Call = struct {
     /// Runs once even if settlement needs retry. Read-only results activate at
     /// settlement. Preparation.deinit must cancel any unconfirmed reservation.
     confirmation: ?struct { context: *anyopaque, apply: *const fn (*anyopaque) void } = null,
+    /// A prepared dependent call dispatches once at the top-level boundary.
+    /// The operation retains its answer until ordinary resolver settlement.
+    forward: ?struct { target: driver.Capability, verb: []const u8, args: []const driver.Value } = null,
     replacement: ?[]const u8 = null,
     /// A dependent projection enters through `view`'s endpoint authority but
     /// invokes the content behind this separately held durable capability.
@@ -57,7 +61,7 @@ pub const Call = struct {
         if (self.attachment.store.phase != .staging) return error.WrongPhase;
         try self.held.ensureUnusedCapacity(self.arena, 1);
         const ref = try hosting.restoreEdge(self.attachment, id);
-        self.held.appendAssumeCapacity(ref);
+        self.adoptRetain(ref);
         return ref;
     }
 
@@ -68,7 +72,7 @@ pub const Call = struct {
         _ = try self.attachment.findBehavior(view);
         try self.held.ensureUnusedCapacity(self.arena, 1);
         const ref = try hosting.restoreEdge(self.attachment, view.id);
-        self.held.appendAssumeCapacity(ref);
+        self.adoptRetain(ref);
         return ref;
     }
 
@@ -90,9 +94,13 @@ pub const Call = struct {
             if (current == index) break item;
         } else unreachable;
         if (target.strength != .strong) return error.NotDurable;
+        if (target.restoration == .recipe) {
+            const working = self.references orelse return error.ReferenceUnprepared;
+            return @import("references.zig").hold(self, try working.restored(view, index));
+        }
         try self.held.ensureUnusedCapacity(self.arena, 1);
         const ref = try hosting.restoreEdge(self.attachment, target.target);
-        self.held.appendAssumeCapacity(ref);
+        self.adoptRetain(ref);
         return ref;
     }
 
@@ -104,7 +112,7 @@ pub const Call = struct {
         for (self.held.items) |held| if (held.eql(ref)) return captured;
         try self.held.ensureUnusedCapacity(self.arena, 1);
         const actor = self.attachment.host.localActorFor(ref) orelse return error.NotDurable;
-        self.held.appendAssumeCapacity(try self.attachment.host.retainLocalCapability(actor));
+        self.adoptRetain(try self.attachment.host.retainLocalCapability(actor));
         return captured;
     }
 
@@ -114,19 +122,48 @@ pub const Call = struct {
     pub fn projectDependent(self: *Call, target: driver.Capability) !driver.Capability {
         try self.held.ensureUnusedCapacity(self.arena, 1);
         const ref = try self.attachment.projectDependent(self.view.id, target);
-        self.held.appendAssumeCapacity(ref);
+        self.adoptRetain(ref);
         return ref;
     }
 
-    /// Restrict this call's reply to capabilities subsequently restored by
-    /// `storedEdge`. The managed-content handle invokes this before its callback.
+    /// Adopt one already-owned retain after reserving a held-list slot. Custody
+    /// alone never authorizes a reply. The prefix owns undisclosed references;
+    /// the suffix owns declared references. Insertion rotates one suffix entry
+    /// into the new slot, preserving that partition without another allocation.
+    pub fn adoptRetain(self: *Call, ref: driver.Capability) void {
+        self.held.appendAssumeCapacity(ref);
+        if (self.disclosed_from != unrestricted_reply) {
+            std.mem.swap(driver.Capability, &self.held.items[self.disclosed_from], &self.held.items[self.held.items.len - 1]);
+            self.disclosed_from += 1;
+        }
+    }
+
+    /// Declare exactly this held capability for the reply. Declaring a facet
+    /// does not declare the capabilities it retains. No new retain is acquired.
+    /// Membership scans the held inventory once; retained-call arena bytes
+    /// bound that inventory. The declaration changes only its partition.
+    pub fn discloseHeld(self: *Call, ref: driver.Capability) !driver.Capability {
+        for (self.held.items, 0..) |held, index| if (held.eql(ref)) {
+            if (self.disclosed_from != unrestricted_reply and index < self.disclosed_from) {
+                self.disclosed_from -= 1;
+                std.mem.swap(driver.Capability, &self.held.items[index], &self.held.items[self.disclosed_from]);
+            }
+            return ref;
+        };
+        return error.UndeclaredDisclosure;
+    }
+
+    /// Restrict this call's reply to explicitly declared held capabilities.
+    /// The managed-content handle invokes this before its callback.
     pub fn requireDisclosedReply(self: *Call) void {
         std.debug.assert(self.disclosed_from == unrestricted_reply);
         self.disclosed_from = self.held.items.len;
     }
 
     pub fn release(self: *Call) void {
-        for (self.held.items) |ref| self.attachment.host.releaseCapability(ref, 1) catch unreachable;
+        if (self.references) |working| working.deinit();
+        self.references = null;
+        for (self.held.items) |ref| self.attachment.host.releaseCapabilityTerminal(ref, null);
         self.held.clearRetainingCapacity();
     }
 
@@ -159,9 +196,6 @@ pub const Call = struct {
         }
         if (context.custody == .validate_only) return;
         for (self.held.items) |held| if (held.eql(ref)) return;
-        const target = try self.attachment.capture(ref);
-        try self.held.ensureUnusedCapacity(self.arena, 1);
-        const retained = try hosting.restoreEdge(self.attachment, target.target);
-        self.held.appendAssumeCapacity(retained);
+        _ = try @import("references.zig").hold(self, ref);
     }
 };

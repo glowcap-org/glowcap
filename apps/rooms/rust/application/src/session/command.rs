@@ -10,9 +10,18 @@ use serde::Deserialize;
 pub const MAX_ARGUMENTS: usize = 64;
 pub const MAX_MATERIAL_BYTES: usize = 512 * 1024;
 pub const MAX_ARGUMENT_UNITS: usize = 64 * 1024;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Effect {
+// Enum iteration and wire names are generated from the same variants. Exhaustive
+// application requirement matches make a new route require an explicit decision.
+macro_rules! catalog {
+	($name:ident { $($variant:ident,)* }) => {
+		#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+		#[serde(rename_all = "camelCase")]
+		pub enum $name { $($variant,)* }
+		impl $name { pub const ALL: &'static [Self] = &[$(Self::$variant,)*]; }
+	};
+}
+pub(crate) use catalog;
+catalog! { Effect {
 	OfferRoom,
 	SetRoomTopic,
 	KickRoomMember,
@@ -24,7 +33,7 @@ pub enum Effect {
 	UnregisterManagedRoom,
 	SetManagedRoomPolicy,
 	Operations,
-}
+} }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Route {
 	Checkpoint(commands::Command),

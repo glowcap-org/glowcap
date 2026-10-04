@@ -22,7 +22,8 @@ test "access capability descriptors bound selected controls and refuse malformed
     var descriptor: Descriptor = .{ .owner = object, .grant_object = object, .grant = .{ .owner = @fromBackingInt(71), .slot = 0, .generation = 1 }, .role = .control, .powers = .{ .policy_ceiling = ceiling, .resume_access = true } };
     const payload = try descriptor.encodeAlloc(a);
     defer a.free(payload);
-    const bytes = try encode(payload, &descriptor.edges());
+    var descriptor_edges: [3]f.loam.core.Edge = undefined;
+    const bytes = try encode(payload, descriptor.edges(&descriptor_edges));
     defer a.free(bytes);
     var failing = std.testing.FailingAllocator.init(a, .{});
     var decoded = try Descriptor.decodeOwned(failing.allocator(), try view(bytes));
@@ -31,9 +32,9 @@ test "access capability descriptors bound selected controls and refuse malformed
     try std.testing.expectEqualDeep(descriptor, decoded.value);
     descriptor.role = .use;
     try std.testing.expectError(error.InvalidRecord, descriptor.encodeAlloc(a));
-    var weak_edges = descriptor.edges();
+    var weak_edges = descriptor_edges;
     weak_edges[1].strength = .weak;
-    const weak = try encode(payload, &weak_edges);
+    const weak = try encode(payload, weak_edges[0..2]);
     defer a.free(weak);
     try std.testing.expectError(error.InvalidRecord, Descriptor.decodeOwned(a, try view(weak)));
     const missing = try encode(payload, weak_edges[0..1]);
@@ -44,7 +45,7 @@ test "access capability descriptors bound selected controls and refuse malformed
     const scalar = try descriptor.encodeAlloc(a);
     defer a.free(scalar);
     for (0..scalar.len) |length| {
-        const truncated = try encode(scalar[0..length], &descriptor.edges());
+        const truncated = try encode(scalar[0..length], descriptor.edges(&descriptor_edges));
         defer a.free(truncated);
         if (Descriptor.decodeOwned(a, try view(truncated))) |value| {
             var owned = value;
@@ -72,7 +73,8 @@ test "access stored capability refuses a substituted grant retention edge" {
     defer descriptor.deinit(a);
     descriptor.value.grant_object = owner;
     try store.begin();
-    try store.putCopying(.{ .id = id, .revision = 0, .schema = row.schema, .payload = row.payload, .edges = &descriptor.value.edges(), .rooted = true }, row.revision);
+    var descriptor_edges: [3]f.loam.core.Edge = undefined;
+    try store.putCopying(.{ .id = id, .revision = 0, .schema = row.schema, .payload = row.payload, .edges = descriptor.value.edges(&descriptor_edges), .rooted = true }, row.revision);
     try store.release(lease);
     try f.commit(store, backend);
     const held = try c.use(&caps, backend, id);

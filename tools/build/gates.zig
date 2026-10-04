@@ -99,6 +99,7 @@ const WasmModules = struct {
     browser: *std.Build.Module,
     host: *std.Build.Module,
     ocapn: *std.Build.Module,
+    loam: *std.Build.Module,
 };
 
 fn wasmModules(b: *std.Build, o: std.builtin.OptimizeMode) WasmModules {
@@ -124,20 +125,33 @@ fn wasmModules(b: *std.Build, o: std.builtin.OptimizeMode) WasmModules {
     }.get;
     // `c_abi_host` and the `c_abi_wasm` root are graph=false; mint them at this
     // use site the way the transport archives are, wiring the wasm modules above.
-    const driver_mod = transportAbiModule(b, t, o, "src/c_abi/host/mod.zig", &.{
+    const host_imports = [_]common.AbiImport{
         .{ .name = "foundation", .module = pick(sub, mods, "foundation") },
         .{ .name = "model", .module = pick(sub, mods, "model") },
         .{ .name = "engine", .module = pick(sub, mods, "engine") },
         .{ .name = "actors", .module = pick(sub, mods, "actors") },
         .{ .name = "driver_core", .module = pick(sub, mods, "driver_core") },
         .{ .name = "c_abi_shared", .module = pick(sub, mods, "c_abi_shared") },
-    });
+    };
+    const host_mod = transportAbiModule(b, t, o, "src/c_abi/host/mod.zig", &host_imports);
+    const host_archive = transportAbiModule(b, t, o, "src/c_abi/host/archive.zig", &host_imports);
+    const loam_imports = [_]common.AbiImport{
+        .{ .name = "loam_core", .module = pick(sub, mods, "loam_core") },
+        .{ .name = "loam_access", .module = pick(sub, mods, "loam_access") },
+        .{ .name = "loam_hosting", .module = pick(sub, mods, "loam_hosting") },
+        .{ .name = "driver_core", .module = pick(sub, mods, "driver_core") },
+        .{ .name = "c_abi_shared", .module = pick(sub, mods, "c_abi_shared") },
+        .{ .name = "c_abi_host", .module = host_mod },
+    };
+    const loam_mod = transportAbiModule(b, t, o, "src/c_abi/loam/mod.zig", &loam_imports);
+    const loam_archive = transportAbiModule(b, t, o, "src/c_abi/loam/archive.zig", &loam_imports);
     const wasm_root = transportAbiModule(b, t, o, "src/c_abi/wasm/mod.zig", &.{
         .{ .name = "c_abi_shared", .module = pick(sub, mods, "c_abi_shared") },
         .{ .name = "c_abi", .module = pick(sub, mods, "c_abi") },
-        .{ .name = "c_abi_host", .module = driver_mod },
+        .{ .name = "c_abi_host", .module = host_mod },
+        .{ .name = "c_abi_loam", .module = loam_mod },
     });
-    return .{ .browser = wasm_root, .host = driver_mod, .ocapn = pick(sub, mods, "c_abi") };
+    return .{ .browser = wasm_root, .host = host_archive, .ocapn = pick(sub, mods, "c_abi"), .loam = loam_archive };
 }
 
 fn wasmDriverExe(b: *std.Build, o: std.builtin.OptimizeMode) *std.Build.Step.Compile {
@@ -362,7 +376,7 @@ pub fn register(ctx: Context) Registered {
     // Static path and pin parity belong in source-check. Executable container
     // and worktree behavior has its own gate so a focused source edit does not
     // clone repositories or rewrite temporary Git histories.
-    const infrastructure_check_step = b.step("infrastructure-check", "Run devcontainer and worktree workflow behavior checks (needs bash, git, and python3)");
+    const infrastructure_check_step = b.step("infrastructure-check", "Run devcontainer, worktree, and agent hook behavior checks (needs bash, git, python3, jq, rustfmt, and deno)");
     const build_front_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/build-front.sh" });
     build_front_behaviour.has_side_effects = true;
     const devcontainer_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/host-invariants.sh" });
@@ -373,6 +387,9 @@ pub fn register(ctx: Context) Registered {
     worktree_integration_contracts.has_side_effects = true;
     worktree_integration_contracts.step.dependOn(&devcontainer_behaviour.step);
     infrastructure_check_step.dependOn(&worktree_integration_contracts.step);
+    const agent_hooks_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/agent_hooks_test.py" });
+    agent_hooks_test.has_side_effects = true;
+    infrastructure_check_step.dependOn(&agent_hooks_test.step);
     check_step.dependOn(source_check_step);
 
     // The deadline wrapper every CI gate runs under, held by its behaviour
@@ -472,10 +489,11 @@ pub fn register(ctx: Context) Registered {
     // Static consumers share a linear memory with the Host and call the C ABI
     // directly. They do not need the JavaScript trampolines in the browser root.
     const wasm_static = wasmModules(b, .ReleaseSmall);
-    const wasm_archives_step = b.step("wasm-archives", "Build freestanding Host and OCapN static archives for Wasm application linking");
+    const wasm_archives_step = b.step("wasm-archives", "Build freestanding Host, OCapN, and Loam static archives for Wasm application linking");
     inline for (.{
         .{ "glowcap_host", wasm_static.host },
         .{ "glowcap_ocapn", wasm_static.ocapn },
+        .{ "glowcap_loam", wasm_static.loam },
     }) |entry| {
         const archive = b.addLibrary(.{ .name = entry[0], .linkage = .static, .root_module = entry[1] });
         const install = b.addInstallArtifact(archive, .{ .dest_dir = .{ .override = .{ .custom = "wasm/lib" } } });

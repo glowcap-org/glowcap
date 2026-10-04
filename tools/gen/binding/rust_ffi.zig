@@ -12,6 +12,8 @@
 //! `check`) holds the committed files against a fresh generation.
 
 const std = @import("std");
+const cl = @import("c_abi_loam");
+const cln = @import("c_abi_loam_lmdb");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
@@ -28,6 +30,8 @@ pub const step_name = "gen-binding-rust-ffi";
 const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
+    .{ .path = "bindings/rust/src/sys/loam_fns_gen.rs", .generate = generateLoam },
+    .{ .path = "bindings/rust/src/sys/loam_lmdb_fns_gen.rs", .generate = generateLoamLmdb },
     .{ .path = "bindings/rust/src/sys/ocapn_fns_gen.rs", .generate = generateOcapn },
     .{ .path = "bindings/rust/src/sys/host_fns_gen.rs", .generate = generateHost },
     .{ .path = "bindings/rust/src/sys/driver_fns_gen.rs", .generate = generateLoop },
@@ -376,4 +380,11 @@ fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
         "use super::GlowcapTransportProvider;\n" ++
         "use super::ocapn::GlowcapContext;\n" ++
         "use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime};\n", &.{});
+}
+
+fn generateLoam(gpa: std.mem.Allocator) ![]u8 {
+    return renderArchive(gpa, cl, "include/glowcap_loam.h", "// Portable Loam extern projection.\n", "use super::layouts::*;\nuse crate::sys::host::GlowcapHost;\nuse crate::sys::ocapn::GlowcapContext;\nuse crate::sys::{GlowcapArgument, GlowcapReference};\nuse core::ffi::{c_int, c_uchar, c_uint, c_void};\n", &.{ .{ .T = cl.GlowcapLoamEntropyFn, .spelling = "Option<GlowcapLoamEntropyFn>" }, .{ .T = cl.GlowcapLoamKvFn, .spelling = "Option<GlowcapLoamKvFn>" } });
+}
+fn generateLoamLmdb(gpa: std.mem.Allocator) ![]u8 {
+    return renderArchive(gpa, cln, "include/glowcap_loam_lmdb.h", "// LMDB Loam extern projection.\n", "use super::layouts::*;\nuse crate::sys::GlowcapReference;\nuse core::ffi::{c_int, c_uchar, c_uint};\n", &.{});
 }

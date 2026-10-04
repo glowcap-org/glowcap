@@ -1,14 +1,21 @@
-//! Durable publication descriptors. Applications retain their bootstrap record
-//! name; the stored descriptor retains the secret name and exact actor target.
+//! Durable publication descriptors and opt-in discovery. Stored names resolve
+//! to exact actor targets through the shared transaction index and read lane.
 const core = @import("loam_core");
 const h = @import("attachment.zig");
 const driver = @import("driver_core");
 
 pub const Entropy = driver.Host.DurableSwiss.Entropy;
-pub const schema: core.Schema = .{ .id = 0x4c4f414d50554201, .version = 1, .max_payload = @sizeOf(Entropy), .max_edges = 1 };
+pub const LookupOptions = @import("discovery.zig").Options;
+
+/// Enable bounded on-demand restoration for this Host's durable namespace.
+/// Call once after opening the Store; no publication or actor scan is needed.
+pub fn listen(attachment: *h.Attachment, options: LookupOptions) !void {
+    _ = try @import("discovery.zig").Discovery.create(attachment, options);
+}
+pub const schema: core.Schema = .{ .id = 0x4c4f414d50554201, .version = 1, .max_payload = @sizeOf(Entropy), .max_edges = 1, .name_offset = 0 };
 
 /// Add a publication to the caller's current transaction. It becomes usable
-/// only after commit, through a checked lease and restore below. Entropy comes
+/// only after commit, through on-demand discovery or explicit restore. Entropy comes
 /// from the embedding's entropy boundary, exactly as Host durable publication.
 pub fn stage(attachment: *h.Attachment, entropy: Entropy, target: driver.Capability) !core.ObjectId {
     const edge = try attachment.capture(target);
@@ -65,7 +72,7 @@ pub fn stageRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
 fn reserve(attachment: *h.Attachment, record: core.ObjectId, swiss: driver.Host.DurableSwiss) !void {
     for (attachment.retirements) |slot| if (slot) |held| if (held.record.eql(record)) return error.RetirementPending;
     for (attachment.retirements) |*slot| if (slot.* == null) {
-        slot.* = .{ .record = record, .swiss = swiss };
+        slot.* = .{ .record = record, .swiss = swiss, .registered = attachment.host.giftables.contains(swiss.slice()) };
         return;
     };
     return error.RetirementCapacity;
@@ -119,66 +126,68 @@ pub fn dropRetirement(owner: *h.Attachment, record: core.ObjectId) !void {
 }
 
 /// Drop custody. `keep_fenced` preserves fenced slots across an unresolved
-/// unknown outcome; every other call clears all custody.
+/// unknown outcome. Deferred restoration survives every later transaction.
 pub fn releaseRetirements(owner: *h.Attachment, keep_fenced: bool) void {
     for (owner.retirements) |*slot| {
         const held = slot.* orelse continue;
-        if (keep_fenced and held.fenced) continue;
+        if (held.republish or (keep_fenced and held.fenced)) continue;
         slot.* = null;
     }
 }
 
-/// Recovery proved a fenced tombstone's batch absent: the recipe is still
-/// rooted, so discovery returns through the ordinary restore path. A cold
-/// record defers to the read lane (`finishRepublish`) instead of blocking.
-pub fn republishRetirements(owner: *h.Attachment) !void {
+/// Record the known-absent outcome without performing fallible restoration.
+/// Existing bounded retirement slots own retry custody until the name is back
+/// in Host or a later committed retirement makes restoration unnecessary.
+pub fn deferRepublish(owner: *h.Attachment) void {
     releaseRetirements(owner, true);
-    for (owner.retirements) |*slot| if (slot.*) |*held| if (held.fenced) {
+    for (owner.retirements) |*slot| if (slot.*) |*held| if (held.fenced and !held.republish) {
+        if (held.registered) held.republish = true else slot.* = null;
+    };
+}
+
+/// Retry through the ordinary top-level advance and read lane. A refusal
+/// leaves the slot intact; successful reads only install cache residency, so
+/// neither write recovery nor read completion has to perform Host allocation.
+pub fn advanceRepublish(owner: *h.Attachment) !bool {
+    if (owner.store.phase != .idle) return false;
+    var progressed = false;
+    for (owner.retirements) |*slot| if (slot.*) |held| if (held.republish) {
         const acquired = owner.store.acquire(held.record) catch |err| switch (err) {
-            error.PendingRead => {
-                held.republish = true;
-                continue;
-            },
+            error.PendingRead => continue,
             else => return err,
         };
         switch (acquired) {
             .ready => |lease| {
                 defer owner.store.release(lease) catch unreachable;
-                _ = try restore(owner, lease);
+                _ = restore(owner, lease) catch |err| switch (err) {
+                    error.RetiredPublication => {
+                        slot.* = null;
+                        progressed = true;
+                        continue;
+                    },
+                    else => return err,
+                };
                 slot.* = null;
+                progressed = true;
             },
             .read => |read| {
-                held.republish = true;
                 @import("storage.zig").retainRead(owner, read, null);
+                progressed = true;
             },
         }
     };
+    return progressed;
 }
 
-/// Read-lane completion of a deferred re-publish.
-pub fn finishRepublish(owner: *h.Attachment, record: core.ObjectId) !void {
-    for (owner.retirements) |*slot| if (slot.*) |*held| {
+/// Collection can retire a recipe while its restoration read is in flight.
+/// Such a miss terminates only that recipe's deferred registry custody.
+pub fn forgetMissingRepublish(owner: *h.Attachment, record: core.ObjectId) bool {
+    for (owner.retirements) |*slot| if (slot.*) |held| {
         if (!held.republish or !held.record.eql(record)) continue;
-        const lease = try owner.store.resident(record);
-        defer owner.store.release(lease) catch unreachable;
-        _ = try restore(owner, lease);
         slot.* = null;
-        return;
+        return true;
     };
-}
-
-/// Apply a committed tombstone, including after restart. Held capabilities
-/// remain valid; only subsequent discovery through this name is removed.
-pub fn applyRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
-    try attachment.topLevel();
-    const view = try attachment.store.currentView(lease);
-    try validate(view);
-    if (view.rooted or view.edge_count != 0) return error.InvalidPublication;
-    const swiss = driver.Host.DurableSwiss.fromEntropy(view.payload[0..@sizeOf(Entropy)].*);
-    attachment.host.removeDurable(swiss.slice()) catch |err| switch (err) {
-        error.UnknownPublication => {},
-        else => return err,
-    };
+    return false;
 }
 
 fn validate(view: core.RecordView) !void {

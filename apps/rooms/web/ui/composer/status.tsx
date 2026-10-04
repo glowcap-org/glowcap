@@ -11,12 +11,11 @@
 // true only now: somebody is at their keyboard, and in a moment they are not.
 // They sit beside each other rather than taking turns, so neither has to lose
 // for the other to be read. That is also what makes the row honest by
-// construction. The lines used to be stacked in one absolutely positioned box
-// and faded in and out of it, which made "one at a time" a promise kept by a
-// stylesheet rule per pair of lines, and it was only ever as complete as the
-// pairs somebody thought to write. Two were missing: a read-only session with
-// a peer typing printed both sentences through each other, and so did a draft
-// past the cap. In a row there is nothing to referee.
+// construction. Stacking them in one box and fading them in turn would make "one at a
+// time" a promise kept by a stylesheet rule per pair of lines, only as
+// complete as the pairs somebody thought to write: a read-only session with a
+// peer typing would print both sentences through each other, and so would a
+// draft past the cap. In a row there is nothing to referee.
 //
 // Its own component, and its own subscription to who is typing, so a peer's
 // keystroke repaints this row and not the whole composer around it.

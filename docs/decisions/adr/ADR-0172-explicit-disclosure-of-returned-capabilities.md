@@ -7,7 +7,7 @@ decision: "A managed content reply may carry a capability only through a disclos
 supersedes: []
 superseded_by: []
 amends: [ADR-0169]
-amended_by: [ADR-0173]
+amended_by: [ADR-0173, ADR-0182]
 ---
 
 # ADR-0172 Explicit disclosure of returned capabilities

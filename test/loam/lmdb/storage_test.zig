@@ -42,6 +42,14 @@ const Temp = struct {
     }
 };
 
+test "loam LMDB discovery names share atomic records and retained identity floors" {
+    var tmp = try Temp.init();
+    defer tmp.deinit();
+    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id } });
+    defer db.close() catch unreachable;
+    try @import("../core/names_scenario.zig").exercise(f, &db, db.metadata);
+}
+
 test "loam LMDB restores cyclic records roots exact totals and stable identities" {
     var tmp = try Temp.init();
     defer tmp.deinit();
@@ -186,6 +194,7 @@ test "loam LMDB close retains an active transaction and stops new work" {
     var pending = try db.beginCommit(batch);
     try std.testing.expectError(error.Busy, db.inspect());
     try std.testing.expectError(error.Busy, db.grow(512 * 1024 * 1024));
+    try std.testing.expectError(error.Busy, db.beginCompaction());
     try std.testing.expectError(error.Busy, db.close());
     try std.testing.expectError(error.Closed, db.beginCommit(batch));
     pending.abort();

@@ -1,9 +1,10 @@
 # Learn glowcap by example
 
-Rooms is the first look: a complete chat over encrypted iroh.
-[Start building](https://jimisaacs.github.io/glowcap/start/) is the first call in code.
-The numbered chapters teach that same API over loopback TCP, starting at 01.
-Every chapter and helper is a runnable build target:
+Start with chapter 01. In one short Zig program, one peer publishes an object
+and another fetches it and calls it. The numbered chapters build on it over
+loopback TCP. Rooms, further down, is a complete chat application over
+encrypted iroh that runs in the browser with `zig build rooms-web`. Every chapter and helper
+is a runnable build target:
 
 ```sh
 zig build examples
@@ -39,6 +40,7 @@ README has its standalone commands.
 | [04: look up by name](zig/04_look_up_by_name.zig) | See how `fetch("name")` uses the bootstrap object and a swiss number underneath. |
 | [05: call a remote method](zig/05_call_a_remote_method.zig) | Drive the raw engine one step at a time, including exports, imports, delivery, and settlement. |
 | [06: pipeline and attenuate](zig/06_pipeline_and_attenuate.zig) | Send dependent calls before the first answer arrives, then restrict the returned capability to selected methods. |
+| [07: durable card](zig/07_durable_card.zig) | Keep a sleepy actor in Loam's LMDB store, restart everything, and find its state still there. |
 
 The source of each chapter begins with a longer explanation of the scenario.
 Chapter 01 is the smallest application template. Chapter 05 is for an

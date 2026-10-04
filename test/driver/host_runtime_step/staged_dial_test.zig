@@ -128,6 +128,7 @@ test "a staged dial serves a fetch and retirement preserves its claimed session"
     var session = try server.accept();
     defer session.deinit();
     _ = try session.publish("treasure", Treasure, .{});
+    try session.attend();
 
     var rounds: usize = 0;
     while (recorder.opened_session == null and recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
@@ -292,6 +293,7 @@ test "runtime finish close publishes an admitted transport open before closing i
     _ = try runtime.stepAny(0);
     var accepted = try server.accept();
     defer accepted.deinit();
+    try accepted.attend();
 
     var rounds: usize = 0;
     while (runtime.closeOutcome() == .pending and rounds < 1_000) : (rounds += 1) {
@@ -343,6 +345,7 @@ test "runtime finish close realizes a core dial admitted before its barrier" {
     try std.testing.expect(try server.waitAcceptable(100));
     var accepted = try server.accept();
     defer accepted.deinit();
+    try accepted.attend();
 
     var rounds: usize = 0;
     while (runtime.closeOutcome() == .pending and rounds < 1_000) : (rounds += 1) {
@@ -385,6 +388,7 @@ test "runtime close preserves an exposed session until explicit release" {
     _ = try runtime.stepAny(0);
     var accepted = try server.accept();
     defer accepted.deinit();
+    try accepted.attend();
     var rounds: usize = 0;
     while (recorder.opened_session == null and recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
         _ = try runtime.stepAny(10);
@@ -430,6 +434,7 @@ test "blocking session cancel returns after immediate transport teardown" {
     _ = try runtime.stepAny(0);
     var accepted = try server.accept();
     defer accepted.deinit();
+    try accepted.attend();
     var rounds: usize = 0;
     while (recorder.opened_session == null and recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
         _ = try runtime.stepAny(10);
@@ -520,6 +525,7 @@ test "session finish timeout terminates only that session and leaves its Host ac
     _ = try runtime.stepAny(0);
     var accepted = try server.accept();
     defer accepted.deinit();
+    try accepted.attend();
     var rounds: usize = 0;
     while (recorder.opened_session == null and recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
         _ = try runtime.stepAny(10);

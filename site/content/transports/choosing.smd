@@ -23,7 +23,7 @@ what proves who answered, and what someone on the path can do.
 | `webrtc` | Implemented | Browsers talking directly | The DataChannel is encrypted. Who the peer is comes from the signaling authority that introduced it. |
 | `noise-tcp` | Implemented | Glowcap peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. Glowcap to glowcap only. |
 | `noise-relay` | Implemented | Native glowcap peers through a relay, sealed | Same Noise handshake peer to peer; the relay only forwards ciphertext. |
-| `onion` | Implemented | Meeting unmodified Goblins on the standardized path | Tor proves the dialed service and hides both ends' network location. CapTP does not treat that as a channel-authenticated peer proof. |
+| `onion` | Implemented | Meeting unmodified Goblins on the standardized path | Tor proves the dialed service and hides both ends' network location. Tor's check runs in the Tor daemon and only covers the side that dialed, so glowcap does not treat it as proof of who the CapTP peer is. |
 | `keyed-tcp` | Trusted network only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
 | `keyed-relay` | Trusted network only | Native peers through a relay, cleartext | Same key demand; the relay reads every frame, and nothing proves who is on the far side. |
 | `tcp` | Testing only | Cleartext Goblins testing (adapter this repository wrote) | A host:port. Nothing is proved and nothing is encrypted. |

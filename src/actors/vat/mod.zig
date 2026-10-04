@@ -537,6 +537,13 @@ pub const Vat = struct {
         return self.actors.contains(id);
     }
 
+    /// A turn or queue drive owns execution, including retired-state cleanup.
+    /// Adapters may enqueue effects here, but defer an independent drive until
+    /// the outer boundary returns.
+    pub fn isExecuting(self: *const Vat) bool {
+        return self.turn_depth != 0 or self.drive_depth != 0;
+    }
+
     /// Add one explicit root to a live actor row (ADR-0101). Tolerant of an
     /// absent row: a rooting relationship can outlive a row `restore` removed,
     /// and its bookkeeping then fails closed instead of crashing.

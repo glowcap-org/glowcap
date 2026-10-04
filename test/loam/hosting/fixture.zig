@@ -89,9 +89,10 @@ pub const Fixture = struct {
             try self.attached.advance();
             while (try self.attached.nextWork()) |work| switch (work) {
                 .read => |request| try self.attached.completeRead(request.ticket, self.data.backend.read(request)),
+                .lookup => |request| try self.attached.completeLookup(request.ticket, self.data.backend.lookup(request)),
                 .write => |batch| try self.attached.completeWrite(batch.ticket, self.data.backend.commit(batch)),
             };
-            if (self.attached.pending_bytes == 0) return;
+            if (!self.attached.hasPendingWork()) return;
         }
         return error.DidNotQuiesce;
     }

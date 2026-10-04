@@ -98,9 +98,9 @@
 }
 .card-plane .group-label {
 	/* No margin of its own: the group's own gap is the spacing, the way it is
-	   between any two rows in the group. A legend used to sit four pixels from
-	   its first control because the engine lifted it out of the flex flow, where
-	   the gap could not reach it. */
+	   between any two rows in the group. A `legend` would be lifted out of
+	   the flex flow, where the gap cannot reach it, which is why this label is
+	   not one. */
 	margin: 0;
 	font-size: var(--type-caption);
 	font-weight: 700;

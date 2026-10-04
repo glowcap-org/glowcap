@@ -18,7 +18,9 @@ const counts = @import("counts.zig");
 /// captures exact gifts, and projects retained targets onto another Port.
 pub const LocalObjectProjection = struct {
     ctx: ?*anyopaque,
-    resolve_name: *const fn (ctx: ?*anyopaque, scope: PeerHandle, swissnum: []const u8) anyerror!?model.ExportPosition,
+    /// One namespace decision: immediate projection, miss/refusal, or bounded
+    /// deferred admission. The Session stamped the exact answer before entry.
+    resolve_fetch: *const fn (ctx: ?*anyopaque, scope: PeerHandle, request: @import("../bootstrap.zig").FetchContext) anyerror!@import("../bootstrap.zig").FetchOutcome,
     capture: *const fn (ctx: ?*anyopaque, scope: PeerHandle, export_position: model.ExportPosition) ?u64,
     project: *const fn (ctx: ?*anyopaque, scope: PeerHandle, target: u64) anyerror!ProjectedLocalTarget,
     rollback: *const fn (ctx: ?*anyopaque, scope: PeerHandle, target: u64, projected: ProjectedLocalTarget) void,

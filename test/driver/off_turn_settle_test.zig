@@ -314,6 +314,7 @@ fn hostRuntimeServeStepping(
     const session = try server.accept();
     defer session.deinit();
     _ = try session.publish("worker", DeferringOwned, .{ .out = out });
+    try session.attend();
     while (!done.load(.acquire)) {
         const progress = session.runtime.stepSession(session.hs, 25) catch break;
         if (progress) |p| if (p == .closed) break;

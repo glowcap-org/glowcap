@@ -41,7 +41,14 @@ pub fn nextWork(owner: *h.Attachment) !?h.Work {
             return .{ .read = read.request };
         }
     };
+    if (owner.discovery) |discovery| if (try discovery.nextWork()) |lookup| return .{ .lookup = lookup };
     return null;
+}
+
+pub fn completeLookup(owner: *h.Attachment, ticket: core.Ticket, result: core.NameResult) !void {
+    try owner.topLevel();
+    const discovery = owner.discovery orelse return error.StaleCompletion;
+    return discovery.complete(ticket, result);
 }
 
 pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.ReadResult) !void {
@@ -52,31 +59,38 @@ pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.Read
     const id = slot.*.?.request.id;
     const prepared = slot.*.?.operation;
     slot.* = null;
-    if (prepared) |index| {
+    // The preparation may own the Store completion. Dispatch exactly once,
+    // then notify every consumer of this shared read before handling refusal.
+    const completion = if (prepared) |index| blk: {
         const op = &owner.operations[index];
         op.pending_read = false;
-        op.call.?.preparation.?.completeRead(ticket, result) catch |err| {
+        break :blk op.call.?.preparation.?.completeRead(ticket, result);
+    } else owner.store.completeRead(ticket, result);
+    const failure: ?anyerror = if (completion) |_| null else |err| err;
+    const discovered = if (owner.discovery) |discovery| discovery.readFinished(id, failure) else false;
+    if (failure) |err| {
+        if (prepared) |index| {
+            const op = &owner.operations[index];
             if (err == error.StaleCompletion) {
                 @import("calls.zig").reset(owner, op);
                 return;
             }
             op.failure = err;
             op.phase = .failed;
-            return err;
-        };
-        return;
-    }
-    owner.store.completeRead(ticket, result) catch |err| {
-        if (err == error.StaleCompletion) return; // Current calls retry current data.
-        for (owner.operations) |*operation| {
-            if (operation.phase == .waiting and operation.entry.id.eql(id)) {
-                operation.failure = err;
-                operation.phase = .failed;
+        } else {
+            if (err == error.StaleCompletion) return;
+            for (owner.operations) |*operation| {
+                if (operation.phase == .waiting and operation.entry.id.eql(id)) {
+                    operation.failure = err;
+                    operation.phase = .failed;
+                }
             }
+            // A retained index can name a collected descriptor. Discovery
+            // owns this expected miss; no storage failure escapes its lane.
+            if (err == error.Gone and (publication.forgetMissingRepublish(owner, id) or discovered)) return;
         }
         return err;
-    };
-    return publication.finishRepublish(owner, id);
+    }
 }
 
 pub fn completeWrite(owner: *h.Attachment, ticket: core.Ticket, outcome: core.Outcome) !void {
@@ -124,7 +138,7 @@ pub fn resolve(owner: *h.Attachment, ticket: core.Ticket, resolution: core.Resol
         publication.releaseRetirements(owner, false);
         finish(owner, null);
     } else {
-        try publication.republishRetirements(owner);
+        publication.deferRepublish(owner);
         finish(owner, error.WriteNotCommitted);
     }
 }

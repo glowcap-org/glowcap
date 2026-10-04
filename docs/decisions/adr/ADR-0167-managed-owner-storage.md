@@ -7,7 +7,7 @@ decision: "A durable managed owner keeps its header and sparse identity director
 supersedes: []
 superseded_by: []
 amends: [ADR-0166]
-amended_by: [ADR-0168]
+amended_by: [ADR-0168, ADR-0178, ADR-0179, ADR-0180]
 ---
 
 # ADR-0167 Managed owner storage
@@ -16,7 +16,8 @@ amended_by: [ADR-0168]
 
 `loam.access.storage` binds the managed model to one existing Loam Store.
 An owner header persists its identity, policy descriptor, logical revision
-pair, identity allocation counters, directory roots, and latest change record.
+pair, independent control revision, identity allocation counters, directory
+roots, and latest change record.
 Opening an owner starts from its exact Loam header reference. Local record
 lookup supplies data to the shared resource/grant views and does not create
 a use capability or control.
@@ -38,7 +39,9 @@ A read operation pins its bounded working set through Loam leases. Index
 traversal retains its position across storage misses, so a cache smaller than
 the directory path still makes progress. The operation carries the store's
 snapshot revision; a commit requires reopening it before further authority
-evaluation. An uncertain write refuses reads until Loam resolves its receipt.
+evaluation. Reads that consume composed owner proposals also bind the exact
+staging transaction and expire when it ends, even after abort or absent recovery.
+An uncertain write refuses reads until Loam resolves its receipt.
 The embedding executes explicit read work and delivers completion. Close
 refuses while that operation still owns submitted storage work.
 

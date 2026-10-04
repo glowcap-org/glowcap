@@ -91,10 +91,14 @@ test "Host owner extraction preserves the aggregate footprint and supported verb
     // one more. ADR-0145's parked Node actions add 32: a map header that
     // costs a session under no pressure nothing, and the Node's one-word
     // count of the queue seats those actions return to. The work quantum is
-    // a plain count, so it carries no optional tag word.
+    // a plain count, so it carries no optional tag word. ADR-0176 adds one
+    // provider pointer (8 bytes per Host); the engine resolver keeps its
+    // existing callback slot and sessions gain no fields. ADR-0177 adds a
+    // 16-byte arena state to the last completion; sessions stay unchanged.
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 2336), @sizeOf(Host));
+    try std.testing.expectEqual(@as(usize, 2360), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
+    try std.testing.expectEqual(@as(usize, 80), @sizeOf(driver.core.HostAction));
 }
 
 test "Host transport profiles own extension semantics and refuse ambiguity" {

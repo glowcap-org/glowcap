@@ -20,29 +20,38 @@ core is codec-neutral, and on the wire it speaks
 [Syrup](https://github.com/ocapn/syrup), OCapN's canonical encoding.
 
 It is a library, not a framework. You link it and manage its memory. The
-protocol core is synchronous and does no I/O of its own; sockets, scheduling,
+protocol core is synchronous and does no I/O of its own. Sockets, scheduling,
 and encryption belong to the transport adapters.
 
-[Loam](docs/loam.md) provides atomic record storage, bounded leases, immutable
-collections, and an optional LMDB backend. Record-backed sleepy actors preserve
-held references while loading state on demand through the existing Host/Vat.
-Its managed access module supplies resource and grant primitives; their durable
-integration remains in the [application foundation plans](docs/planning/README.md).
-The [shipped inventory](docs/shipped.md) distinguishes those plans from the
-library available today.
+[Loam](docs/loam.md) is the storage layer. It provides atomic records, bounded
+leases, immutable collections, and an optional LMDB backend. An actor can keep
+its state in a record and load it only when a message arrives, and the
+references other peers hold to it stay valid while it sleeps. Loam also manages
+resources and grants. The full API is in Zig. C and Rust get a smaller profile,
+and the Rust one also runs in the browser on IndexedDB. Building Rooms on Loam
+is still planned work,
+described in the [application foundation plans](docs/planning/README.md).
+[What ships](docs/shipped.md) separates those plans from the library you can
+use today.
 
 glowcap is built with AI coding assistants. The maintainer directs the work
 and is answerable for what lands.
 [`PROVENANCE.md`](PROVENANCE.md) records how, including the upstream-contact
 limits that follow.
 
-[iroh](https://www.iroh.computer/) and `noise-tcp` are glowcap-to-glowcap
-paths: encrypted QUIC with discovery, and a sealed TCP route that proves the
-dialed key. Unmodified Goblins over Tor uses onion; that meeting is on demand.
-Plain `tcp` is a testing transport: cleartext, no identity proof, used for the
-recurring Goblins TCP suite. [`docs/boundaries.md`](docs/boundaries.md) says
-what each transport proves. Every place a frame is copied, allocated, or
-borrowed is visible in the API.
+Two transports are the usual way to connect glowcap peers.
+[iroh](https://www.iroh.computer/) is encrypted QUIC with peer discovery.
+`noise-tcp` is encrypted TCP that proves you reached the key you dialed.
+WebRTC, `noise-relay`, and onion encrypt too. See
+[Choosing a transport](https://jimisaacs.github.io/glowcap/transports/choosing/)
+for the full list.
+To meet unmodified Goblins, glowcap uses Tor onion services; that check runs on
+demand rather than on every build. Plain `tcp` is a testing transport. It is
+cleartext with no identity proof, and the regular Goblins interop suite runs
+over it. [Known limitations](docs/boundaries.md) says exactly what each
+transport proves.
+
+Every place a frame is copied, allocated, or borrowed is visible in the API.
 
 If capabilities are new to you,
 [`docs/capabilities.md`](docs/capabilities.md) starts from zero and carries
@@ -109,58 +118,72 @@ switch (settled) {
 `fetch` asks the peer's bootstrap object for a name that side published. A peer
 that never published `"greeter"` cannot be fetched that way.
 
-[Start building](https://jimisaacs.github.io/glowcap/start/) is the listen half
-and the other languages. `zig build` puts the generic CLI in `zig-out/bin`.
-The [complete host installation](apps/rooms/host.md) includes Rooms:
-`glowcap apps rooms serve` starts the browser application, and
-`glowcap apps rooms session` participates over encrypted iroh. Contributors use
-`./glowcap install` to build and install that verified product outside the
-checkout; `zig build rooms-build` only stages the same installation under
-`zig-out/product`. An installed CLI never builds source.
-[`docs/cli.md`](docs/cli.md) covers the REPL, `--json` scripting, MCP, and the
-cleartext lab round-trip.
+[Start building](https://jimisaacs.github.io/glowcap/start/) shows the
+listening side of this exchange and the same program in other languages.
 
-[`examples/README.md`](examples/README.md) starts at the rooms app.
-Chapter 01 is the loopback TCP walk of the same fetch-and-call. C consumers start at
-[`docs/consuming-from-c.md`](docs/consuming-from-c.md), and the Rust,
-TypeScript, Python, and Racket bindings live in
+### The command line and Rooms
+
+`zig build` puts the `glowcap` CLI in `zig-out/bin`.
+[`docs/cli.md`](docs/cli.md) covers its REPL, `--json` scripting, the MCP
+server, and a cleartext round-trip for local experiments.
+
+Rooms is a chat application built on glowcap, and the
+[complete host installation](apps/rooms/host.md) includes it.
+`glowcap apps rooms serve` starts the browser app, and
+`glowcap apps rooms session` joins a room over encrypted iroh.
+
+To install from a checkout, run `./glowcap install`. It builds and verifies
+the product, then installs it outside the checkout. An installed CLI never
+builds source. `zig build rooms-build` stages the same installation under
+`zig-out/product` without installing it.
+
+### Examples and other languages
+
+[`examples/README.md`](examples/README.md) begins with the Rooms app. Its
+chapter 01 walks through the same fetch-and-call over loopback TCP. C
+consumers start at [`docs/consuming-from-c.md`](docs/consuming-from-c.md).
+The Rust, TypeScript, Python, and Racket bindings live in
 [`bindings/`](bindings/README.md).
 
 ## Conformance
 
 glowcap is tested against the upstream
 [OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and holds live
-sessions with Goblins. The recurring outside claim is signed CapTP 1.0 over
-Syrup:
+sessions with Goblins. The suite checks signed CapTP 1.0 over Syrup on every
+regular run:
 
 ```sh
 zig build ocapn-conformance  # the upstream OCapN test suite, against a glowcap peer
 ```
 
-The standardized Goblins meeting is Tor. That step needs a daemon and is not
-in the recurring set:
+Goblins peers normally meet over Tor. That check needs a Tor daemon, so it
+runs on demand and not on every build:
 
 ```sh
 zig build goblins-onion      # live Goblins over the upstream onion netlayer
 ```
 
-The recurring Goblins check uses this repository's cleartext TCP adapter:
+The regular Goblins check uses this repository's cleartext TCP adapter
+instead:
 
 ```sh
 zig build goblins-interop    # live Goblins over cleartext TCP
 ```
 
-On demand, a repository iroh adapter:
+Goblins also meets glowcap over iroh, through a Goblins adapter kept in this
+repository. The recurring checks run a three-party handoff over iroh, and a
+plain session runs on demand:
 
 ```sh
-zig build goblins-iroh       # live Goblins over iroh (needs cargo)
+zig build goblins-handoff-iroh   # recurring: Goblins handoff over iroh
+zig build goblins-iroh           # on demand: live Goblins session over iroh
 ```
 
 Set up the submodules once with `bash conformance/bootstrap-submodules.sh`.
 The suite needs `uv`, and the live peer needs Racket with the Goblins
 collection; the devcontainer has both.
-[`docs/community-review.md`](docs/community-review.md) maps the OCapN and
-Goblins evidence and says what each listed check does and does not prove.
+[`docs/community-review.md`](docs/community-review.md) lists the OCapN and
+Goblins evidence and says what each check proves and what it does not.
 
 <p align="center">
   <img src="site/assets/glowcap-goblin-512.png" alt="a purple goblin studying the glowcap mark" width="320" />
@@ -187,15 +210,15 @@ workflow.
 
 The [website](https://jimisaacs.github.io/glowcap/) is the primary guide. For
 a local preview, run `zig build docs-serve` and open
-`http://127.0.0.1:1990/glowcap/`. In the devcontainer that process binds every
-interface so the published host port (`GLOWCAP_DOCS_HOST_PORT`, 1990 on the
+`http://127.0.0.1:1990/glowcap/`. Inside the devcontainer the server listens
+on every interface, so the host port (`GLOWCAP_DOCS_HOST_PORT`, 1990 on the
 primary checkout) reaches it.
 
-That preview renders the authored pages and reloads them as you edit, and it
-is all it renders. The generated API reference, `sitemap.xml`, and the three
-surfaces written for programs, `llms.txt`, `llms-full.txt`, and each page's
-`index.md` twin, are produced by `zig build site` under `zig-out/site/`; serve
-that directory with any static file server to check them locally.
+The preview shows only the hand-written pages, and it reloads them as you
+edit. `zig build site` produces everything else under `zig-out/site/`: the API
+reference, `sitemap.xml`, and the files written for programs (`llms.txt`,
+`llms-full.txt`, and an `index.md` copy of each page). Serve that directory
+with any static file server to check them.
 
 These pages must match the code as it is today:
 

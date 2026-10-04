@@ -26,7 +26,7 @@ serde_json.workspace = true
 # Runtime proofs execute in the async embedding. The portable contract must
 # not link browser entropy/timers merely because their crate is in the workspace.
 rooms-runtime = { path = "../runtime", optional = true }
-rooms-glowcap = { path = "../glowcap", optional = true }
+rooms-glowcap = { path = "../glowcap", features = ["loam"], optional = true }
 rooms-browser = { path = "../browser", optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
@@ -37,9 +37,9 @@ tokio = { workspace = true, features = ["io-util"], optional = true }
 glowcap = { package = "glowcap-rust-dogfood", path = "../../../../bindings/rust", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-glowcap.workspace = true
+glowcap = { workspace = true, features = ["loam"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-rooms-glowcap = { path = "../glowcap" }
+rooms-glowcap = { path = "../glowcap", features = ["loam"] }
 glowcap = { workspace = true, features = ["tcp"] }
 tokio.workspace = true

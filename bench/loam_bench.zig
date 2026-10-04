@@ -1,75 +1,53 @@
-//! Native Loam workload: conversation headers, cold message chains, edits,
-//! wakeup bursts, and collection with queued foreground reads. Backend calls
-//! run synchronously at the executor seam to measure service cost, including
-//! durable commit. This does not measure networking or concurrent worker queues.
-//! Disabling unchanged-record promotion makes the smoke workload fail its
-//! UnnecessaryReload check; timing measurements have no pass/fail threshold.
-//! Forcing sleep between calls in the same cold burst also trips its load budget.
+//! LMDB-backed Loam service and sustained-worker measurements through shipped APIs.
+//! Smoke holds reload, coalescing, admission, worker and collection invariants;
+//! timing results never impose machine-dependent pass/fail thresholds.
 const std = @import("std");
 const builtin = @import("builtin");
 const w = @import("loam/workload.zig");
 const metrics = @import("alloc_metrics");
 
-const Samples = struct {
-    values: [256]u64 = undefined,
-    count: usize = 0,
-    fn add(self: *Samples, ns: u64) void {
-        self.values[self.count] = ns;
-        self.count += 1;
-    }
-    fn summarize(self: *Samples) Distribution {
-        std.mem.sort(u64, self.values[0..self.count], {}, std.sort.asc(u64));
-        return .{ .p50_ns = self.values[self.count / 2], .p99_ns = self.values[@min(self.count - 1, self.count * 99 / 100)] };
-    }
-};
-const Distribution = struct { p50_ns: u64, p99_ns: u64 };
-const Row = struct {
-    phase: []const u8,
-    conversations: usize,
-    message_bytes: usize,
-    operations: usize,
-    reads: u64,
-    writes: u64,
-    elapsed_ns: u64,
-    latency: Distribution,
-};
-
-fn now(io: std.Io) i128 {
-    return std.Io.Clock.now(.awake, io).nanoseconds;
-}
-fn elapsed(io: std.Io, start: i128) u64 {
-    return @intCast(@max(0, now(io) - start));
-}
-fn emit(gpa: std.mem.Allocator, report: *std.ArrayList(u8), comptime fmt: []const u8, args: anytype) !void {
-    const line = try std.fmt.allocPrint(gpa, fmt, args);
-    defer gpa.free(line);
-    std.debug.print("{s}", .{line});
-    try report.appendSlice(gpa, line);
-}
-fn row(gpa: std.mem.Allocator, report: *std.ArrayList(u8), value: Row) !void {
-    try emit(gpa, report, "{s} conversations={d} message_bytes={d} ops={d} reads={d} writes={d} elapsed_ns={d} p50_ns={d} p99_ns={d}\n", .{
-        value.phase, value.conversations, value.message_bytes, value.operations, value.reads, value.writes, value.elapsed_ns, value.latency.p50_ns, value.latency.p99_ns,
-    });
-}
+const reporting = @import("loam/report.zig");
+const memory = @import("loam/process_memory.zig");
+const sustained = @import("loam/sustained.zig");
+const managed = @import("loam/managed_run.zig");
+const Samples = reporting.Samples;
+const now = reporting.now;
+const elapsed = reporting.elapsed;
+const emit = reporting.emit;
+const row = reporting.row;
 
 pub fn main(init: std.process.Init) !void {
     var smoke = false;
+    var references_only = false;
+    var managed_only = false;
+    var foreign_only = false;
+    var collection_only = false;
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
     while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--smoke")) smoke = true else return error.InvalidArguments;
+        if (std.mem.eql(u8, arg, "--smoke")) smoke = true else if (std.mem.eql(u8, arg, "--references-only")) references_only = true else if (std.mem.eql(u8, arg, "--managed-only")) managed_only = true else if (std.mem.eql(u8, arg, "--foreign-only")) foreign_only = true else if (std.mem.eql(u8, arg, "--collection-only")) collection_only = true else return error.InvalidArguments;
     }
     var report: std.ArrayList(u8) = .empty;
     defer report.deinit(init.gpa);
-    try emit(init.gpa, &report, "Loam native workload mode={s} arch={s} os={s} cache_slots={d} max_record_bytes=8192 durability=LMDB-default-sync\n", .{
-        @tagName(builtin.mode), @tagName(builtin.cpu.arch), @tagName(builtin.os.tag), w.cache_slots,
+    if (@as(u8, @intFromBool(references_only)) + @intFromBool(managed_only) + @intFromBool(foreign_only) + @intFromBool(collection_only) > 1) return error.InvalidArguments;
+    if (collection_only) {
+        try @import("loam/collection_cost.zig").run(init, &report, smoke);
+        return;
+    }
+    try emit(init.gpa, &report, "Loam LMDB workload mode={s} arch={s} os={s} cache_slots={d} cache_slot_bytes={d} max_record_bytes=8192 durability=LMDB-default-sync\n", .{
+        @tagName(builtin.mode), @tagName(builtin.cpu.arch), @tagName(builtin.os.tag), w.cache_slots, @sizeOf(std.meta.Child(@TypeOf(@as(w.Workload, undefined).store.cache.slots))),
     });
     const counts: []const usize = if (smoke) &.{16} else &.{ 64, 512, 2048 };
     const sizes: []const usize = if (smoke) &.{256} else &.{ 256, 4096 };
-    for (counts) |count| for (sizes) |size| try run(init, &report, count, size, smoke);
+    if (!references_only and !managed_only and !foreign_only) for (counts) |count| for (sizes) |size| try run(init, &report, count, size, smoke);
+    if (!foreign_only) for (counts) |count| for ([_]u16{ 0, 4 }) |depth| try managed.run(init, &report, count, depth, smoke, references_only);
+    if (!references_only and !foreign_only) for (counts) |count| for ([_]u16{ 0, 4 }) |depth| try @import("loam/managed_sustained.zig").run(init, &report, count, depth, smoke);
+    if (!references_only) for (counts) |count| for ([_]u16{ 0, 4 }) |depth| try @import("loam/foreign_references.zig").run(init, &report, count, depth, smoke);
+    if (!references_only and !managed_only and !foreign_only) for (counts) |count| try sustained.run(init, &report, count, smoke);
+    if (smoke and !references_only and !managed_only and !foreign_only) try @import("loam/collection_cost.zig").run(init, &report, true);
     if (!smoke) {
         try std.Io.Dir.cwd().createDirPath(init.io, "zig-out/bench-reports");
-        try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = "zig-out/bench-reports/loam.txt", .data = report.items });
+        try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = if (references_only) "zig-out/bench-reports/loam-references.txt" else if (managed_only) "zig-out/bench-reports/loam-managed.txt" else if (foreign_only) "zig-out/bench-reports/loam-foreign.txt" else "zig-out/bench-reports/loam.txt", .data = report.items });
     }
 }
 
@@ -92,6 +70,7 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
         try emit(gpa, report, "footprint conversations={d} message_bytes={d} objects={d} record_bytes={d} cold_zig_heap_bytes={d} resident_bytes={d}\n", .{
             count, size, workload.store.metadata.objects, workload.store.metadata.record_bytes, bytes.liveBytes(), workload.store.cache.allocated_bytes,
         });
+        try memory.emit(gpa, report, "ordinary-cold", count, size);
         if (workload.store.cache.allocated_bytes != 0) return error.EagerResidency;
         try physical(gpa, report, &db, "populated", count, size);
         const samples: usize = if (smoke) 8 else 128;
@@ -182,6 +161,7 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
 }
 
 fn physical(gpa: std.mem.Allocator, report: *std.ArrayList(u8), db: *w.Lmdb, phase: []const u8, count: usize, size: usize) !void {
+    try memory.emit(gpa, report, phase, count, size);
     const stat = try db.inspect();
     try emit(gpa, report, "physical phase={s} conversations={d} message_bytes={d} map_bytes={d} high_water_bytes={d} tree_bytes={d} entries={d}\n", .{
         phase, count, size, stat.map_bytes, stat.high_water_bytes, stat.tree_pages * stat.page_bytes, stat.entries,

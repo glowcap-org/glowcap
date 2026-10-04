@@ -1,38 +1,67 @@
 //! Versioned structural resource metadata, independent of content and grants.
 const std = @import("std");
+const loam = @import("loam_records");
 const core = @import("loam_access_core");
 const syrup = @import("syrup");
 const syntax = syrup.RecordSyntax;
 const fields = @import("fields.zig");
+const profile = @import("profile.zig");
+const Stamp = @import("change_stamp.zig").ChangeStamp;
 
 pub const ResourceRecord = struct {
     /// Revision at which this row changed, distinct from a read's snapshot.
     revision: core.Revision,
     resource: core.ResourceView.Record,
+    live: bool = true,
+    children: ?loam.ObjectId = null,
+    placement: Stamp = .{},
+    subtree: Stamp = .{},
+    content: Stamp = .{},
 
     pub const format_version: u64 = 1;
     /// Fixed-width identities and bounded integers keep this record below
     /// this cap. Decode checks it before invoking any length-prefixed reader.
-    pub const max_encoded_bytes: usize = 192;
+    pub const max_encoded_bytes: usize = 384;
     pub const Error = error{ MalformedRecord, UnsupportedVersion, InvalidRecord, RecordTooLarge };
     const label = "access:resource";
 
     /// Allocates one exact byte slice through the supplied allocator. The
     /// caller frees that slice; the encoder retains no record or input borrow.
     pub fn encodeAlloc(self: ResourceRecord, allocator: std.mem.Allocator) (Error || syrup.shared.WalkError)![]u8 {
-        try self.resource.validate();
+        try self.validate();
+        if (!self.live and (self.resource.parent != null or self.children != null)) return error.InvalidRecord;
         return syrup.render.renderRecordExact(allocator, write, .{self});
     }
 
     /// Returns owned scalar values with zero allocation or retained byte
     /// borrows. The record must be complete, canonical, and within the cap.
-    pub fn decode(bytes: []const u8) Error!ResourceRecord {
-        if (bytes.len > max_encoded_bytes) return error.RecordTooLarge;
-        return decodeRecord(bytes) catch |err| switch (err) {
+    pub fn decode(view: loam.View) Error!ResourceRecord {
+        if (view.schema != profile.resource or view.schema_version != 1) return error.InvalidRecord;
+        if (view.payload.len > max_encoded_bytes) return error.RecordTooLarge;
+        return decodeRecord(view) catch |err| switch (err) {
             error.UnsupportedVersion => error.UnsupportedVersion,
             error.InvalidRecord => error.InvalidRecord,
             else => error.MalformedRecord,
         };
+    }
+
+    /// Child identity lives only in its strong edge. Parent model identity is
+    /// encoded in the payload; the caller supplies its resolved storage target.
+    pub fn edges(self: ResourceRecord, parent: ?loam.ObjectId, buffer: *[2]loam.Edge) Error![]const loam.Edge {
+        if ((parent != null) != (self.resource.parent != null)) return error.InvalidRecord;
+        if (!self.live and (parent != null or self.children != null)) return error.InvalidRecord;
+        var count: usize = 0;
+        for ([_]?loam.ObjectId{ parent, self.children }) |target| if (target) |id| {
+            buffer[count] = .{ .target = id };
+            count += 1;
+        };
+        return buffer[0..count];
+    }
+
+    fn strongTarget(edges_it: *loam.EdgeIterator, object: loam.ObjectId) Error!loam.ObjectId {
+        const edge = edges_it.next() orelse return error.InvalidRecord;
+        if (edge.strength != .strong or edge.target.store != object.store) return error.InvalidRecord;
+        return edge.target;
     }
 
     fn write(sink: anytype, self: ResourceRecord) !void {
@@ -43,10 +72,24 @@ pub const ResourceRecord = struct {
         try fields.writeId(sink, self.resource.id);
         try syntax.writePositiveInt(sink, @backingInt(self.resource.kind));
         try fields.writeParent(sink, self.resource.parent);
+        try syntax.writeBool(sink, self.live);
+        try syntax.writeBool(sink, self.children != null);
+        try self.placement.write(sink);
+        try self.subtree.write(sink);
+        try self.content.write(sink);
         try syntax.endRecord(sink);
     }
 
-    fn decodeRecord(bytes: []const u8) !ResourceRecord {
+    fn validate(self: ResourceRecord) Error!void {
+        try self.resource.validate();
+        const revision = @backingInt(self.revision);
+        try self.placement.validate(revision);
+        try self.subtree.validate(revision);
+        try self.content.validate(revision);
+    }
+
+    fn decodeRecord(view: loam.View) !ResourceRecord {
+        const bytes = view.payload;
         var cursor: usize = 0;
         try syntax.readByte(bytes, &cursor, '<');
         if (!std.mem.eql(u8, try syntax.readSymbol(bytes, &cursor), label)) return error.MalformedRecord;
@@ -55,10 +98,19 @@ pub const ResourceRecord = struct {
         const id = try fields.readId(core.ResourceId, bytes, &cursor);
         const kind: core.KindId = @fromBackingInt(try syntax.readPositiveInt(bytes, &cursor));
         const parent = try fields.readParent(core.ResourceId, bytes, &cursor);
+        const live = try syntax.readBool(bytes, &cursor);
+        var edges_it = view.edges();
+        if (parent != null) _ = try strongTarget(&edges_it, view.id);
+        const children = if (try syntax.readBool(bytes, &cursor)) try strongTarget(&edges_it, view.id) else null;
+        if (edges_it.next() != null) return error.InvalidRecord;
+        if (!live and (parent != null or children != null)) return error.InvalidRecord;
+        const placement = try Stamp.read(bytes, &cursor);
+        const subtree = try Stamp.read(bytes, &cursor);
+        const content = try Stamp.read(bytes, &cursor);
         try syntax.readByte(bytes, &cursor, '>');
         try syntax.expectEnd(bytes, cursor);
-        const result: ResourceRecord = .{ .revision = revision, .resource = .{ .id = id, .kind = kind, .parent = parent } };
-        try result.resource.validate();
+        const result: ResourceRecord = .{ .revision = revision, .resource = .{ .id = id, .kind = kind, .parent = parent }, .live = live, .children = children, .placement = placement, .subtree = subtree, .content = content };
+        try result.validate();
         return result;
     }
 };

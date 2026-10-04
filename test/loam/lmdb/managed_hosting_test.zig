@@ -25,11 +25,13 @@ test "loam LMDB managed hosting restores endpoints and resolves lost control ack
             try host.init(&store, &db, data);
             defer host.deinit();
             var add: h.Answer = .{};
-            try host.send(host.use, "add", &.{.{ .integer = 4 }}, &add);
+            try host.mutate(host.use, 1, "add", &.{.{ .integer = 4 }}, &add);
             try host.drain(&db);
             try std.testing.expectEqual(@as(?i64, 4), add.number);
+            const endpoint_lease = try h.c.load(&store, &db, data.use);
+            defer store.release(endpoint_lease) catch unreachable;
             try store.begin();
-            publication = try h.loam.hosting.publication.stage(host.attached, @splat(0x43), host.use);
+            publication = try h.access.stagePublication(&store, endpoint_lease, @splat(0x43));
             try h.f.commit(&store, &db);
         }
         try store.deinit();
@@ -114,10 +116,10 @@ test "loam LMDB managed hosting recovers reference field replacement and removal
         var host: h.Hosted = undefined;
         try host.init(&store, &db, data);
         defer host.deinit();
-        h.replacement = host.use;
-        defer h.replacement = null;
+        host.application.replacement = host.use;
+        defer host.application.replacement = null;
         var replaced: h.Answer = .{};
-        try host.send(host.use, "replace-reference", &.{}, &replaced);
+        try host.mutate(host.use, 1, "replace-reference", &.{}, &replaced);
         try host.drain(&db);
         try std.testing.expectEqual(@as(?bool, true), replaced.changed);
     }
@@ -138,7 +140,7 @@ test "loam LMDB managed hosting recovers reference field replacement and removal
         // Simulate an interrupted LMDB commit. Recovery reports unchanged, so
         // both the saved edge and its custody survive the aborted removal.
         var aborted: h.Answer = .{};
-        try host.send(host.use, "remove-reference", &.{}, &aborted);
+        try host.mutate(host.use, 2, "remove-reference", &.{}, &aborted);
         const batch = try host.untilWrite(&db);
         var pending = try db.beginCommit(batch);
         pending.abort();
@@ -153,7 +155,7 @@ test "loam LMDB managed hosting recovers reference field replacement and removal
         try store.release(lease);
 
         var removed: h.Answer = .{};
-        try host.send(host.use, "remove-reference", &.{}, &removed);
+        try host.mutate(host.use, 2, "remove-reference", &.{}, &removed);
         try host.drain(&db);
         try std.testing.expectEqual(@as(?bool, true), removed.changed);
     }

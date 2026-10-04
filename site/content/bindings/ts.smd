@@ -9,15 +9,18 @@
 The TypeScript binding supports three runtimes from one source tree.
 `@glowcap/runtime`
 ([`mod.ts`](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/runtime/mod.ts))
-gives Deno and Bun the transport-neutral `Session` / `Host` API over the glowcap
-C ABI, plus the
-transport providers and connectors that `Runtime.open` installs once. Transport
-packages such as `@glowcap/iroh` own locator construction and transport
-configuration; `runtime.connect` selects the already-installed authority.
-`@glowcap/onion`, `@glowcap/relay`, and `@glowcap/tcp` provide the other native
-providers or connectors shown below. `@glowcap/inproc` is a raw-frame
-netlayer package. It stays outside this managed session matrix until it has
-that composition seam.
+gives Deno and Bun the `Session` and `Host` API over the glowcap C ABI. That API
+does not depend on any transport. `Runtime.open` installs the transport
+providers and connectors once, and `runtime.connect` then uses the one that
+matches the locator.
+
+- Transport packages such as `@glowcap/iroh` build their own locators and own
+  their transport configuration.
+- `@glowcap/onion`, `@glowcap/relay`, and `@glowcap/tcp` provide the other
+  native providers and connectors shown below.
+- `@glowcap/inproc` is a lower-level package that moves raw frames. It is not
+  part of the managed Session API yet, because it has no provider to install
+  into a Runtime.
 
 The same source also compiles to WebAssembly as `@glowcap/web`, so the same
 `Session` runs in the browser, dialing rather than listening.

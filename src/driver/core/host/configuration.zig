@@ -12,6 +12,7 @@ const engine = @import("engine");
 const host_mod = @import("../host.zig");
 const capability = @import("../capability.zig");
 const admission = @import("admission.zig");
+const served = @import("../served.zig");
 
 const Host = host_mod.Host;
 
@@ -66,10 +67,12 @@ pub const Options = struct {
     /// feature hint gets the baseline compatibility set, which keeps outbound
     /// `op:untag` disabled without changing the session's OCapN version.
     features: model.FeatureSet = model.Preference.default_offer.features,
-    /// Per-session amplification cap. When set, a session that still has local
-    /// work after this many turns is condemned; this is an explicit
-    /// untrusted/self-amplification policy, not the Host scheduler quantum.
-    local_turn_budget: ?usize = null,
+    /// Per-session amplification cap. A session that still has local work
+    /// after this many turns is condemned, so one partner that keeps its
+    /// calls amplifying cannot starve the others sharing this Host's Vat. It
+    /// is not the Host scheduler quantum. `null` turns the cap off, which is
+    /// safe only when every partner is trusted.
+    local_turn_budget: ?usize = served.default_loop_local_turn_budget,
     /// Host-wide resumable work quantum. Every quantum round-robins dirty
     /// sessions, Node effects, and handoff notifications, requeueing
     /// continuation work at the FIFO tail, and a `resume_work` action carries

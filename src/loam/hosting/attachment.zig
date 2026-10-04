@@ -9,13 +9,18 @@ const calls = @import("calls.zig");
 const storage = @import("storage.zig");
 pub const Behavior = behavior.Behavior;
 pub const Call = behavior.Call;
-pub const Work = union(enum) { read: core.Read, write: core.Batch };
+pub const Work = union(enum) { read: core.Read, write: core.Batch, lookup: core.NameLookup };
 pub const Options = struct {
     max_endpoints: usize = 128,
     max_calls: usize = 64,
     call_bytes: usize = 64 * 1024,
     pending_bytes: usize = 4 * 1024 * 1024,
     max_retirements: usize = 16,
+    max_reference_saves: usize = 64,
+    forward_reply_bytes: usize = 16 * 1024,
+    reference_scope: ?*@import("reference_scope.zig").Scope = null,
+    /// Stable embedding-owned attachment name; borrowed until this attachment closes.
+    attachment_name: ?[]const u8 = null,
     sleep_policy: enum { lru, every_turn } = .lru,
 };
 pub const Stats = struct { loads: u64 = 0, invocations: u64 = 0, sleeps: u64 = 0 };
@@ -32,13 +37,15 @@ pub const Writing = struct { batch: core.Batch, operation: ?usize, submitted: bo
 /// One staged publication tombstone this attachment owns the registry
 /// transition for. Reserved when the tombstone stages; fenced (discovery
 /// removed) when its batch reaches an unknown outcome; cleared at every
-/// terminal outcome, with recovery-to-absent re-publishing the still-rooted
-/// recipe through the ordinary restore path.
+/// confirmed retirement. Known-absent recovery retains bounded retry custody
+/// while advance restores the still-rooted recipe through the ordinary read
+/// and Host publication paths; later write outcomes cannot discard that work.
 pub const Retirement = struct {
     record: core.ObjectId,
     swiss: driver.Host.DurableSwiss,
     fenced: bool = false,
     republish: bool = false,
+    registered: bool = false,
 };
 
 pub const Attachment = struct {
@@ -51,17 +58,20 @@ pub const Attachment = struct {
     operations: []Operation,
     reads: []?Loading,
     retirements: []?Retirement,
+    discovery: ?*@import("discovery.zig").Discovery = null,
     writing: ?Writing = null,
     runner: actors.Ref,
     sequence: u64 = 0,
     pending_bytes: usize = 0,
+    reference_saves: usize = 0,
     dependent_facets: usize = 0,
     advancing: bool = false,
     closing: bool = false,
     stats: Stats = .{},
 
-    /// Borrows Host, Store, and behavior descriptors until destroy. The Store's
-    /// write lane belongs exclusively to this attachment while calls are pending.
+    /// Borrows Host, Store, and behavior descriptors until destroy. Attachments
+    /// sharing a Store serialize through its single write lane and reprepare
+    /// calls whenever another owner changes the committed revision.
     pub fn create(allocator: std.mem.Allocator, host: *driver.Host, store: *core.Store, behaviors: []const Behavior, options: Options) !*Attachment {
         if (options.max_endpoints == 0 or options.max_calls == 0 or options.call_bytes == 0 or options.pending_bytes < options.call_bytes) return error.InvalidLimits;
         for (behaviors, 0..) |item, i| {
@@ -87,8 +97,11 @@ pub const Attachment = struct {
         const retirements = try allocator.alloc(?Retirement, options.max_retirements);
         errdefer allocator.free(retirements);
         @memset(retirements, null);
+        if ((options.reference_scope == null) != (options.attachment_name == null) or options.max_reference_saves == 0) return error.InvalidLimits;
         const runner = try host.vat.spawn(calls.Runner, .{ .owner = self });
+        errdefer host.vat.discardFreshActor(runner);
         self.* = .{ .allocator = allocator, .host = host, .store = store, .behaviors = behaviors, .options = options, .entries = entries, .operations = operations, .reads = reads, .retirements = retirements, .runner = runner };
+        if (options.reference_scope) |scope| try scope.register(self);
         return self;
     }
 
@@ -97,9 +110,10 @@ pub const Attachment = struct {
     /// until their existing Host/Vat custody ends. Do not use self afterward.
     pub fn destroy(self: *Attachment) !void {
         try self.topLevel();
-        if (self.pending_bytes != 0 or self.writing != null) return error.Busy;
+        if (self.pending_bytes != 0 or self.writing != null or self.reference_saves != 0) return error.Busy;
         for (self.reads) |read| if (read != null) return error.Busy;
         for (self.retirements) |retirement| if (retirement != null) return error.Busy;
+        if (self.discovery) |discovery| try discovery.destroy();
         // Cross a normal Vat boundary to retire released proxy boxes before
         // freeing the entry storage their destructors reference.
         _ = try self.host.vat.near(self.runner, .{ .verb = "barrier", .args = &.{} });
@@ -108,6 +122,7 @@ pub const Attachment = struct {
             try self.store.releaseRetention(token);
             entry.retention = null;
         };
+        if (self.options.reference_scope) |scope| scope.unregister(self);
         self.closing = true;
         releaseClosed(self);
     }
@@ -137,18 +152,21 @@ pub const Attachment = struct {
         const source_entry = for (self.entries) |*entry| {
             if (entry.actor != null and entry.id.eql(source)) break entry;
         } else return error.NotDurable;
-        const target_entry = try self.entryFor(target);
         const guard = try self.host.retainLocalCapability(source_entry.actor.?);
-        const held_target = self.host.retainLocalCapability(target_entry.actor.?) catch |err| {
+        const retained = self.host.retainValueCapabilities(self.allocator, &.{.{ .capability = target }}) catch |err| {
             self.host.releaseCapability(guard, 1) catch unreachable;
             return err;
         };
+        defer self.allocator.free(retained);
+        const held_target = retained[0].ref;
         if (self.dependent_facets == std.math.maxInt(usize)) {
             self.host.releaseCapability(held_target, 1) catch unreachable;
             self.host.releaseCapability(guard, 1) catch unreachable;
             return error.EndpointCapacity;
         }
         self.dependent_facets += 1;
+        // Vat.spawn adopts initial state on every outcome, including allocation
+        // refusal. The endpoint destructor owns both retains and the count.
         const actor = try self.host.vat.spawn(driver.Hosting(calls.DependentEndpoint), .{ .inner = .{
             .owner = self,
             .guard = guard,
@@ -170,13 +188,25 @@ pub const Attachment = struct {
     }
 
     pub const advance = calls.advance;
+    pub const advanceProgress = calls.advanceProgress;
     pub const prefetch = storage.prefetch;
     pub const nextWork = storage.nextWork;
     pub const completeRead = storage.completeRead;
+    pub const completeLookup = storage.completeLookup;
     pub const completeWrite = storage.completeWrite;
     pub const recoveryBatch = storage.recoveryBatch;
     pub const resolve = storage.resolve;
     pub const submit = storage.submit;
+
+    /// Work still owned by this attachment, including cold discovery after
+    /// its last caller leaves. Shutdown must deliver every submitted completion.
+    pub fn hasPendingWork(self: *const Attachment) bool {
+        if (self.pending_bytes != 0 or self.writing != null) return true;
+        for (self.reads) |read| if (read != null) return true;
+        for (self.retirements) |retirement| if (retirement != null) return true;
+        if (self.discovery) |discovery| for (discovery.groups) |group| if (group != null) return true;
+        return false;
+    }
 
     pub fn findBehavior(self: *Attachment, view: core.RecordView) !Behavior {
         for (self.behaviors) |item| if (item.schema == view.schema and item.version == view.schema_version) return item;

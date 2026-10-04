@@ -5,81 +5,40 @@ alwaysApply: true
 
 # glowcap — Prerelease Posture
 
-glowcap ships under no compatibility promise yet: no pinned wire format, no
-frozen public API, no external consumer locked to a type's shape. That is a
-license, and it sets the default verdict on every design event, **fix the root
-now; do not defer it.**
+Nothing in glowcap is released. Break unreleased APIs, ABIs, and storage
+formats cleanly and update their consumers and evidence together. Add no
+migration, compatibility shim, or held-back dependency to preserve an
+unreleased contract. External protocol interop still answers to its outside
+authority. A replaced prerelease contract keeps version `1`; increment only to
+support a distinct older contract on purpose.
 
-ABI fields reserve a compatibility mechanism; they do not manufacture history.
-Replacing an unsupported prerelease contract keeps its version at `1`; increment
-only when glowcap intentionally supports a distinct older or released contract.
+"It would change a shared type," "touch the spine," or "ripple through callers"
+name a migration cost, and there is none to pay. They never justify a
+workaround, a named compromise, or a follow-up PR when the clean fix is in
+reach this session. Before accepting a compromise, re-derive it against the
+full option set, not the binary it first presents. A survivor is named in the
+open.
 
-Living-state docs and source comments describe the current shape, not the
-transition that produced it. Keep review labels, old names, and "formerly" or
-"during the transition" narration in git history or an ADR that still owns a
-decision. State missing work as a present boundary, not a promised future.
-
-The drift this guards against is importing a post-1.0 instinct into a pre-1.0
-codebase. "It would change a shared type," "it would touch the spine," "it would
-ripple through callers" all name a _migration_ cost, and there is no migration
-to pay. None of them is, on its own, grounds to settle for a workaround, a named
-compromise, or a follow-up PR when the clean fix is in reach this session.
-
-So before accepting any compromise, re-derive it against the full option set,
-not the binary the compromise first presents: a copy is not "copy vs. retain the
-whole source" when one durable owner can hold the value; a shim is not "shim vs.
-break the world" when the world is yours to change. A compromise earns its place
-only if it survives that wider derivation, and then it is named in the open,
-never hidden. This is the [Release Bar](project-values.md)'s "no half measures
-on touched surfaces," pointed at its most common escape hatch: deferring a
-structural fix on a cost prerelease has already waived.
+Living docs and comments describe the current shape. Keep transition
+narration, old names, and review labels in git or an owning ADR. State missing
+work as a present boundary.
 
 ## A bug is not a verdict on the design
 
-A defect found while a design is landing is evidence about the implementation
-far more often than about the design. Before reverting, name which one it is:
+A defect found while a design lands is usually evidence about the
+implementation. Before reverting, classify it:
 
-- **A missing prerequisite** the design assumed and nothing provides yet: an
-  idempotent verb, a durable owner, a reset boundary. Build it. It is usually
-  smaller than the revert, and the revert leaves the hole for the next session
-  to rediscover.
-- **A contradiction in the design's own terms**, where holding one invariant it
-  needs breaks another. Only this earns a retreat, and it is rare.
+- **A missing prerequisite** (an idempotent verb, a durable owner, a reset
+  boundary): build it. It is usually smaller than the revert.
+- **A contradiction in the design's own terms:** only this earns a retreat.
 
-Reverting on the first is the deferral above wearing a bug report as its excuse,
-and the follow-up task naming the prerequisite is the tell. Nor does losing
-confidence change the answer: work that was not trusted needs more verification,
-not smaller changes.
+On a red gate, the cheapest green is always a retreat: revert the default,
+weaken the assertion, raise the budget, skip the step. Each leaves an unfixed
+defect behind a passing build. Reproduce alone first (the
+[debugging skill](../skills/debugging/SKILL.md)), read `conformance/` before
+designing around protocol behavior, then classify and act. Reporting a defect
+instead of fixing it does not close it.
 
-**A red gate is where this rule is actually lost.** Everything above is easy to
-agree with while the tree is green. The moment a gate fails mid-slice, "get back
-to green" starts to feel like the job, and the cheapest green is always a
-retreat: revert the default, weaken the assertion, raise the budget, skip the
-step. Each one ends with a passing build and an unfixed defect, which is
-strictly worse than the red gate, because the red gate was telling you something
-and the green one is not.
-
-Green is what a root fix produces, never a goal that outranks it. So when a gate
-goes red on work you are landing:
-
-- Reproduce it alone before believing it, and before changing anything: the
-  [debugging rule](debugging.md) owns the method, and "fixing" a flake
-  produces a real defect.
-- Read the authority before designing around the failure. For protocol
-  behavior that is `conformance/` — the pinned Goblins source and the upstream
-  suite answer most "how is this supposed to work" questions outright, and a
-  guess dressed as a design is the expensive path.
-- Then name it a missing prerequisite or a contradiction, per the split above,
-  and act accordingly.
-
-Reporting the defect honestly instead of fixing it is not an exception to this.
-An accurate description of an unfixed thing is still an unfixed thing.
-
-Neither is handing the decision to the human. A question whose answer these
-rules already give is a deferral with a second signature on it, and it is the
-easiest one to mistake for diligence, because asking feels like respect. "It
-would touch a shared type," "its ADR would need re-deriving," and "another
-session is working in this tree" are the waived costs above and a tooling
-problem, not grounds to ask. Ask when the answer turns on something only they
-know: a product call, a priority, an outside commitment. Otherwise re-derive it,
-do it, and say what you decided and why.
+Ask the human only when the answer turns on what only they know: a product
+call, a priority, an outside commitment. A question these rules already answer
+is a deferral; decide, do it, and say why.

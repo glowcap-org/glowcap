@@ -259,15 +259,14 @@ async fn nb_writer(nb: Arc<NbConn>, mut send: SendStream) -> Result<(), ()> {
 /// The acceptor of one endpoint's scale surface: pull incoming connections off
 /// the wire into the ready queue and signal `EV_ACCEPT`, so the loop claims them
 /// with `endpoint_try_accept` instead of parking a thread in a blocking accept.
-async fn nb_acceptor(
-	ep: Endpoint,
-	connect_timeout: std::time::Duration,
-	acc: Arc<AcceptState>,
-	readiness: Arc<Readiness>,
-) {
+async fn nb_acceptor(ep: Endpoint, connect_timeout: std::time::Duration, acc: Arc<AcceptState>) {
 	loop {
 		let Some(incoming) = ep.accept().await else {
 			break;
+		};
+		let Some(generation) = acc.queue.lock().unwrap().generation() else {
+			incoming.refuse();
+			continue;
 		};
 		let Ok(accepting) = incoming.accept() else {
 			continue;
@@ -280,18 +279,10 @@ async fn nb_acceptor(
 		let Ok(Ok((send, recv))) = tokio::time::timeout(connect_timeout, conn.accept_bi()).await else {
 			continue;
 		};
-		let queued = {
-			let mut ready = acc.ready.lock().unwrap();
-			if ready.len() >= ACCEPT_QUEUE_BOUND {
-				false
-			} else {
-				ready.push_back(AcceptedRaw { conn, send, recv });
-				true
-			}
-		};
-		if queued {
-			readiness.signal(0, EV_ACCEPT);
-		}
+		acc.queue
+			.lock()
+			.unwrap()
+			.push(generation, AcceptedRaw { conn, send, recv });
 	}
 }
 
@@ -384,16 +375,39 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep
 			None => return -1,
 		};
 		let acc = Arc::new(AcceptState {
-			ready: Mutex::new(VecDeque::new()),
+			queue: Mutex::new(super::admission::Queue::new(readiness)),
 		});
 		if ep.accept.set(acc.clone()).is_err() {
 			return 0; // raced with another caller; theirs won
 		}
-		ep.rt
-			.spawn(nb_acceptor(ep.ep.clone(), ep.connect_timeout, acc, readiness));
+		ep.rt.spawn(nb_acceptor(ep.ep.clone(), ep.connect_timeout, acc));
 		0
 	}));
 	result.unwrap_or(-1)
+}
+
+/// Start a fresh admission generation, or seal admission and drop the bounded
+/// raw queue. Connections already claimed by the caller are unaffected.
+///
+/// # Safety
+/// `ep` must be null or a live endpoint handle. Null is refused.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_admission(ep: *mut GlowcapIrohEndpoint, enabled: u8) -> i32 {
+	if ep.is_null() {
+		return -1;
+	}
+	catch_unwind(AssertUnwindSafe(|| {
+		let ep = unsafe { &*ep };
+		let Some(acc) = ep.accept.get() else {
+			return -1;
+		};
+		// Detach under the admission lock; drop at most ACCEPT_QUEUE_BOUND raw
+		// connections outside it, without minting handles or reader/writer tasks.
+		let discarded = acc.queue.lock().unwrap().set_enabled(enabled != 0);
+		drop(discarded);
+		0
+	}))
+	.unwrap_or(-1)
 }
 
 /// Claim one connection the acceptor has pulled off the wire, or null when none
@@ -415,7 +429,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_try_accept(
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		let acc = ep.accept.get()?;
-		let raw = acc.ready.lock().unwrap().pop_front()?;
+		let raw = acc.queue.lock().unwrap().pop()?;
 		make_conn(ep, raw)
 	}));
 	match result {

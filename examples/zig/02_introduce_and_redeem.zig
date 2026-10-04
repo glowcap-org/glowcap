@@ -80,6 +80,7 @@ fn serveWidget(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!v
         // does not answer the door.
         if (client_side == null and try server.waitAcceptable(20)) {
             client_side = try server.accept();
+            try client_side.?.attend();
         }
         _ = try directory_side.stepReadable(20);
     }

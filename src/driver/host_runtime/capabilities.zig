@@ -72,9 +72,7 @@ pub fn enliven(self: *HostRuntime, sturdy: model.SturdyRef) !driver_core.Capabil
                     return value;
                 }
             };
-            var arena = std.heap.ArenaAllocator.init(self.allocator);
-            defer arena.deinit();
-            return switch (self.core.projectCompletion(action, arena.allocator(), {}, Projection.identity)) {
+            return switch (self.core.projectCompletion(action, {}, Projection.identity)) {
                 .settled => |settled| switch (settled.value) {
                     .capability => |capability| capability,
                     else => driver_core.Error.FetchNotACapability,

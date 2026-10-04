@@ -35,6 +35,10 @@ impl HostShared {
 		// turn steps only after the enclosing step unwinds.
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
+			#[cfg(feature = "loam")]
+			if self.loam.pending()? {
+				return self.schedule_loam_kick();
+			}
 			lp.schedule_step();
 			return lp.guard_handle();
 		}
@@ -66,11 +70,44 @@ impl HostShared {
 		Ok(())
 	}
 
+	#[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
+	fn schedule_loam_kick(self: &Rc<Self>) -> Result<()> {
+		if self.closing() {
+			self.note_close_activity();
+			return Ok(());
+		}
+		let registration = self.start_owned_task()?;
+		let host = Rc::clone(self);
+		if !try_spawn_local(async move {
+			let _registration = registration;
+			if let Err(error) = host.kick_actions().await {
+				host.record_background_failure(error);
+			}
+		}) {
+			return Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				"Loam progress requires a running LocalSet".to_owned(),
+			));
+		}
+		Ok(())
+	}
+
 	/// Schedule progress for an unowned destructor/finalizer effect. The work
 	/// stays queued, and refused admission is retained for the next verb head.
 	pub(crate) fn schedule_kick_or_record(self: &Rc<HostShared>) {
 		if let Err(error) = self.schedule_kick() {
 			self.record_background_failure(error);
+		}
+	}
+
+	async fn progress_persistence(&self) -> Result<bool> {
+		#[cfg(feature = "loam")]
+		{
+			self.loam.progress().await
+		}
+		#[cfg(not(feature = "loam"))]
+		{
+			Ok(false)
 		}
 	}
 
@@ -97,14 +134,17 @@ impl HostShared {
 		// `glowcap_host_pump_drain` may run beside it — the loop owns the queue.
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
-			return match lp.step_now() {
-				Ok(()) => Ok(()),
-				Err(error) => {
+			loop {
+				if let Err(error) = lp.step_now() {
 					let surfaced = error.clone();
 					lp.fail_background(error);
-					Err(surfaced)
+					return Err(surfaced);
 				}
-			};
+				if self.progress_persistence().await? {
+					continue;
+				}
+				return Ok(());
+			}
 		}
 		loop {
 			if self.raw.get().is_null() {
@@ -116,7 +156,8 @@ impl HostShared {
 				let _deliver = crate::trampoline::DeliverGuard::enter_host(self);
 				crate::action::park(self)?
 			};
-			if parked.is_empty() && !yielded {
+			let persistence_progress = self.progress_persistence().await?;
+			if parked.is_empty() && !yielded && !persistence_progress {
 				return Ok(());
 			}
 			let mut first_failure = None;

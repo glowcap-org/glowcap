@@ -26,7 +26,7 @@ const surfaces = [_]Surface{
         "ocapn.session",
     } },
     .{ .path = "src/loam/mod.zig", .modules = &.{ "access", "collections", "core", "hosting", "records" } },
-    .{ .path = "src/loam/hosting/mod.zig", .modules = &.{"publication"} },
+    .{ .path = "src/loam/hosting/mod.zig", .modules = &.{ "publication", "references" } },
     .{ .path = "src/loam/core/mod.zig", .modules = &.{} },
     .{ .path = "src/loam/records/mod.zig", .modules = &.{} },
     .{ .path = "src/loam/collections/mod.zig", .modules = &.{} },

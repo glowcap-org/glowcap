@@ -49,6 +49,11 @@ pub const PosixTty = struct {
     var handler_mutex: std.Io.Mutex = .init;
     var handler_idx: usize = 0;
 
+    var signal_pipe: [2]std.Io.File = undefined;
+    var signal_thread: std.Io.Future(void) = undefined;
+    var signal_thread_running = false;
+    var signal_thread_quit: std.atomic.Value(bool) = .init(false);
+
     var handler_installed: bool = false;
 
     /// initializes a Tty instance by opening /dev/tty and "making it raw". A
@@ -60,19 +65,15 @@ pub const PosixTty = struct {
 
         // Set the termios of the tty
         const termios = try makeRaw(f.handle);
+        errdefer {
+            posix.tcsetattr(f.handle, .FLUSH, termios) catch {};
+            f.close(io);
+        }
 
         if (!handler_installed) {
-            var act = posix.Sigaction{
-                .handler = .{ .handler = PosixTty.handleWinch },
-                .mask = switch (builtin.os.tag) {
-                    .macos => 0,
-                    else => posix.sigemptyset(),
-                },
-                .flags = 0,
-            };
-            posix.sigaction(posix.SIG.WINCH, &act, null);
+            try startSignalThread(io);
             handler_io = io;
-            handler_installed = true;
+            installSignalHandler();
         }
 
         const self: PosixTty = .{
@@ -89,6 +90,8 @@ pub const PosixTty = struct {
 
     /// release resources associated with the Tty return it to its original state
     pub fn deinit(self: PosixTty) void {
+        resetSignalHandler();
+        stopSignalThread();
         posix.tcsetattr(self.fd.handle, .FLUSH, self.termios) catch |err| {
             std.log.err("couldn't restore terminal: {}", .{err});
         };
@@ -107,6 +110,19 @@ pub const PosixTty = struct {
         defer handler_mutex.unlock(handler_io);
         handler_idx = 0;
         resetSignalHandlerLocked();
+    }
+
+    fn installSignalHandler() void {
+        var act = posix.Sigaction{
+            .handler = .{ .handler = PosixTty.handleWinch },
+            .mask = switch (builtin.os.tag) {
+                .macos => 0,
+                else => posix.sigemptyset(),
+            },
+            .flags = 0,
+        };
+        posix.sigaction(posix.SIG.WINCH, &act, null);
+        handler_installed = true;
     }
 
     fn resetSignalHandlerLocked() void {
@@ -137,6 +153,9 @@ pub const PosixTty = struct {
         try handler_mutex.lock(handler_io);
         defer handler_mutex.unlock(handler_io);
         if (handler_idx == handlers.len) return error.OutOfMemory;
+        // Removing the last subscriber restores SIG_DFL, but leaves the
+        // dispatch thread alive until deinit. Re-arm it for a new subscriber.
+        if (!handler_installed) installSignalHandler();
         handlers[handler_idx] = handler;
         handler_idx += 1;
     }
@@ -161,12 +180,75 @@ pub const PosixTty = struct {
     }
 
     fn handleWinch(_: std.posix.SIG) callconv(.c) void {
-        handler_mutex.lock(handler_io) catch @panic("unable to lock SIGWINCH handlers");
-        defer handler_mutex.unlock(handler_io);
-        var i: usize = 0;
-        while (i < handler_idx) : (i += 1) {
-            const handler = handlers[i];
-            handler.callback(handler.context);
+        // write(2) is async-signal-safe. All other work is deferred to a
+        // normal thread, where taking locks and posting events is safe.
+        const byte = [1]u8{0};
+        _ = posix.system.write(signal_pipe[1].handle, &byte, byte.len);
+    }
+
+    fn startSignalThread(io: std.Io) !void {
+        if (signal_thread_running) return;
+
+        var fds: [2]posix.fd_t = undefined;
+        switch (posix.errno(posix.system.pipe(&fds))) {
+            .SUCCESS => {},
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+        errdefer {
+            _ = posix.system.close(fds[0]);
+            _ = posix.system.close(fds[1]);
+        }
+
+        for (fds) |fd| {
+            switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, @as(u32, posix.FD_CLOEXEC)))) {
+                .SUCCESS => {},
+                else => |err| return posix.unexpectedErrno(err),
+            }
+        }
+
+        const nonblocking: u32 = @bitCast(posix.O{ .NONBLOCK = true });
+        switch (posix.errno(posix.system.fcntl(fds[1], posix.F.SETFL, nonblocking))) {
+            .SUCCESS => {},
+            else => |err| return posix.unexpectedErrno(err),
+        }
+
+        signal_pipe = .{
+            .{ .handle = fds[0], .flags = .{ .nonblocking = false } },
+            .{ .handle = fds[1], .flags = .{ .nonblocking = true } },
+        };
+        signal_thread_quit.store(false, .release);
+        signal_thread = try io.concurrent(runSignalThread, .{io});
+        signal_thread_running = true;
+    }
+
+    fn stopSignalThread() void {
+        if (!signal_thread_running) return;
+        signal_thread_quit.store(true, .release);
+        const byte = [1]u8{0};
+        _ = posix.system.write(signal_pipe[1].handle, &byte, byte.len);
+        signal_thread.await(handler_io);
+        signal_pipe[0].close(handler_io);
+        signal_pipe[1].close(handler_io);
+        signal_thread_running = false;
+    }
+
+    fn runSignalThread(io: std.Io) void {
+        var buf: [64]u8 = undefined;
+        while (true) {
+            _ = signal_pipe[0].readStreaming(io, &.{&buf}) catch return;
+            if (signal_thread_quit.load(.acquire)) return;
+
+            {
+                handler_mutex.lock(io) catch return;
+                defer handler_mutex.unlock(io);
+                var i: usize = 0;
+                while (i < handler_idx) : (i += 1) {
+                    const handler = handlers[i];
+                    handler.callback(handler.context);
+                }
+            }
         }
     }
 
@@ -225,6 +307,7 @@ pub const PosixTty = struct {
 pub const WindowsTty = struct {
     stdin: windows.HANDLE,
     stdout: windows.HANDLE,
+    input_stop: windows.HANDLE,
 
     initial_codepage: c_uint,
     initial_input_mode: CONSOLE_MODE_INPUT,
@@ -232,6 +315,8 @@ pub const WindowsTty = struct {
 
     // a buffer to write key text into
     buf: [4]u8 = undefined,
+
+    event_state: EventState = .{},
 
     /// File.Writer for efficient buffered writing
     tty_writer: std.Io.File.Writer,
@@ -252,6 +337,7 @@ pub const WindowsTty = struct {
         .WINDOW_INPUT = 1, // resize events
         .MOUSE_INPUT = 1,
         .EXTENDED_FLAGS = 1, // allow mouse events
+        .VIRTUAL_TERMINAL_INPUT = 1, // preserve bracketed paste delimiters
     };
 
     /// The output mode set by init
@@ -265,6 +351,9 @@ pub const WindowsTty = struct {
     pub fn init(io: std.Io, buffer: []u8) !WindowsTty {
         const stdin: std.Io.File = .stdin();
         const stdout: std.Io.File = .stdout();
+        const input_stop = CreateEventW(null, .TRUE, .FALSE, null) orelse
+            return windows.unexpectedError(windows.GetLastError());
+        errdefer windows.CloseHandle(input_stop);
 
         // get initial modes
         const initial_output_codepage = GetConsoleOutputCP();
@@ -273,18 +362,27 @@ pub const WindowsTty = struct {
 
         // set new modes
         try setConsoleMode(stdin.handle, input_raw_mode);
+        errdefer setConsoleMode(stdin.handle, initial_input_mode) catch {};
         try setConsoleMode(stdout.handle, output_raw_mode);
+        errdefer setConsoleMode(stdout.handle, initial_output_mode) catch {};
         if (SetConsoleOutputCP(utf8_codepage) == .FALSE)
             return windows.unexpectedError(windows.GetLastError());
+        errdefer _ = SetConsoleOutputCP(initial_output_codepage);
 
-        const self: WindowsTty = .{
+        var self: WindowsTty = .{
             .stdin = stdin.handle,
             .stdout = stdout.handle,
+            .input_stop = input_stop,
             .initial_codepage = initial_output_codepage,
             .initial_input_mode = initial_input_mode,
             .initial_output_mode = initial_output_mode,
             .tty_writer = .initStreaming(stdout, io, buffer),
         };
+
+        // VT input alone loses key releases and modifier keys. Win32-input-mode
+        // carries the original KEY_EVENT_RECORD fields in CSI ... _ sequences.
+        try self.writer().writeAll("\x1b[?9001h");
+        try self.writer().flush();
 
         // save a copy of this tty as the global_tty for panic handling
         global_tty = self;
@@ -293,9 +391,12 @@ pub const WindowsTty = struct {
     }
 
     pub fn deinit(self: WindowsTty) void {
+        var output: std.Io.File.Writer = .initStreaming(self.tty_writer.file, self.tty_writer.io, &.{});
+        output.interface.writeAll("\x1b[?9001l") catch {};
         _ = SetConsoleOutputCP(self.initial_codepage);
         setConsoleMode(self.stdin, self.initial_input_mode) catch {};
         setConsoleMode(self.stdout, self.initial_output_mode) catch {};
+        windows.CloseHandle(self.input_stop);
         windows.CloseHandle(self.stdin);
         windows.CloseHandle(self.stdout);
     }
@@ -347,27 +448,93 @@ pub const WindowsTty = struct {
         return posix.read(self.fd, buf);
     }
 
+    pub fn resetInput(self: *WindowsTty) !void {
+        if (ResetEvent(self.input_stop) == .FALSE)
+            return windows.unexpectedError(windows.GetLastError());
+        self.event_state = .{};
+    }
+
+    pub fn interruptInput(self: *WindowsTty) void {
+        // The handle is owned by this Tty and remains open until deinit.
+        if (SetEvent(self.input_stop) == .FALSE) @panic("invalid console stop event");
+    }
+
+    fn inputError(code: windows.Win32Error) anyerror {
+        return switch (code) {
+            .INVALID_HANDLE => error.InvalidHandle,
+            .ACCESS_DENIED => error.AccessDenied,
+            .OPERATION_ABORTED => error.InputInterrupted,
+            .NOT_READY, .BUSY, .RETRY => error.WouldBlock,
+            .NOT_ENOUGH_MEMORY, .NO_SYSTEM_RESOURCES => error.SystemResources,
+            else => {
+                std.log.scoped(.vaxis).warn("console input failed: Win32 error {d}", .{@intFromEnum(code)});
+                return error.Unexpected;
+            },
+        };
+    }
+
     pub fn nextEvent(self: *WindowsTty, parser: *Parser, paste_allocator: ?std.mem.Allocator) !Event {
-        // We use a loop so we can ignore certain events
-        var state: EventState = .{};
+        // Keep partial ANSI and UTF-16 input across transient console read errors.
         while (true) {
+            // A console handle is signaled while input is available. Put the stop
+            // event first so shutdown wins even during a continuous input stream.
+            // This Tty must be the sole reader of the console input buffer.
+            const handles = [_]windows.HANDLE{ self.input_stop, self.stdin };
+            switch (WaitForMultipleObjects(handles.len, &handles, .FALSE, 0xffffffff)) {
+                0 => return error.Canceled,
+                1 => {},
+                else => return inputError(windows.GetLastError()),
+            }
             var event_count: u32 = 0;
             var input_record: INPUT_RECORD = undefined;
             if (ReadConsoleInputW(self.stdin, &input_record, 1, &event_count) == .FALSE)
-                return windows.unexpectedError(windows.GetLastError());
+                return inputError(windows.GetLastError());
 
-            if (try self.eventFromRecord(&input_record, &state, parser, paste_allocator)) |ev| {
+            const event = self.eventFromRecord(&input_record, &self.event_state, parser, paste_allocator) catch |err| {
+                self.event_state = .{};
+                return err;
+            };
+            if (event) |ev| {
                 return ev;
             }
         }
     }
 
     pub const EventState = struct {
+        // Outer VT transport, including win32-input-mode keyboard records.
+        vt_buf: [128]u8 = undefined,
+        vt_idx: usize = 0,
+        // Some console versions also wrap pasted VT bytes in win32 records.
         ansi_buf: [128]u8 = undefined,
         ansi_idx: usize = 0,
+        ansi_key_up: ?u16 = null,
         utf16_buf: [2]u16 = undefined,
         utf16_half: bool = false,
     };
+
+    // https://github.com/microsoft/terminal/blob/main/doc/specs/%234999%20-%20Improved%20keyboard%20handling%20in%20Conpty.md
+    fn parseWin32Input(sequence: []const u8) ?KEY_EVENT_RECORD {
+        var params: [6]u32 = .{ 0, 0, 0, 0, 0, 1 };
+        var fields = std.mem.splitScalar(u8, sequence[2 .. sequence.len - 1], ';');
+        var i: usize = 0;
+        while (fields.next()) |field| : (i += 1) {
+            if (i == params.len) return null;
+            if (field.len > 0)
+                params[i] = std.fmt.parseInt(u32, field, 10) catch return null;
+        }
+        return .{
+            .wVirtualKeyCode = std.math.cast(u16, params[0]) orelse return null,
+            .wVirtualScanCode = std.math.cast(u16, params[1]) orelse return null,
+            .uChar = .{ .UnicodeChar = std.math.cast(u16, params[2]) orelse return null },
+            .bKeyDown = switch (params[3]) {
+                0 => .FALSE,
+                1 => .TRUE,
+                else => return null,
+            },
+            .dwControlKeyState = params[4],
+            .wRepeatCount = std.math.cast(u16, params[5]) orelse return null,
+        };
+    }
 
     pub const SMALL_RECT = extern struct {
         Left: windows.SHORT,
@@ -392,7 +559,39 @@ pub const WindowsTty = struct {
     pub fn eventFromRecord(self: *WindowsTty, record: *const INPUT_RECORD, state: *EventState, parser: *Parser, paste_allocator: ?std.mem.Allocator) !?Event {
         switch (record.EventType) {
             0x0001 => { // Key event
-                const event = record.Event.KeyEvent;
+                var event = record.Event.KeyEvent;
+
+                if (event.wVirtualKeyCode == 0) {
+                    if (event.bKeyDown == .FALSE) return null;
+                    if (state.vt_idx > 0 or event.uChar.UnicodeChar == 27) {
+                        if (state.vt_idx == state.vt_buf.len or event.uChar.UnicodeChar > 127) {
+                            state.vt_idx = 0;
+                            return null;
+                        }
+                        state.vt_buf[state.vt_idx] = @intCast(event.uChar.UnicodeChar);
+                        state.vt_idx += 1;
+                        if (state.vt_idx <= 2) return null;
+                        const sequence = state.vt_buf[0..state.vt_idx];
+                        if (std.mem.startsWith(u8, sequence, "\x1b[") and sequence[sequence.len - 1] == '_') {
+                            state.vt_idx = 0;
+                            event = parseWin32Input(sequence) orelse return null;
+                        } else {
+                            const result = try parser.parse(sequence, paste_allocator);
+                            if (result.n > 0) state.vt_idx = 0;
+                            return result.event;
+                        }
+                    }
+                }
+
+                // Encoded paste records may contain key-up duplicates. Only
+                // key-down text belongs to the inner escape-sequence stream.
+                if (event.wVirtualKeyCode == 0 and event.bKeyDown == .FALSE and
+                    state.ansi_key_up == event.uChar.UnicodeChar)
+                {
+                    state.ansi_key_up = null;
+                    return null;
+                }
+                state.ansi_key_up = null;
 
                 if (state.utf16_half) half: {
                     state.utf16_half = false;
@@ -415,9 +614,14 @@ pub const WindowsTty = struct {
 
                 const base_layout: u16 = switch (event.wVirtualKeyCode) {
                     0x00 => blk: { // delivered when we get an escape sequence or a unicode codepoint
-                        if (state.ansi_idx == 0 and event.uChar.AsciiChar != 27)
+                        if (state.ansi_idx == 0 and event.uChar.UnicodeChar != 27)
                             break :blk event.uChar.UnicodeChar;
-                        state.ansi_buf[state.ansi_idx] = event.uChar.AsciiChar;
+                        if (state.ansi_idx == state.ansi_buf.len or event.uChar.UnicodeChar > 127) {
+                            state.ansi_idx = 0;
+                            return null;
+                        }
+                        state.ansi_key_up = event.uChar.UnicodeChar;
+                        state.ansi_buf[state.ansi_idx] = @intCast(event.uChar.UnicodeChar);
                         state.ansi_idx += 1;
                         if (state.ansi_idx <= 2) return null;
                         const result = try parser.parse(state.ansi_buf[0..state.ansi_idx], paste_allocator);
@@ -651,7 +855,7 @@ pub const WindowsTty = struct {
                 // the size directly when we get this event
                 var console_info: CONSOLE_SCREEN_BUFFER_INFO = undefined;
                 if (GetConsoleScreenBufferInfo(self.stdout, &console_info) == .FALSE) {
-                    return windows.unexpectedError(windows.GetLastError());
+                    return inputError(windows.GetLastError());
                 }
                 const window_rect = console_info.srWindow;
                 const width = window_rect.Right - window_rect.Left + 1;
@@ -776,6 +980,10 @@ pub const WindowsTty = struct {
 
     pub const PINPUT_RECORD = *INPUT_RECORD;
 
+    extern "kernel32" fn CreateEventW(?*windows.SECURITY_ATTRIBUTES, windows.BOOL, windows.BOOL, ?windows.LPCWSTR) callconv(.winapi) ?windows.HANDLE;
+    extern "kernel32" fn SetEvent(windows.HANDLE) callconv(.winapi) windows.BOOL;
+    extern "kernel32" fn ResetEvent(windows.HANDLE) callconv(.winapi) windows.BOOL;
+    extern "kernel32" fn WaitForMultipleObjects(windows.DWORD, [*]const windows.HANDLE, windows.BOOL, windows.DWORD) callconv(.winapi) windows.DWORD;
     pub extern "kernel32" fn ReadConsoleInputW(hConsoleInput: windows.HANDLE, lpBuffer: PINPUT_RECORD, nLength: windows.DWORD, lpNumberOfEventsRead: *windows.DWORD) callconv(.winapi) windows.BOOL;
     pub extern "kernel32" fn GetConsoleOutputCP() callconv(.winapi) windows.UINT;
     pub extern "kernel32" fn GetConsoleMode(kConsoleHandle: windows.HANDLE, lpMode: *windows.DWORD) callconv(.winapi) windows.BOOL;
@@ -885,8 +1093,159 @@ pub const TestTty = switch (builtin.os.tag) {
         pub fn nextEvent(_: *@This(), _: *Parser, _: ?std.mem.Allocator) !Event {
             return error.SkipZigTest;
         }
+
+        pub fn resetSignalHandler() void {
+            return;
+        }
     },
 };
+
+test "Windows win32-input-mode fields and defaults" {
+    const record = WindowsTty.parseWin32Input("\x1b[65;30;65;1;16;3_").?;
+    try std.testing.expectEqual(@as(u16, 65), record.wVirtualKeyCode);
+    try std.testing.expectEqual(@as(u16, 30), record.wVirtualScanCode);
+    try std.testing.expectEqual(@as(u16, 65), record.uChar.UnicodeChar);
+    try std.testing.expectEqual(windows.BOOL.TRUE, record.bKeyDown);
+    try std.testing.expectEqual(@as(u32, 16), record.dwControlKeyState);
+    try std.testing.expectEqual(@as(u16, 3), record.wRepeatCount);
+    const defaults = WindowsTty.parseWin32Input("\x1b[65;;97;1_").?;
+    try std.testing.expectEqual(@as(u16, 0), defaults.wVirtualScanCode);
+    try std.testing.expectEqual(@as(u32, 0), defaults.dwControlKeyState);
+    try std.testing.expectEqual(@as(u16, 1), defaults.wRepeatCount);
+    for ([_][]const u8{
+        "\x1b[65536;0;0;1;0;1_",
+        "\x1b[0;0;65536;1;0;1_",
+        "\x1b[0;0;0;2;0;1_",
+        "\x1b[0;0;0;1;4294967296;1_",
+        "\x1b[0;0;0;1;0;65536_",
+        "\x1b[0;0;0;1;0;1;0_",
+    }) |sequence| try std.testing.expect(WindowsTty.parseWin32Input(sequence) == null);
+}
+
+const WindowsInputTest = struct {
+    tty: WindowsTty = .{
+        .stdin = undefined,
+        .stdout = undefined,
+        .input_stop = undefined,
+        .initial_codepage = 0,
+        .initial_input_mode = .{},
+        .initial_output_mode = .{},
+        .tty_writer = undefined,
+    },
+    parser: Parser = .{},
+
+    fn expectSequence(self: *@This(), input: []const u16, expected: ?Event) !void {
+        for (input, 0..) |unit, i| {
+            const record: WindowsTty.INPUT_RECORD = .{
+                .EventType = 0x0001,
+                .Event = .{ .KeyEvent = .{
+                    .bKeyDown = .TRUE,
+                    .wRepeatCount = 1,
+                    .wVirtualKeyCode = 0,
+                    .wVirtualScanCode = 0,
+                    .uChar = .{ .UnicodeChar = unit },
+                    .dwControlKeyState = 0,
+                } },
+            };
+            const event = try self.tty.eventFromRecord(&record, &self.tty.event_state, &self.parser, null);
+            try std.testing.expectEqualDeep(if (i == input.len - 1) expected else null, event);
+        }
+    }
+};
+
+test "Windows paste boundaries, Unicode, and ordinary keyboard events" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    const utf16 = std.unicode.utf8ToUtf16LeStringLiteral;
+    var input: WindowsInputTest = .{};
+    try std.testing.expectEqual(@as(u1, 1), WindowsTty.input_raw_mode.VIRTUAL_TERMINAL_INPUT);
+    try input.expectSequence(utf16("\x1b[200~"), .paste_start);
+    try input.expectSequence(utf16("a"), .{ .key_press = .{ .codepoint = 'a', .base_layout_codepoint = 'a', .text = "a" } });
+    try input.expectSequence(utf16("\r"), .{ .key_press = .{ .codepoint = Key.enter, .base_layout_codepoint = Key.enter } });
+    // U+011B has ESC as its low byte; it must not start a control sequence.
+    try input.expectSequence(utf16("ě"), .{ .key_press = .{ .codepoint = 'ě', .base_layout_codepoint = 'ě', .text = "ě" } });
+    try input.expectSequence(utf16("😀"), .{ .key_press = .{ .codepoint = '😀', .base_layout_codepoint = '😀', .text = "😀" } });
+    try input.expectSequence(utf16("\r"), .{ .key_press = .{ .codepoint = Key.enter, .base_layout_codepoint = Key.enter } });
+    try input.expectSequence(utf16("z"), .{ .key_press = .{ .codepoint = 'z', .base_layout_codepoint = 'z', .text = "z" } });
+    try input.expectSequence(utf16("\x1b[201~"), .paste_end);
+
+    // Physical keys arrive as win32-input-mode, including releases and Escape.
+    try input.expectSequence(utf16("\x1b[13;28;13;1;0;1_"), .{ .key_press = .{ .codepoint = Key.enter, .base_layout_codepoint = Key.enter } });
+    try input.expectSequence(utf16("\x1b[13;28;13;0;0;1_"), .{ .key_release = .{ .codepoint = Key.enter, .base_layout_codepoint = Key.enter } });
+    try input.expectSequence(utf16("\x1b[27;1;27;1;0;1_"), .{ .key_press = .{ .codepoint = Key.escape, .base_layout_codepoint = Key.escape } });
+    try input.expectSequence(utf16("\x1b[65;30;65;1;16;1_"), .{ .key_press = .{ .codepoint = 'A', .base_layout_codepoint = 'a', .mods = .{ .shift = true }, .text = "A" } });
+    try input.expectSequence(utf16("\x1b[65;30;65;0;16;1_"), .{ .key_release = .{ .codepoint = 'A', .base_layout_codepoint = 'a', .mods = .{ .shift = true }, .text = "A" } });
+    try input.expectSequence(utf16("\x1b[67;46;3;1;8;1_"), .{ .key_press = .{ .codepoint = 'c', .base_layout_codepoint = 'c', .mods = .{ .ctrl = true } } });
+    try input.expectSequence(utf16("\x1b[81;16;64;1;9;1_"), .{ .key_press = .{ .codepoint = '@', .base_layout_codepoint = 'q', .text = "@" } });
+    try input.expectSequence(utf16("\x1b[16;42;0;0;0;1_"), .{ .key_release = .{ .codepoint = Key.left_shift, .base_layout_codepoint = Key.left_shift } });
+    try input.expectSequence(utf16("\x1b[0;0;283;1;0;1_"), .{ .key_press = .{ .codepoint = 'ě', .base_layout_codepoint = 'ě', .text = "ě" } });
+    try input.expectSequence(utf16("\x1b[0;0;283;0;0;1_"), .{ .key_release = .{ .codepoint = 'ě', .base_layout_codepoint = 'ě', .text = "ě" } });
+}
+
+test "Windows paste delimiters wrapped in win32-input-mode" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var input: WindowsInputTest = .{};
+    for ([_][]const u8{ "\x1b[200~", "\x1b[201~" }, 0..) |marker, m| {
+        for (marker, 0..) |byte, i| {
+            for ([_]u1{ 1, 0 }) |down| {
+                var buffer: [64]u8 = undefined;
+                const sequence = try std.fmt.bufPrint(&buffer, "\x1b[0;0;{d};{d};0;1_", .{ byte, down });
+                var units: [64]u16 = undefined;
+                for (sequence, 0..) |b, j| units[j] = b;
+                const expected: ?Event = if (down == 1 and i == marker.len - 1)
+                    (if (m == 0) .paste_start else .paste_end)
+                else
+                    null;
+                try input.expectSequence(units[0..sequence.len], expected);
+            }
+        }
+    }
+}
+
+test "console errors distinguish interruption from permanent failures" {
+    try std.testing.expectEqual(error.InputInterrupted, WindowsTty.inputError(.OPERATION_ABORTED));
+    try std.testing.expectEqual(error.InvalidHandle, WindowsTty.inputError(.INVALID_HANDLE));
+    try std.testing.expectEqual(error.AccessDenied, WindowsTty.inputError(.ACCESS_DENIED));
+    try std.testing.expectEqual(error.SystemResources, WindowsTty.inputError(.NO_SYSTEM_RESOURCES));
+}
+
+test "Windows input wait is interruptible without a console response" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    const io = std.testing.io;
+    // An unsignaled event stands in for an idle console handle. Cancellation
+    // must return without ever reaching ReadConsoleInputW.
+    const input = WindowsTty.CreateEventW(null, .TRUE, .FALSE, null) orelse return error.Unexpected;
+    defer windows.CloseHandle(input);
+    const stop = WindowsTty.CreateEventW(null, .TRUE, .FALSE, null) orelse return error.Unexpected;
+    defer windows.CloseHandle(stop);
+    var tty: WindowsTty = undefined;
+    tty.stdin = input;
+    tty.input_stop = stop;
+    const Reader = struct {
+        fn run(t: *WindowsTty, ready: *std.Io.Event) !void {
+            var parser: Parser = .{};
+            ready.set(std.testing.io);
+            try std.testing.expectError(error.Canceled, t.nextEvent(&parser, null));
+        }
+    };
+    var ready: std.Io.Event = .unset;
+    var task = try io.concurrent(Reader.run, .{ &tty, &ready });
+    defer {
+        tty.interruptInput();
+        task.cancel(io) catch {};
+    }
+    try ready.wait(io);
+    try io.sleep(.fromMilliseconds(10), .awake);
+    tty.interruptInput();
+    try task.await(io);
+
+    try tty.resetInput();
+    try std.testing.expectEqual(@as(u32, 258), WindowsTty.WaitForMultipleObjects(1, &.{stop}, .FALSE, 0));
+    // Shutdown also wins if input and stop are both already signaled.
+    try std.testing.expect(WindowsTty.SetEvent(input) != .FALSE);
+    tty.interruptInput();
+    var parser: Parser = .{};
+    try std.testing.expectError(error.Canceled, tty.nextEvent(&parser, null));
+}
 
 test {
     std.testing.refAllDecls(@This());

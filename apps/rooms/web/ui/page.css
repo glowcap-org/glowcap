@@ -352,9 +352,8 @@ pre > code {
 	--gap-section: 20px;
 	--gap-column: 16px;
 	/* How wide a card stands, by what it holds rather than by who drew it.
-	   Cards used to name their own number, and seven of them accumulated: two
-	   pairs sat twenty and sixty pixels apart, which no reader can take as a
-	   decision, and four gave no reason at all.
+	   A card that names its own number invites near-misses, two widths twenty
+	   pixels apart that no reader can take as a decision.
 
 	   Four steps, far enough apart to be read as chosen. A card names the step
 	   its contents ask for and nothing else, so the question at a new card is

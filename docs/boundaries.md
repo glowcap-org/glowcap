@@ -64,12 +64,6 @@ tested. The [roadmap](roadmap.md) lists future work.
   address. A live Goblins-over-iroh session does have one, `goblins-iroh`, over
   the iroh netlayer this repository wrote for Goblins; it runs on loopback with
   direct dial (no relay), so it adds no reachability evidence.
-- **Native Zig Session setup accepts stream netlayers.** iroh's connections
-  share one endpoint readiness descriptor, so passing `iroh.Resident.netlayer()`
-  to `driver.connect` refuses with `TransportNotPollable`. Native applications
-  use `driver.Bridge` with the iroh completion backend; the C and managed
-  language providers already own multiplexed dial and listen. The native
-  Session/Server convenience adapter remains planned.
 - **A `webrtc` dial needs configured signaling authority.** On TypeScript, a
   runtime composed with `webrtc.connector(signaling)` dials a bare `webrtc`
   locator: the connector runs the offer, answer, and candidate exchange and
@@ -100,57 +94,64 @@ not ship a native Zig QUIC or WebRTC stack.
   native runtime. The synchronous Host and locator surface and byte-fed client
   path remain available; Deno owns the full native-loop binding proof.
 
-- **A Host's actor runtime (its Vat) is single-threaded and non-preemptive.** A
-  hosted behavior runs synchronously to the end of its turn. A slow or blocking
-  handler therefore stalls every session adapter (Port) sharing that Host. Keep
-  handlers bounded. Separate Hosts provide scheduling isolation by also
-  separating network identity and actor graphs; when those must remain shared,
-  move blocking work out of the behavior callback. The actor layer's mechanism
-  for that is the resolver vow
-  ([ADR-0102](decisions/adr/ADR-0102-off-turn-settlement.md)): a behavior
-  defers its answer atomically and the work's completion settles
-  it later through `Vat.fulfillVow` or `Vat.breakVow`, on the owning thread.
-  A byte-fed embedder has the same seam over the C surface
-  (`glowcap_host_turn_defer` and its settle verbs). A TypeScript or
-  Python behavior that returns a promise defers this way automatically, and
-  the Rust and Racket bindings expose the resolver pair directly. A native
-  worker thread hands its settle back through `driver.SettleMailbox`. The
-  post wakes the owning thread because `driver.HostRuntime` polls the mailbox's
-  fd beside its wires and the completion loop arms a receive on it. The settle
-  applies there. Off-thread settles carry plain data only. A
-  capability never crosses threads.
+- **A Host's actor runtime (its Vat) is single-threaded and non-preemptive.**
+  A hosted behavior runs synchronously to the end of its turn, so a slow or
+  blocking handler stalls every session adapter (Port) that shares the Host.
+  Keep handlers bounded. Separate Hosts isolate scheduling, but they also
+  separate network identity and actor graphs. When those must stay shared,
+  move the blocking work out of the behavior callback:
+  - In the actor layer, a behavior defers its answer with a resolver vow
+    ([ADR-0102](decisions/adr/ADR-0102-off-turn-settlement.md)). When the work
+    finishes, it settles the answer through `Vat.fulfillVow` or
+    `Vat.breakVow` on the owning thread.
+  - A byte-fed embedder has the same mechanism in C:
+    `glowcap_host_turn_defer` and its settle verbs.
+  - A TypeScript or Python behavior that returns a promise defers this way
+    automatically. The Rust and Racket bindings expose the resolver pair
+    directly.
+  - A native worker thread hands its settle back through
+    `driver.SettleMailbox`. Posting to it wakes the owning thread, because
+    `driver.HostRuntime` polls the mailbox's fd alongside its connections and
+    the completion loop keeps a receive armed on it. The settle then applies
+    on the owning thread. Settles from another thread carry plain data only;
+    a capability never crosses threads.
 - **The simplest blocking pump serves one connection on one fiber.** Use a
   completion loop (TCP, iroh, onion, or keyed-relay outbound) for a partner that
   streams while waiting for you to drain output.
-- **`driver.HostRuntime` hosts descriptor-backed transports and multiplexed
-  providers.** A stream transport needs a pollable socket:
-  TCP, keyed TCP, onion, and keyed-relay fit directly, while `inproc` reports
-  no readiness and stays on `driver.BlockingSession`. A transport that
-  multiplexes connections behind one shared readiness descriptor joins
-  through the common provider package ABI (ADR-0112), which covers dials,
-  listener metadata and lifecycle, accepted-connection claim, and teardown.
-  iroh implements the multiplexed execution entry in that provider package
-  (`glowcap_iroh_transport_provider`, with both dial and accept proven live by
-  `zig build iroh-driver-provider`). WebRTC implements the package's external
-  connection claim: its archive owns signaling and opens the DataChannel, then
-  `glowcap_driver_adopt_external` transfers either session role to the generic
-  driver. `zig build webrtc-driver-provider` proves both halves and an
-  authenticated capability fetch.
-- **`libglowcap_driver` steps one `HostRuntime` from C.** It parks behind one
-  readiness descriptor (epoll on Linux, kqueue on Darwin; elsewhere
-  `glowcap_driver_readiness_fd` fails typed while the stepping verbs keep
-  working). Dial and accept handshakes advance across steps under the
-  handshake budget, so two loops on one thread can dial each other and a
-  stalled connector cannot park the step. Stream providers begin connects
-  through a nonblocking `start_connect` contract and publish readiness-driven
-  completion. Outside this provider seam, a native Zig netlayer declares one
-  tagged dial execution form, blocking or staged.
-- **Pre-open memory is explicitly bounded.** `max_pending_opens` defaults to
-  256 per driver Host and counts transport connects plus CapTP handshakes
-  across dial, accept, external adoption, and redeem. Over-limit stream
-  accepts remain in the kernel backlog; multiplexed-provider accepts are claimed
-  and closed without minting a session. Applications can tune the bound with
-  the wire-buffer and deadline policy they deploy.
+- **`driver.HostRuntime` hosts transports that have a pollable descriptor,
+  plus multiplexed providers.**
+  - A stream transport needs a socket it can poll. TCP, keyed TCP, onion, and
+    keyed-relay qualify. `inproc` reports no readiness, so it stays on
+    `driver.BlockingSession`.
+  - A transport that multiplexes many connections behind one shared readiness
+    descriptor joins through the common provider package ABI (ADR-0112). That
+    ABI covers dials, listener metadata and lifecycle, claiming accepted
+    connections, and teardown.
+  - iroh implements the multiplexed entry point of that ABI
+    (`glowcap_iroh_transport_provider`). `zig build iroh-driver-provider`
+    proves both dial and accept live.
+  - WebRTC implements the ABI's external connection claim. Its archive handles
+    signaling and opens the DataChannel, then `glowcap_driver_adopt_external`
+    hands either session role to the generic driver.
+    `zig build webrtc-driver-provider` proves both halves and an authenticated
+    capability fetch.
+- **`libglowcap_driver` steps one `HostRuntime` from C.** It waits on a
+  single readiness descriptor: epoll on Linux and kqueue on Darwin. On other
+  systems `glowcap_driver_readiness_fd` returns a typed failure, but the
+  stepping verbs still work. Dial and accept handshakes advance a little on
+  each step, within the handshake budget. That means two loops on one thread
+  can dial each other, and a stalled connector cannot block a step. Stream
+  providers start connections through a nonblocking `start_connect` contract
+  and report completion when the descriptor is ready. A native Zig netlayer
+  outside this provider interface declares one dial style, blocking or
+  staged.
+- **Memory for connections that are still opening is bounded.**
+  `max_pending_opens` defaults to 256 per driver Host. It counts transport
+  connects and CapTP handshakes from dials, accepts, external adoption, and
+  redeems. A stream accept over the limit waits in the kernel backlog. A
+  multiplexed-provider accept over the limit is claimed and closed without
+  creating a session. Tune the bound together with the wire-buffer and
+  deadline policy you deploy.
 - **A driver loop permits at most one listener per registered provider
   profile.** Listener ids route accepts independently; listeners can be
   selected as the Host's acceptable route and closed individually. A provider
@@ -173,12 +174,11 @@ not ship a native Zig QUIC or WebRTC stack.
   handshake and settle budget, but `.unbounded` remains available. The CLI and
   examples use finite deadlines; library callers must make the same choice.
 - **A durable sturdyref survives a restart only if you keep its entropy.** The
-  library holds no registry across processes, because the core is sync and
-  no-I/O and cannot own a file. What it guarantees instead is that a durable
-  name is a pure function of the 16 entropy bytes you passed to
-  `publishDurable`: keep those, republish with them at startup, and callers
-  holding the old sturdyref reach the new actor. Lose them and the name is
-  gone. `Host.Options.bootstrap_durability` still refuses
+  library keeps no registry across processes, because the core does no I/O and
+  cannot own a file. Instead, it guarantees that a durable name depends only
+  on the 16 entropy bytes you passed to `publishDurable`. Keep those bytes and
+  republish with them at startup, and callers holding the old sturdyref reach
+  the new actor. If you lose them, the name is gone. `Host.Options.bootstrap_durability` still refuses
   `.durable_bootstrap`, which would promise a registry the library does not
   have.
 - **Some binding pumps copy outbound frames.** TypeScript, Python, and Racket
@@ -195,230 +195,245 @@ not ship a native Zig QUIC or WebRTC stack.
 
 ## API gaps
 
-- **Loam supports local records and record-backed sleepy actors.** Its optional
-  LMDB backend and Host attachment restore same-attachment capability edges and
-  committed actor state. Callbacks explicitly encode durable state and perform
-  no external effects. Incoming calls accept plain data; owning capability
-  replies use Host/CapTP. Pending messages are not durable, and a lost reply
-  does not imply an aborted mutation. Local tracing collection protects live
-  custody and pinned historical edges; it needs storage headroom for its queue
-  and marks. Native workload measurements cover collection service time and
-  queued reads; concurrent executor scheduling, whole-process memory, and
-  compaction remain unmeasured.
-  Foreign/cross-vat restoration, complete managed owners, browser storage, and Loam C/Rust
-  APIs remain unimplemented. Publication enumeration and the commit-to-registry
-  admission barrier belong to the embedding for administrative publication;
-  managed derivation reserves and activates its own Host publication custody.
-  Native storage uses advisory BSD `flock` custody locking and explicitly budgeted map growth; process-kill
-  tests do not establish power-loss behavior. The [usage guide](loam.md) explains
-  costs and limits; the [implementation sequence](planning/loam/architecture.md)
-  owns the remaining integration. Rooms still uses application-owned durability.
+### Loam storage
 
-- **Managed access hosts fixed-resource use, control, and derivation; broader integration remains.**
-  Opaque use and control references enforce selected grants and management
-  ceilings. Durable descriptors restore the exact use/control role through
-  bounded native operations. The existing Host attachment now hosts fixed-resource
-  managed use and control endpoints, including held CapTP calls and ordinary
-  publication restoration. Fixed-resource derivation atomically stores the child
-  and its publication with eight retained retry receipts per source endpoint.
-  Cross-resource transactions, C ABI, and Rust bindings remain unimplemented.
-  A managed content method can disclose a local stored reference through an
-  exact handoff or a runtime facet gated by both the invoking and target grants.
-  It can replace or remove local strong fields in the content transaction.
-  Foreign and cross-vat fields remain unimplemented. Undeclared capability
-  values fail closed. Descriptor creation can join grant and content updates;
-  restoring its native reference still allocates. Derivation reserves actor and
-  publication custody before writing; receipt expiry fails without reissuing.
-  Other mutations lack a general retry journal. Evaluation results cannot be
-  reused to authorize a later content effect. Rooms does not use this core yet.
-  Use endpoints provide scoped access snapshots through `describe-access`;
-  inactive access exposes status alone. These snapshots do not provide event
-  delivery, cursors, or control inventory/inspection.
-  The current graph and grant ledger reserve their full capacity in memory.
-  Resource and grant views share evaluation and mutation preparation with those
-  resident models. The storage participant persists owner headers and indexed
-  resource/grant records, with bounded resumable loading and native LMDB evidence
-  for atomic content/grant/event updates and recovery. Several managed changes
-  join one Store transaction. Each stage validates and stages against the
-  transaction's own composed state, and the deltas re-propose the owner
-  header, so the submitted batch holds one header mutation per owner. Stale
-  preparation against an older revision refuses the whole transaction without
-  partial changes. Volatile and LMDB evidence covers composed commit, abort,
-  and unknown-outcome recovery with reopen. Control descriptors persist immutable powers;
-  independent control attenuation/revocation
-  remain requirements in the [storage plan](planning/loam/access/storage.md).
-  That plan also owns resource reparenting/deletion and child listing indexes. The
-  [managed access architecture](planning/loam/access/architecture.md) and
-  [Rooms plan](planning/rooms/access-grants.md) own integration.
+[Loam](loam.md) stores local records and runs record-backed sleepy actors:
+actors whose state lives in a record and loads when a message arrives. The
+[usage guide](loam.md) explains costs and limits, and the
+[implementation sequence](planning/loam/architecture.md) owns the remaining
+integration. Rooms does not use Loam yet; it keeps its own durable state.
 
-  Resident grant mutations return committed change events. Stored mutations
-  return proposed events for publication after confirmed commit; the owner
-  retains its latest event. Replacing it makes the old event collectible unless
-  otherwise retained. Scoped subscriptions, retained replay, resource-move
-  events, and receipts for other remote mutations remain unimplemented. Store reads expire
-  after any commit and refuse during uncertainty. A storage read cannot close
-  while an append borrows it or submitted read work remains outstanding.
-  Graph and ledger destruction also refuse while a write remains pending.
+- **What restores.** The optional LMDB backend and the Host attachment restore
+  checked local and foreign fields and committed actor state. Native stores
+  need the LMDB 1.x disk format, and a store from an older prerelease needs a
+  fresh directory. Metadata format 3 rejects older record and name-index
+  profiles.
+- **What is not durable.** Pending messages are not durable, and a lost reply
+  does not mean the mutation was aborted. Callbacks only encode durable state
+  and perform no external effects.
+- **References in calls.** Host and CapTP calls carry owning capability
+  arguments and replies. An admitted argument stays in custody through
+  storage waits and through every terminal outcome.
+- **Garbage collection.** Local tracing collection protects live custody and
+  pinned historical edges. It needs spare storage for its queue and marks.
+  Initial custody is captured once per cycle; new custody reserves a bounded
+  marking obligation before publication. A full journal can refuse new custody.
+  Root shading is bounded independently of the record/phase work limit, so that
+  limit does not bound all batch work. Scratch and journal capacity are reused
+  without extending a database-reader lifetime.
+  A retired name keeps its index reservation after its descriptor is
+  collected.
+- **Names.** Opt-in publication discovery restores a cold name through one
+  bounded lookup and the shared cache, without listing every name at startup.
+  The attachment owns the barriers that admit retirement, and an unknown
+  outcome fails closed.
+- **Locking and growth.** Native storage holds an advisory BSD `flock` lock
+  and grows its memory map only within an explicit budget.
+- **Compaction.** Offline compaction keeps the same owner lock, compares every
+  key and value, and installs the copy with a same-directory rename followed
+  by a directory sync. Reopening ignores leftover copies.
+- **What is tested.** Refusal for lack of copy space, installation failures,
+  and process loss are tested on Linux; macOS runs are still required.
+  Process-kill tests cover ordinary actors and managed issuance. Managed
+  probes also cover control attenuation, revocation, content and reference
+  edits, resource moves, leaf deletion, observation registration and
+  cancellation, owner closure, and cleanup of terminal publications. None of
+  this establishes behavior under hardware power loss.
+- **What is measured.** Native workload measurements cover collection service
+  time, queued reads, atomic managed issuance, control chains, receipt-backed
+  edits, and moves and filtered children with cold ancestry. A bounded native
+  executor workload covers sustained ordinary calls and foreground work during
+  collection. Further slices measure returned facets, eight parked calls,
+  sustained managed workers, up to 128 held facets, foreign restoration through
+  fed bytes, and offline compaction. Admission calibration checks refusal and
+  progress of unrelated actors. OS snapshots report whole-process RSS, address
+  space, lifetime peak, and faults separately from retained Zig bytes.
+- **What is not measured.** Open-loop arrival rates, maximum throughput, and
+  real transport latency are not measured.
+- **Consumer scope.** C/Rust and IndexedDB implement the fixed-resource
+  lifecycle and strong saved-reference fields. General graph editing, collection cursors
+  and privileged owner lifecycle remain broader language projections.
 
-  Native capability operations retain their source reference, descriptor lease,
-  and bounded managed working set. Close refuses submitted reads, and the
-  Capabilities owner refuses live references or operations. Release finished
-  operations before admitting new work within a tight cache budget. Descriptors
-  need explicit root or containing-edge retention to survive final native release.
+### Managed access
 
-  The stored profile never reuses committed resource/grant slots. Its owner root
-  retains indexed records, including revoked grants. Owner retirement and record
-  deletion are not yet implemented. Directory traversal takes up to four page
-  reads plus the target, in addition to the owner header. Read working sets pin
-  bounded records; cache buffers reserve the configured maximum record size per
-  slot. The [usage guide](loam.md#managed-access-records) gives the memory and
-  lifetime contract. No managed-owner throughput or 500k scale claim is established.
+Managed access is Loam's layer for resources, grants, and the references that
+use and control them. The [usage guide](loam/access.md) gives its memory and
+lifetime contract. The
+[managed access architecture](planning/loam/access/architecture.md) and the
+[Rooms plan](planning/rooms/access-grants.md) own the remaining integration.
+Rooms does not use this core yet. C and Rust implement the
+[first resource lifecycle](loam/c-and-rust.md), including its
+[IndexedDB execution profile](loam/browser.md). General graph editing,
+application-specific management metadata and inventory,
+and privileged owner lifecycle projections remain
+outside that consumer profile. The Zig implementations remain authoritative; this consumer evidence does not freeze
+the wider ABI or prove macOS or Windows support.
+The fixed-resource profile supports explicit child editing/lifecycle powers,
+policy edits, dependent control attenuation and strong saved-reference fields.
+It does not implement the
+full Rooms management interface or replace session authority storage.
+Rooms declares its session payloads, typed custody, requirements and presets
+in `rooms-application::content`, with generated browser metadata and application
+proofs. Its bounded workspace/custody/effect codecs preserve exact field
+coordinates and original effect authority. Production session access and
+persistence still use the existing model. The [dependency queue](planning/rooms/integration.md#shared-prerequisite-and-remaining-order)
+orders application validation, management and the
+combined session runtime/storage/editor replacement.
 
-  One ledger borrows one stable graph and copies one immutable policy schema.
-  Schemas allow at most 64 Boolean permissions and 16 unsigned lower or upper
-  bounds. Applications must declare every fact relevant to an effect; fact
-  relations, alternatives, projections, and remote dependencies are not
-  implemented. Fresh stores require fresh identities; neither graph nor
-  ledger supports growth or restoration. Revoked records retain capacity,
-  including their child counts, until ledger destruction. Selected scopes
-  require bounded copies on issuance and editing. Reads and lifecycle changes
-  allocate nothing; traversal is bounded by the configured ancestry limits.
-  Reparenting costs one bounded ancestry walk and two subtree traversals.
+**What it hosts today.** The Host attachment hosts managed use and control
+endpoints for fixed resources, including held CapTP calls and ordinary
+publication restoration.
 
-- **Rooms runs on Linux and macOS hosts and in Chromium-class browsers.**
-  One Rust implementation owns every Rooms service and the browser
-  application; TypeScript renders the page and drives the Deno client, the
-  demos, and the tests, and `zig build source-check` refuses a second server
-  or IRC owner in TypeScript. That establishes neither Windows support,
-  file-lock behavior on other filesystems, nor public Tor circuit
-  reachability, and no throughput or latency figure is claimed for it.
-  The repository defines a workflow for [host product packages](../apps/rooms/host.md)
-  on matching runners. A workflow definition does not establish that a
-  particular run passed or that an archive was published. Local Linux evidence
-  does not establish macOS behavior.
-  A Linux devcontainer does not cross-build
-  the Rust session for macOS. The macOS packages are not Developer ID signed
-  or notarized, and the package proof does not establish Gatekeeper acceptance
-  of a downloaded artifact or reachability through a particular public network.
+- Opaque use and control references enforce their selected grants and
+  management ceilings. Durable descriptors restore the exact use or control
+  role through bounded native operations.
+- Deriving from a fixed resource stores the child and its publication in one
+  atomic step, and keeps eight retry receipts per source endpoint. Derivation
+  reserves actor and publication custody before it writes. An expired receipt
+  fails rather than issuing again.
+- Structural and content effects can share one owner transaction.
+- Use endpoints answer `describe-access` with a scoped snapshot of access; an
+  inactive endpoint reports only its status. These snapshots do not deliver
+  events or list controls. `describe-control` shows the current management
+  powers without revealing owner or ancestor identities, and an unavailable
+  control reports only its status.
 
-- **A Rooms message consumer has a bounded unread queue.** `Room.messages`
-  hands a line directly to a pending read and otherwise retains at most 256
-  unread messages. A consumer that remains stalled past that bound receives a
-  stream error and must subscribe again. Cancellation, overflow, replacement,
-  and leave release every unread file capability; the browser client keeps a
-  read pending during ordinary use.
+**Content methods.** A managed content method can disclose a prepared stored
+reference, either through an exact handoff or through a runtime facet that
+both the invoking grant and the target grant allow. It can replace or remove
+strong fields atomically with checked local or foreign recipes.
 
-- **Rooms sessions are capabilities, not accounts.** No ambient login or server
-  account owns a durable session today. The session sturdyref is the authority
-  to attach, and each delegated facet can be revoked independently. A future
-  account capability may retain or mint session grants and durable name claims;
-  it must not turn those powers into identity inferred from a login string.
+- A remote publication's lifetime is its remote owner's responsibility. There
+  is no distributed transaction.
+- Receipt intent and result codecs still require durable capabilities from the
+  same attachment. A capability value that was not declared fails closed.
+- Descriptor creation can include grant and content updates in the same step.
+  Restoring its native reference still allocates.
+- An evaluation result cannot be reused to authorize a later content effect.
 
-- **Durable Rooms sessions do not make every resource durable.** Attached views
-  share one network identity and checkpoint. They also share directory
-  discovery, archive choice, capabilities, peering intent, history, live files,
-  operator actions, listener and IRC administration, and visualizer publication.
-  Browser `File` handles and object URLs remain device-local.
-  A browser tab can bind the same actor onto its wasm Host with in-memory session
-  documents. That incarnation is the tab: reload mints a new Host, so a saved
-  hosted selector becomes local reconstruction rather than dialing a dead peer.
+**Receipts and replay.** Mutations other than derivation share a separate
+window of eight results. A replay must match the exact intent and pass
+current admission. Terminal cleanup must keep the retired sequence floor.
 
-- **A durable session's bridge credentials are retained, not encrypted.** The
-  password a member answers a bridge form with lives in the session peer's own
-  `bridge-secrets.json`, under the state directory's permissions, beside the
-  identity seed that already grants the whole session. It never enters a
-  checkpoint, snapshot, or export, and it is dropped once no room still names
-  its scope. A browser's local workspace holds none across a reload, and a
-  workspace adopted into a peer carries the intent without the password; both
-  ask the member to answer the bridge once more (ADR-0141).
-  A live transferred attachment remains available only while its room, direct
-  line, and session custody remain valid. A selected member archive may retain
-  the same message's bytes separately and serve them after restart through its
-  own scoped capability. The checkpoint stores neither copy nor an invented
-  promise that an archive retained one. Room-link invitations are bounded
-  workspace intent: local reconstruction and a durable Rooms session retain
-  the handed sturdyref until the reader accepts or dismisses it.
-  Received archive-share rows are runtime-only. A live facet dies with its
-  session or one read. A durable offer's sturdyref is the Host publication;
-  the conversation-card reminder is not workspace intent, so a restart forgets
-  the reminder without revoking the share.
+**Storage.** The current graph and grant ledger reserve their full capacity in
+memory, and resource and grant views share evaluation and mutation
+preparation with them. The storage participant persists owner headers and
+indexed resource and grant records. It loads them in bounded, resumable steps,
+and native LMDB evidence covers atomic content, grant, and event updates and
+recovery.
 
-- **One-shot room invitations are live capabilities today.** Native rooms and
-  IRC bridges bound them and retire them with their live room generation. Their
-  claim receipt survives a lost claim answer and all retry entrances compete
-  over one membership admission. Rooms does not yet persist these invitations
-  as individually revocable sturdyrefs across a server restart.
+**Batched changes.** Several managed changes can join one Store transaction.
+Each stage validates against the transaction's own combined state, and the
+batch carries one header change per owner. A stale preparation is refused
+before submission. The caller that owns the batch aborts it, which discards
+the earlier stages; hosted calls do this through their transaction runner.
+Volatile and LMDB evidence covers combined commit, abort, and recovery from
+an unknown outcome with reopen.
 
-- **Ordinary session-effect deduplication is bounded.** The durable ledger keeps
-  64 completed operation identities. The browser never automatically retries an
-  ambiguous send, edit, withdrawal, operator mutation, listener change, or IRC
-  change. A manually replayed UUID after it has left that window has no
-  indefinite at-most-once guarantee. Private-room and durable-authority effects
-  instead keep a typed pending result and an idempotent recovery key until
-  resolution.
+**Controls, issuance, and resources.**
 
-- **Room delivery receipts require retained local state.** Native room senders
-  share one 256-message, 2 MiB budget between pending text and unread messages.
-  Receipts preserve ordering and correlation; they do not make retries
-  idempotent. Upload reuse depends on an immutable source, acknowledgement,
-  and admission to the existing media cache. Streaming sources and cache
-  pressure may require ordinary reads. The delivery contract and measured
-  costs are recorded in
-  [ADR-0160](decisions/adr/ADR-0160-rooms-retained-delivery.md).
+- Control descriptors persist immutable powers, independent revocation, and
+  the management dependencies they keep. Attenuation narrows those powers.
+- Managed issuance keeps the use and the issuer's control separately,
+  including exact receipt recovery.
+- Persistent resource moves check ancestry and descendant depth, update child
+  indexes atomically, and keep stable IDs.
+- Deleting a leaf leaves inactive identity metadata behind, while its content
+  follows its own retention.
+- Native child cursors filter each candidate through admission, and refuse
+  after another commit intervenes.
+- Hosted observation uses persisted exact contexts and opaque cursors bound to
+  them. Receivers and cancellers run on separate actor lanes.
 
-- **Room durability is separate authority from membership.** Ordinary
-  `open`/`enter` and a room entrance reference grant no right to create durable
-  entry authority. Rooms-native managed creation separately returns a passable
-  manager for that room's registered public name, entry-link, and moderator
-  generations. The live room still disappears when empty; its registration
-  reserves the name and named entry reconstitutes it. A room entry link is not
-  that registration and grants no management. Losing every manager copy
-  requires the directory operator to recover one; sharing a manager delegates
-  management rather than transferring it exclusively. Revoking an entry link
-  blocks later admission through every old copy but does not evict a membership
-  that already subscribed. The current manager can unregister the room. That
-  retires its public entrance and moves it to private access while its room
-  link, moderator, manager, and existing memberships remain. The public name
-  is then available to another room, so registering this room again may meet a
-  name collision.
+**Change events.** A resident grant mutation returns its committed change
+events. A stored mutation returns proposed events, to publish once the commit
+is confirmed.
 
-- **Local browser reconstruction is not a multi-writer merge protocol.** A
-  local workspace uses one coalesced localStorage writer per tab. Explicit
-  import and clear notify sibling tabs, but concurrent ordinary local edits are
-  not merged. Use one durable Rooms session capability when several browsers or
-  tabs must mutate the same workspace and network identity.
+- The owner keeps 32 committed batches, each of at most 16 grant, resource,
+  content, or control effects. A shared batch holds ordered effects for one
+  owner transaction. Expired batch edges become collectible.
+- Scoped replay keeps cursors unchanged when the only activity is hidden, and
+  explicitly resynchronizes when visible changes have expired. Current
+  authority bounds every reply, including inactive status.
+- Resource and control revisions still invalidate stale operations, while
+  exact mutation receipts keep committed results.
 
-- **Directory discovery is a bounded live view.** A list or watch baseline
-  carries at most 256 current room publications. Watch clients receive an
-  explicit truncation event and continue receiving later deltas. A one-shot
-  list has no continuation cursor yet, so callers that need a complete large
-  directory inventory must use the paged operator capability.
+**Read and close rules.**
 
-- **The IRC adapters have IRC representation and delivery limits.** The bridge mirrors one channel into an
-  ordinary Rooms directory and is read-only unless the operator selects
-  two-way mode with TLS and SASL credentials. Two-way posts use the bridge's
-  registered nick and a visible `<nick>` prefix. IRC supplies no acknowledgement
-  for a channel message, so an ambiguous TCP failure may repeat or lose the last
-  line even though the bounded queue survives an observed write failure. The
-  client front maps only existing IRC-addressable room names. It fixes a
-  nickname for the connection because Rooms grants names per capability and no
-  atomic rename exists across several memberships. Native names outside IRC's
-  alphabet receive disclosed connection-local aliases. Lines, topics, and file
-  capabilities that cannot fit IRC are reported rather than silently truncated
-  or discarded. Foreign room publications without a member count, and native
-  room names IRC cannot address, are omitted from `LIST` with a notice instead
-  of invented fields. IRC carries neither edits nor capability-bearing file and
-  room offers. IRC is an application adapter, never a CapTP transport; there is
-  no IRC server link and no CapTP-over-IRC netlayer.
+- A Store read expires after any commit and refuses during uncertainty. A read
+  that consumed proposals also expires after an abort or a missing recovery.
+- A storage read cannot close while an append or a resource change borrows it,
+  or while submitted read work is still outstanding.
+- Iteration cannot release bindings that a prepared effect borrows. Graph and
+  ledger destruction refuse while a write is pending.
+- Native capability operations keep their source reference, descriptor lease,
+  and bounded managed working set. Close refuses while reads are submitted,
+  and the Capabilities owner refuses while references or operations are live.
+- Under a tight cache budget, release finished operations before admitting new
+  work. A descriptor survives final native release only with explicit root or
+  containing-edge retention.
 
-- **A sturdyref enliven verifies the complete locator before wire traffic.**
-  Every tier's select-or-dial enliven (`driver.HostRuntime.enliven`,
-  `glowcap_host_enliven`, and each binding's host-level verb) checks the
-  sturdyref's peer against the session it selects or dials. An accepted
-  plain-TCP session is refused by default; only the native low-level
-  `assertion_only` opt-in proceeds, and it reports that provenance. Dial
-  staging is a Node prepare/commit transaction: Host parking and completion
-  capacity are acquired before a dial action becomes observable.
+**Space and cost.**
+
+- The stored profile never reuses committed resource or grant slots. Its owner
+  root keeps active indexed records.
+- Bounded maintenance prunes terminal rows and compacts dead descriptors and
+  endpoints, without reusing allocation or receipt floors. Owner retirement
+  closes admission before cleanup, and tracing reclaims payloads once
+  retained custody ends.
+- A permanent name reservation costs 58 logical bytes before backend overhead.
+- Directory traversal takes up to four page reads plus the target, in addition
+  to the owner header.
+- Read working sets pin bounded records, and cache buffers reserve the
+  configured maximum record size for each slot.
+- No managed-owner throughput figure or 500k-scale claim is established.
+
+**Policy limits.** One ledger borrows one stable graph and copies one
+immutable policy schema.
+
+- A schema allows at most 64 Boolean permissions and 16 unsigned lower or upper
+  bounds. Persisted positive dependencies constrain configured terms and control
+  ceilings; partial effect demands do not need prerequisite closure. Interface
+  applicability across heterogeneous scopes remains an application integration
+  boundary, tracked in the [Rooms queue](planning/rooms/integration.md).
+- Applications must declare every fact relevant to an effect. Fact relations,
+  alternatives, projections, and remote dependencies are not implemented.
+- A fresh store needs fresh identities. Neither the graph nor the ledger can
+  grow or be restored.
+- A revoked record keeps its capacity, including its child count, until the
+  ledger is destroyed.
+- Selected scopes need bounded copies on issuance and editing. Reads and
+  lifecycle changes allocate nothing, and traversal is bounded by the
+  configured ancestry limits. Reparenting costs one bounded ancestry walk and
+  two subtree traversals.
+
+### Rooms
+
+Limits that belong to the Rooms application, rather than to the library, are
+listed in [operating Rooms](../apps/rooms/operating.md#known-limitations).
+
+### Host and ABI
+
+- **Enlivening a sturdyref checks the whole locator before anything is sent.**
+  Turning a sturdyref back into a live reference either selects an existing
+  session or dials a new one. Every tier does this the same way
+  (`driver.HostRuntime.enliven`, `glowcap_host_enliven`, and each binding's
+  host-level verb), and each checks the sturdyref's peer against the session
+  it selects or dials.
+  - An accepted plain-TCP session is refused by default. Only the native
+    low-level `assertion_only` opt-in proceeds, and it reports that the
+    peer was asserted rather than proved.
+  - Dial staging is a prepare-then-commit step in the Node. Host parking and
+    completion capacity are reserved before a dial action becomes visible.
+  - Settled Zig Host actions own their data and capability retains, through
+    borrowed pops, retries, and transfer. Projection gives each consumer its
+    own retain, and its byte views borrow the action. Closing the source
+    session does not retire a capability owned elsewhere.
+  - `Host.enlivenCapability` tracks its completion apart from the action
+    queue. Destroying the observation detaches it, while a shared dial stays
+    Host work.
+  - This API does not prove that a supplied sturdyref names some other
+    capability you already hold.
 - **The public API and ABI are not stable.** There are no release tags or
   compatibility guarantees yet. Pin a commit when consuming the package.
 
@@ -454,29 +469,37 @@ assets are not published.
   sessions or staged concrete `via` routes. Feature names from older CapTP
   designs (streams, equality queries, a `draining` lifecycle) exist in neither
   the pinned draft nor Goblins, so their absence here is not an interop gap.
-- **Route bundles select only at their owner.** ADR-0125 route bundles drive
-  Node handoff/redeem scheduling for `alt-locators` and `id` `via`, and
-  signed-give lowering for `id`. A give preserves route vocabulary only when both its
-  recipient and exporter sessions negotiated it; a baseline-compatible
-  override remains usable, while private vocabulary falls back to the concrete
-  location the exporter claimed on its session. The generic single-path dial planner and Host open
-  path still refuse bundle transports as physical sessions. Host
-  `fetchAt(locator, name)` and sturdyref enlivenment send named capability
-  lookup through the Node pending-dial waist, which alone resolves `id` into a
-  concrete transport without making an application choose a CapTP profile. Declared `via`
-  order ranks a two-attempt window, the first proved completion wins, and exact
-  losing route attempts are cancelled before their executor state retires. A
-  weak fallback serves only its authorizing ticket; it is cached as the
-  canonical exporter session only when the channel independently proves the bundle's durable
-  identity. Discovered route advice becomes available to later gives only
-  after one withdrawal succeeds. Rooms composes active listeners into an
-  identity route and uses the existing handoff path to publish durable rooms
-  between directories. A Rooms Host also authors room and steward sturdyrefs
-  with the identity route it advertises on the asking session. Rooms reaches
-  the directory publication through `fetchAt`, so a browser or native binding
-  can reconnect through that route and try its concrete alternatives without
-  changing room authority. Ordinary member introductions still relay the
-  member's signed session location.
+- **Only the Node chooses among a route bundle's routes.** A route bundle is
+  the list of paths in an `alt-locators` hint or an `id` locator's `via` hint
+  ([multi-home peers](https://jimisaacs.github.io/glowcap/multihome/),
+  ADR-0125).
+  - The Node uses bundles to schedule handoff and redeem, and to lower a
+    signed give for `id`. A give keeps its route vocabulary only when both the
+    recipient's and the exporter's sessions negotiated it. A
+    baseline-compatible override still works. Otherwise the give falls back to
+    the concrete location the exporter claimed on its session.
+  - The generic single-path dial planner and the Host open path refuse a
+    bundle transport as a physical session.
+  - Host `fetchAt(locator, name)` and sturdyref enlivenment send their lookup
+    through the Node's pending-dial path. That is the one place that resolves
+    `id` into a concrete transport, so an application never has to choose a
+    CapTP profile.
+  - The declared `via` order ranks a window of two attempts. The first proved
+    completion wins, and the losing attempts are cancelled before their
+    executor state is retired.
+  - A weak fallback serves only the ticket that authorized it. It is cached as
+    the exporter's session only when its channel independently proves the
+    bundle's durable identity.
+  - Route advice discovered along the way becomes available to later gives
+    only after one withdrawal succeeds.
+  - Rooms combines its active listeners into an identity route and publishes
+    durable rooms between directories through the ordinary handoff path. A
+    Rooms Host also writes room and steward sturdyrefs with the identity route
+    it advertises on the asking session. Rooms reaches the directory
+    publication through `fetchAt`, so a browser or native binding can
+    reconnect through that route and try its alternatives without changing
+    room authority. Ordinary member introductions still pass along the
+    member's signed session location.
 - **Handoff signatures always use Syrup.** That signing domain does not change
   when the surrounding session uses Cap'n Proto.
 - **Pinned Goblins can reject handoffs from independent receivers.** Goblins

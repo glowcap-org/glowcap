@@ -58,7 +58,7 @@ setup once you know which path you want. A browser that cannot open a native
 socket uses the [relay]($link.page('relay')) as a WebSocket that forwards bytes
 to a peer that already has a transport name.
 
-One program can listen on several of these at once, and today's locator
-vocabulary makes that two peers. [Multi-home peers]($link.page('multihome'))
+One program can listen on several of these at once, but a standard locator
+names one transport, so two listeners look like two peers. [Multi-home peers]($link.page('multihome'))
 is glowcap's `id` locator: one durable key as the name, with the routes
 underneath it.

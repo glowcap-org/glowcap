@@ -54,11 +54,10 @@ test "loam LMDB managed owner reopens indexes and recovers content grants and ev
             try std.testing.expectError(error.RecoveryRequired, resources.get(resource));
             try std.testing.expectError(error.RecoveryRequired, read.advance());
             try store.resolve(ticket, try db.recover(try store.recoveryBatch()));
-            if (committed) {
-                try std.testing.expectError(error.RevisionConflict, resources.get(resource));
-            } else {
-                try f.require(&read, &db, issued.grant, resource, .{ .permissions = &.{f.vocabulary.read} });
-            }
+            // This read consumed the proposed owner header. Recovery ends that
+            // transaction even when absent; its composed view must be reopened.
+            try std.testing.expectError(error.RevisionConflict, resources.get(resource));
+            try std.testing.expectError(error.RevisionConflict, read.advance());
             try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), event.change.version.grants);
         }
         try store.deinit();
@@ -71,19 +70,17 @@ test "loam LMDB managed owner reopens indexes and recovers content grants and ev
             _ = try f.pump(&read, &db);
             const req: f.core.Policy.Requirement = .{ .permissions = &.{f.vocabulary.read} };
             if (committed) try std.testing.expectError(error.Revoked, f.require(&read, &db, issued.grant, resource, req)) else try f.require(&read, &db, issued.grant, resource, req);
-            const event_lease = try support.load(&store, &db, read.header.change.?);
-            const event = try f.loam.access.records.ChangeRecord.decode((try store.currentView(event_lease)).payload);
-            try std.testing.expectEqualDeep(read.header.version, event.change.version);
-            try std.testing.expectEqual(issued.grant, event.change.grant);
-            if (committed) try std.testing.expectEqual(.revoked, event.change.kind.status_changed.after) else try std.testing.expect(event.change.kind == .issued);
-            try store.release(event_lease);
+            const event = try f.latestGrant(&read, &db);
+            try std.testing.expectEqualDeep(read.header.version, event.version);
+            try std.testing.expectEqual(issued.grant, event.grant);
+            if (committed) try std.testing.expectEqual(.revoked, event.kind.status_changed.after) else try std.testing.expect(event.kind == .issued);
             const lease = try support.load(&store, &db, content);
             try std.testing.expectEqualStrings(if (committed) "revoked" else "before", (try store.currentView(lease)).payload);
             try store.release(lease);
         }
         const before = store.metadata.objects;
         try support.collect(&store, &db);
-        try std.testing.expectEqual(before - @as(u64, @intFromBool(committed)), store.metadata.objects);
+        try std.testing.expectEqual(before, store.metadata.objects);
         // The reopened store continues issuance from the stored allocation floor.
         const next = try f.resource(&store, &db, owner, null);
         try std.testing.expectEqual(resource.slot + 1, next.slot);
@@ -176,18 +173,17 @@ test "loam LMDB composed managed changes reopen atomically after commit and unkn
                 var grants = try verify.grantView();
                 try std.testing.expectEqual(@as(u32, 1), (try grants.get(issued_grant)).child_count);
                 try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), (try grants.get(issued_grant)).revision);
-                const event_lease = try support.load(&store, &db, verify.header.change.?);
-                const event = try f.loam.access.records.ChangeRecord.decode((try store.currentView(event_lease)).payload);
-                try std.testing.expectEqualDeep(verify.header.version, event.change.version);
-                try std.testing.expectEqual(derived_grant, event.change.grant);
-                try store.release(event_lease);
+                const event = try f.latestGrant(&verify, &db);
+                try std.testing.expectEqualDeep(verify.header.version, event.version);
+                try std.testing.expectEqual(derived_grant, event.grant);
             } else {
                 // Recovery proved the composed batch absent: the committed
                 // owner keeps its pre-composition indexes and counters.
                 try std.testing.expectEqual(@as(u64, 1), verify.header.next_resource);
                 try std.testing.expectEqual(@as(u64, 0), verify.header.next_grant);
                 try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(0)), verify.header.version.grants);
-                try std.testing.expect(verify.header.change == null);
+                try std.testing.expectError(error.MissingGrantEvent, f.latestGrant(&verify, &db));
+                try std.testing.expectEqual(@as(u64, 2), verify.history.next_sequence);
                 try std.testing.expectError(error.UnknownGrant, f.require(&verify, &db, issued_grant, resource, req));
             }
         }

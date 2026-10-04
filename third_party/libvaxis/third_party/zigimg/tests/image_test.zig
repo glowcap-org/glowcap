@@ -189,7 +189,7 @@ test "Should detect BMP properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .bmp);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -215,7 +215,7 @@ test "Should detect GIF properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .gif);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -233,7 +233,7 @@ test "Should detect PCX properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .pcx);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -249,7 +249,7 @@ test "Should detect PBM properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .pbm);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -267,7 +267,7 @@ test "Should detect PGM properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .pgm);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -283,7 +283,7 @@ test "Should detect PPM properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .ppm);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -299,7 +299,7 @@ test "Should detect PNG properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .png);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -323,7 +323,7 @@ test "Should detect TGA properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .tga);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -336,7 +336,7 @@ test "Should detect QOI properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .qoi);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -352,7 +352,7 @@ test "Should detect JPEG properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .jpeg);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -368,7 +368,7 @@ test "Should detect Farbfeld properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .farbfeld);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -383,7 +383,7 @@ test "Should detect IFF/PBM properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .iff);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -398,7 +398,7 @@ test "Should detect RAS properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .ras);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -413,7 +413,7 @@ test "Should detect SGI properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .sgi);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -428,7 +428,7 @@ test "Should detect TIFF properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .tiff);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -451,7 +451,7 @@ test "Should detect XBM properly" {
 
     for (image_tests) |image_path| {
         var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
-        const format = try Image.detectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
+        const format = try helpers.testDetectFormatFromFilePath(test_io, image_path, read_buffer[0..]);
         try std.testing.expect(format == .xbm);
 
         var test_image = try helpers.testImageFromFile(test_io, image_path, read_buffer[0..]);
@@ -742,4 +742,81 @@ test "Managed to Image" {
 
     try std.testing.expect(managed_pixels == .rgb24);
     try std.testing.expect(managed_pixels.rgb24.len == 24 * 32);
+}
+
+test "Image.dupe()" {
+    const color_data: []const color.Rgb24 = &.{
+        Colors(color.Rgb24).Red,
+        Colors(color.Rgb24).Green,
+        Colors(color.Rgb24).Blue,
+        Colors(color.Rgb24).Cyan,
+        Colors(color.Rgb24).Magenta,
+        Colors(color.Rgb24).Yellow,
+        Colors(color.Rgb24).Black,
+        Colors(color.Rgb24).White,
+    };
+
+    const frame1_data: []const color.Rgb24 = &.{
+        Colors(color.Rgb24).White,
+        Colors(color.Rgb24).Black,
+        Colors(color.Rgb24).Yellow,
+        Colors(color.Rgb24).Magenta,
+        Colors(color.Rgb24).Cyan,
+        Colors(color.Rgb24).Blue,
+        Colors(color.Rgb24).Green,
+        Colors(color.Rgb24).Red,
+    };
+
+    const pixel_data = std.mem.sliceAsBytes(color_data);
+    var image = try Image.fromRawPixels(helpers.zigimg_test_allocator, 8, 1, pixel_data, .rgb24);
+    defer image.deinit(helpers.zigimg_test_allocator);
+
+    image.animation.loop_count = 2;
+    try image.animation.frames.append(helpers.zigimg_test_allocator, .{
+        .duration = 16.1234,
+        .frame_width = 8,
+        .frame_height = 1,
+        .pixels = image.pixels,
+    });
+
+    const frame1_pixels = try zigimg.color.PixelStorage.init(helpers.zigimg_test_allocator, .rgb24, frame1_data.len);
+    @memcpy(frame1_pixels.rgb24, frame1_data);
+
+    try image.animation.frames.append(helpers.zigimg_test_allocator, .{
+        .duration = 12.3456,
+        .frame_width = 8,
+        .frame_height = 1,
+        .pixels = frame1_pixels,
+    });
+
+    var duped_image = try image.dupe(helpers.zigimg_test_allocator);
+    defer duped_image.deinit(helpers.zigimg_test_allocator);
+
+    try helpers.expectEq(std.meta.activeTag(duped_image.pixels), .rgb24);
+    try helpers.expectEq(duped_image.width, 8);
+    try helpers.expectEq(duped_image.height, 1);
+    try helpers.expectEq(duped_image.animation.loop_count, 2);
+    try helpers.expectEq(duped_image.animation.frames.items.len, 2);
+
+    try std.testing.expect(duped_image.pixels.rgb24.ptr != image.pixels.rgb24.ptr);
+    try std.testing.expect(duped_image.animation.frames.items[0].pixels.rgb24.ptr != image.animation.frames.items[0].pixels.rgb24.ptr);
+    try std.testing.expect(duped_image.animation.frames.items[1].pixels.rgb24.ptr != image.animation.frames.items[1].pixels.rgb24.ptr);
+
+    try helpers.expectEq(duped_image.pixels.rgb24[0], Colors(color.Rgb24).Red);
+    try helpers.expectEq(duped_image.pixels.rgb24[1], Colors(color.Rgb24).Green);
+    try helpers.expectEq(duped_image.pixels.rgb24[2], Colors(color.Rgb24).Blue);
+    try helpers.expectEq(duped_image.pixels.rgb24[3], Colors(color.Rgb24).Cyan);
+    try helpers.expectEq(duped_image.pixels.rgb24[4], Colors(color.Rgb24).Magenta);
+    try helpers.expectEq(duped_image.pixels.rgb24[5], Colors(color.Rgb24).Yellow);
+    try helpers.expectEq(duped_image.pixels.rgb24[6], Colors(color.Rgb24).Black);
+    try helpers.expectEq(duped_image.pixels.rgb24[7], Colors(color.Rgb24).White);
+
+    try helpers.expectEq(duped_image.animation.frames.items[1].pixels.rgb24[0], Colors(color.Rgb24).White);
+    try helpers.expectEq(duped_image.animation.frames.items[1].pixels.rgb24[1], Colors(color.Rgb24).Black);
+    try helpers.expectEq(duped_image.animation.frames.items[1].pixels.rgb24[2], Colors(color.Rgb24).Yellow);
+    try helpers.expectEq(duped_image.animation.frames.items[1].pixels.rgb24[3], Colors(color.Rgb24).Magenta);
+    try helpers.expectEq(duped_image.animation.frames.items[1].pixels.rgb24[4], Colors(color.Rgb24).Cyan);
+    try helpers.expectEq(duped_image.animation.frames.items[1].pixels.rgb24[5], Colors(color.Rgb24).Blue);
+    try helpers.expectEq(duped_image.animation.frames.items[1].pixels.rgb24[6], Colors(color.Rgb24).Green);
+    try helpers.expectEq(duped_image.animation.frames.items[1].pixels.rgb24[7], Colors(color.Rgb24).Red);
 }

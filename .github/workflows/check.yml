@@ -85,4 +85,4 @@ jobs:
         run: zig build infrastructure-check --test-timeout 30s --summary all
 
       - name: Run Zig and native Loam storage tests on macOS
-        run: zig build test loam-lmdb-test --test-timeout 30s -j4 --summary all
+        run: zig build test loam-lmdb-test loam-lmdb-crash-test loam-actors-crash-test loam-managed-crash-test loam-references-crash-test loam-collection-crash-test loam-compaction-crash-test --test-timeout 30s -j4 --summary all

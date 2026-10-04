@@ -34,7 +34,7 @@ pub const DialPolicy = struct {
 /// peer-refusal faults. `OutOfMemory` is not a network transient.
 pub fn isTransient(err: DialError) bool {
     return switch (err) {
-        error.NetworkUnreachable, error.TimedOut, error.ConnectionLost => true,
+        error.NetworkUnreachable, error.TimedOut, error.ConnectionLost, error.WouldBlock => true,
         error.InvalidAddress,
         error.InvalidOptions,
         error.ConnectionRefused,

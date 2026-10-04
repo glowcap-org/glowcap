@@ -9,11 +9,17 @@ fn directory_release_does_not_wait_for_inherited_descriptors() {
 	// exec: closing the parent's descriptor alone cannot release its lock.
 	let inherited = owner._lock.try_clone().unwrap();
 	drop(owner);
-	assert!(matches!(Directory::open(path.clone(), ".lock"), Err(StorageError::InUse(_))));
+	assert!(matches!(
+		Directory::open(path.clone(), ".lock"),
+		Err(StorageError::InUse(_))
+	));
 	drop(worker);
 	let next = Directory::open(path.clone(), ".lock").unwrap();
 	drop(inherited);
-	assert!(matches!(Directory::open(path.clone(), ".lock"), Err(StorageError::InUse(_))));
+	assert!(matches!(
+		Directory::open(path.clone(), ".lock"),
+		Err(StorageError::InUse(_))
+	));
 	drop(next);
 	fs::remove_dir_all(path).unwrap();
 }

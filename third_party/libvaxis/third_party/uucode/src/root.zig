@@ -38,6 +38,15 @@ test "is_alphabetic" {
 test "case_folding_simple" {
     try testing.expectEqual(97, get(.case_folding_simple, 65)); // 'a'
     try testing.expectEqual(97, get(.case_folding_simple, 97)); // 'a'
+
+    // Simple case folding is defined by the C and S entries of CaseFolding.txt.
+    // The T (Turkic) entries must not be used: they are only valid in Turkish
+    // and Azeri locales. Historically case_folding_simple fell back to the T
+    // mapping when a code point had no C or S entry. That only ever affected
+    // U+0130 (which has only F and T entries), folding İ to 'i' instead of
+    // leaving it unchanged (see issue #54).
+    try testing.expectEqual(0x0130, get(.case_folding_simple, 0x0130)); // İ
+    try testing.expectEqual(0x0069, get(.case_folding_turkish_only, 0x0130).?); // 'i'
 }
 
 test "simple_uppercase_mapping" {
@@ -277,16 +286,39 @@ test "case_folding_full" {
 test "case_folding_turkish_only" {
     // U+0049 'I' has Turkish-only case folding to U+0131 (ı)
     try testing.expectEqual(0x0131, get(.case_folding_turkish_only, 0x0049).?);
+    // U+0130 (İ) has Turkish-only case folding to U+0069 'i'
+    try testing.expectEqual(0x0069, get(.case_folding_turkish_only, 0x0130).?);
+    try testing.expectEqual(null, get(.case_folding_turkish_only, 0x0041));
 }
 
 test "case_folding_common_only" {
     // U+0041 'A' has common case folding to U+0061 'a'
     try testing.expectEqual(0x0061, get(.case_folding_common_only, 0x0041).?);
+    // U+1E9E (ẞ) only has full and simple case folding
+    try testing.expectEqual(null, get(.case_folding_common_only, 0x1E9E));
+    // U+1E921 (Adlam capital sha) to U+1E943, above the ASCII range
+    try testing.expectEqual(0x1E943, get(.case_folding_common_only, 0x1E921).?);
 }
 
 test "case_folding_simple_only" {
     // U+1E9E (ẞ) has simple-only case folding to U+00DF (ß)
     try testing.expectEqual(0x00DF, get(.case_folding_simple_only, 0x1E9E).?);
+    // U+1F88 has simple-only case folding to U+1F80
+    try testing.expectEqual(0x1F80, get(.case_folding_simple_only, 0x1F88).?);
+    try testing.expectEqual(null, get(.case_folding_simple_only, 0x0041));
+}
+
+test "case_folding _only fields in a packed table" {
+    // The `_only` fields are in the packed `case_only` table in the test
+    // config, so every code point's default row goes through
+    // `MultiSlice.memset` with packed shift structs.
+    // See https://github.com/jacobsandlund/uucode/issues/55
+    try testing.expectEqual(null, get(.case_folding_turkish_only, 0x10FFFF));
+    try testing.expectEqual(null, get(.case_folding_common_only, 0x10FFFF));
+    try testing.expectEqual(null, get(.case_folding_simple_only, 0x10FFFF));
+    try testing.expectEqual(null, get(.case_folding_turkish_only, 0x0000));
+    try testing.expectEqual(null, get(.case_folding_common_only, 0x0000));
+    try testing.expectEqual(null, get(.case_folding_simple_only, 0x0000));
 }
 
 test "case_folding_full_only" {
@@ -470,6 +502,29 @@ test "original_grapheme_break" {
     try testing.expectEqual(.other, get(.original_grapheme_break, 0x0041)); // 'A'
 }
 
+test "Unicode 18 Indic linker classifications" {
+    const extend_linkers = [_]u21{
+        0x094D,  0x09CD,  0x0ACD,  0x0B4D,  0x0C4D,
+        0x0D4D,  0x1039,  0x17D2,  0x1A60,  0x1B44,
+        0x1BAB,  0xA9C0,  0xAAF6,  0x10A3F, 0x11133,
+        0x113D0, 0x1193E, 0x11A47, 0x11A99, 0x11F42,
+    };
+    const other_linkers = [_]u21{ 0x1CF5, 0x1CF6, 0x11A3A };
+
+    for (extend_linkers) |cp| {
+        try testing.expectEqual(.linker, get(.indic_conjunct_break, cp));
+        try testing.expectEqual(.extend, get(.original_grapheme_break, cp));
+        try testing.expectEqual(.indic_conjunct_break_linker_extend, get(.grapheme_break, cp));
+        try testing.expectEqual(.indic_conjunct_break_linker_extend, get(.grapheme_break_no_control, cp));
+    }
+    for (other_linkers) |cp| {
+        try testing.expectEqual(.linker, get(.indic_conjunct_break, cp));
+        try testing.expectEqual(.other, get(.original_grapheme_break, cp));
+        try testing.expectEqual(.indic_conjunct_break_linker_other, get(.grapheme_break, cp));
+        try testing.expectEqual(.indic_conjunct_break_linker_other, get(.grapheme_break_no_control, cp));
+    }
+}
+
 test "is_emoji" {
     try testing.expect(get(.is_emoji, 0x1F600)); // 😀
     try testing.expect(!get(.is_emoji, 0x0041)); // 'A'
@@ -630,4 +685,42 @@ test "wcwidth_standalone emoji_modifier is 2" {
 test "wcwidth_zero_in_grapheme emoji_modifier is true" {
     try testing.expect(get(.wcwidth_zero_in_grapheme, 0x1F3FB)); // 🏻 EMOJI MODIFIER FITZPATRICK TYPE-1-2
     try testing.expect(get(.wcwidth_zero_in_grapheme, 0x1F3FF)); // 🏿 EMOJI MODIFIER FITZPATRICK TYPE-6
+}
+
+test "Unicode 18 scripts and blocks" {
+    const cases = [_]struct { cp: u21, block: types.Block, script: types.Script }{
+        .{ .cp = 0x11DF0, .block = .bengali_supplement, .script = .bengali },
+        .{ .cp = 0x12550, .block = .archaic_cuneiform_numerals, .script = .cuneiform },
+        .{ .cp = 0x125A8, .block = .archaic_cuneiform_numerals, .script = .proto_cuneiform },
+        .{ .cp = 0x18E00, .block = .jurchen, .script = .jurchen },
+        .{ .cp = 0x19191, .block = .jurchen, .script = .jurchen },
+        .{ .cp = 0x191A0, .block = .jurchen_radicals, .script = .jurchen },
+        .{ .cp = 0x1D250, .block = .musical_symbols_supplement, .script = .common },
+        .{ .cp = 0x1DB10, .block = .miscellaneous_symbols_and_arrows_extended, .script = .common },
+        .{ .cp = 0x3D000, .block = .seal, .script = .seal },
+        .{ .cp = 0x3FC3F, .block = .seal, .script = .seal },
+    };
+    for (cases) |case| {
+        try testing.expectEqual(case.block, get(.block, case.cp));
+        try testing.expectEqual(case.script, get(.script, case.cp));
+        try testing.expect(get(.general_category, case.cp) != .other_not_assigned);
+    }
+    try testing.expectEqual(.other_not_assigned, get(.general_category, 0x19192));
+    try testing.expectEqual(.other_not_assigned, get(.general_category, 0x3FC40));
+    try testing.expectEqual(2, get(.wcwidth_standalone, 0x18E00));
+    try testing.expectEqual(2, get(.wcwidth_standalone, 0x3D000));
+    try testing.expectEqualStrings("CUNEIFORM NUMERIC SIGN ONE N01", get(.name, 0x12550));
+}
+
+test "Unicode 18 mappings and emoji" {
+    try testing.expectEqual(0x00DF, get(.case_folding_simple, 0x1DF95));
+    try testing.expectEqual(0x00DF, get(.case_folding_simple_only, 0x1DF95));
+    try testing.expectEqual(0x1DB10, get(.bidi_mirroring, 0x221D));
+    try testing.expectEqual(0x221D, get(.bidi_mirroring, 0x1DB10));
+    try testing.expectEqual(.crown_beh, get(.joining_group, 0x10ED9));
+    try testing.expectEqual(.crown_heh, get(.joining_group, 0x10EED));
+    try testing.expectEqualStrings("PICKLE", get(.name, 0x1FADD));
+    try testing.expect(get(.is_emoji, 0x1FADD));
+    try testing.expect(get(.is_emoji_presentation, 0x1FADD));
+    try testing.expectEqual(2, get(.wcwidth_standalone, 0x1FADD));
 }

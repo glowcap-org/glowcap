@@ -85,6 +85,9 @@ const DmDemo = struct {
 pub const Registered = struct {
     services_install: *std.Build.Step,
     web_proofs: *std.Build.Step,
+    /// The generated browser module and its type declarations, which the
+    /// repository's TypeScript check imports.
+    browser_application: *std.Build.Step,
 };
 
 pub fn register(ctx: Context) Registered {
@@ -487,11 +490,11 @@ pub fn register(ctx: Context) Registered {
         const run = execution.addSystemCommand(b, .{ .browser_proof = proof.wrapper_deadline_seconds }, &.{"env"});
         run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
         if (proof.needs_archive) {
-            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_TEST_BIN=", .make_absolute = true });
+            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_BIN=", .make_absolute = true });
             run.step.dependOn(archive_install);
         }
         if (proof.needs_session) {
-            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-session" } }, .{ .prefix = "GLOWCAP_ROOMS_SESSION_TEST_BIN=", .make_absolute = true });
+            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-session" } }, .{ .prefix = "GLOWCAP_ROOMS_SESSION_BIN=", .make_absolute = true });
             run.step.dependOn(archive_install);
         }
         {
@@ -511,5 +514,5 @@ pub fn register(ctx: Context) Registered {
         web_proofs_step.dependOn(&run.step);
     }
 
-    return .{ .services_install = archive_install, .web_proofs = web_proofs_step };
+    return .{ .services_install = archive_install, .web_proofs = web_proofs_step, .browser_application = browser_application };
 }

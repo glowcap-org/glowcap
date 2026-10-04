@@ -109,16 +109,24 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     // Host execution adapters moved to rooms-platform. Keep their client
     // contracts in this focused gate instead of leaving a services filter that
     // silently selects no tests.
+    // Compile without a deadline first, as for the other units, so the timed
+    // run measures the tests rather than a rebuild after a binding change.
+    const platform_unit_args: []const []const u8 = &.{ "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "-p", "rooms-platform", "--lib" };
+    const compile_platform = execution.addSystemCommand(b, .build_tool, &.{"env"});
+    compile_platform.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
+    compile_platform.addArgs(platform_unit_args);
+    compile_platform.addArgs(&.{ "--quiet", "--no-run" });
+    compile_platform.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
+    compile_platform.setCwd(b.path("."));
+    compile_platform.step.dependOn(&compile_units.step);
     const platform_unit = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
     platform_unit.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "LD_LIBRARY_PATH=", .make_absolute = true });
     platform_unit.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
-    platform_unit.addArgs(&.{
-        "cargo", "test",           "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml",
-        "-p",    "rooms-platform", "--lib",    "execution::",
-    });
+    platform_unit.addArgs(platform_unit_args);
+    platform_unit.addArgs(&.{"execution::"});
     platform_unit.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
     platform_unit.setCwd(b.path("."));
-    platform_unit.step.dependOn(&compile_units.step);
+    platform_unit.step.dependOn(&compile_platform.step);
 
     const unit_filters = [_][]const []const u8{
         &.{"archive::"},

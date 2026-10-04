@@ -47,15 +47,16 @@ callables. `send` returns a `RemotePromise`, implemented as an
 `asyncio.Future`, and that promise can be the target of another send.
 
 Under `Runtime` and `listen`, an `iroh`, `noise-tcp`, `keyed-tcp`, or `tcp`
-connection runs on glowcap's native loop posture: Python loads the separate
-Host and driver archives, and one stepping native loop owns the provider,
-framing, pumping, and session release while asyncio parks on its readiness
-descriptor. The application supplies `iroh.provider(config)`,
-`tcp.provider(config)`, or another transport package explicitly; the driver
-starts with no providers and receives the selected package through the common
-provider ABI. A routed `keyed-relay` or `noise-relay` locator likewise loads
-the relay archive and installs its complete provider package. Both roads carry
-the same `Session` surface.
+connection runs on glowcap's native loop. Python loads the separate Host and
+driver archives. One native loop, stepped from Python, owns the provider,
+framing, pumping, and session release, while asyncio waits on the loop's
+readiness descriptor.
+
+The application passes `iroh.provider(config)`, `tcp.provider(config)`, or
+another transport package explicitly. The driver starts with no providers and
+receives the chosen package through the common provider ABI. A routed
+`keyed-relay` or `noise-relay` locator likewise loads the relay archive and
+installs its provider package. Either way, you get the same `Session` API.
 
 `Runtime.open(adopt_host=host, ...)` explicitly transfers an existing Host into
 the Runtime. `await runtime.close()` is then that Host's terminal shutdown
@@ -91,16 +92,19 @@ only in the session where it was exported.
 The application imports only the transport modules it composes. A TCP-only
 program never loads the iroh library.
 
-A `keyed-relay` locator names a peer that opens no socket and holds inbound
-connections at a relay under its key. When the locator carries a
-`rendezvous-relay` hint, `Runtime.connect` routes through the native relay provider.
-For a bare locator, use `relay.connector(config)`: the route comes from the
-locator's hint or the connector's own configuration, the same two authorities
-every binding reads. The connector is an explicit byte-fed
-integration, not an automatic fallback. Its client is the one optional
-dependency, kept out of the core: install `glowcap[rendezvous]`. Repository
-proofs resolve that extra from the committed lock with
-`uv run --project bindings/python --extra rendezvous --locked`.
+A `keyed-relay` locator names a peer that opens no socket of its own. Instead,
+a relay holds inbound connections for it under its key.
+
+- When the locator carries a `rendezvous-relay` hint, `Runtime.connect` routes
+  through the native relay provider.
+- For a bare locator, use `relay.connector(config)`. The route comes from the
+  locator's hint or from the connector's own configuration, the same two
+  sources every binding uses. The connector is something you choose
+  explicitly, not an automatic fallback.
+- The connector's client is the one optional dependency, kept out of the
+  core: install `glowcap[rendezvous]`. Repository checks install that extra
+  from the committed lock with
+  `uv run --project bindings/python --extra rendezvous --locked`.
 
 The lower-level transports are also available directly:
 

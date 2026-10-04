@@ -122,18 +122,31 @@ pub fn performScan(frame: *const Frame, restart_interval: u16, read_stream: *io.
 
     var skips: u32 = 0;
 
-    const noninterleaved = self.component_count == 1 and self.components[0].?.component_id == 1;
+    // A scan with one component is non-interleaved, whatever that component's id is.
+    // Each MCU is one data unit, spaced by Hmax/H and Vmax/V on the frame block grid.
+    const noninterleaved = self.component_count == 1;
 
-    const y_step = if (noninterleaved) 1 else frame.vertical_sampling_factor_max;
-    const x_step = if (noninterleaved) 1 else frame.horizontal_sampling_factor_max;
+    var y_step: usize = frame.vertical_sampling_factor_max;
+    var x_step: usize = frame.horizontal_sampling_factor_max;
+    if (noninterleaved) {
+        const scan_component = self.components[0].?;
+        for (frame.frame_header.components) |frame_component| {
+            if (frame_component.id == scan_component.component_id) {
+                y_step = frame.vertical_sampling_factor_max / frame_component.vertical_sampling_factor;
+                x_step = frame.horizontal_sampling_factor_max / frame_component.horizontal_sampling_factor;
+                break;
+            }
+        }
+    }
 
+    // DRI counts MCUs in scan order. Block coordinates are not MCU indexes
+    // when both sampling factors are greater than 1.
+    var mcu_index: usize = 0;
     var y: usize = 0;
     while (y < self.frame.block_height) : (y += y_step) {
         var x: usize = 0;
         while (x < self.frame.block_width) : (x += x_step) {
-            const mcu_id = y * self.frame.block_width_actual + x;
-
-            if (restart_interval != 0 and mcu_id % (restart_interval * y_step * x_step) == 0) {
+            if (restart_interval != 0 and mcu_index % restart_interval == 0) {
                 self.reader.flushBits();
                 self.prediction_values = @splat(0);
                 skips = 0;
@@ -168,6 +181,7 @@ pub fn performScan(frame: *const Frame, restart_interval: u16, read_stream: *io.
                     }
                 }
             }
+            mcu_index += 1;
         }
     }
 }

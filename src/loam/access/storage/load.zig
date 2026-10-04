@@ -7,6 +7,31 @@ pub const Load = struct {
     failure: ?anyerror = null,
 
     pub const Step = union(enum) { ready: loam.Lease, read: loam.Read, waiting };
+    pub const Row = struct {
+        view: loam.RecordView,
+        lease: ?loam.Lease = null,
+
+        pub fn release(self: Row, store: *loam.Store) void {
+            if (self.lease) |lease| store.release(lease) catch unreachable;
+        }
+    };
+    pub const Resolved = union(enum) { ready: Row, read: loam.Read, waiting };
+
+    /// Borrow a proposal for synchronous use or own one transient committed
+    /// lease. Release a ready row before staging or advancing its transaction.
+    pub fn resolve(self: *Load, store: *loam.Store, id: loam.ObjectId) !Resolved {
+        if (self.failure) |err| return err;
+        if (self.pending != null) return .waiting;
+        if (try store.proposed(id)) |proposal| return .{ .ready = .{ .view = proposal.view } };
+        return switch (try self.acquire(store, id)) {
+            .read => |request| .{ .read = request },
+            .waiting => .waiting,
+            .ready => |lease| result: {
+                errdefer store.release(lease) catch unreachable;
+                break :result .{ .ready = .{ .view = try store.currentView(lease), .lease = lease } };
+            },
+        };
+    }
 
     pub fn acquire(self: *Load, store: *loam.Store, id: loam.ObjectId) !Step {
         if (self.failure) |err| return err;

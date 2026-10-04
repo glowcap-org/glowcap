@@ -3,6 +3,9 @@
     text { font-family: var(--font-sans, system-ui, sans-serif); fill: var(--ink, #3a3027); paint-order: stroke; stroke: var(--paper-raised, #fff9ee); stroke-width: 3px; stroke-linejoin: round; }
     .title { font-size: 14px; font-weight: 700; }
     .sub { font-size: 11.5px; fill: var(--ink-soft, #6b5d4d); }
+    .ink-warm { fill: var(--dia-accent-deep, #9d5209); }
+    .ink-cool { fill: var(--dia-teal-deep, #1b5f66); }
+    .ink-danger { fill: var(--dia-danger, #b3403a); }
     .note { font-size: 11px; fill: var(--dia-danger, #b3403a); }
     .bead { visibility: hidden; }
     @supports (offset-path: path("M0 0 L1 1")) { .bead { visibility: visible; } }
@@ -52,17 +55,17 @@
   </g>
   <g>
     <rect x="168" y="40" width="116" height="70" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
-    <text x="226" y="70" text-anchor="middle" class="title" fill="var(--accent-deep, #9d5209)">request</text>
+    <text x="226" y="70" text-anchor="middle" class="title ink-warm">request</text>
     <text x="226" y="90" text-anchor="middle" class="sub">written down</text>
   </g>
   <g>
     <rect x="318" y="40" width="116" height="70" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
-    <text x="376" y="70" text-anchor="middle" class="title" fill="var(--teal-deep, #1b5f66)">work</text>
+    <text x="376" y="70" text-anchor="middle" class="title ink-cool">work</text>
     <text x="376" y="90" text-anchor="middle" class="sub">disk or network</text>
   </g>
   <g>
     <rect x="468" y="40" width="116" height="70" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
-    <text x="526" y="70" text-anchor="middle" class="title" fill="var(--teal-deep, #1b5f66)">result</text>
+    <text x="526" y="70" text-anchor="middle" class="title ink-cool">result</text>
     <text x="526" y="90" text-anchor="middle" class="sub">confirmed</text>
   </g>
   <g class="view">
@@ -80,7 +83,7 @@
        back to the request it belongs to and across to the screen that shows it. -->
   <path d="M376 110 L376 164" stroke="var(--dia-danger, #b3403a)" stroke-width="2" marker-end="url(#ri-back)"/>
   <rect x="266" y="170" width="220" height="64" rx="12" fill="var(--dia-danger-fill, #faece7)" stroke="var(--dia-danger-rule, #edc9bd)"/>
-  <text x="376" y="197" text-anchor="middle" class="title" fill="var(--dia-danger, #b3403a)">refused or unconfirmed</text>
+  <text x="376" y="197" text-anchor="middle" class="title ink-danger">refused or unconfirmed</text>
   <text x="376" y="217" text-anchor="middle" class="sub">code, cause, next step</text>
   <!-- The two return lanes, with their notes beside the vertical runs, in the
        clear space under the boxes they climb back into. -->

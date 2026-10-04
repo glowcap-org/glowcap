@@ -59,12 +59,26 @@ impl LoopShared {
 
 	async fn drive_close(self: Rc<Self>) {
 		let close_code = loop {
+			crate::finalizer::drain();
 			let notified = self.step_activity();
 			tokio::pin!(notified);
 			notified.as_mut().enable();
 			if let Err(error) = self.step_now() {
 				self.fail_background(error);
 				return;
+			}
+			#[cfg(feature = "loam")]
+			let host = self.wrapper.borrow().as_ref().and_then(Weak::upgrade);
+			#[cfg(feature = "loam")]
+			if let Some(host) = host {
+				match host.loam.progress().await {
+					Ok(true) => continue,
+					Ok(false) => {}
+					Err(error) => {
+						self.fail_background(error);
+						return;
+					}
+				}
 			}
 			match self.driver.lifecycle_state() {
 				Ok((true, code)) => break code,
@@ -95,6 +109,11 @@ impl LoopShared {
 		debug_assert!(self.pending_listeners.borrow().is_empty());
 		let host = self.wrapper.borrow().as_ref().and_then(Weak::upgrade);
 		if let Some(host) = host {
+			#[cfg(feature = "loam")]
+			if let Err(error) = host.loam.close() {
+				self.fail_close_or_record(error);
+				return;
+			}
 			let release = self.driver.release();
 			match release.result {
 				Ok(()) if release.consumed => {

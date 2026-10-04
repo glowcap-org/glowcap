@@ -401,7 +401,7 @@ const NAME_CHARS = String.raw`\w\[\]\\\`^{|}-`;
 /** Whether the text after `@` can still become one mention.
  *
  * Completion and rendering must accept the same IRC nickname alphabet. A
- * second, narrower expression in the composer used to make names such as
+ * second, narrower expression in the composer would make names such as
  * `some[nick]` readable after arrival but impossible to complete while typing. */
 export const MENTION_QUERY = new RegExp(String.raw`^[${NAME_CHARS}]*$`);
 
@@ -458,8 +458,8 @@ export function lineRoom(
  * Both caps are watched. A room bridged somewhere else may carry less than
  * this app does, and finding that out by having a message cut in half on the
  * far side is finding out too late; where it asks for no less, the app's own
- * cap is still a wall a pasted log walks into, and it used to be met only by
- * pressing Send. Only a room's own cap is named, though, because that is the
+ * cap is still a wall a pasted log walks into, better met before pressing
+ * Send. Only a room's own cap is named, though, because that is the
  * one a reader has no way to know about.
  *
  * The cap itself comes from `lineRoom`, the same call the send is refused by,

@@ -51,6 +51,9 @@
 //! Native targets add the socket reactor; Wasm targets use browser entropy and
 //! timers while the embedder polls a Tokio LocalSet and supplies byte channels.
 
+#[cfg(feature = "loam")]
+pub mod loam;
+
 mod abi_constants;
 // Reflected ABI constants (`zig build gen-binding-constants`); re-exported
 // through `abi_constants`.

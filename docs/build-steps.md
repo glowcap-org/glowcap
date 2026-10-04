@@ -11,7 +11,7 @@ workspaces. Its side-effecting commands take the build runner's execution lock,
 so their ports and output directories cannot overlap. `zig build
 check-external` runs checks whose authority lives outside glowcap plus the
 browser proofs of the shipped Rooms page. `zig build infrastructure-check`
-black-boxes the devcontainer and worktree integration tools. It is recurring CI
+exercises devcontainer, worktree integration, and agent edit-hook behavior. It is recurring CI
 evidence, but it is separate from `source-check` because it creates temporary
 repositories and executes real Git histories.
 
@@ -60,12 +60,19 @@ zig build test                 # the correctness suite
 zig build test -Dtest-filter=substring # only tests whose names match
 zig build arch-check           # the layer boundaries: module edges, the no-I/O core, and file coverage
 zig build source-check         # static cross-file source, documentation, generated-mirror, and scaffolding contracts
-zig build infrastructure-check # devcontainer and worktree integration behavior in temporary fixtures (needs bash + git + python3)
+zig build infrastructure-check # devcontainer, worktree integration, and agent edit-hook behavior in temporary fixtures
 zig build toolchain-check      # hold check to the runtimes it declares: no member reaches for an undeclared program, and every declared program and toolchain target is installed here
 zig build loam-core-wasm-check # compile portable Loam calls for 32-bit Wasm without LMDB; part of check
+zig build loam-abi-test        # C resource creation, ownership, portable transaction evaluation and uncertain storage recovery; part of check
+zig build loam-browser-build   # compile and lint the Rust IndexedDB consumer against the Wasm C ABI (needs cargo + wasm-bindgen)
+zig build loam-browser-test    # Chromium lifecycle, page reload, cold restoration, custody, cancellation, quota rollback and adapter costs; part of check-external (needs deno + Playwright)
+zig build loam-rust-test       # Rust create/share/edit/restart/reopen, callback custody, cancellation and Clippy; part of runtime-check (needs cargo)
 zig build loam-lmdb-test       # Loam record atomicity, capacity, custody, and reopen tests; part of check
 zig build loam-actors-crash-test # CapTP actor recovery and cyclic references across SIGKILL; part of runtime-check
+zig build loam-references-crash-test # Foreign recipe and content writes across SIGKILL, with fresh-vat role checks; part of runtime-check
+zig build loam-managed-crash-test # Managed issuance, revocation, content and reference edits across SIGKILL; part of runtime-check
 zig build loam-collection-crash-test # SIGKILL around a tracing sweep, then safe collection after reopen; part of runtime-check
+zig build loam-compaction-crash-test # SIGKILL through offline LMDB replacement, copy capacity refusal, and continuous writer custody; part of runtime-check
 zig build loam-lmdb-crash-test # SIGKILL before commit and after commit before installation; part of runtime-check (needs python3)
 zig build oracle-check         # the protocol reference corpus and the scenario traces
 zig build fmt                  # format Zig sources in place (zig fmt)
@@ -127,6 +134,12 @@ zig build gen-header-ocapn       # regenerate include/glowcap_ocapn.h from src/c
 zig build gen-header-ocapn-check # verify that header matches src/c_abi/ocapn (fails if stale), part of check
 zig build gen-header-locator       # regenerate the shared include/glowcap_locator.h POD vocabulary
 zig build gen-header-locator-check # verify the shared locator header (fails if stale), part of check
+zig build gen-header-loam                # regenerate the portable Loam header
+zig build gen-header-loam-check          # verify the portable Loam header; part of check
+zig build gen-header-loam-lmdb           # regenerate the LMDB companion header
+zig build gen-header-loam-lmdb-check     # verify the LMDB companion header; part of check
+zig build gen-binding-loam-layout        # regenerate Rust Loam layouts and fingerprints
+zig build gen-binding-loam-layout-check  # verify Rust Loam layouts and fingerprints; part of check
 zig build gen-header-host        # regenerate include/glowcap_host.h from src/c_abi/host
 zig build gen-header-host-check  # verify include/glowcap_host.h matches src/c_abi/host (fails if stale), part of check
 zig build gen-header-transport-provider       # regenerate include/glowcap_transport_provider.h from the shared provider ABI
@@ -387,7 +400,7 @@ bytes to a peer the tab cannot dial.
 
 ```sh
 zig build wasm-driver           # build the browser binding's freestanding wasm32 Host module (ADR-0070) into zig-out/wasm/ (also folded into cross-check)
-zig build wasm-archives         # build Host and OCapN static Wasm archives into zig-out/wasm/lib for direct Rust linking
+zig build wasm-archives         # build Host, OCapN, and Loam static Wasm archives into zig-out/wasm/lib for direct Rust linking
 zig build wasm-driver-test      # the wasm32 Host holds a real keyed CapTP handshake from JS over an in-memory pipe (needs deno)
 zig build wasm-abi-layout-check # the wasm32 Host's layout descriptor decodes cleanly and agrees with the abi.ts field counts (needs deno)
 zig build wasm-import-check     # the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno)
@@ -470,7 +483,7 @@ zig build rooms-browser-metadata-check # verify browser limits and capability me
 zig build rooms-browser-test           # production workspace startup in Deno and Chromium
 zig build rooms-rust-test              # shared Rust grant policy, persistence failures, and static Host linking, part of runtime-check
 zig build rooms-rust-lint              # clippy over the Rooms Rust workspace with warnings denied (needs cargo, part of runtime-check)
-zig build rooms-rust-browser-test      # same Rust contracts linked with Zig in one Wasm memory, run in Deno and Chromium; setup in apps/rooms/rust/README.md
+zig build rooms-rust-browser-test      # shared Rust contracts and Rooms policy projection in Deno and Chromium; part of check-external; setup in apps/rooms/rust/README.md
 zig build rooms-rust-browser-host-test # async Rust Host, capability calls, Rooms client and browser deadlines; part of rooms-rust-browser-test
 zig build rooms-archive-test           # prove the member archive contract, bounded durable store, v1/Syrup wire path, and process restart (needs deno)
 zig build rooms-archive-build          # build and install the archive peer (needs cargo)

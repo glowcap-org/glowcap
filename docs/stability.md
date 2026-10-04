@@ -17,7 +17,7 @@ change a deployment, read [known limitations](boundaries.md).
 | Syrup | Fixtures are regenerated with upstream Syrup encoders and compared byte for byte. | None known in the supported message set. |
 | Cap'n Proto | In-tree golden frames and cross-codec tests run under `zig build check`. | No outside Cap'n Proto implementation reads glowcap's hand-written format. |
 | `tcp` | Live Goblins interoperability runs over glowcap's cleartext TCP adapter. The upstream OCapN suite uses its own `tcp-testing-only` transport. | Goblins ships onion rather than TCP. The channel is cleartext and the peer proves no identity. |
-| `iroh` | `iroh-interop` and relay checks use real iroh endpoints and its QUIC stack. The recurring `iroh-driver-provider` proof and its Python and Rust siblings install an iroh provider package into each native runtime's driver loop and dial a real endpoint through it. The on-demand `goblins-iroh` check reaches a Goblins vat through glowcap's adapter. | Two-NAT hole-punching is not in CI. Goblins ships no iroh netlayer, and `goblins-iroh` requires Cargo and Racket. |
+| `iroh` | `iroh-interop` and relay checks use real iroh endpoints and its QUIC stack. The native `iroh-managed` proof verifies identity, fetch and an exact method reply after Server destruction. It runs with the recurring `iroh-driver-provider` proof; Python and Rust siblings also install an iroh provider package into their native runtime's driver loop and dial a real endpoint through it. The on-demand `goblins-iroh` check reaches a Goblins vat through glowcap's adapter. | Two-NAT hole-punching is not in CI. Goblins ships no iroh netlayer, and `goblins-iroh` requires Cargo and Racket. |
 | `keyed-tcp` and `inproc` | In-tree restart, refusal, and end-to-end netlayer tests run under `check`. | No outside peer speaks these transport symbols; `inproc` is test-only. |
 | `noise-tcp` | In-tree sealed-channel and netlayer tests run under `check`. The Zig host tiers, C driver loop, and all four native bindings dial and listen on it. | No outside CapTP peer speaks Noise; this is glowcap-to-glowcap. `BlockingSession` cannot apply the sealed-channel protocol. |
 | `keyed-relay` | In-tree netlayer tests run under `check`. The recurring `bindings-keyed-relay-rendezvous` check cold-dials a registered, non-listening peer through the reference relay. | `zig-keyed-relay-register` is still on demand. The channel is cleartext and unauthenticated. |
@@ -29,13 +29,14 @@ change a deployment, read [known limitations](boundaries.md).
 | Rust, Deno, Python, and Racket bindings | Each binding holds a live Goblins session as a client, accepts one as a listener, and exercises both handoff roles. The listener matrix requires Goblins to enliven and call a Host-wide actor and checks the exact reply. | Bun cannot host the native listener loop. |
 | TypeScript on Bun | The `bun-dogfood` consumer check covers Host identity and lifetime, locator and sturdyref ABI calls, and fail-closed native-loop admission. | Bun's synchronous FFI cannot host the native driver or blocking transport lifecycles. No Bun-native Goblins check runs. |
 | Native Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are glowcap-native APIs with no outside implementation to compare. |
+| Loam storage | Record, actor, managed-access and reference-field contracts run under `zig build test`, and `loam-lmdb-test` covers LMDB storage. Process-kill tests interrupt LMDB writes, actor turns, managed changes, collection sweeps and compaction, then verify the store in a fresh process. `loam-abi-test` and `loam-rust-test` prove the C and Rust profile, and `loam-browser-test` drives it under Chromium through IndexedDB. Example chapter 07 restarts a store under `check`. | Recovery is tested by killing processes, not by cutting power. The macOS process probes have no recorded successful run. C, Rust and the browser cover the fixed-resource profile only. |
 | Distributed GC | Goblins sends `op:gc-exports` and observes outbound release from Zig and every native binding. A weak reference proves remote reclamation after capability release and answer cleanup while the session stays open; a second held occurrence remains callable after the first release. | Automatic capability finalizers have in-tree evidence; the live binding checks finalize answer wrappers and release capability handles explicitly. |
 | Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The Deno relay also carries a live Goblins session. | The Goblins interoperability check does not run through the Python, Rust, or Racket relays. |
 | Rooms | The recurring `goblins-rooms` scenario puts a real Goblins vat and a glowcap member in one room and proves their independently settled wire profiles. The recurring `demo-rooms` tour puts every one-shot client (Deno, Python, Racket, Rust, and Zig) in one room, so no client can drift from the room contract unseen. `goblins-rooms-irc` composes that outside implementation with both shipped IRC edges. `rooms-web-proofs` runs every shipped-page journey in Chromium, including direct messages, durable and shared sessions, private rooms, routing, management, reconnect, archive, and trace lifecycles. In-tree checks cover room authority, operator revocation, the bounded browser state bundle, archives, and a durable session peer with two attached OCapN clients, room events, interaction, revocation, restart, and unresolved-effect custody. | The four-peer iroh matrix remains on demand because it requires the iroh sidecar and a live Goblins vat. |
 | CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
 | Browser WebAssembly | JavaScript-to-Wasm handshake and ABI checks run in CI. The recurring `web-peer-test` drives a Chromium Wasm peer and proves native-to-browser Noise rendezvous over local WSS; on demand, `ocapnviz-live-browser` drives the production visualizer bundle as an OCapN peer. | WebRTC and public-certificate WSS scenarios remain on-demand or unsupported as named above. |
 | Linux | The full CI sequence runs on Linux. TCP completion loops exercise io_uring when the host provides its required facilities and otherwise exercise the epoll fallback. Selection and its reasons are tested separately. | The recorded 500,000-session result used io_uring. No equivalent epoll scale result or claim exists. |
-| macOS | The macOS CI job runs `zig build test loam-lmdb-test`, covering the host-selected kqueue path and optional native storage adapter. | `zig build check` and the external-runtime matrix remain Linux-only. A Linux cross-compile does not establish macOS runtime behavior. |
+| macOS | The macOS CI job runs `zig build test loam-lmdb-test` and is configured to run the record, actor, managed, tracing and compaction process-loss probes alongside those suites. | The process probes have Linux execution evidence; their macOS configuration does not establish a successful macOS run. `zig build check` and the external-runtime matrix remain Linux-only. |
 | Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
 | Untrusted-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, sessions, handoff, locators, the host, actors, and persistent collections. | The recurring fuzz budget is shallow, and most assertions are written by glowcap. |
 
@@ -50,6 +51,108 @@ The evidence is current only when the
 [checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
 is green for the commit you are evaluating. No row freezes an API or ABI, and
 none is a security review.
+
+## Offline Loam replacement evidence
+
+The implementation at `b2e848fa1764679ffdc2ef3e45b4db89d293d277` passed
+`zig build loam-lmdb-test loam-compaction-crash-test --summary failures` on
+Linux aarch64 in the devcontainer with Zig `0.17.0-dev.2127+e90365cd5`.
+The resulting source also passed `zig build check runtime-check --summary failures`.
+All commands ran through the checkout's `glowcap-dev` front.
+
+The native tests cover exact state, reclaimed-page shrinkage, active-worker
+refusal, continuous custody, cancellation, rename refusal and directory-sync
+retry. Managed retirement progress and terminal receipt floors survive
+compaction and cold reopen. The process proof checks four interruption
+boundaries, a native file-size limit, competing owners and invalid leftovers.
+A relative-path opening followed by a working-directory change succeeds.
+Temporarily restoring relative environment paths made that regression fail;
+restoring the bound path made it pass.
+
+The maintainer owns macOS execution. CI configuration and Linux results do
+not establish that platform's behavior. Hardware power loss, rollback from an
+older backup remain untested. The [LMDB workload](../bench/loam/README.md)
+records offline compaction costs. The
+[completion queue](planning/loam/completion.md#n09-compact-and-replace-an-lmdb-store-safely)
+keeps macOS acceptance open.
+
+## Durable reference evidence
+
+Implementation `fd59c5df1ccc36bdaf8b7442e7a5f282ae194d73` implements checked
+local and foreign object fields with the ownership and bounds in the
+[reference guide](loam/references.md). On Linux aarch64 with Zig
+`0.17.0-dev.2127+e90365cd5`, the resulting source passed the following through
+the checkout's `glowcap-dev` front:
+
+```sh
+zig build check runtime-check oracle-check --summary failures
+zig build test loam-lmdb-test loam-references-crash-test source-check -Dtest-filter=loam --summary failures
+zig build source-check infrastructure-check --summary failures
+zig build bench-loam -Doptimize=ReleaseFast -- --references-only
+```
+
+`check-external` also passed during implementation review, including the
+portable upstream OCapN suite, live Goblins and shipped browser proofs. The
+subsequent object-field refusal checks change Loam preparation and preserve
+those protocol inputs. The final reference workload records allocation/read
+counts, throughput, latency and retention in the
+[benchmark report](../bench/loam/results.md#recorded-returned-authority-and-parked-calls-october-2-2026).
+
+Native tests compact both stores, start the source first, and preserve original,
+restricted-use and control roles. They cover unavailable and revoked targets
+and collection during parked restoration. Nine fresh-process cases kill each
+role's foreign-field write before commit, after commit and after installation
+before reply. The existing 48-case managed proof remains in `runtime-check`.
+
+Regression calibration restored the old shutdown order and reproduced a crash
+in remote retain release. Committing temporary local reply exports reproduced
+export-count growth. A local listener publishing a returned occurrence exposed
+a nested staging assertion; removing the save-owner guard allowed a proof from
+another attachment; a promise save incorrectly began a fetch. Owning tests
+reject each defect and pass with the corrected boundaries. Published exports
+retain their ordinary Port binding until session retirement.
+
+The maintainer owns macOS execution. Linux process loss is the tested failure
+model; no hardware power-loss experiment was performed. The
+[completion queue](planning/loam/completion.md) retains macOS acceptance.
+
+## Managed workload and native retirement evidence
+
+Implementation `2686b12292f2a96f76e2aace1b196cd37d5faa09` extends the native workload with
+sustained managed calls, checked foreign fields, larger held-facet populations
+and offline compaction. The [recorded results](../bench/loam/results.md#recorded-managed-execution-and-restoration-october-2-2026)
+own the populations, bounds, counters and timing distributions. Linux aarch64,
+Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and default synchronous LMDB durability
+are the measured environment.
+
+The resulting source passed `check`, `runtime-check`, `oracle-check` and
+`check-external` through the checkout's `glowcap-dev` front. The combined command
+ran 2,460 tests successfully; its sole failure was the workload README's length.
+Splitting runnable method from recorded results corrected that source contract,
+and the subsequent `check` command exited successfully. The full workload also
+exited successfully:
+
+```sh
+zig build check runtime-check oracle-check check-external --summary failures
+zig build check --summary failures
+zig build bench-loam -Doptimize=ReleaseFast -- --managed-only
+```
+
+Native retirement regression `core host: retired actor remote release waits
+for the outer Vat boundary` exercises queued and synchronous near calls. Restoring
+the previous Host pumping boundary reproduced a nested Vat-drive assertion.
+Keeping the corrected pumping guard but delaying the actor's running hold
+reproduced an integer underflow after a destructor resized the actor index.
+Both controls fail; the corrected order passes. The
+[regression](../test/driver/core_host/owned_call_test.zig) keeps unrelated queued
+actors outside the current turn, releases remote custody and leaves the session
+open. The production correction is `fba6594df`; it is included in the measured revision.
+
+The workload proves its declared admission and retention bounds without timing
+thresholds. Foreign sessions feed real CapTP bytes without socket latency; process
+snapshots remain separate from counted workload allocations. macOS acceptance
+belongs to the maintainer and remains in the
+[completion queue](planning/loam/completion.md). Linux measurements do not close it.
 
 ## Checks run on main and dev pushes and pull requests
 
@@ -89,6 +192,8 @@ wider outer deadline only to contain a wedged gate.
 - `zig build wasm-abi-layout-check`
 - `zig build wasm-import-check`
 - `zig build web-peer-test`
+- `zig build loam-browser-test`
+- `zig build rooms-rust-browser-test`
 - `zig build rooms-web-proofs`
 - `zig build goblins-interop`
 - `zig build goblins-rooms`

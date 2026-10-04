@@ -9,8 +9,6 @@ pub const justification_tic = [_][]const u8{
     "apps/accountability-on-glowcap/python/identity.py",
     "apps/accountability-on-glowcap/zig/identity.zig",
     "apps/accountability-on-glowcap/zig/kel.zig",
-    "apps/ocapnviz/docs/data-model.md",
-    "apps/ocapnviz/docs/era-collapse.md",
     "apps/ocapnviz/scripts/fake-viz-endpoint.ts",
     "apps/ocapnviz/scripts/playwright-inspector-overflow-probe.ts",
     "apps/ocapnviz/scripts/playwright-picker-labels-probe.ts",

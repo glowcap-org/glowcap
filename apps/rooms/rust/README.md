@@ -52,33 +52,41 @@ record the boundary.
   before it takes a file.
 - `archive` is the member archive: records and their identity, filters,
   blob digests, retention, merging across keepers, and shares.
-- `session` is the shared session: the checkpoint and what each access level
-  may see of it, the durable state with its effect ledger and result
-  recovery, command admission, the facts that keep the checkpoint and the
-  live rooms in agreement, and the snapshot an attached view receives.
+- `session` is the shared session. It holds the checkpoint and what each
+  access level may see of it, and the durable state with its effect ledger
+  and result recovery. It also owns command admission, the facts that keep the
+  checkpoint and the live rooms in agreement, and the snapshot an attached
+  view receives.
 - `bridge`, `direct`, `directory`, and `signaling` are the wire vocabularies,
   each with its bounded reader and writer.
-- `server` is what a Rooms server hosts: the server document with its
-  identity seed and room links (`document`, `links`), the directory, the
-  live rooms with their members, lines, files, invitations, and entrances,
-  history retention, operations (the journal, listener seats, the diagnostic
-  snapshot, the operator inventories and pages), peering, IRC, and the live
-  timeline. Connections are the adapter's keys and capabilities its tokens;
-  every verb answers with the notices, releases, and history changes the
-  adapter must perform, so the same decisions run under any host and a test
-  reads them without a wire.
+- `server` is what a Rooms server hosts:
+  - the server document, with its identity seed and room links (`document`,
+    `links`);
+  - the directory, and the live rooms with their members, lines, files,
+    invitations, and entrances;
+  - history retention;
+  - operations: the journal, listener seats, the diagnostic snapshot, and the
+    operator inventories and pages;
+  - peering, IRC, and the live timeline.
+
+   Connections and capabilities appear here only as the adapter's
+  keys and tokens. Every verb returns the notices, releases, and history
+  changes the adapter must carry out, so the same decisions run under any
+  host, and a test can read them without a network.
 - `failure` reads and writes the Rooms failure codes.
 
 ### rooms-glowcap
 
 `host_options` supplies the profile and feature offer a Rooms Host makes.
-`Value` borrows a decoded argument and reads wire integers without a second
-representation; `ArgumentView` finds the capabilities an argument carries
-so a verb can refuse the ones it does not take. Each client under `client`
-owns the reply validation for its verbs and the custody of what it retains:
-a membership subscribes and waits for its seat, a line keeps its own
-authority independent of the membership, a file transfer advances only on
-acknowledgement, an invitation keeps one receipt across retries.
+`Value` borrows a decoded argument and reads wire integers without converting
+them to another form. `ArgumentView` finds the capabilities an argument
+carries, so a verb can refuse ones it does not accept. Each client under
+`client` validates the replies to its verbs and owns what it keeps:
+
+- a membership subscribes and waits for its seat;
+- a line keeps its own authority, separate from the membership;
+- a file transfer advances only when acknowledged;
+- an invitation keeps one receipt across retries.
 `client::session` is the attached-session client: snapshots, watch delivery,
 commands, checkpoint replacement, files, grants, and archive shares. The
 clients take their deadlines and task spawning from the caller, so they run
@@ -101,18 +109,21 @@ trust and `websocket` turns a WebSocket into a byte channel.
 
 Each service is one module and one binary: `server` (`rooms-server`),
 `session` (`rooms-session`), `archive::peer` (`rooms-archive`), `web`
-(`rooms-web`), `irc_bridge` and `irc_front`, and `chat` (`rooms-chat`). A
-library module records what happens through a typed notice and a report the
-binary installs; the binary decides where it goes. The server keeps history
-in files or PostgreSQL through one shared index, the web front serves a
-prepared browser generation and supervises the room server, and every
-service takes `--transport=onion` with a running Tor's endpoints.
-The session's optional `session::control` view admits local commands and owns
-a bounded unread-event journal. Its disk worker cannot block a Rooms turn, and
-an observer failure does not terminate the application. The private command
-front under `src/bin/rooms-session/commands` composes that interface into
-individual and roster operations. The Zig CLI owns argv parsing, help, and
-completion; neither Rust front reimplements Rooms protocol behavior.
+(`rooms-web`), `irc_bridge` and `irc_front`, and `chat` (`rooms-chat`).
+
+- A library module reports what happens through a typed notice and a report
+  the binary installs. The binary decides where reports go.
+- The server keeps history in files or PostgreSQL behind one shared index.
+- The web front serves a prepared browser build and supervises the room
+  server.
+- Every service accepts `--transport=onion`, given a running Tor's endpoints.
+- The session's optional `session::control` view accepts local commands and
+  owns a bounded journal of unread events. Its disk worker cannot block a
+  Rooms turn, and an observer failure does not stop the application.
+- The private command front under `src/bin/rooms-session/commands` builds
+  individual and roster operations on that interface. The Zig CLI owns
+  argument parsing, help, and completion, and neither Rust front reimplements
+  Rooms protocol behavior.
 [Operating Rooms](../operating.md) says how each is run.
 
 ### rooms-browser
@@ -143,9 +154,9 @@ rooms-rust-browser-test` runs them in Wasm. The
 workspace's `Cargo.lock` is committed and every step passes `--locked`.
 `rooms-peers-test` runs the installed services as processes (identity,
 restart, signals), and `rooms-postgres-test` is the opt-in database check.
-The wasm target and `wasm-bindgen` the browser build needs are installed by
-the devcontainer image; `zig build rooms-browser-build` produces the
-application module and its JavaScript glue, and every web launch and
+The devcontainer image installs the wasm target and the `wasm-bindgen` the
+browser build needs. `zig build rooms-browser-build` produces the application
+module and its JavaScript glue, and every web launch and
 deployment preparation depends on it.
 
 Running a test binary by hand needs glowcap's shared libraries on the

@@ -11,7 +11,6 @@ const vaxis = @import("../../main.zig");
 const Winsize = vaxis.Winsize;
 const Screen = @import("Screen.zig");
 const Key = vaxis.Key;
-const Queue = vaxis.Queue(Event, 16);
 const key = @import("key.zig");
 
 pub const Event = union(enum) {
@@ -21,6 +20,15 @@ pub const Event = union(enum) {
     title_change: []const u8,
     pwd_change: []const u8,
 };
+
+const QueuedEvent = union(enum) {
+    exited,
+    redraw,
+    bell,
+    title_change: []u8,
+    pwd_change: []u8,
+};
+const Queue = vaxis.Queue(QueuedEvent, 16);
 
 const posix = std.posix;
 
@@ -83,6 +91,7 @@ working_directory: std.ArrayList(u8) = .empty,
 last_printed: []const u8 = "",
 
 event_queue: Queue,
+event_text: ?[]u8 = null,
 
 /// initialize a Terminal. This sets the size of the underlying pty and allocates the sizes of the
 /// screen
@@ -103,6 +112,7 @@ pub fn init(
         if (!std.fs.path.isAbsolute(pwd)) return error.InvalidWorkingDirectory;
     }
     const pty = try Pty.init(io);
+    errdefer pty.deinit(io);
     try pty.setSize(opts.winsize);
     const cmd: Command = .{
         .argv = argv,
@@ -111,10 +121,17 @@ pub fn init(
         .working_directory = opts.initial_working_directory,
     };
     var tabs: std.ArrayList(u16) = try .initCapacity(allocator, opts.winsize.cols / 8);
+    errdefer tabs.deinit(allocator);
     var col: u16 = 0;
     while (col < opts.winsize.cols) : (col += 8) {
         try tabs.append(allocator, col);
     }
+    var front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows);
+    errdefer front_screen.deinit(allocator);
+    var back_screen_pri = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows + opts.scrollback_size);
+    errdefer back_screen_pri.deinit(allocator);
+    var back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows);
+    errdefer back_screen_alt.deinit(allocator);
     return .{
         .io = io,
         .allocator = allocator,
@@ -122,9 +139,9 @@ pub fn init(
         .pty_writer = pty.pty.writerStreaming(io, write_buf),
         .cmd = cmd,
         .scrollback_size = opts.scrollback_size,
-        .front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
-        .back_screen_pri = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows + opts.scrollback_size),
-        .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
+        .front_screen = front_screen,
+        .back_screen_pri = back_screen_pri,
+        .back_screen_alt = back_screen_alt,
         .tab_stops = tabs,
         .event_queue = .init(io),
     };
@@ -150,6 +167,10 @@ pub fn deinit(self: *Terminal) void {
         self.pty.tty.writeStreamingAll(self.io, EOT) catch {};
         thread.await(self.io);
         self.thread = null;
+    }
+    if (self.event_text) |text| self.allocator.free(text);
+    while (self.event_queue.tryPop() catch null) |event| {
+        self.freeQueuedEvent(event);
     }
     self.pty.deinit(self.io);
     self.front_screen.deinit(self.allocator);
@@ -198,15 +219,21 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
     try self.back_mutex.lock(self.io);
     defer self.back_mutex.unlock(self.io);
 
-    self.front_screen.deinit(self.allocator);
-    self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
-
-    self.back_screen_pri.deinit(self.allocator);
-    self.back_screen_alt.deinit(self.allocator);
-    self.back_screen_pri = try Screen.init(self.allocator, ws.cols, ws.rows + self.scrollback_size);
-    self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
+    var front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
+    errdefer front_screen.deinit(self.allocator);
+    var back_screen_pri = try Screen.init(self.allocator, ws.cols, ws.rows + self.scrollback_size);
+    errdefer back_screen_pri.deinit(self.allocator);
+    var back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
+    errdefer back_screen_alt.deinit(self.allocator);
 
     try self.pty.setSize(ws);
+
+    self.front_screen.deinit(self.allocator);
+    self.back_screen_pri.deinit(self.allocator);
+    self.back_screen_alt.deinit(self.allocator);
+    self.front_screen = front_screen;
+    self.back_screen_pri = back_screen_pri;
+    self.back_screen_alt = back_screen_alt;
 }
 
 pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window) !void {
@@ -237,7 +264,31 @@ pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window) !v
 }
 
 pub fn tryEvent(self: *Terminal) !?Event {
-    return try self.event_queue.tryPop();
+    if (self.event_text) |text| {
+        self.allocator.free(text);
+        self.event_text = null;
+    }
+    const event = try self.event_queue.tryPop() orelse return null;
+    return switch (event) {
+        .exited => .exited,
+        .redraw => .redraw,
+        .bell => .bell,
+        .title_change => |text| blk: {
+            self.event_text = text;
+            break :blk .{ .title_change = text };
+        },
+        .pwd_change => |text| blk: {
+            self.event_text = text;
+            break :blk .{ .pwd_change = text };
+        },
+    };
+}
+
+fn freeQueuedEvent(self: *Terminal, event: QueuedEvent) void {
+    switch (event) {
+        .title_change, .pwd_change => |text| self.allocator.free(text),
+        else => {},
+    }
 }
 
 pub fn update(self: *Terminal, event: InputEvent) !void {
@@ -682,7 +733,9 @@ fn _run(self: *Terminal) !void {
                     0 => {
                         self.title.clearRetainingCapacity();
                         try self.title.appendSlice(self.allocator, osc[semicolon + 1 ..]);
-                        try self.event_queue.push(.{ .title_change = self.title.items });
+                        const text = try self.allocator.dupe(u8, self.title.items);
+                        errdefer self.allocator.free(text);
+                        try self.event_queue.push(.{ .title_change = text });
                     },
                     7 => {
                         // OSC 7 ; file:// <hostname> <pwd>
@@ -702,7 +755,9 @@ fn _run(self: *Terminal) !void {
                             } else enc[i];
                             try self.working_directory.append(self.allocator, b);
                         }
-                        try self.event_queue.push(.{ .pwd_change = self.working_directory.items });
+                        const text = try self.allocator.dupe(u8, self.working_directory.items);
+                        errdefer self.allocator.free(text);
+                        try self.event_queue.push(.{ .pwd_change = text });
                     },
                     else => log.info("unhandled osc: {s}", .{osc}),
                 }
@@ -726,6 +781,30 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
         .SI => {}, // TODO: Charset shift in
         else => log.warn("unhandled C0: 0x{x}", .{@intFromEnum(b)}),
     }
+}
+
+fn testInitAllocationFailures(allocator: std.mem.Allocator) !void {
+    var env: std.process.Environ.Map = .init(allocator);
+    defer env.deinit();
+    var write_buf: [4096]u8 = undefined;
+    var terminal = try Terminal.init(
+        std.testing.io,
+        allocator,
+        &.{"/bin/true"},
+        &env,
+        .{ .winsize = .{ .rows = 2, .cols = 8, .x_pixel = 0, .y_pixel = 0 } },
+        &write_buf,
+    );
+    defer terminal.deinit();
+}
+
+test "init cleans up allocation failures" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        testInitAllocationFailures,
+        .{},
+    );
 }
 
 pub fn setMode(self: *Terminal, mode: u16, val: bool) void {

@@ -78,6 +78,10 @@ pub fn release(host: ?*c.GlowcapHost) i32 {
         return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     inst.core.checkReleaseOwnershipTransfer() catch |err| return common.errToCode(err);
+    c.embedding.checkAttachmentsReleased(host) catch {
+        shared.setLastError("host: release refused while storage attachments borrow this host", .{});
+        return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    };
     if (common.releaseInstance(inst)) |failure| return common.errToCode(failure);
     return shared.GLOWCAP_OK;
 }

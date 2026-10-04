@@ -1,8 +1,8 @@
 /* ── Member pane ──────────────────────────────────────────────────────── */
 /* The roster is the second rail, and it takes the first one's geometry and fill.
-   It used to be 24px narrower on a wash of 60%-transparent paper, which against
-   the cream background left it barely a surface at all: two panels flanking the
-   conversation, only one of which looked like it was there. */
+   A narrower roster on translucent paper would barely read as a surface against
+   the cream background: two panels flanking the conversation, only one of
+   which looked like it was there. */
 .members {
 	min-height: 0;
 	overflow: hidden;

@@ -1,7 +1,7 @@
 // What the page says about itself: a part that broke, a copy that was
 // refused, a file being chosen or loaded, a change about to be lost, and the
-// small notices a shared session raises. Moved here verbatim from the
-// components so the product's voice can be read in one place.
+// small notices a shared session raises, kept here so the product's voice can
+// be read in one place.
 
 /** A part of the page failed, and the rest did not. */
 export const crashTitle = "The page ran into a problem";
@@ -26,7 +26,7 @@ export function loadingWhat(what: string): string {
 }
 export const anotherAddress = "Another address…";
 export const secretPromise = "Sent once, cleared here immediately, and never remembered.";
-export const hostedSelectionRefused = "This browser could not save the shared session selection.";
+export const hostedSelectionRefused = "Your browser wouldn't save which shared session you picked. Try again.";
 
 /** Leaving a form with unsaved changes. */
 export const unsavedLead = "Your unsaved changes will be lost. Keep editing, or discard them to continue.";

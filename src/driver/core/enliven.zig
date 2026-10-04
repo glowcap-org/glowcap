@@ -3,19 +3,12 @@
 //! (ADR-0098 step 4) that stages a dial first when no session to the peer is
 //! open yet.
 //!
-//! This is one of `host.zig`'s responsibilities, kept beside it rather than in
-//! it. The `Host` type still owns the state these read -- the parked rows, the
-//! vow map, the action queue -- and still presents `enliven`,
-//! `enlivenSelectOrDial`, and `enlivenWithPolicy` as its own verbs; what lives
-//! here is the machinery behind them, which no other responsibility calls into.
-//!
-//! Splitting a Zig struct across files means the helpers this file calls back
-//! into are `pub` on `Host` without being part of what an embedder should use.
-//! They are marked where they are declared.
+//! Host owns parked rows, vows, and dial actions. Enlivenment selects its
+//! completion recipient before admission: ordinary APIs queue public outcomes,
+//! while `enlivenCapability` retains an owned result outside the action FIFO.
 
 const std = @import("std");
 
-const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 const actors = @import("actors");
@@ -23,7 +16,6 @@ const actors = @import("actors");
 const host_mod = @import("host.zig");
 const host_action = @import("host/action.zig");
 const host_pump = @import("host/pump.zig");
-const vocab = @import("vocab.zig");
 const vows_mod = @import("vows.zig");
 
 const Host = host_mod.Host;
@@ -31,30 +23,25 @@ const HostSession = host_mod.HostSession;
 const HostError = host_mod.HostError;
 const PeerProvenance = host_mod.PeerProvenance;
 const asFarRef = host_mod.asFarRef;
-const crypto = foundation.crypto;
+const identity = @import("enliven/identity.zig");
+const observation = @import("enliven/observation.zig");
+pub const Enliven = observation.Enliven;
+const Recipient = observation.Recipient;
 
-pub const EnlivenPeerPolicy = enum {
-    /// Require an authenticated durable key designator or the exact address
-    /// this side dialed. An accepted address-session assertion is refused.
-    checked,
-    /// Permit an accepted address transport's session-signed but unproved
-    /// locator claim. The returned provenance remains explicit.
-    assertion_only,
-};
+pub const EnlivenPeerPolicy = identity.EnlivenPeerPolicy;
 
 pub const EnlivenStart = struct {
     vow_id: u64,
     provenance: PeerProvenance,
 };
 
-/// One enliven parked on a staged dial (`Host.enlivenSelectOrDial`). The vow
-/// id was minted before any session existed, so nothing in the core holds a
-/// row for it: the outcome reaches the caller as that id's `settled` / `failed`
-/// action, the same way a dedup-cache hit's does. The sturdyref bytes are
-/// host-owned for the row's life because the asking call has long returned.
+/// One enliven parked before a session exists. The recipient either receives
+/// a public action under the pre-minted vow ID or an owned completion. Host
+/// owns the complete sturdyref bytes until continuation or cancellation.
 pub const PendingEnliven = struct {
     vow_id: u64,
     sturdyref: model.SturdyRef,
+    recipient: Recipient = .action,
 };
 
 pub const PendingEnlivenGroup = struct {
@@ -125,16 +112,17 @@ const EnlivenVowReservation = struct {
     bridge: *EnlivenListener,
 };
 
-fn reserveEnlivenVowAt(self: *Host, session: *HostSession, id: u64) !EnlivenVowReservation {
+fn reserveEnlivenVowAt(self: *Host, session: *HostSession, id: u64, recipient: Recipient, provenance: PeerProvenance) !EnlivenVowReservation {
     const bridge = try self.allocator.create(EnlivenListener);
     errdefer self.allocator.destroy(bridge);
-    return .{
-        .vow = try self.reserveVowAt(session, .far, .plain, .peer_visible, id),
-        .bridge = bridge,
-    };
+    const vow = try self.reserveVowAt(session, .far, .plain, .peer_visible, id);
+    errdefer self.cancelVowReservation(vow);
+    try recipient.observe(self, session, vow.row, provenance);
+    return .{ .vow = vow, .bridge = bridge };
 }
 
 fn cancelEnlivenVow(self: *Host, reservation: EnlivenVowReservation) void {
+    @import("vows/settlement.zig").cancelObserverRelease(reservation.vow.row, self.sessions.get(reservation.vow.row.peer_handle.?).?);
     self.cancelVowReservation(reservation.vow);
     self.allocator.destroy(reservation.bridge);
 }
@@ -161,53 +149,7 @@ fn commitEnlivenVow(
     );
 }
 
-pub fn matchSturdyrefPeer(
-    self: *Host,
-    session: *HostSession,
-    sturdyref: model.SturdyRef,
-    policy: EnlivenPeerPolicy,
-) !PeerProvenance {
-    try self.checkSession(session);
-    const locator = sturdyref.peer;
-    if (std.mem.eql(u8, locator.transport, model.transport.id)) {
-        if (!hostAcceptsRouteVocabulary(self)) return HostError.PeerIdentityMismatch;
-        const demanded = self.node.validateIdRouteLocator(locator) catch
-            return HostError.PeerIdentityMismatch;
-        return matchIdSturdyrefPeer(session, demanded);
-    }
-    if (!std.mem.eql(u8, locator.transport, session.transport)) return HostError.PeerIdentityMismatch;
-
-    if (try self.designatorScheme(session.transport) == .key) {
-        const identity = try self.partnerIdentity(session);
-        if (!std.mem.eql(u8, locator.designator, identity.designator)) return HostError.PeerIdentityMismatch;
-        // The provenance-bearing predicate, not key equality (ADR-0097): this
-        // needs a proved durable peer. The fresh session key verifies the hello;
-        // only authenticated channel evidence proves the durable designator.
-        if (!identity.durableIdentityAuthenticated()) return HostError.PeerIdentityUnverified;
-        return .verified;
-    }
-
-    switch (session.role) {
-        .dialed => |target| {
-            if (!std.mem.eql(u8, locator.designator, target)) return HostError.PeerIdentityMismatch;
-            return .dial_target;
-        },
-        .accepted => {
-            const claimed = session.served.port.peer.session_state.partnerDesignator() orelse
-                return HostError.HandshakeIncomplete;
-            if (!std.mem.eql(u8, locator.designator, claimed)) return HostError.PeerIdentityMismatch;
-            if (policy != .assertion_only) return HostError.PeerIdentityUnverified;
-            return .assertion_only;
-        },
-    }
-}
-
-fn matchIdSturdyrefPeer(session: *HostSession, key: crypto.PeerKey) !PeerProvenance {
-    const designator = key.toDesignator();
-    if (session.served.port.peer.partnerDurableProvenance(designator[0..]) != .authenticated_transport)
-        return HostError.PeerIdentityUnverified;
-    return .verified;
-}
+pub const matchSturdyrefPeer = identity.matchSturdyrefPeer;
 
 /// Enliven the complete sturdyref (ADR-0098), minting
 /// a host vow for the live reference. A dedup-cache hit settles the vow
@@ -245,6 +187,21 @@ pub fn enlivenSessionUri(self: *Host, session: *HostSession, uri: []const u8) !u
 /// accepted-address escape hatch stays on the session-scoped
 /// `enlivenWithPolicy`, native-only by construction.
 pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
+    return selectOrDial(self, sturdyref, .action);
+}
+
+/// An owned observation of checked enlivenment. Its result never enters the
+/// embedder's action FIFO. The caller's allocator owns this operation; destroy
+/// it before Host destruction. Cancellation detaches observation synchronously.
+pub fn enlivenCapability(self: *Host, allocator: std.mem.Allocator, sturdyref: model.SturdyRef) !*Enliven {
+    const owned = try allocator.create(Enliven);
+    errdefer allocator.destroy(owned);
+    owned.* = .{ .host = self, .allocator = allocator };
+    _ = try selectOrDial(self, sturdyref, .{ .observed = owned });
+    return owned;
+}
+
+fn selectOrDial(self: *Host, sturdyref: model.SturdyRef, recipient: Recipient) !u64 {
     try self.refuseReentry();
     try self.admitApplicationOperation();
     try vows_mod.ensureFreshVowId(self);
@@ -253,7 +210,7 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
         const demanded = self.node.validateIdRouteLocator(sturdyref.peer) catch
             return HostError.PeerIdentityMismatch;
         if (authenticatedSessionForKey(self, demanded)) |session|
-            return (try enlivenWithPolicy(self, session, sturdyref, .checked)).vow_id;
+            return (try withRecipient(self, session, sturdyref, .checked, recipient)).vow_id;
         var bundle = self.node.parseIdSturdyrefLocator(self.allocator, sturdyref.peer) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => return HostError.PeerIdentityMismatch,
@@ -266,7 +223,7 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
             else => return err,
         };
     } else if (self.dialedSessionFor(sturdyref.peer.transport, sturdyref.peer.designator)) |session| {
-        return (try enlivenWithPolicy(self, session, sturdyref, .checked)).vow_id;
+        return (try withRecipient(self, session, sturdyref, .checked, recipient)).vow_id;
     } else self.node.prepareDialLocator(sturdyref.peer) catch |err| switch (err) {
         error.ConflictingDialPlan => return HostError.PeerIdentityMismatch,
         else => return err,
@@ -275,7 +232,7 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
     switch (prepared.view()) {
         .open => |peer_handle| {
             const session = self.sessions.get(peer_handle) orelse return HostError.SessionCondemned;
-            const start = try enlivenWithPolicy(self, session, sturdyref, .checked);
+            const start = try withRecipient(self, session, sturdyref, .checked, recipient);
             _ = prepared.commit(&self.node);
             return start.vow_id;
         },
@@ -299,6 +256,7 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
             self.next_vow += 1;
             const parked: PendingEnliven = .{
                 .vow_id = id,
+                .recipient = recipient,
                 .sturdyref = .{
                     .peer = peer,
                     .swissnum = swissnum,
@@ -311,6 +269,7 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
             else
                 self.pending_enlivens.putAssumeCapacity(ticket, .{ .first = parked });
             self.pending_enliven_count += 1;
+            recipient.park(id, ticket);
             return id;
         },
     }
@@ -342,18 +301,8 @@ pub fn enlivenUriForVersion(
     return self.enlivenSelectOrDial(sturdyref);
 }
 
-fn hostAcceptsRouteVocabulary(self: *const Host) bool {
-    return self.opts.captp_version == .next and self.opts.features.multi_location;
-}
-
-pub fn authenticatedSessionForKey(self: *const Host, key: foundation.crypto.PeerKey) ?*HostSession {
-    const session = self.sessions.get(self.peer_by_durable.get(key.bytes) orelse return null) orelse return null;
-    if (session.lifecyclePhase() != .active) return null;
-    const designator = key.toDesignator();
-    if (session.served.port.peer.partnerDurableProvenance(designator[0..]) != .authenticated_transport)
-        return null;
-    return session;
-}
+pub const authenticatedSessionForKey = identity.authenticatedSessionForKey;
+const hostAcceptsRouteVocabulary = identity.hostAcceptsRouteVocabulary;
 
 pub fn freeParkedEnliven(self: *Host, parked: PendingEnliven) void {
     model.uri.freeSturdyref(self.allocator, parked.sturdyref);
@@ -369,6 +318,10 @@ pub fn failParkedEnliven(
     failure: host_action.VowFailure,
     reason: []const u8,
 ) void {
+    if (parked.recipient == .observed) {
+        parked.recipient.observed.fail(failure, reason);
+        return;
+    }
     const retained = host_action.retainFailureMessage(self.allocator, reason);
     self.actions.pushReserved(.{ .failed = .{
         .peer_handle = session_peer,
@@ -406,7 +359,7 @@ pub fn continueParkedEnliven(
     };
     const err: anyerror = blk: {
         const peer = session.served.port.peer;
-        const reservation = reserveEnlivenVowAt(self, session, parked.vow_id) catch |e| break :blk e;
+        const reservation = reserveEnlivenVowAt(self, session, parked.vow_id, parked.recipient, provenance) catch |e| break :blk e;
         var reservation_live = true;
         defer if (reservation_live) cancelEnlivenVow(self, reservation);
         const start = engine.sturdyref.prepareEnliven(peer.allocator, &peer.session_state, parked.sturdyref.swissnum) catch |e| break :blk e;
@@ -414,7 +367,7 @@ pub fn continueParkedEnliven(
             .cached => |reference| {
                 cancelEnlivenVow(self, reservation);
                 reservation_live = false;
-                self.actions.pushReserved(.{ .settled = .{ .peer_handle = session.peer_handle, .vow_id = parked.vow_id, .value = .{ .reference = reference } } });
+                parked.recipient.cached(self, session, parked.vow_id, reference, provenance);
                 return;
             },
             .in_flight => break :blk actors.Error.AlreadyListening,
@@ -501,6 +454,10 @@ pub fn enlivenWithPolicy(
     sturdyref: model.SturdyRef,
     policy: EnlivenPeerPolicy,
 ) !EnlivenStart {
+    return withRecipient(self, session, sturdyref, policy, .action);
+}
+
+fn withRecipient(self: *Host, session: *HostSession, sturdyref: model.SturdyRef, policy: EnlivenPeerPolicy, recipient: Recipient) !EnlivenStart {
     try self.refuseReentry();
     try self.admitApplicationOperation();
     try self.admitSessionOperation(session);
@@ -521,19 +478,18 @@ pub fn enlivenWithPolicy(
     // The peer check above fixes the namespace before this session-local
     // swiss cache is consulted or any bootstrap fetch can be emitted.
     try vows_mod.ensureFreshVowId(self);
-    const reservation = try reserveEnlivenVowAt(self, session, self.next_vow);
+    const reservation = try reserveEnlivenVowAt(self, session, self.next_vow, recipient, provenance);
     var reservation_live = true;
     errdefer if (reservation_live) cancelEnlivenVow(self, reservation);
     const start = try engine.sturdyref.prepareEnliven(peer.allocator, &peer.session_state, swissnum);
     switch (start) {
         .cached => |reference| {
-            // Already settled: queue the completion for a fresh id and
-            // never build a row, so the id refuses `NoSuchVow` exactly
-            // like any other settled vow.
+            // No pending producer remains. Retire the unused reservation
+            // before delivering the cache observation to its recipient.
             const id = self.next_vow;
             cancelEnlivenVow(self, reservation);
             reservation_live = false;
-            self.actions.pushReserved(.{ .settled = .{ .peer_handle = session.peer_handle, .vow_id = id, .value = .{ .reference = reference } } });
+            recipient.cached(self, session, id, reference, provenance);
             self.next_vow += 1;
             self.node.exporterApplicationOwned(session.peer_handle);
             host_pump.finishCommittedWork(self, session);

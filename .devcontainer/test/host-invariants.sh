@@ -25,6 +25,33 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Exercise release metadata before it becomes a version report or shell source.
+(
+    # shellcheck source=../lib/update-pins-deps.sh
+    source "${dir}/lib/update-pins-deps.sh"
+    glowcap_devcontainer_source_pins "${dir}"
+    glowcap_pins_query_version() { printf '%s\n' "${query_fixture}"; }
+    for dep in ${GLOWCAP_PINS_DEPS}; do
+        var="$(glowcap_pins_dep_var "${dep}")"
+        query_fixture="${!var}"
+        [[ "$(glowcap_pins_latest_version "${dep}")" == "${query_fixture}" ]]
+        for query_fixture in '' null '1.2.3-rc.1' '1.2.3"; false' $'1.2.3\n1.2.4'; do
+            if glowcap_pins_latest_version "${dep}" >"${scratch}/query-output" 2>"${scratch}/query-error"; then
+                echo "test/host-invariants: ${dep} accepted malformed release metadata" >&2
+                exit 1
+            fi
+            [[ ! -s "${scratch}/query-output" ]]
+            grep -Fq "${dep}: invalid upstream version" "${scratch}/query-error"
+        done
+    done
+    glowcap_pins_query_version() { printf '1.2.3\n'; return 22; }
+    if glowcap_pins_latest_version npm >"${scratch}/query-output"; then
+        echo "test/host-invariants: accepted output from a failed upstream query" >&2
+        exit 1
+    fi
+    [[ ! -s "${scratch}/query-output" ]]
+)
+
 # Playwright's Linux archives use different inner names on x86_64 and arm64.
 # The image verifier must find one full browser and one headless shell on both,
 # and must not accept a partial installation merely because one binary exists.

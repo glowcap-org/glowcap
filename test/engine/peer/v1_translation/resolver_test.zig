@@ -464,3 +464,51 @@ test "view and decodeOwned agree on a V1.0 resolver-callback deliver" {
     try std.testing.expect(owned.resolve.resolution == .fulfill);
     try std.testing.expectEqual(@as(i64, 17), owned.resolve.resolution.fulfill.integer);
 }
+
+test "a V1.0 settling listener hears an answer that resolves to the partner's own promise" {
+    // Goblins listens with wants-partial #f and no paired shortening listener.
+    // The far promise is the listener's own export, so the notification lets
+    // it follow that promise locally; dropping it would leave the waiter hung.
+    const allocator = std.testing.allocator;
+    var peer = engine.testing.initRawOpenPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+    try peer.session_state.registerImport(.from(12));
+
+    try peer.recvBorrowed(.{
+        .bytes = "<10'op:deliver<11'desc:export7+>[5:hello]11+<19'desc:import-promise99+>>",
+        .shape = .byte,
+    });
+    var deliver_event = peer.pollEvent().?;
+    deliver_event.deinit();
+
+    var listen = try codec.syrup.encodeMessageForProfile(allocator, .v1_0, .{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(11) } },
+        .listener = .{ .near = model.NearRef.object(50) },
+        .mode = .settling_only,
+    } });
+    defer listen.deinit();
+    try peer.recvBorrowed(listen.view());
+    var listen_event = peer.pollEvent().?;
+    listen_event.deinit();
+
+    try peer.sendCopying(.{ .resolve = .{
+        .answer = .from(11),
+        .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.promise(12) } } },
+    } });
+    while ((try peer.step()) != .idle) {}
+
+    var heard = false;
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        defer frame.deinit();
+        const body = try codec.syrup.decodeBodyForProfile(.v1_0, frame.view());
+        if (body != .deliver) continue;
+        const target = body.deliver.target;
+        if (target == .near and target.near.export_position.int() == 50) {
+            try std.testing.expect(std.mem.indexOf(u8, frame.storage, "fulfill") != null);
+            heard = true;
+        }
+    }
+    try std.testing.expect(heard);
+}

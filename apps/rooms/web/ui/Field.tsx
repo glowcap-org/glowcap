@@ -12,7 +12,8 @@
 // keyboard's corrections; a port takes numbers). What is not the caller's is
 // the wiring around it. A label has to name the control by id, a hint has to
 // be announced with it, a refusal has to be too and has to mark the control
-// invalid, and every form here used to do some of that and forget the rest.
+// invalid, and a form that wires these by hand does some of it and forgets the
+// rest.
 // This does all of it from three strings.
 //
 // `inline` lays the name to the left of the control for a short list of knobs

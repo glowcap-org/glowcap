@@ -108,6 +108,11 @@ export fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *anyopaque) i
     _ = ep;
     @panic(msg);
 }
+export fn glowcap_iroh_sidecar_endpoint_admission(ep: *anyopaque, enabled: u8) i32 {
+    _ = .{ ep, enabled };
+    @panic(msg);
+}
+
 export fn glowcap_iroh_sidecar_endpoint_try_accept(ep: *anyopaque) ?*anyopaque {
     _ = ep;
     @panic(msg);

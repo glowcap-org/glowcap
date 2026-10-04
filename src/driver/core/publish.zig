@@ -134,6 +134,18 @@ pub const DurableSwiss = struct {
     pub const fromEntropy = mintDurableSwiss;
     bytes: [engine.durable_swiss_len]u8,
 
+    /// Decode only the canonical spelling minted by fromEntropy.
+    pub fn parse(name: []const u8) ?Entropy {
+        if (name.len != engine.durable_swiss_len or !std.mem.startsWith(u8, name, engine.durable_swiss_prefix)) return null;
+        var entropy: Entropy = undefined;
+        for (&entropy, 0..) |*byte, i| {
+            const digits = name[engine.durable_swiss_prefix.len + i * 2 ..][0..2];
+            for (digits) |digit| if (!std.ascii.isDigit(digit) and (digit < 'a' or digit > 'f')) return null;
+            byte.* = std.fmt.parseInt(u8, digits, 16) catch return null;
+        }
+        return entropy;
+    }
+
     pub fn slice(self: *const DurableSwiss) []const u8 {
         return self.bytes[0..];
     }

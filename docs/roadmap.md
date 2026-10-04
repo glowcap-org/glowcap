@@ -7,32 +7,40 @@ questions are [watched separately](upstream-watch.md).
 
 ## Platforms and reachability
 
-- **Managed Zig adapters.** Zig's owning Session and Server accept
-  stream netlayers; iroh uses the completion backend or the C provider instead.
-  Extending that Zig convenience API requires multiplexed provider setup
-  and listener ownership, not a stream wrapper. For WebRTC, TypeScript owns
-  a signaling connector; Rust, Python, and Racket expose the raw companion
-  without that managed adapter.
-  Zig owns a completion backend, but the Session first-call example is
-  still planned. Complete signaling, cancellation, close, and dial/accept
-  ownership through the existing runtime seams, then replace every `PLANNED`
-  WebRTC example with a checked program in
-  [`site/examples/`](../site/examples/README.md).
-- **Windows and IOCP.** There is no Windows runtime check or IOCP backend.
-  Windows support needs the backend behind the existing completion-loop
-  contract, which is total (`validateBackend`), then live tests and release
-  artifacts.
+OS portability and platform acceptance, including Windows with IOCP and
+macOS validation, are release obligations the maintainer runs. The items
+below are the integration work for language bindings and browser execution
+and storage, in order.
+
+- **Managed WebRTC adapters.** TypeScript has a managed signaling connector.
+  Rust, Python and Racket expose the raw companion without that adapter.
+  Zig has a completion backend, but its Session first-call example is planned.
+  Finish signaling, cancellation, close, and dial and accept ownership through
+  the existing provider interfaces. Then replace every `PLANNED` WebRTC example
+  in [`site/examples/`](../site/examples/README.md) with a checked program.
+- **Windows and IOCP.** There is no Windows runtime check and no IOCP backend.
+  Windows support needs an IOCP backend that meets the existing
+  completion-loop contract in full (`validateBackend` checks it), then live
+  tests and release artifacts.
 - **Public-certificate relay URLs.** Local WSS with a fixture authority is
   checked. A public certificate at a real relay hostname is still unproven
   across every execution form outside the browser
   ([known limitations](boundaries.md#browser-reachability)).
 
+## Runtime and capability semantics
+
+The [runtime semantics plan](planning/runtime-semantics.md) holds the gaps an
+outside OCapN review found: transactional turns, the publication model,
+distributed GC defaults, revocation cleanup, one I/O runtime behind every
+front, and Rooms and Loam polish. Several items wait on a maintainer decision
+named there.
+
 ## Visualizer measurements
 
-The [performance plan](planning/ocapnviz-backlog.md) now waits only for a
-re-measure on the reporting machine's real GPU. Playback restrokes and bulk
-layout work have regression checks on the committed stress corpus; the
-remaining measurement determines whether GPU tessellation needs further work.
+The [performance plan](planning/ocapnviz-backlog.md) waits on one thing: a new
+measurement on the reporting machine's real GPU. Playback restrokes and bulk
+layout work already have regression checks on the committed stress corpus.
+That measurement will show whether GPU tessellation needs more work.
 
 ## Release dependencies
 
@@ -53,60 +61,36 @@ release decision; they are not prerequisites for the engineering work above.
 ## Durable applications
 
 The [planning guide](planning/README.md) maps the Loam foundation, its included
-managed access module, Rooms, and the persistence research. Complete the shared
-foundation before replacing Rooms' authority and persistence paths.
-The [readiness checkpoint](planning/loam/architecture.md#readiness-before-the-c-abi)
-must close before starting Loam's C ABI or Rust projection. It inventories the
-required Zig API and storage contracts. The [completion queue](planning/loam/completion.md)
-breaks the source-verified remainder into removable tasks with dependencies and
-completion evidence, separating existing mechanisms from unfinished integration.
+managed access module, Rooms, and persistence research. The platform and
+reachability work above is independent of them. GPU measurement, upstream agreement, and the maintainer's
+publication steps each wait on their own conditions and do not block these.
 
-1. **Loam persistence breadth and scale.** Record-backed sleepy actors now
-   restore local capability edges and publications through the existing Host/Vat,
-   with process-kill evidence. Managed working sets and transaction
-   participants now use that same attachment. Extend the profile with foreign/
-   cross-vat capability fields. Local tracing reclamation
-   is implemented. The [Loam workload](../bench/loam/README.md) measures local
-   service costs and physical page geometry; extend it with sustained storage
-   pressure and concurrent foreground work. Explicit map growth is implemented; compaction and
-   replacement remain to build.
-   Existing measurements cover retained actor endpoints, hot/cold latency,
-   cache pressure and wakeup bursts. Extend them to managed access and
-   whole-process memory before widening the foreign API; keep those costs
-   separate from the live-session footprint.
-   An alternative backend comparison is warranted when measurements identify a
-   physical-engine constraint; it is not an integration prerequisite.
-   The architecture owns the implementation order; research owns the
-   experiments used to assess it.
-2. **Managed access integration.** Resource and grant views now share evaluation
-   and preparation with the resident model. Bounded codecs and LMDB
-   tests cover atomic content/grant/event records, uncertain completion, and
-   reopen. Durable owner headers, sparse indexes, and bounded demand continuation
-   now use Loam's shared leases and transactions. Durable use/control descriptors
-   and bounded Zig capability operations also restore through that path.
-   Fixed-resource use and control calls now integrate with the existing Host
-   adapter, ordinary publications, and confirmed content/grant writes. Tests
-   cover stale cold/queued activation and lost control acknowledgements.
-   Fixed-resource derivation now commits returned facets, hidden publication
-   reservations, and bounded retry receipts together, with lost-reply
-   recovery. Managed content replies now disclose a stored reference field only
-   through a declared exact disclosure, and an undeclared capability value fails
-   closed (ADR-0172). Dependent local disclosures now admit target methods through
-   both the invoking and stored target grants, and content transactions can replace
-   or remove local strong fields (ADR-0173). Independent child control management
-   and scoped event retention remain
-   before freezing the hosted API and foreign bindings. Add representative managed workloads and
-   process-loss proofs alongside the existing LMDB reopen/recovery evidence.
-   Scoped use inspection now shares the admission evaluator; subscription and
-   replay work must build on its disclosure contract rather than expose owner
-   revisions.
-3. **Rooms content and access.** Replace session-specific authority and storage
-   through the common foundation. Start with a complete C/Rust resource path
-   covering create, share, edit, restart, and reopen, using the existing binding
-   Host and capability ownership. Then integrate recursive rooms, directory
-   access, branching conversations, and reorganization. Deliver the shared
-   access editor with each integration. Exercise a second application to prove
-   the foundation remains independent of chat.
+1. **Integrate Rooms content and access.** Use the settled interaction
+   contract. Fixed-resource registration and managed-control helpers are proved
+   on C/Rust and browser consumer paths. Rooms session schema, requirement,
+   preset and typed custody declarations have application proofs and generated
+   browser metadata. Shared saved-reference fields and bounded record codecs
+   have consumer and portable proofs. Project their validation and application
+   management operations in the [remaining dependency order](planning/rooms/integration.md#shared-prerequisite-and-remaining-order).
+   Replace session-specific authority and storage, then
+   integrate recursive
+   rooms, directory access, branching conversations and reorganization in the
+   [Rooms phase order](planning/rooms/access-grants.md#ordered-implementation-and-exit-criteria).
+   Deliver the shared access editor with each integration. Exercise a second
+   application to prove the foundation remains independent of chat.
+
+The C/Rust and browser fixed-resource lifecycle and bounded managed-control helpers are implemented
+([C/Rust scope](loam/c-and-rust.md), [browser scope and evidence](loam/browser.md)).
+The [completion queue](planning/loam/completion.md) retains the
+maintainer's macOS acceptance. The exercised fixed-resource profile does not freeze the broader foreign ABI.
+The remaining general graph and owner-lifecycle projections
+are tracked by the [access API contract](planning/loam/access/api.md#the-foreign-language-boundary).
+
+The Rooms contract is split by owner: [operation authority](planning/rooms/authority.md),
+[storage and budgets](planning/rooms/persistence.md),
+[consumer and recovery inventory](planning/rooms/integration.md), and
+[sharing walkthroughs](planning/rooms/scenarios.md). These specify the remaining
+integration work; they do not claim implemented application behavior.
 
 | Contract or evidence | Detailed plans |
 | --- | --- |

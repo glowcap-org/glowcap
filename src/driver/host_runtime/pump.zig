@@ -375,6 +375,9 @@ pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?Read
         if (listener.closing) continue;
         switch (listener.transport.source) {
             .stream => |stream| if (stream.handle.readinessFd()) |fd| {
+                if (stream.observation) |observation| {
+                    if (!observation.observer.can_accept(observation.observer.ctx)) continue;
+                }
                 try self.active_listener_scratch.append(self.allocator, &listener.transport);
                 try self.extra_fd_scratch.append(self.allocator, fd);
             },

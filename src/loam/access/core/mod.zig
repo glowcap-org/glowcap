@@ -12,6 +12,7 @@ pub const Graph = @import("graph.zig").Graph;
 pub const Scope = @import("scope.zig").Scope;
 pub const max_scope_objects = @import("scope.zig").max_scope_objects;
 pub const Policy = @import("policy.zig").Policy;
+pub const StoredTerms = @import("terms.zig").StoredTerms;
 pub const Terms = @import("terms.zig").Terms;
 pub const GrantLedger = @import("grants.zig").GrantLedger;
 pub const GrantUse = @import("grant_capability.zig").GrantUse;

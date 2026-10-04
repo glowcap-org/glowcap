@@ -54,3 +54,31 @@ fn unsigned(arena: std.mem.Allocator, value: u128) !driver.Value {
     if (std.math.cast(i64, value)) |n| return .{ .integer = n };
     return .{ .big_integer = .{ .negative = false, .digits = try std.fmt.allocPrint(arena, "{d}", .{value}) } };
 }
+
+/// Inactive management discloses status alone. Active management reports its
+/// own powers and policy ceiling without resource or ancestor identities.
+pub fn control(arena: std.mem.Allocator, snapshot: storage.Operation.ControlDescription) !driver.Value {
+    return controlSnapshot(arena, .{
+        .available = snapshot.available,
+        .grant_status = snapshot.grant_status,
+        .policy = snapshot.policy,
+        .pause = snapshot.powers.pause,
+        .resume_access = snapshot.powers.resume_access,
+        .revoke = snapshot.powers.revoke,
+        .ceiling = if (snapshot.powers.policy_ceiling) |ceiling| ceiling.policy else null,
+        .subtree = if (snapshot.powers.policy_ceiling) |ceiling| ceiling.scope == .owned_subtree else false,
+    });
+}
+
+pub fn controlSnapshot(arena: std.mem.Allocator, snapshot: storage.Observation.Control) !driver.Value {
+    const parts = try arena.alloc(driver.Value, if (snapshot.available) 6 else 1);
+    parts[0] = .{ .symbol = if (!snapshot.available) "unavailable" else @tagName(snapshot.grant_status) };
+    if (snapshot.available) {
+        parts[1] = .{ .boolean = snapshot.pause };
+        parts[2] = .{ .boolean = snapshot.resume_access };
+        parts[3] = .{ .boolean = snapshot.revoke };
+        parts[4] = if (snapshot.ceiling) |value| try policy(arena, &snapshot.policy, value) else .{ .boolean = false };
+        parts[5] = .{ .boolean = snapshot.subtree };
+    }
+    return .{ .tagged = .{ .tag = "access:control", .value = parts } };
+}

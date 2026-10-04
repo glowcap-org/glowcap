@@ -9,14 +9,12 @@ const model = @import("model");
 
 const host_mod = @import("../../host.zig");
 const value_mod = @import("../../value.zig");
-const host_action = @import("../action.zig");
 const host_pump = @import("../pump.zig");
 const identity = @import("identity.zig");
 const capability_promise = @import("../../capability_promise.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
-const HostAction = host_action.HostAction;
 const CapabilityLift = identity.CapabilityLift;
 
 const CapabilityLiftReceipts = struct {
@@ -134,6 +132,37 @@ fn failValueProjection(
     failValuesProjection(self, session, &.{arg}, lifts);
 }
 
+/// Retire an unexposed borrowed value without materializing its representation.
+/// This uses the same bounded reference walk and terminal cleanup as a failed
+/// projection; the caller retains no reference from the value afterward.
+pub fn discardValueObservation(self: *Host, session: *HostSession, arg: model.Argument) void {
+    const lifts = CapabilityLiftReceipts{};
+    failValueProjection(self, session, arg, &lifts);
+}
+
+const ByteOwnership = enum {
+    borrowed,
+    owned,
+
+    fn materialize(comptime self: ByteOwnership, arena: std.mem.Allocator, bytes: []const u8) ![]const u8 {
+        return if (self == .owned) try arena.dupe(u8, bytes) else bytes;
+    }
+};
+
+/// Materialize one turn-borrowed wire value for an owner that outlives the
+/// turn. One walk copies bytes/spines and acquires canonical capability retains.
+pub fn ownValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, arg: model.Argument) !value_mod.Value {
+    var lifts = CapabilityLiftReceipts{};
+    // Receipt spill is temporary; the action arena retains only its Value.
+    defer lifts.spill.deinit(self.allocator);
+    const value = liftValueInner(self, session, arena, arg, &lifts, 0, .owned) catch |err| {
+        failValueProjection(self, session, arg, &lifts);
+        return err;
+    };
+    commitCapabilityLifts(self, lifts.items());
+    return value;
+}
+
 fn liftValueInner(
     self: *Host,
     session: *HostSession,
@@ -141,42 +170,43 @@ fn liftValueInner(
     arg: model.Argument,
     lifts: *CapabilityLiftReceipts,
     depth: usize,
+    comptime bytes: ByteOwnership,
 ) anyerror!value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     return switch (arg) {
-        .bytes => |v| .{ .bytes = v },
-        .symbol => |v| .{ .symbol = v },
+        .bytes => |v| .{ .bytes = try bytes.materialize(arena, v) },
+        .symbol => |v| .{ .symbol = try bytes.materialize(arena, v) },
         .reference => |reference| blk: {
-            try lifts.ensureOne(arena);
+            try lifts.ensureOne(if (bytes == .owned) self.allocator else arena);
             const lifted = try identity.liftCapabilityTracked(self, session, reference);
             lifts.appendAssumeCapacity(lifted, .reference);
             break :blk .{ .capability = lifted.ref };
         },
-        .@"error" => |reason| .{ .@"error" = reason },
-        .string => |v| .{ .string = v },
+        .@"error" => |reason| .{ .@"error" = .{ .message = try bytes.materialize(arena, reason.message) } },
+        .string => |v| .{ .string = try bytes.materialize(arena, v) },
         .integer => |v| .{ .integer = v },
         .boolean => |v| .{ .boolean = v },
-        .list => |items| .{ .list = try liftValuesInner(self, session, arena, items, lifts, depth + 1) },
+        .list => |items| .{ .list = try liftValuesInner(self, session, arena, items, lifts, depth + 1, bytes) },
         .void => .{ .void = {} },
         .float64 => |v| .{ .float64 = v },
-        .set => |items| .{ .set = try liftValuesInner(self, session, arena, items, lifts, depth + 1) },
+        .set => |items| .{ .set = try liftValuesInner(self, session, arena, items, lifts, depth + 1, bytes) },
         .tagged => |tagged| .{ .tagged = .{
-            .tag = tagged.tag,
-            .value = try liftValuesInner(self, session, arena, tagged.value, lifts, depth + 1),
+            .tag = try bytes.materialize(arena, tagged.tag),
+            .value = try liftValuesInner(self, session, arena, tagged.value, lifts, depth + 1, bytes),
         } },
-        .keyword => |v| .{ .keyword = v },
-        .big_integer => |v| .{ .big_integer = v },
+        .keyword => |v| .{ .keyword = try bytes.materialize(arena, v) },
+        .big_integer => |v| .{ .big_integer = .{ .negative = v.negative, .digits = try bytes.materialize(arena, v.digits) } },
         .@"struct" => |entries| blk: {
             const out = try arena.alloc(value_mod.Value.StructEntry, entries.len);
             for (entries, 0..) |entry, i| out[i] = .{
-                .key = entry.key,
-                .value = try liftValueInner(self, session, arena, entry.value, lifts, depth + 1),
+                .key = try bytes.materialize(arena, entry.key),
+                .value = try liftValueInner(self, session, arena, entry.value, lifts, depth + 1, bytes),
             };
             break :blk .{ .@"struct" = out };
         },
         .handoff => |handoff| switch (handoff.*) {
             .give => |give| blk: {
-                try lifts.ensureOne(arena);
+                try lifts.ensureOne(if (bytes == .owned) self.allocator else arena);
                 const lifted = try capability_promise.liftInlineGive(self, session, give);
                 lifts.appendAssumeCapacity(lifted, .inline_give);
                 break :blk .{ .capability = lifted.ref };
@@ -195,11 +225,12 @@ fn liftValuesInner(
     args: []const model.Argument,
     lifts: *CapabilityLiftReceipts,
     depth: usize,
+    comptime bytes: ByteOwnership,
 ) anyerror![]value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     const out = try arena.alloc(value_mod.Value, args.len);
     for (args, 0..) |arg, i|
-        out[i] = try liftValueInner(self, session, arena, arg, lifts, depth);
+        out[i] = try liftValueInner(self, session, arena, arg, lifts, depth, bytes);
     return out;
 }
 
@@ -214,7 +245,7 @@ pub fn liftValue(
     arg: model.Argument,
 ) anyerror!value_mod.Value {
     var lifts = CapabilityLiftReceipts{};
-    const value = liftValueInner(self, session, arena, arg, &lifts, 0) catch |err| {
+    const value = liftValueInner(self, session, arena, arg, &lifts, 0, .borrowed) catch |err| {
         failValueProjection(self, session, arg, &lifts);
         return err;
     };
@@ -239,7 +270,7 @@ pub fn projectValue(
     comptime project: anytype,
 ) anyerror!projectedValueType(project) {
     var lifts = CapabilityLiftReceipts{};
-    const value = liftValueInner(self, session, arena, arg, &lifts, 0) catch |err| {
+    const value = liftValueInner(self, session, arena, arg, &lifts, 0, .borrowed) catch |err| {
         failValueProjection(self, session, arg, &lifts);
         return err;
     };
@@ -262,7 +293,7 @@ pub fn projectValues(
     comptime project: anytype,
 ) anyerror!projectedValueType(project) {
     var lifts = CapabilityLiftReceipts{};
-    const values = liftValuesInner(self, session, arena, args, &lifts, 0) catch |err| {
+    const values = liftValuesInner(self, session, arena, args, &lifts, 0, .borrowed) catch |err| {
         failValuesProjection(self, session, args, &lifts);
         return err;
     };
@@ -274,54 +305,6 @@ pub fn projectValues(
     return projected;
 }
 
-/// The application-facing form of one queued completion, parameterized by
-/// the adapter's mechanically projected value type. Missing session context
-/// and an unrepresentable fulfilled value become Host-owned failures here.
-pub fn ProjectedCompletion(comptime T: type) type {
-    return union(enum) {
-        settled: struct { vow_id: u64, value: T },
-        failed: struct {
-            vow_id: u64,
-            failure: host_action.VowFailure,
-            message: []const u8,
-        },
-    };
-}
-
-/// Lift and project one settled/failed Host action as one transaction.
-pub fn projectCompletion(
-    self: *Host,
-    action: HostAction,
-    arena: std.mem.Allocator,
-    context: anytype,
-    comptime project: anytype,
-) ProjectedCompletion(projectedValueType(project)) {
-    const Projected = projectedValueType(project);
-    return switch (action) {
-        .settled => |settled| blk: {
-            const session = self.sessions.get(settled.peer_handle) orelse break :blk .{ .failed = .{
-                .vow_id = settled.vow_id,
-                .failure = .closed,
-                .message = "resolution session closed before value projection",
-            } };
-            const projected: Projected = projectValue(self, session, arena, settled.value, context, project) catch {
-                break :blk .{ .failed = .{
-                    .vow_id = settled.vow_id,
-                    .failure = .broken,
-                    .message = "resolution value could not be projected",
-                } };
-            };
-            break :blk .{ .settled = .{ .vow_id = settled.vow_id, .value = projected } };
-        },
-        .failed => |failed| .{ .failed = .{
-            .vow_id = failed.vow_id,
-            .failure = failed.failure,
-            .message = failed.message.bytes(),
-        } },
-        else => unreachable,
-    };
-}
-
 /// `liftValue` over a whole argument list, under one receipts scope: a
 /// failure anywhere retires every completed and unvisited observation.
 pub fn liftValues(
@@ -331,7 +314,7 @@ pub fn liftValues(
     args: []const model.Argument,
 ) anyerror![]value_mod.Value {
     var lifts = CapabilityLiftReceipts{};
-    const values = liftValuesInner(self, session, arena, args, &lifts, 0) catch |err| {
+    const values = liftValuesInner(self, session, arena, args, &lifts, 0, .borrowed) catch |err| {
         failValuesProjection(self, session, args, &lifts);
         return err;
     };

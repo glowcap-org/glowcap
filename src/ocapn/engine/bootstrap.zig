@@ -22,6 +22,19 @@ pub const FetchRequest = struct {
     answer: model.AnswerName,
 };
 
+/// Session-stamped context borrowed by the composition during fetch admission.
+pub const FetchContext = struct {
+    swissnum: []const u8,
+    answer: session_mod.AnswerTarget,
+    session_fallback: ?model.ExportPosition,
+};
+pub const FetchOutcome = union(enum) {
+    found: model.ExportPosition,
+    missing,
+    deferred,
+    refused: anyerror,
+};
+
 /// A recognized inbound `deposit-gift` bootstrap call.
 pub const DepositRequest = struct {
     gift_id: []const u8,
@@ -158,26 +171,26 @@ pub fn answerForDeliver(deliver: anytype, session: *const session_mod.Session) ?
 }
 
 pub fn resolveForSwissnum(
-    session: *const session_mod.Session,
+    session: *session_mod.Session,
     local_projection: ?gifts.LocalObjectProjection,
     scope: ?PeerHandle,
     request: FetchRequest,
-) !model.Resolution {
-    const projected = if (local_projection) |p|
-        (try p.resolve_name(p.ctx, scope orelse return session_mod.Error.InvalidGift, request.swissnum)) orelse
-            session.bootstrapLookup(request.swissnum)
-    else
-        session.bootstrapLookup(request.swissnum);
-    if (projected) |export_position| {
-        return .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } };
-    }
-    return .{
-        .@"break" = .{
-            // Named: the miss diagnostic must outlive this stack frame, and
-            // the settlement queue frees the resolution. One string dupe on
-            // the unknown-name path; the fulfill arm is POD and allocates nothing.
-            .message = try session.allocator.dupe(u8, "unknown swissnum"),
-        },
+) !?model.Resolution {
+    const fallback = session.bootstrapLookup(request.swissnum);
+    const outcome: FetchOutcome = if (local_projection) |p|
+        try p.resolve_fetch(p.ctx, scope orelse return session_mod.Error.InvalidGift, .{
+            .swissnum = request.swissnum,
+            .answer = session.answerTargetNamed(request.answer) orelse return error.InvalidReference,
+            .session_fallback = fallback,
+        })
+    else if (fallback) |position| .{ .found = position } else .missing;
+    return switch (outcome) {
+        .found => |position| .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = position } } } },
+        .deferred => null,
+        // Named: one owned diagnostic on refusal. Successful fetch is POD;
+        // the ordinary settlement queue consumes either resolution.
+        .missing => .{ .@"break" = .{ .message = try session.allocator.dupe(u8, "unknown swissnum") } },
+        .refused => |err| .{ .@"break" = .{ .message = try session.allocator.dupe(u8, @errorName(err)) } },
     };
 }
 

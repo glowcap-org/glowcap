@@ -84,7 +84,19 @@ export async function run(
 	// Clicking a picture opens it rather than saving it. The viewer covers the
 	// whole interface — it is not a panel inside the conversation column — and
 	// Escape leaves it, through the same chain that dismisses Settings.
+	// Hold the stage without layout to exercise the cached image's mount before
+	// showModal gives it dimensions. A zero-sized box is not a fitted size.
+	const hiddenStage = await second.addStyleTag({
+		content: ".viewer-stage.viewer-image { display: none !important; }",
+	});
 	await second.click(".bubble .attach-image");
+	await second.waitForFunction(() =>
+		document.querySelector<HTMLImageElement>("dialog.viewer:modal img")?.naturalWidth === 4
+	);
+	if (!await second.locator("#viewerZoom").isDisabled()) {
+		fail("an image without a laid-out stage offered actual size");
+	}
+	await hiddenStage.evaluate((style) => (style as ChildNode).remove());
 	await second.waitForSelector(".viewer img", { timeout: 10_000 })
 		.catch(() => fail("clicking the picture did not open it"));
 	const covers = await second.evaluate(() => {

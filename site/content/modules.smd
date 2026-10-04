@@ -18,6 +18,9 @@ is the full account.
 | --- | --- |
 | **Peer** | The caller-owned engine handle. You feed inbound frames, call `step`, drain outbound frames, and read events. It opens no sockets. |
 | **Session** | The one-partner application object: `connect` / `listen`, `fetch`, blocking `call`. It is a view onto a conversation its Host owns. |
+| **Server** | The listening side. It publishes objects, and each `accept` returns a `Session` for one partner that connected. |
+| **HostRuntime** | The loop that runs `Session` and `Server`. It keeps one identity across several socket-backed sessions over the transports you register. |
+| **HostTurn** | The argument an object's `handle` gets. It carries the turn's arena for building replies and the Host for calling other objects. |
 | **Host** | The multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
 | **Bridge** | The Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Native bindings use the driver archive for that loop; the browser package drives the Host itself. |
 
@@ -58,6 +61,10 @@ you can test it without a host runtime.
   [Transports]($link.page('transports')) explains what a netlayer is;
   [Choosing a transport]($link.page('transports/choosing')) is the decision
   table.
+- **loam** stores objects, and the capabilities they hold, across restarts.
+  Its core does no I/O; an optional LMDB module supplies the disk.
+  [Loam]($link.page('loam')) explains records, sleepy actors, and durable
+  names.
 
 > **Vat**: one single-threaded container of objects, the unit
 > [Spritely Goblins](https://spritely.institute/goblins/) and the wider ocap

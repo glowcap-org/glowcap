@@ -28,7 +28,7 @@ comptime {
     // works here without a caller-supplied `GlowcapContext`.
     const ocapn = @import("c_abi");
     for (ocapn.symbols.symbols) |symbol| _ = @field(ocapn, symbol.name);
-    for (driver.symbols.symbols) |symbol| _ = @field(driver, symbol.name);
+    for (driver.symbols.symbols) |symbol| @export(&@field(driver, symbol.name), .{ .name = symbol.name });
 }
 
 /// Allocate `len` bytes in wasm linear memory and return the offset (0 on
@@ -121,6 +121,35 @@ export fn glowcap_wasm_abi_layout(out: [*]u32, cap: u32) u32 {
         }
     }
     return layout_word_count;
+}
+
+/// Report optional Loam layouts without changing the Host descriptor. Rust
+/// consumers link the separate Loam archive; JavaScript loads only this type
+/// description and fingerprint until it opts into a Loam execution front.
+export fn glowcap_wasm_loam_abi_layout(out: [*]u32, cap: u32) u32 {
+    const loam = @import("c_abi_loam");
+    const count = comptime blk: {
+        var n: u32 = 0;
+        for (loam.contract_layouts) |spec| n += 3 + @typeInfo(spec.Type).@"struct".field_names.len;
+        break :blk n;
+    };
+    if (cap < count) return count;
+    var i: usize = 0;
+    inline for (loam.contract_layouts) |spec| {
+        const fields = @typeInfo(spec.Type).@"struct".field_names;
+        out[i] = comptime nameHash(spec.stem);
+        out[i + 1] = @sizeOf(spec.Type);
+        out[i + 2] = fields.len;
+        i += 3;
+        inline for (fields) |field| {
+            out[i] = @offsetOf(spec.Type, field);
+            i += 1;
+        }
+    }
+    return count;
+}
+export fn glowcap_wasm_loam_archive_fingerprint() u64 {
+    return @import("c_abi_loam").GLOWCAP_LOAM_ARCHIVE_FINGERPRINT;
 }
 
 // ── Hosted-object callback seams ────────────────────────────────────────────

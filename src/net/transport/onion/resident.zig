@@ -504,9 +504,8 @@ pub const Listener = struct {
 };
 
 /// The contract listener over a `Listener`, which owns its own storage and
-/// frees it in `deinit`. Accept readiness is left to `waitAcceptable`: the
-/// forward socket is a real descriptor, but the contract's `readiness_fd` is
-/// not published for it.
+/// frees it in `deinit`. The forward socket supplies accept readiness to both
+/// the blocking wait and the shared runtime's aggregate poll.
 const ListenerShell = netlayer.ListenerShell(struct {
     pub const State = Listener;
     pub const metadata = known_transport.metadata();
@@ -517,6 +516,10 @@ const ListenerShell = netlayer.ListenerShell(struct {
 
     pub fn waitAcceptable(self: *Listener, timeout_ms: i32) netlayer.AcceptError!bool {
         return self.waitAcceptable(timeout_ms);
+    }
+
+    pub fn readinessFd(self: *Listener) i32 {
+        return @intCast(self.readinessFd());
     }
 
     pub fn localLocator(self: *Listener, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {

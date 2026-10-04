@@ -23,7 +23,7 @@ test "loam managed hosting separates use and control and gates content on confir
     try std.testing.expectEqual(@as(usize, 0), host.caps.operations);
     store.evict();
     var add: h.Answer = .{};
-    try host.send(host.use, "add", &.{.{ .integer = 7 }}, &add);
+    try host.mutate(host.use, 1, "add", &.{.{ .integer = 7 }}, &add);
     const batch = try host.untilWrite(&backend);
     try std.testing.expect(add.number == null);
     const portrait = host.attached.operations[0].lease;
@@ -50,14 +50,14 @@ test "loam managed hosting separates use and control and gates content on confir
     try std.testing.expectEqual(@as(?bool, false), noop.changed);
     try std.testing.expectEqual(revision, store.metadata.revision);
     var denied: h.Answer = .{};
-    try host.send(host.use, "add", &.{.{ .integer = 10 }}, &denied);
+    try host.mutate(host.use, 1, "add", &.{.{ .integer = 10 }}, &denied);
     try host.drain(&backend);
     try std.testing.expect(denied.broken);
     var resumed: h.Answer = .{};
     try host.send(host.control, "resume", &.{}, &resumed);
     try host.drain(&backend);
     var failed: h.Answer = .{};
-    try host.send(host.use, "fail", &.{.{ .integer = 99 }}, &failed);
+    try host.mutate(host.use, 2, "fail", &.{.{ .integer = 99 }}, &failed);
     try host.drain(&backend);
     try std.testing.expect(failed.broken);
     var get: h.Answer = .{};
@@ -89,7 +89,7 @@ test "loam managed hosting admitted use waits for the control commit" {
         if (host.attached.operations[0].phase == .scheduled) break;
     }
     var use: h.Answer = .{};
-    try host.send(host.use, "add", &.{.{ .integer = 1 }}, &use);
+    try host.mutate(host.use, 1, "add", &.{.{ .integer = 1 }}, &use);
     // Admit the use while the control is held in its write phase.
     const batch = try host.untilWrite(&backend);
     try std.testing.expect(revoke.changed == null);
@@ -97,6 +97,11 @@ test "loam managed hosting admitted use waits for the control commit" {
     try host.drain(&backend);
     try std.testing.expectEqual(@as(?bool, true), revoke.changed);
     try std.testing.expect(use.broken);
+    store.evict();
+    var repeated: h.Answer = .{};
+    try host.send(host.control, "revoke", &.{}, &repeated);
+    try host.drain(&backend);
+    try std.testing.expectEqual(@as(?bool, false), repeated.changed);
     const lease = try h.c.load(&store, &backend, data.content);
     defer store.release(lease) catch unreachable;
     try std.testing.expectEqual(@as(i64, 0), std.mem.readInt(i64, (try store.currentView(lease)).payload[0..8], .little));
@@ -114,7 +119,7 @@ test "loam managed hosting restarts queued and cold authority snapshots without 
         defer host.deinit();
         store.evict();
         var use: h.Answer = .{};
-        try host.send(host.use, "add", &.{.{ .integer = 1 }}, &use);
+        try host.mutate(host.use, 1, "add", &.{.{ .integer = 1 }}, &use);
         _ = try host.host.vat.driveIngressBudgeted(.local, 64);
         var held: ?h.loam.core.Read = null;
         for (0..128) |_| {
@@ -139,6 +144,7 @@ test "loam managed hosting restarts queued and cold authority snapshots without 
         }
         try host.drain(&backend);
         try std.testing.expect(use.broken);
+        try host.attached.advance(); // Retire stale preparation outside the Vat callback.
         try std.testing.expectEqual(@as(usize, 0), host.caps.operations);
         try std.testing.expectEqual(@as(u64, 0), host.attached.stats.invocations);
         store.evict();
@@ -164,6 +170,7 @@ test "loam managed hosting retires failed reads and partial operation allocation
         try host.send(host.control, "pause", &.{}, &answer);
         try host.drain(&backend);
         try std.testing.expectEqual(@as(usize, 0), host.caps.references);
+        try host.attached.advance(); // Retire stale preparation outside the Vat callback.
         try std.testing.expectEqual(@as(usize, 0), host.caps.operations);
         try std.testing.expectEqual(failing.allocated_bytes, failing.freed_bytes);
         if (!failing.has_induced_failure) {
@@ -195,11 +202,11 @@ test "loam managed hosting retires failed reads and partial operation allocation
     try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
 }
 
-fn readOnly(_: std.mem.Allocator, verb: []const u8, args: []const h.driver.Value) !h.c.core.Control.Edit {
-    if (!std.mem.eql(u8, verb, "permissions") or args.len != 3 or args[0] != .integer or args[1] != .integer or args[2] != .integer) return error.InvalidArguments;
-    const resource: h.c.core.ResourceId = .{ .owner = @fromBackingInt(81), .slot = std.math.cast(u32, args[0].integer) orelse return error.InvalidArguments, .generation = std.math.cast(u64, args[1].integer) orelse return error.InvalidArguments };
-    const permissions: []const h.c.core.Policy.Key = if (args[2].integer == 0) &.{h.f.vocabulary.read} else &.{ h.f.vocabulary.read, h.f.vocabulary.post };
-    return .{ .set_policy = try h.f.vocabulary.terms(.{ .object = resource }, permissions, null) };
+fn readOnly(_: ?*anyopaque, _: std.mem.Allocator, powers: h.c.core.Control.Powers, verb: []const u8, args: []const h.driver.Value) !h.c.core.Control.Edit {
+    if (!std.mem.eql(u8, verb, "permissions") or args.len != 1 or args[0] != .integer) return error.InvalidArguments;
+    const ceiling = powers.policy_ceiling orelse return error.Denied;
+    const permissions: []const h.c.core.Policy.Key = if (args[0].integer == 0) &.{h.f.vocabulary.read} else &.{ h.f.vocabulary.read, h.f.vocabulary.post };
+    return .{ .set_policy = try h.f.vocabulary.terms(ceiling.scope, permissions, null) };
 }
 
 test "loam managed hosting applies editable policy and keeps its endpoint binding" {
@@ -214,11 +221,11 @@ test "loam managed hosting applies editable policy and keeps its endpoint bindin
     host.service.decode_control = readOnly;
     for ([_]i64{ 0, 1 }) |permissions| {
         var edit: h.Answer = .{};
-        try host.send(host.control, "permissions", &.{ .{ .integer = data.resource.slot }, .{ .integer = @intCast(data.resource.generation) }, .{ .integer = permissions } }, &edit);
+        try host.send(host.control, "permissions", &.{.{ .integer = permissions }}, &edit);
         try host.drain(&backend);
         try std.testing.expectEqual(@as(?bool, true), edit.changed);
         var add: h.Answer = .{};
-        try host.send(host.use, "add", &.{.{ .integer = 2 }}, &add);
+        try host.mutate(host.use, 1, "add", &.{.{ .integer = 2 }}, &add);
         try host.drain(&backend);
         try std.testing.expectEqual(permissions == 0, add.broken);
         var get: h.Answer = .{};
@@ -240,8 +247,8 @@ test "loam managed hosting refuses undeclared reply capabilities and weak disclo
     defer host.deinit();
     // An attachment-local capability the method never declared must not cross
     // the reply, even though it names a live endpoint this attachment owns.
-    h.smuggle = host.use;
-    defer h.smuggle = null;
+    host.application.smuggle = host.use;
+    defer host.application.smuggle = null;
     for ([_][]const u8{ "smuggle", "smuggle-list", "smuggle-set", "smuggle-tagged", "smuggle-struct" }) |verb| {
         var smuggled: h.Answer = .{};
         try host.send(host.use, verb, &.{}, &smuggled);
@@ -281,6 +288,63 @@ test "loam managed hosting refuses undeclared reply capabilities and weak disclo
     try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
 }
 
+test "loam managed hosting keeps reference custody separate from reply authority" {
+    var backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
+    defer backend.deinit();
+    var store = try h.loam.core.Store.init(a, try backend.open(), &h.schemas, h.limits);
+    defer store.deinit() catch unreachable;
+    const data = try h.seed(&store, &backend);
+    var host: h.Hosted = undefined;
+    try host.init(&store, &backend, data);
+    defer host.deinit();
+    host.application.replacement = host.use;
+
+    var smuggled: h.Answer = .{};
+    try host.mutate(host.use, 1, "replace-reference-smuggle", &.{}, &smuggled);
+    try host.drain(&backend);
+    try std.testing.expectEqualStrings("UndeclaredDisclosure", smuggled.reason());
+
+    const lease = try h.c.load(&store, &backend, data.content);
+    const before = try store.currentView(lease);
+    var edges = before.edges();
+    const target = edges.next().?.target;
+    try std.testing.expect(!target.eql(data.use));
+    // Keep the exact target independently; dependent disclosure alone must
+    // authorize only the facet, even when the callback already has this ref.
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var call: h.loam.hosting.Call = .{ .arena = arena.allocator(), .attachment = host.attached, .view = before };
+    defer call.release();
+    host.application.smuggle = try call.edge(0);
+    try store.release(lease);
+    var dependent: h.Answer = .{};
+    try host.send(host.use, "share-dependent-smuggle-exact", &.{}, &dependent);
+    try host.drain(&backend);
+    try std.testing.expectEqualStrings("UndeclaredDisclosure", dependent.reason());
+
+    var read_only: h.Answer = .{};
+    try host.send(host.use, "share-append-read-only", &.{}, &read_only);
+    try host.drain(&backend);
+    try std.testing.expectEqualStrings("InvalidMutation", read_only.reason());
+    const unchanged = try h.c.load(&store, &backend, data.content);
+    defer store.release(unchanged) catch unreachable;
+    const view = try store.currentView(unchanged);
+    try std.testing.expectEqual(before.revision, view.revision);
+    try std.testing.expectEqual(@as(u16, 2), view.edge_count);
+    var current_edges = view.edges();
+    try std.testing.expect(current_edges.next().?.target.eql(target));
+    // Later custody must preserve earlier declarations; declaring custody
+    // later must promote only that capability into the allowed reply suffix.
+    call.requireDisclosedReply();
+    const exact = host.application.smuggle.?;
+    _ = try call.discloseHeld(exact);
+    _ = try call.capture(host.use);
+    try std.testing.expect(try call.prepareReply(.{ .capability = exact }, .validate_only));
+    try std.testing.expectError(error.UndeclaredDisclosure, call.prepareReply(.{ .capability = host.use }, .validate_only));
+    _ = try call.discloseHeld(host.use);
+    try std.testing.expect(try call.prepareReply(.{ .capability = host.use }, .validate_only));
+}
+
 test "loam managed hosting replaces and removes strong reference fields transactionally" {
     var backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
     defer backend.deinit();
@@ -290,11 +354,11 @@ test "loam managed hosting replaces and removes strong reference fields transact
     var host: h.Hosted = undefined;
     try host.init(&store, &backend, data);
     defer host.deinit();
-    h.replacement = host.use;
-    defer h.replacement = null;
+    host.application.replacement = host.use;
+    defer host.application.replacement = null;
 
     var replaced: h.Answer = .{};
-    try host.send(host.use, "replace-reference", &.{}, &replaced);
+    try host.mutate(host.use, 1, "replace-reference", &.{}, &replaced);
     const replacement_batch = try host.untilWrite(&backend);
     try std.testing.expect(replaced.changed == null);
     try host.attached.completeWrite(replacement_batch.ticket, backend.commit(replacement_batch));
@@ -312,7 +376,7 @@ test "loam managed hosting replaces and removes strong reference fields transact
 
     // A refused write installs neither the removal nor its shifted edge order.
     var aborted: h.Answer = .{};
-    try host.send(host.use, "remove-reference", &.{}, &aborted);
+    try host.mutate(host.use, 2, "remove-reference", &.{}, &aborted);
     const aborted_batch = try host.untilWrite(&backend);
     try host.attached.completeWrite(aborted_batch.ticket, .{ .unchanged = error.InjectedWriteFailure });
     try host.drain(&backend);
@@ -327,24 +391,24 @@ test "loam managed hosting replaces and removes strong reference fields transact
     // Weak retention metadata is not a declared saved authority field.
     for ([_][]const u8{ "replace-reference-weak", "remove-reference-weak" }) |verb| {
         var refused: h.Answer = .{};
-        try host.send(host.use, verb, &.{}, &refused);
+        try host.mutate(host.use, 2, verb, &.{}, &refused);
         try host.drain(&backend);
         try std.testing.expect(refused.broken);
         try std.testing.expectEqualStrings("NotDurable", refused.reason());
     }
     const transient_actor = try host.host.vat.spawn(TransientActor, .{});
     const transient_ref = try host.host.liftLocalActor(transient_actor);
-    h.replacement = transient_ref;
+    host.application.replacement = transient_ref;
     var foreign: h.Answer = .{};
-    try host.send(host.use, "replace-reference", &.{}, &foreign);
+    try host.mutate(host.use, 2, "replace-reference", &.{}, &foreign);
     try host.drain(&backend);
     try std.testing.expect(foreign.broken);
     try std.testing.expectEqualStrings("NotDurable", foreign.reason());
     try host.host.releaseCapability(transient_ref, 1);
-    h.replacement = host.use;
+    host.application.replacement = host.use;
 
     var removed: h.Answer = .{};
-    try host.send(host.use, "remove-reference", &.{}, &removed);
+    try host.mutate(host.use, 2, "remove-reference", &.{}, &removed);
     try host.drain(&backend);
     try std.testing.expectEqual(@as(?bool, true), removed.changed);
     lease = try h.c.load(&store, &backend, data.content);
@@ -387,6 +451,7 @@ test "loam managed hosting retries harmless commits with bounded preparation mem
         try h.f.commit(&store, &backend);
         _ = try host.host.vat.driveIngressBudgeted(.local, 64);
         try std.testing.expect(answer.number == null and !answer.broken);
+        try host.attached.advance(); // Retire stale preparation outside the Vat callback.
         try std.testing.expectEqual(@as(usize, 0), host.caps.operations);
     }
     try host.drain(&backend);

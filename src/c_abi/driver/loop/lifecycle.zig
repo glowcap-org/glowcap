@@ -228,6 +228,8 @@ pub export fn glowcap_driver_release(
     const inst = instanceFrom(raw) orelse return GLOWCAP_OK;
     if (reentrancyCode(inst, "release")) |code|
         return failure_output.refuse(failure_slot, code, error.ReenteredHost);
+    ch.embedding.checkAttachmentsReleased(inst.host_handle) catch |err|
+        return failure_output.refuse(failure_slot, GLOWCAP_ERR_INVALID_ARGUMENT, err);
     // No projection survives release. The runtime's recipients stay installed
     // for its teardown, but from here `sinkTake` refuses (the drain then frees
     // each completion through the still-live core) and `observeClose` only

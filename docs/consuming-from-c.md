@@ -31,6 +31,8 @@ handler or the operating system's default behavior.
 | `libglowcap_ocapn` | `glowcap_ocapn.h` | Shared values, locators, frames, and URI helpers. |
 | `libglowcap_host` | `glowcap_host.h` | The byte-fed, multi-session CapTP host. |
 | `libglowcap_driver` | `glowcap_driver.h` | The native loop: it exports only `glowcap_driver_*` and adopts an idle Host from `libglowcap_host` through `glowcap_driver_take_host`. |
+| `libglowcap_loam` | `glowcap_loam.h` | Portable persistence, managed registration and storage effect ownership on the existing Host. |
+| `libglowcap_loam_lmdb` | `glowcap_loam_lmdb.h` | Optional LMDB custody, startup creation/restoration and submitted storage execution. |
 | `libglowcap_net_transport_iroh` | `glowcap_net_transport_iroh.h` | Optional encrypted QUIC transport. |
 | `libglowcap_net_transport_webrtc` | `glowcap_net_transport_webrtc.h` | Optional WebRTC DataChannel transport. |
 | `libglowcap_net_transport_onion` | `glowcap_net_transport_onion.h` | Tor onion services, through a Tor daemon you already run. The one transport the OCapN draft standardizes. |
@@ -227,9 +229,9 @@ operations also end with the optional `out_error`, `error_cap`, and
 `out_error_len` and optional caller-owned storage. The function copies that
 worker's diagnostic before returning. A partial request, meaning a buffer or
 nonzero capacity without a length slot, is rejected before the operation
-begins. This is one call contract, including `glowcap_iroh_netlayer_new` and its
-allocator-aware `_in` form, rather than a second diagnostic API to select
-correctly.
+begins. Every such call follows this one contract, including
+`glowcap_iroh_netlayer_new` and its allocator-aware `_in` form, so there is no
+second diagnostic API to choose between.
 
 A failure with no call left to return it, such as a finalizer refusing or a
 retirement failing after the request that started it has returned, goes to the
@@ -255,3 +257,14 @@ new calls and join its own call leases before freeing the opaque handle.
 Rust, TypeScript, Python, and Racket consume this same Host ABI. Their pumps,
 trampolines, and release paths are runnable examples for embedding glowcap in a
 language runtime; see the [binding contract](../bindings/README.md).
+
+## Persistent resources
+
+The optional Loam archives attach persistence to the existing Host. Their
+[resource lifecycle guide](loam/c-and-rust.md) specifies
+startup, copied declarations, borrowed callback contexts, worker retirement,
+completion consumption, recovery and shutdown. The generated
+[portable header](../include/glowcap_loam.h) and
+[LMDB header](../include/glowcap_loam_lmdb.h) describe each callable boundary.
+Each ELF archive's installed `glowcap_*` exports must exactly match its header;
+the build checks both static and shared artifacts before installation.

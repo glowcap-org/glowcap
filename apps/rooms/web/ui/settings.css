@@ -320,12 +320,11 @@ html:has(.app.covered) {
 	outline: none;
 }
 /* A tab's panel is a name for a group of rows, not a box around them.
-   It used to be a flex column of its own, repeating the card's own rhythm one
-   level down, which meant the card's layout depended on a second container
-   agreeing about its own height. Mobile Safari did not agree: it gave the panel
-   forty-five pixels more than its rows came to, and a flex column packs its rows
-   at the top, so the difference stood at the bottom as a gap above the last
-   button in the card. With `display: contents` the rows are the card's own, laid
+   As a flex column of its own it would repeat the card's rhythm one level down,
+   and the card's layout would depend on a second container agreeing about its
+   own height. Mobile Safari does not agree: it gives such a panel more height
+   than its rows need, and the difference stands as a gap above the last button
+   in the card. With `display: contents` the rows are the card's own, laid
    out on the one rhythm that was always drawing them, and there is no second
    height for an engine to get wrong. The element and its role stay where they
    are for anything reading the page rather than laying it out. */
@@ -335,11 +334,10 @@ html:has(.app.covered) {
 /* A refusal tucks down onto the box it refused rather than sitting on a line
    of its own. Colour and weight live on `.said`.
 
-   It used to keep its slot while empty, so a rejected name would not shove the
-   button down. The slot cost 1.2em plus the card's own gap, on every reading of
-   a card where a refusal is the rare state, and a second control's reply took
-   the same reservation by matching this selector. The card renders a reply only
-   when there is one now, and a refusal moves the button as it arrives. */
+   It keeps no slot while empty. A reserved slot would cost 1.2em plus the
+   card's gap on every reading of a card where a refusal is the rare state, so
+   the card renders a reply only when there is one, and a refusal moves the
+   button as it arrives. */
 .join .said {
 	margin: 0 0 -4px;
 }

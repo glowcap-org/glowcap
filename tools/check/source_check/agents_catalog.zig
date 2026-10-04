@@ -249,6 +249,12 @@ fn refuseBannedSubstrings(
     }
 }
 
+/// The resident set (`AGENTS.md` plus every `alwaysApply: true` rule) is
+/// injected into every agent session, so its size is a cost every task pays.
+/// Procedures, inventories, and reference data belong in skills or check
+/// tables. Raise this ceiling only after compressing what is already resident.
+const resident_budget_bytes: usize = 18_000;
+
 /// A Cursor rule loads through its frontmatter: `globs` routes it to the files
 /// it governs and `alwaysApply: true` keeps it resident. A rule without
 /// frontmatter is never auto-attached, silently unloaded at exactly the moment
@@ -266,6 +272,13 @@ pub fn checkRuleFrontmatter(
         return;
     };
     defer rules.close(io);
+
+    const agents_md = root.readFileAlloc(io, "AGENTS.md", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "AGENTS.md: failed to read for the resident budget with {s}", .{@errorName(err)});
+        return;
+    };
+    var resident_bytes: usize = agents_md.len;
+    gpa.free(agents_md);
 
     var walker = try rules.walk(gpa);
     defer walker.deinit();
@@ -288,10 +301,48 @@ pub fn checkRuleFrontmatter(
             try appendViolation(gpa, violations, ".agents/rules/{s}: frontmatter is missing `description:`", .{entry.path});
         }
         const always = frontmatterValue(frontmatter, "alwaysApply:") orelse "";
-        if (frontmatterValue(frontmatter, "globs:") == null and !std.mem.eql(u8, always, "true")) {
+        if (std.mem.eql(u8, always, "true")) resident_bytes += contents.len;
+        const globs = frontmatterValue(frontmatter, "globs:");
+        if (globs == null and !std.mem.eql(u8, always, "true")) {
             try appendViolation(gpa, violations, ".agents/rules/{s}: frontmatter needs `globs:` or `alwaysApply: true` to route the rule", .{entry.path});
         }
+        if (!pathsMatchGlobs(frontmatter, globs orelse "")) {
+            try appendViolation(gpa, violations, ".agents/rules/{s}: `paths:` must list exactly the `globs:` entries, in order, each quoted; Claude ignores `globs:` and loads a rule without `paths:` into every session", .{entry.path});
+        }
     }
+    if (resident_bytes > resident_budget_bytes) {
+        try appendViolation(gpa, violations, "AGENTS.md + `alwaysApply` rules: {d} bytes resident in every session, over the {d}-byte budget; scope a rule, move a procedure to a skill, or compress", .{ resident_bytes, resident_budget_bytes });
+    }
+}
+
+/// Claude Code routes `.claude/rules` by a `paths:` YAML list and ignores
+/// Cursor's `globs:`, so a rule scoped only by `globs:` is resident in every
+/// Claude session. The two keys are one routing fact in two loaders' forms:
+/// `paths:` items are the comma-separated `globs:` entries, in order, each
+/// double-quoted because a bare leading `*` is a YAML alias. A rule with no
+/// `globs:` carries no `paths:` either.
+fn pathsMatchGlobs(frontmatter: []const u8, globs: []const u8) bool {
+    var expected = std.mem.tokenizeScalar(u8, globs, ',');
+    var lines = std.mem.splitScalar(u8, frontmatter, '\n');
+    var in_paths = false;
+    var saw_paths = false;
+    while (lines.next()) |line| {
+        if (!in_paths) {
+            if (std.mem.eql(u8, std.mem.trimEnd(u8, line, " \t\r"), "paths:")) {
+                in_paths = true;
+                saw_paths = true;
+            }
+            continue;
+        }
+        const item = std.mem.trim(u8, line, " \t\r");
+        if (!std.mem.startsWith(u8, item, "- ")) break;
+        const quoted = std.mem.trim(u8, item[2..], " \t");
+        if (quoted.len < 2 or quoted[0] != '"' or quoted[quoted.len - 1] != '"') return false;
+        const want = expected.next() orelse return false;
+        if (!std.mem.eql(u8, quoted[1 .. quoted.len - 1], std.mem.trim(u8, want, " \t"))) return false;
+    }
+    if (globs.len == 0) return !saw_paths;
+    return saw_paths and expected.next() == null;
 }
 
 /// Returns the YAML frontmatter body when `contents` opens with a `---` block,
@@ -326,6 +377,20 @@ test "frontmatterBlock and frontmatterValue parse rule and skill headers" {
     // No frontmatter at all, and an unterminated block, both report null.
     try std.testing.expect(frontmatterBlock("# Body only\n") == null);
     try std.testing.expect(frontmatterBlock("---\ndescription: x\n") == null);
+}
+
+test "pathsMatchGlobs holds Claude paths to Cursor globs" {
+    const globs = "**/*.md, src/**/*.zig";
+    try std.testing.expect(pathsMatchGlobs("globs: x\npaths:\n  - \"**/*.md\"\n  - \"src/**/*.zig\"\n", globs));
+    // Missing, short, long, reordered, and unquoted lists all fail.
+    try std.testing.expect(!pathsMatchGlobs("globs: x\n", globs));
+    try std.testing.expect(!pathsMatchGlobs("paths:\n  - \"**/*.md\"\n", globs));
+    try std.testing.expect(!pathsMatchGlobs("paths:\n  - \"**/*.md\"\n  - \"src/**/*.zig\"\n  - \"x\"\n", globs));
+    try std.testing.expect(!pathsMatchGlobs("paths:\n  - \"src/**/*.zig\"\n  - \"**/*.md\"\n", globs));
+    try std.testing.expect(!pathsMatchGlobs("paths:\n  - **/*.md\n  - src/**/*.zig\n", globs));
+    // An always-resident rule carries neither key.
+    try std.testing.expect(pathsMatchGlobs("alwaysApply: true\n", ""));
+    try std.testing.expect(!pathsMatchGlobs("alwaysApply: true\npaths:\n  - \"x\"\n", ""));
 }
 
 test "sectionBody and collectBulletSpans read one registry section" {

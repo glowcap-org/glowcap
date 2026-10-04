@@ -10,11 +10,11 @@ The local grant model is described by
 preparation and exact storage completion.
 [ADR-0166](../../../decisions/adr/ADR-0166-access-grant-records-and-plans.md)
 extends evaluation and preparation to revision-checked grant records, with
-bounded encoding and native atomic record evidence.
+bounded encoding and LMDB atomic record evidence.
 [ADR-0167](../../../decisions/adr/ADR-0167-managed-owner-storage.md) adds durable
 owner headers and sparse indexes, bounded resumable reads, and shared-transaction
 staging. [ADR-0168](../../../decisions/adr/ADR-0168-durable-managed-capability-bindings.md)
-adds durable use/control descriptors and bounded opaque native operations.
+adds durable use/control descriptors and bounded opaque Zig operations.
 [ADR-0169](../../../decisions/adr/ADR-0169-managed-host-turns.md) adds fixed-resource
 use and control endpoints through the existing durable Host attachment and
 ordinary publication restoration.
@@ -24,9 +24,12 @@ receipts.
 [ADR-0172](../../../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)
 adds exact disclosure of stored reference fields.
 [ADR-0173](../../../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)
-adds dependent local facets and transactional strong-field edits. Independent
-child control management, scoped event delivery, and the broader application
-API remain to build.
+adds dependent local facets and transactional strong-field edits.
+[ADR-0178](../../../decisions/adr/ADR-0178-managed-lifecycle-and-mutation-receipts.md)
+adds persistent resource lifecycle, independent child controls and shared mutation
+receipts. [ADR-0179](../../../decisions/adr/ADR-0179-scoped-change-retention-and-observation.md)
+adds bounded retained batches and defines observation. Scoped replay, event
+delivery and the broader application API remain to build.
 The remaining architecture below is an implementation contract, not a claim
 that its complete owner, hosting, or ABI surfaces exist. The [roadmap](../../../roadmap.md#durable-applications) owns
 priority; the [Rooms plan](../../rooms/access-grants.md) owns product integration.
@@ -35,7 +38,7 @@ The [API sketch](api.md) supplies illustrative call shapes, and the
 [storage and performance plan](storage.md) specifies durable records,
 bounded loading, backend transactions, calling patterns, and measurements.
 The [memory and persistence research](../research/memory-persistence.md) evaluates
-Loam's generic graph mechanisms and compares native backends. The
+Loam's generic graph mechanisms and compares storage backends. The
 [Loam contract](../architecture.md) owns shared persistence; this plan owns
 resource-management requirements on that foundation.
 
@@ -54,12 +57,13 @@ A plain Loam object needs no managed access record. Managed resources and plain 
 can nevertheless participate in one Loam transaction.
 
 The [Loam architecture](../architecture.md#modules-and-distribution) owns the
-module and archive layout. The access module's implemented `core` exports native model
+module and archive layout. The access module's implemented `core` exports Zig model
 operations; `records` exports managed record encoding, and `storage` binds
-record views and mutations to Loam leases and transactions. The proposed `hosting`
+record views and mutations to Loam leases and transactions. The implemented `hosting`
 surface registers guarded behaviors on an existing Host with Loam persistence.
-The planned libglowcap_loam archive includes managed access, and the Rust `loam` feature
-includes `loam::access`. No separate managed access archive or feature switch is required.
+The [C/Rust profile](../../../loam/c-and-rust.md) projects fixed-resource
+lifecycles through the optional Loam companion; its guide owns the supported
+binding surface. General owner and graph APIs remain wider projection work.
 
 The implementation uses Loam's shared transaction and recovery mechanism.
 Managed access contributes admission, resource/grant records, and authority consequences.
@@ -126,7 +130,7 @@ Arrows below mean that the source depends on the target.
 
 ```mermaid
 flowchart TD
-    App[Application runtime] --> Binding[Language binding or native Zig API]
+    App[Application runtime] --> Binding[Language binding or Zig API]
     Binding --> Hosting[Access hosting]
     Binding --> Core[Access core]
     Hosting --> Core
@@ -402,7 +406,7 @@ remote dependencies are held references whose owner continues to enforce them.
 
 The direct local API and actor-call API enter the same admission functions.
 Holding the invoked capability reference conveys its grant authority; there is
-no additional identity or grant credential to supply. Native use and control
+no additional identity or grant credential to supply. Zig use and control
 references bind that authority to committed ledger records. Actor hosting must
 retain and invoke those references through the same enforcement path.
 Applications must be able to use managed access on local content without dialing a dummy
@@ -453,8 +457,13 @@ and delivery effects without implementing a parallel event system.
 Protected calls and deferred delivery still check current authority. Event
 loss or delay cannot preserve permission. No synchronous distributed broadcast
 or immediate acknowledgement from every holder is required for revocation.
-The native ledger does not yet implement these subscriptions, transaction
-events for resource changes, retention, or replay.
+The stored owner retains ordered grant, resource, content and independent control
+effects in bounded committed batches. Separate scoped revision stamps and affected
+paths support scoped projection. The implemented
+[observation profile](../../../loam/access.md#observing-held-access) supplies
+receipt-backed registration, receive/cancel fronts, authorized replay and opaque
+cursors. Delivery is pull-based through the held receive capability; a push
+transport is not required for current-authority checks.
 
 ## Atomic content and access changes
 
@@ -462,9 +471,9 @@ The current ledger implements bounded prepared grant deltas, graph reservations,
 and exact storage completion. The complete owner transaction described here
 now binds fixed-resource content effects to admission through ADR-0169. ADR-0170
 extends it with atomic derivation and bounded receipts. Cross-resource content
-changes and a general operation journal remain requirements. Native use/control
+changes and a general operation journal remain requirements. Zig use/control
 references enforce selected grants and management ceilings through the same
-preparation path; the [usage guide](../../../loam.md#managed-endpoints-on-the-host)
+preparation path; the [usage guide](../../../loam/access.md#managed-endpoints-on-the-host)
 owns their supported calling and lifetime contract.
 
 Managed access is the admission owner for transactions involving its resource graph or
@@ -505,7 +514,7 @@ or containment, must participate in the access module's revision and admission c
 Managed access owns the common application interfaces for describing access, deriving a
 managed share, controlling a grant, and inspecting authorized resource
 relationships. Their schemas live with the access module's hosting integration and generate
-its native and binding method definitions. Rooms owns content methods such as
+its Zig and binding method definitions. Rooms owns content methods such as
 posting and editing a message, along with its concrete permission declarations.
 The Rooms generator references the common schema instead of copying its verbs.
 
@@ -522,24 +531,24 @@ Clients never retry through a broader capability to compensate. Generic managed 
 protocol fixtures belong to managed access; Rooms fixtures prove the content-specific
 requirements and replies composed with those interfaces.
 
-## Native, foreign, and browser packaging
+## Zig, foreign, and browser packaging
 
 The portable model is a distinct build module. Hosting depends on that module,
 the existing actor layer, and the byte-fed Host surface. Neither requires the
-native driver, sockets, or a particular transport. The public namespace groups
+I/O driver, sockets, or a particular transport. The public namespace groups
 these APIs without reversing their imports.
 
-The C ABI exposes opaque managed access owner, registration, and transaction handles.
-Its capability arguments use existing Host capability types and ownership
-operations. It must not invent a managed access reference representation that bindings
-translate into Host identities through unchecked integers. Public resource IDs
-remain data, even when represented by typed Rust structs.
+The implemented [C/Rust profile](../../../loam/c-and-rust.md) exposes opaque
+Store, Attachment, Call and Work handles for fixed-resource lifecycles.
+General owner and graph composition remain wider projection work. Capability
+arguments use existing Host capability types and ownership operations; public
+resource IDs remain data, even when represented by typed Rust structs.
 
 The Loam companion archive includes managed access exports alongside shared persistence. It reuses existing Host opaque
 handles and links against the existing Host archive; it must not emit another
 copy of the Host symbol family or construct a second Host behind the handle.
 Generated headers and binding layouts have one Zig authority. Compile-time
-native helpers reduce boilerplate around the same runtime schema registration;
+Zig helpers reduce boilerplate around the same runtime schema registration;
 application-defined Zig types do not select a different grant algorithm.
 
 Rust's portable content crate retains its content types. Runtime binding code
@@ -549,7 +558,7 @@ explicit release owner. No Rust callback implements the generic access algebra.
 Foreign callbacks are synchronous and non-reentrant; asynchronous work returns
 through completion handles driven by the existing executor.
 
-Native builds link managed access with the existing Host and selected driver/transports.
+Process builds link managed access with the existing Host and selected driver/transports.
 Rooms browser builds link managed access, the byte-fed Host, and Rust into the existing
 single Wasm memory. No JavaScript round trip or second Wasm instance is needed
 for Rust-to-managed access calls. The existing browser executor and transport adapters
@@ -569,7 +578,7 @@ invalidation before it can participate in admission.
 Borrow content facts for synchronous checks. Retain or copy only data that must
 survive a deferred answer or storage operation, with explicit bounds. Preserve
 Host-owned references through existing retain/release operations. Measure
-native and foreign paths before claiming latency, allocation, or size targets.
+Zig and binding paths before claiming latency, allocation, or size targets.
 A scalar read should not acquire a persistence write or an application queue
 solely because it uses a managed facet.
 
@@ -595,13 +604,13 @@ preserving its Rust content and single-memory browser boundaries.
 
 | Scenario | Required evidence |
 | --- | --- |
-| Shared implementation | Native Zig and Rust execute the same grant fixtures and outcomes; Rust contains no graph evaluator or grant lifecycle engine. |
+| Shared implementation | Zig and Rust execute the same grant fixtures and outcomes; Rust contains no graph evaluator or grant lifecycle engine. |
 | Independent use | Registering managed access creates no additional Host, Vat, driver, or event loop. Retiring a managed access owner leaves unrelated Host users alive. Ordinary actors work without managed access; the managed access core builds without actors, Host, Rooms, or I/O. |
 | Multiple access paths | Pausing or revoking one facet preserves independent facets, the underlying resource, and unrelated actors on the same Host. |
 | Resource lifetime | Stored resources need no resident actor; restoration preserves resource identity and exact authority without restoring network tables. |
 | Returned authority | Attachments and subscriptions retain all required dependencies after edits, ancestor revocation, and restoration. |
 | Durable failure | Lost acknowledgements, repeated operations, and interrupted publication cannot duplicate or broaden authority. |
-| Consumer cost | Measure native and Wasm ABI crossings, allocations, retained state, and copying on issue, invoke, edit, and restore paths. |
+| Consumer cost | Measure process and Wasm ABI crossings, allocations, retained state, and copying on issue, invoke, edit, and restore paths. |
 | Shared runtime | Local and far invocations, deferred storage, and reply transformation run through existing Host turns and answers. Callback reentry is refused. |
 | Atomic content | A crash or panic at each preparation, acknowledgement, installation, and publication boundary cannot expose mixed content/access revisions. |
 | Shutdown | Host close waits for admitted Host work; owner retirement preserves unrelated actors; storage completion and late callbacks cannot access freed state. |

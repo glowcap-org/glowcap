@@ -8,6 +8,12 @@ const c = @import("c_abi_shared");
 const c_iroh = @import("c_abi_net_transport_iroh");
 
 var conn_free_count: usize = 0;
+var admission_enabled = false;
+var admission_fails = false;
+var ready_records: usize = 0;
+var cancel_calls: usize = 0;
+var io_result: isize = iroh.loop_would_block;
+var dial_start_result: i32 = 0;
 var next_connect: ?*anyopaque = null;
 var next_accept: ?*anyopaque = null;
 var endpoint_closed = false;
@@ -21,6 +27,12 @@ var delegated_accepts: usize = 0;
 
 fn resetSidecar() void {
     conn_free_count = 0;
+    admission_enabled = false;
+    admission_fails = false;
+    ready_records = 0;
+    cancel_calls = 0;
+    io_result = iroh.loop_would_block;
+    dial_start_result = 0;
     next_connect = null;
     next_accept = null;
     endpoint_closed = false;
@@ -368,24 +380,40 @@ export fn glowcap_iroh_sidecar_endpoint_readiness_fd(_: *const anyopaque) callco
     return 100;
 }
 export fn glowcap_iroh_sidecar_endpoint_drain_ready(_: *const anyopaque, out: [*]iroh.ReadyEvent, out_cap: usize) callconv(.c) isize {
+    if (ready_records != 0) {
+        const count = @min(ready_records, out_cap);
+        for (out[0..count], 0..) |*event, i| event.* = .{ .subject = i + 100, .events = iroh.loop_ev_readable };
+        ready_records -= count;
+        return @intCast(count);
+    }
     if (!emit_sidecar_accept or out_cap == 0) return 0;
     emit_sidecar_accept = false;
     out[0] = .{ .subject = 0, .events = iroh.loop_ev_accept };
     return 1;
 }
 export fn glowcap_iroh_sidecar_endpoint_start_connect(_: *anyopaque, _: usize, _: [*]const u8, _: usize, _: [*]const u8, _: usize) callconv(.c) i32 {
-    return 0;
+    return dial_start_result;
 }
-export fn glowcap_iroh_sidecar_endpoint_finish_connect(_: *anyopaque, _: usize, out_conn: *?*anyopaque) callconv(.c) i32 {
-    out_conn.* = null;
-    return -1;
+export fn glowcap_iroh_sidecar_endpoint_finish_connect(_: *anyopaque, _: usize, out_conn: *?*anyopaque, _: ?[*]u8, _: usize, out_text_len: ?*usize) callconv(.c) i32 {
+    if (out_text_len) |slot| slot.* = 0;
+    out_conn.* = next_connect;
+    next_connect = null;
+    return if (out_conn.* != null) 0 else -1;
 }
 export fn glowcap_iroh_sidecar_endpoint_cancel_connect(_: *anyopaque, _: usize) callconv(.c) i32 {
+    cancel_calls += 1;
     return 0;
 }
 export fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(_: *anyopaque) callconv(.c) i32 {
     return 0;
 }
+export fn glowcap_iroh_sidecar_endpoint_admission(_: *anyopaque, enabled: u8) callconv(.c) i32 {
+    if (admission_fails) return -1;
+    admission_enabled = enabled != 0;
+    if (!admission_enabled) next_accept = null;
+    return 0;
+}
+
 export fn glowcap_iroh_sidecar_endpoint_try_accept(_: *anyopaque) callconv(.c) ?*anyopaque {
     const conn = next_accept;
     next_accept = null;
@@ -398,8 +426,140 @@ export fn glowcap_iroh_sidecar_conn_id(conn: *const anyopaque) callconv(.c) usiz
     return @intFromPtr(conn);
 }
 export fn glowcap_iroh_sidecar_conn_try_read(_: *anyopaque, _: [*]u8, _: usize) callconv(.c) isize {
-    return iroh.loop_would_block;
+    return io_result;
 }
 export fn glowcap_iroh_sidecar_conn_try_write(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) isize {
-    return iroh.loop_would_block;
+    return io_result;
+}
+
+test "managed iroh: a refused connection-map allocation closes the claimed handle once" {
+    resetSidecar();
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var endpoint = resident(threaded.io());
+    var refusing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    var adapter = try iroh.MultiplexedAdapter.init(refusing.allocator(), &endpoint);
+    defer std.debug.assert(adapter.deinit() == null);
+    next_connect = @ptrFromInt(91);
+    try std.testing.expectError(error.OutOfMemory, adapter.finishConnect(1, null));
+    try std.testing.expectEqual(@as(usize, 1), conn_free_count);
+    adapter.closeConnection(91); // stale readiness cannot close another handle
+    try std.testing.expectEqual(@as(usize, 1), conn_free_count);
+}
+
+test "managed iroh: dial admission pressure retains its retry classification" {
+    resetSidecar();
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var endpoint = resident(threaded.io());
+    var adapter = try iroh.MultiplexedAdapter.init(std.testing.allocator, &endpoint);
+    defer std.debug.assert(adapter.deinit() == null);
+    dial_start_result = 7;
+    const outcome = adapter.multiplexed().dialer().?.startDial(1, iroh.locator("node"), .inherit);
+    const failure = outcome.failed;
+    try std.testing.expectEqual(error.WouldBlock, failure.classification);
+    try std.testing.expectEqual(error.WouldBlock, failure.chain.cause);
+    try std.testing.expectEqual(@as(usize, 0), conn_free_count);
+}
+
+test "managed iroh: failure custody is claim-once and connection close is idempotent" {
+    resetSidecar();
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var endpoint = resident(threaded.io());
+    var adapter = try iroh.MultiplexedAdapter.init(std.testing.allocator, &endpoint);
+    defer std.debug.assert(adapter.deinit() == null);
+    next_connect = @ptrFromInt(92);
+    const id = try adapter.finishConnect(1, null);
+    var bytes: [4]u8 = undefined;
+    try std.testing.expectEqual(iroh.loop_would_block, adapter.tryRead(id, &bytes));
+    try std.testing.expect(adapter.takeFailure(id) == null);
+    io_result = -1;
+    try std.testing.expectEqual(@as(isize, -1), adapter.tryWrite(id, "x"));
+    try std.testing.expectEqual(@as(isize, -1), adapter.tryRead(id, &bytes));
+    try std.testing.expectEqual(error.ConnectionLost, adapter.takeFailure(id).?.cause);
+    try std.testing.expect(adapter.takeFailure(id) == null);
+    adapter.closeConnection(id);
+    adapter.closeConnection(id);
+    try std.testing.expectEqual(@as(usize, 1), conn_free_count);
+}
+
+test "managed iroh: listener stop seals raw admission and preserves a claimed sibling" {
+    resetSidecar();
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var endpoint = resident(threaded.io());
+    var adapter = try iroh.MultiplexedAdapter.init(std.testing.allocator, &endpoint);
+    defer std.debug.assert(adapter.deinit() == null);
+    try std.testing.expect(!admission_enabled);
+    try adapter.listen(7, iroh.transport_name, "", .inherit);
+    try std.testing.expect(admission_enabled);
+    const original = try adapter.borrowListenerLocator();
+    var invalid = original;
+    invalid.transport = "tcp";
+    try std.testing.expectError(error.InvalidAddress, adapter.validateAdvertisement(invalid));
+    try std.testing.expectEqualStrings(original.designator, (try adapter.borrowListenerLocator()).designator);
+    next_accept = @ptrFromInt(93);
+    const sibling = (try adapter.finishAccept()).?;
+    next_accept = @ptrFromInt(94);
+    try adapter.stopListen();
+    try std.testing.expect(!admission_enabled);
+    try std.testing.expect(next_accept == null);
+    try std.testing.expectEqual(@as(usize, 0), conn_free_count);
+    try std.testing.expect(adapter.remoteKey(sibling) != null);
+    adapter.closeConnection(sibling);
+    try std.testing.expectEqual(@as(usize, 1), conn_free_count);
+    try adapter.listen(8, iroh.transport_name, "", .inherit);
+    try std.testing.expect((try adapter.finishAccept()) == null);
+    try adapter.stopListen();
+}
+
+test "managed iroh: terminal admission failure still releases locator and connection custody" {
+    resetSidecar();
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var endpoint = resident(threaded.io());
+    var adapter = try iroh.MultiplexedAdapter.init(std.testing.allocator, &endpoint);
+    try adapter.listen(1, iroh.transport_name, "", .inherit);
+    next_connect = @ptrFromInt(95);
+    _ = try adapter.finishConnect(1, null);
+    admission_fails = true;
+    try std.testing.expectEqual(error.SidecarFailed, adapter.deinit().?.cause);
+    try std.testing.expectEqual(@as(usize, 1), conn_free_count);
+    try std.testing.expect(!endpoint_closed);
+    var id: [iroh.node_id_len]u8 = undefined;
+    try std.testing.expect(endpoint.nodeId(&id).len != 0);
+}
+
+test "managed iroh: cancellation consumes a connection that won the race exactly once" {
+    resetSidecar();
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var endpoint = resident(threaded.io());
+    var adapter = try iroh.MultiplexedAdapter.init(std.testing.allocator, &endpoint);
+    defer std.debug.assert(adapter.deinit() == null);
+    next_connect = @ptrFromInt(96);
+    adapter.cancelConnect(1);
+    adapter.cancelConnect(1);
+    try std.testing.expectEqual(@as(usize, 2), cancel_calls);
+    try std.testing.expectEqual(@as(usize, 1), conn_free_count);
+    try std.testing.expect(next_connect == null);
+    try std.testing.expect(adapter.remoteKey(96) == null);
+}
+
+test "managed iroh: one readiness turn drains at most 32 records" {
+    resetSidecar();
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var endpoint = resident(threaded.io());
+    var adapter = try iroh.MultiplexedAdapter.init(std.testing.allocator, &endpoint);
+    defer std.debug.assert(adapter.deinit() == null);
+    var events: [128]net.multiplexed_resident.ReadyEvent = undefined;
+    ready_records = 96;
+    try std.testing.expectEqual(@as(usize, 32), try adapter.drainReady(&events));
+    try std.testing.expectEqual(@as(usize, 64), ready_records);
+    try std.testing.expectEqual(@as(usize, 100), events[0].subject);
+    // The remaining records stay with the endpoint for another runtime turn.
+    try std.testing.expectEqual(@as(usize, 32), try adapter.drainReady(&events));
+    try std.testing.expectEqual(@as(usize, 32), ready_records);
 }

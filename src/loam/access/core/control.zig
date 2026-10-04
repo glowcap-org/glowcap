@@ -19,6 +19,15 @@ pub const Control = struct {
         if (powers.policy_ceiling) |terms| if (!try terms.isSubsetOf(resources, policy, issuance)) return error.CeilingExceeded;
     }
 
+    /// Management can narrow powers but cannot acquire a missing permission.
+    pub fn attenuate(resources: *ResourceView, policy: *const Policy, source: Powers, requested: Powers) Error!void {
+        if ((requested.pause and !source.pause) or (requested.resume_access and !source.resume_access) or (requested.revoke and !source.revoke)) return error.Denied;
+        if (requested.policy_ceiling) |ceiling| {
+            const parent = source.policy_ceiling orelse return error.Denied;
+            if (!try ceiling.isSubsetOf(resources, policy, parent)) return error.CeilingExceeded;
+        }
+    }
+
     pub fn command(resources: *ResourceView, policy: *const Policy, grant: identity.GrantId, powers: Powers, edit: Edit) Error!Plan.Command {
         return switch (edit) {
             .set_policy => |terms| blk: {

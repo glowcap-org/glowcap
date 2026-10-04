@@ -19,6 +19,7 @@ const host_lifecycle = @import("lifecycle.zig");
 const host_plan = @import("plan.zig");
 const host_publications = @import("publications.zig");
 const host_trace = @import("trace.zig");
+const driver_core = @import("driver_core");
 
 const crypto = foundation.crypto;
 
@@ -94,7 +95,11 @@ pub fn hostNewIn(
     opts.codec = codec_id;
     opts.captp_version = version_id;
     opts.features = feature_set;
-    opts.local_turn_budget = if (local_turn_budget == 0) null else local_turn_budget;
+    opts.local_turn_budget = switch (local_turn_budget) {
+        c.GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT => driver_core.default_loop_local_turn_budget,
+        c.GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED => null,
+        else => local_turn_budget,
+    };
     opts.capability_id_issuer = capability_ids.issuer(seed_nn[0..crypto.SEED_BYTES].*);
     const core = Host.init(
         alloc,
@@ -124,11 +129,13 @@ pub fn hostNewIn(
 /// a nonzero `verify_partner` keeps partner-signature verification on (the
 /// secure default); `codec`, `captp_version`, and `features` are this host's
 /// preferred profile offer. The signed hello carries them as locator hints,
-/// and each session settles them with its partner. `local_turn_budget` is 0
-/// for unbounded (the same default as Zig Host + Bridge) or a nonzero cap on
-/// local-turn amplification per drive (ADR-0076). Released with
+/// and each session settles them with its partner. `local_turn_budget` caps
+/// local-turn amplification per session (ADR-0076):
+/// `GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT` applies the Zig Host's finite default,
+/// `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` turns the cap off, and any other
+/// value is the cap. Released with
 /// `glowcap_host_release`.
-pub export fn glowcap_host_new(
+pub fn glowcap_host_new(
     seed: ?[*]const u8,
     seed_len: usize,
     frame_cap: usize,
@@ -138,14 +145,14 @@ pub export fn glowcap_host_new(
     features: u32,
     local_turn_budget: u32,
     out_host: ?*?*GlowcapHost,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return hostNewIn(shared.library_allocator, 0, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, out_host);
 }
 
 /// `glowcap_host_new` allocating every byte the host owns through `context`'s
 /// host allocator.
-pub export fn glowcap_host_new_in(
+pub fn glowcap_host_new_in(
     context: ?*GlowcapContext,
     seed: ?[*]const u8,
     seed_len: usize,
@@ -156,7 +163,7 @@ pub export fn glowcap_host_new_in(
     features: u32,
     local_turn_budget: u32,
     out_host: ?*?*GlowcapHost,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const ctx = shared.ctxFromOpaque(context) orelse return GLOWCAP_ERR_NULL_POINTER;
     const diagnostic_id = ctx.lifecycle_ids.allocate() catch {
@@ -169,7 +176,7 @@ pub export fn glowcap_host_new_in(
 /// Return this Host's stable identity in its owning Context's diagnostic
 /// namespace. The context-less convenience constructor reports zero because it
 /// has no Context diagnostic namespace to allocate from.
-pub export fn glowcap_host_diagnostic_id(host: ?*GlowcapHost, out_id: ?*u64) i32 {
+pub fn glowcap_host_diagnostic_id(host: ?*GlowcapHost, out_id: ?*u64) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_lifecycle.diagnosticId(host, out_id);
 }
@@ -177,18 +184,18 @@ pub export fn glowcap_host_diagnostic_id(host: ?*GlowcapHost, out_id: ?*u64) i32
 /// Seal application admission and begin or escalate terminal Host close. The
 /// byte-fed embedder supplies its monotonic clock reading; shared Zig state
 /// retains the first deadline and owns expiry semantics.
-pub export fn glowcap_host_close(
+pub fn glowcap_host_close(
     host: ?*GlowcapHost,
     options: ?*const c.GlowcapCloseOptions,
     now_ms: i64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_lifecycle.close(host, options, now_ms);
 }
 
 /// Apply the caller's current monotonic time to a byte-fed Host close. This
 /// performs no I/O: expiry may only escalate FINISH to the core's CANCEL path.
-pub export fn glowcap_host_close_progress(host: ?*GlowcapHost, now_ms: i64, out_state: ?*u32) i32 {
+pub fn glowcap_host_close_progress(host: ?*GlowcapHost, now_ms: i64, out_state: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_lifecycle.closeProgress(host, now_ms, out_state);
 }
@@ -200,14 +207,14 @@ pub export fn glowcap_host_close_progress(host: ?*GlowcapHost, now_ms: i64, out_
 /// settle, or escalation activity can advance terminal progress, so the
 /// embedder may park on activity alone. Poll-shaped on purpose: the value
 /// drops straight into a wait primitive's timeout argument.
-pub export fn glowcap_host_close_wait_ms(host: ?*GlowcapHost, now_ms: i64, out_wait_ms: ?*i64) i32 {
+pub fn glowcap_host_close_wait_ms(host: ?*GlowcapHost, now_ms: i64, out_wait_ms: ?*i64) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_lifecycle.closeWaitMs(host, now_ms, out_wait_ms);
 }
 
 /// Observe the byte-fed Host lifecycle without advancing it. The embedder
 /// advances terminal progress through the ordinary feed/action-drain cycle.
-pub export fn glowcap_host_lifecycle_state(host: ?*GlowcapHost, out_state: ?*u32) i32 {
+pub fn glowcap_host_lifecycle_state(host: ?*GlowcapHost, out_state: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_lifecycle.state(host, out_state);
 }
@@ -226,7 +233,7 @@ pub fn release(host: ?*GlowcapHost) i32 {
     return host_lifecycle.release(host);
 }
 
-pub export fn glowcap_host_release(host: ?*GlowcapHost) i32 {
+pub fn glowcap_host_release(host: ?*GlowcapHost) callconv(.c) i32 {
     shared.lastErrorClear();
     return release(host);
 }
@@ -245,7 +252,7 @@ pub export fn glowcap_host_release(host: ?*GlowcapHost) i32 {
 /// hint storage. A null `hint_storage` with zero capacity probes the required
 /// hint count. On BUFFER_TOO_SMALL, `out_hint_count` reports the exact capacity
 /// and `out_locator` is untouched.
-pub export fn glowcap_host_pending_dial(
+pub fn glowcap_host_pending_dial(
     host: ?*GlowcapHost,
     ticket: u64,
     route_index: usize,
@@ -253,19 +260,19 @@ pub export fn glowcap_host_pending_dial(
     hint_capacity: usize,
     out_locator: ?*c.GlowcapLocatorView,
     out_hint_count: ?*usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_plan.pendingDial(host, ticket, route_index, hint_storage, hint_capacity, out_locator, out_hint_count);
 }
 
 /// Borrow the session that supplied this pending dial's oldest remaining give.
 /// NULL means no live introducer. Unknown attempts leave the output untouched.
-pub export fn glowcap_host_pending_dial_introducer(
+pub fn glowcap_host_pending_dial_introducer(
     host: ?*GlowcapHost,
     ticket: u64,
     route_index: usize,
     out_session: ?*?*GlowcapHostSession,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_plan.pendingDialIntroducer(host, ticket, route_index, out_session);
 }
@@ -276,17 +283,17 @@ pub export fn glowcap_host_pending_dial_introducer(
 /// one redeemed onto another exporter session. The result comes from the
 /// reference's own Host row, with no dial-completion capture window. The handle
 /// is Host-owned and lives with that session; do not release it here.
-pub export fn glowcap_host_reference_exporter(
+pub fn glowcap_host_reference_exporter(
     host: ?*GlowcapHost,
     reference: ?*const shared.GlowcapReference,
     out_session: ?*?*GlowcapHostSession,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_plan.referenceExporter(host, reference, out_session);
 }
 
 /// Project one pure Zig dial plan; all output views borrow the caller's input.
-pub export fn glowcap_host_plan_dial(
+pub fn glowcap_host_plan_dial(
     transport: ?[*]const u8,
     transport_len: usize,
     designator: ?[*]const u8,
@@ -296,7 +303,7 @@ pub export fn glowcap_host_plan_dial(
     posture_policy: u32,
     posture_value: u32,
     out_plan: ?*GlowcapDialPlan,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_plan.planDial(
         transport,
@@ -312,59 +319,59 @@ pub export fn glowcap_host_plan_dial(
 }
 
 /// Install or clear the synchronous borrowed trace callback.
-pub export fn glowcap_host_set_trace(
+pub fn glowcap_host_set_trace(
     host: ?*GlowcapHost,
     callback: ?c.GlowcapTraceCallback,
     ctx: ?*anyopaque,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_trace.setTrace(host, callback, ctx);
 }
 
 /// Install, replace, or clear the bounded pull-based trace queue.
-pub export fn glowcap_host_set_trace_queue(
+pub fn glowcap_host_set_trace_queue(
     host: ?*GlowcapHost,
     capacity: usize,
     payload_cap: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_trace.setTraceQueue(host, capacity, payload_cap);
 }
 
 /// Pop one trace record, borrowed until the next pop; WOULD_BLOCK when empty.
-pub export fn glowcap_host_next_trace(
+pub fn glowcap_host_next_trace(
     host: ?*GlowcapHost,
     out: ?*c.GlowcapTraceEvent,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_trace.nextTrace(host, out);
 }
 
 /// Fulfill one resolver with a capability-free value, consuming on success.
-pub export fn glowcap_host_resolver_fulfill(
+pub fn glowcap_host_resolver_fulfill(
     host: ?*GlowcapHost,
     resolver_id: u64,
     value: ?*const shared.GlowcapArgument,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.resolverFulfill(host, resolver_id, value);
 }
 
 /// Fulfill a deferred answer with an owning-thread value. Capability projection
-/// uses the original caller session; cross-session authority refuses atomically.
-pub export fn glowcap_host_resolver_fulfill_value(host: ?*GlowcapHost, resolver_id: u64, value: ?*const shared.GlowcapArgument) i32 {
+/// uses the original caller session and ordinary outbound handoff staging.
+pub fn glowcap_host_resolver_fulfill_value(host: ?*GlowcapHost, resolver_id: u64, value: ?*const shared.GlowcapArgument) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.resolverFulfillValue(host, resolver_id, value);
 }
 
 /// Settle a resolver vow broken with a diagnostic borrowed for the call. The
 /// same top-level, consume-on-success contract as glowcap_host_resolver_fulfill.
-pub export fn glowcap_host_resolver_break(
+pub fn glowcap_host_resolver_break(
     host: ?*GlowcapHost,
     resolver_id: u64,
     message: ?[*]const u8,
     message_len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.resolverBreak(host, resolver_id, message, message_len);
 }
@@ -372,35 +379,35 @@ pub export fn glowcap_host_resolver_break(
 /// Abandon a deferred answer, top-level. A resolver already consumed by session
 /// teardown or settlement is complete cleanup. Unminted ids remain errors;
 /// every other refusal leaves the operation retryable.
-pub export fn glowcap_host_resolver_abandon(
+pub fn glowcap_host_resolver_abandon(
     host: ?*GlowcapHost,
     resolver_id: u64,
     message: ?[*]const u8,
     message_len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.resolverAbandon(host, resolver_id, message, message_len);
 }
 
 /// Enliven a sturdyref now or stage its dial; settlement returns as an action.
-pub export fn glowcap_host_enliven(
+pub fn glowcap_host_enliven(
     host: ?*GlowcapHost,
     sturdyref_uri: ?[*]const u8,
     sturdyref_uri_len: usize,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.enliven(host, sturdyref_uri, sturdyref_uri_len, out_vow);
 }
 
 /// Enliven using the CapTP profile that defined the sturdyref's swiss spelling.
-pub export fn glowcap_host_enliven_for_version(
+pub fn glowcap_host_enliven_for_version(
     host: ?*GlowcapHost,
     captp_version: u32,
     sturdyref_uri: ?[*]const u8,
     sturdyref_uri_len: usize,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.enlivenForVersion(
         host,
@@ -412,13 +419,13 @@ pub export fn glowcap_host_enliven_for_version(
 }
 
 /// Fetch a named publication at a typed locator through this Host's profile.
-pub export fn glowcap_host_fetch_at(
+pub fn glowcap_host_fetch_at(
     host: ?*GlowcapHost,
     locator: ?*const shared.GlowcapLocatorView,
     name: ?[*]const u8,
     name_len: usize,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.fetchAt(host, locator, name, name_len, out_vow);
 }
@@ -429,7 +436,7 @@ pub export fn glowcap_host_fetch_at(
 /// Before the pop, queued Host work resumes and may synchronously invoke a
 /// `GlowcapHostBehavior`; binding runtimes must install their Host delivery
 /// context around every drain call.
-pub export fn glowcap_host_next_action(host: ?*GlowcapHost, out_action: ?*GlowcapHostAction) i32 {
+pub fn glowcap_host_next_action(host: ?*GlowcapHost, out_action: ?*GlowcapHostAction) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.next(host, out_action);
 }
@@ -448,13 +455,13 @@ pub fn retryBorrowedAction(host: ?*GlowcapHost) bool {
 /// the bounded Host pump advances resulting work before return, with pressure
 /// retained for the next action drain. A stale or non-running attempt is a
 /// no-op success with `out_adopted` set to zero.
-pub export fn glowcap_host_dialed(
+pub fn glowcap_host_dialed(
     host: ?*GlowcapHost,
     ticket: u64,
     route_index: usize,
     raw: ?*GlowcapHostSession,
     out_adopted: ?*u8,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.dialed(host, ticket, route_index, raw, out_adopted);
 }
@@ -462,14 +469,14 @@ pub export fn glowcap_host_dialed(
 /// Report a DIAL action's failure: every redeem waiting on the ticket breaks
 /// with `reason`, its FAIL completion queued inside this call. A stale or
 /// non-running attempt is a no-op success.
-pub export fn glowcap_host_dial_failed(host: ?*GlowcapHost, ticket: u64, route_index: usize, reason: ?[*]const u8, reason_len: usize) i32 {
+pub fn glowcap_host_dial_failed(host: ?*GlowcapHost, ticket: u64, route_index: usize, reason: ?[*]const u8, reason_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.dialFailed(host, ticket, route_index, reason, reason_len);
 }
 
 /// A CANCEL_DIAL action's physical operation has stopped and its executor
 /// state can be released. Host close remains pending until this acknowledgement.
-pub export fn glowcap_host_dial_cancelled(host: ?*GlowcapHost, ticket: u64, route_index: usize) i32 {
+pub fn glowcap_host_dial_cancelled(host: ?*GlowcapHost, ticket: u64, route_index: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.dialCancelled(host, ticket, route_index);
 }
@@ -477,7 +484,7 @@ pub export fn glowcap_host_dial_cancelled(host: ?*GlowcapHost, ticket: u64, rout
 /// Answer a NEED_GIFT_ID action with 32 caller-drawn random bytes: the node
 /// originates the claimed handoff and this call flushes its legs, exporter
 /// first. A stale ticket is a no-op success.
-pub export fn glowcap_host_provide_gift_id(host: ?*GlowcapHost, ticket: u64, gift_id: ?[*]const u8, gift_id_len: usize) i32 {
+pub fn glowcap_host_provide_gift_id(host: ?*GlowcapHost, ticket: u64, gift_id: ?[*]const u8, gift_id_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.provideGiftId(host, ticket, gift_id, gift_id_len);
 }
@@ -485,7 +492,7 @@ pub export fn glowcap_host_provide_gift_id(host: ?*GlowcapHost, ticket: u64, gif
 /// Report that a NEED_GIFT_ID action could not obtain or provide entropy. The
 /// claimed handoff settles broken instead of retaining a ticket the embedder
 /// has already consumed. A stale ticket is a no-op success.
-pub export fn glowcap_host_gift_id_failed(host: ?*GlowcapHost, ticket: u64) i32 {
+pub fn glowcap_host_gift_id_failed(host: ?*GlowcapHost, ticket: u64) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.giftIdFailed(host, ticket);
 }
@@ -502,14 +509,14 @@ pub export fn glowcap_host_gift_id_failed(host: ?*GlowcapHost, ticket: u64) i32 
 /// caller's). All-or-nothing over this call's own work: registration failure
 /// discards the fresh actor and frees `ctx`, so a retry starts with no partial
 /// alias or projection.
-pub export fn glowcap_host_publish(
+pub fn glowcap_host_publish(
     host: ?*GlowcapHost,
     name: ?[*]const u8,
     name_len: usize,
     behavior: ?c.GlowcapHostBehavior,
     ctx: ?*anyopaque,
     free: ?c.GlowcapHostCtxFree,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_publications.publish(host, name, name_len, behavior, ctx, free);
 }
@@ -525,7 +532,7 @@ pub export fn glowcap_host_publish(
 /// GLOWCAP_HOST_DURABLE_SWISS_LEN or the call refuses BUFFER_TOO_SMALL and
 /// publishes nothing. Returns the written length. `ctx`/`free` follow
 /// `glowcap_host_publish`'s ownership exactly.
-pub export fn glowcap_host_publish_durable(
+pub fn glowcap_host_publish_durable(
     host: ?*GlowcapHost,
     entropy: ?[*]const u8,
     entropy_len: usize,
@@ -534,7 +541,7 @@ pub export fn glowcap_host_publish_durable(
     free: ?c.GlowcapHostCtxFree,
     out_swiss: ?[*]u8,
     swiss_cap: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_publications.publishDurable(
         host,
@@ -554,11 +561,11 @@ pub export fn glowcap_host_publish_durable(
 /// GLOWCAP_ERR_INVALID_ARGUMENT (mutable aliases leave through
 /// `glowcap_host_unpublish`); an unknown durable name returns
 /// GLOWCAP_ERR_NOT_FOUND.
-pub export fn glowcap_host_remove_durable(
+pub fn glowcap_host_remove_durable(
     host: ?*GlowcapHost,
     swiss: ?[*]const u8,
     swiss_len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_publications.removeDurable(host, swiss, swiss_len);
 }
@@ -569,11 +576,11 @@ pub export fn glowcap_host_remove_durable(
 /// actor, which stays in the Host's Vat until `glowcap_host_release`. An
 /// absent alias returns GLOWCAP_ERR_NOT_FOUND, so a typo is loud instead of an
 /// idempotent no-op.
-pub export fn glowcap_host_unpublish(
+pub fn glowcap_host_unpublish(
     host: ?*GlowcapHost,
     name: ?[*]const u8,
     name_len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_publications.unpublish(host, name, name_len);
 }
@@ -588,7 +595,7 @@ pub export fn glowcap_host_unpublish(
 /// `(ref, delta)` may be retried. OK consumes the release; any later pump
 /// cleanup failure is converted into typed session close and must not invite a
 /// duplicate release. Single-thread affinity applies.
-pub export fn glowcap_host_ref_release(host: ?*GlowcapHost, ref: ?*const shared.GlowcapReference, delta: u64) i32 {
+pub fn glowcap_host_ref_release(host: ?*GlowcapHost, ref: ?*const shared.GlowcapReference, delta: u64) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
     const raw = ref orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -599,11 +606,11 @@ pub export fn glowcap_host_ref_release(host: ?*GlowcapHost, ref: ?*const shared.
 /// Read the calling thread's last `glowcap_host_*` error into `out_buf`,
 /// NUL-terminated when `cap > 0`. `out_buf == NULL` or `cap == 0` queries the
 /// length. Returns the full message length, or 0 when none is set.
-pub export fn glowcap_host_last_error(out_buf: ?[*]u8, cap: usize) usize {
+pub fn glowcap_host_last_error(out_buf: ?[*]u8, cap: usize) callconv(.c) usize {
     return shared.lastErrorRead(out_buf, cap);
 }
 
 /// Clear the calling thread's `glowcap_host_*` last-error slot.
-pub export fn glowcap_host_clear_last_error() void {
+pub fn glowcap_host_clear_last_error() callconv(.c) void {
     shared.lastErrorClear();
 }

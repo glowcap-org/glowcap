@@ -7,9 +7,9 @@ there are authoritative for current consumers. The [architecture](architecture.m
 placement and dependency direction; the
 [roadmap](../../roadmap.md#durable-applications) owns priority. The
 [managed access API](access/api.md) adds resource management through `glowcap.loam.access`.
-Its [durable owner usage guide](../../loam.md#durable-owner-operations) describes
+Its [durable owner usage guide](../../loam/access.md#durable-owner-operations) describes
 the implemented storage participant and its explicit loading and commit path.
-The [managed endpoint guide](../../loam.md#managed-endpoints-on-the-host) describes
+The [managed endpoint guide](../../loam/access.md#managed-endpoints-on-the-host) describes
 fixed-resource use, control, and derivation through the existing attachment;
 the broader fluent API below remains a design sketch.
 
@@ -191,7 +191,19 @@ it. Commit success remains committed even if the caller disappears. Shutdown
 joins outstanding work through the existing Host/embedding barrier before
 releasing callbacks or store memory.
 
-An operation receipt can make a particular local mutation retryable. It binds
+Managed endpoints implement bounded receipts through the shared `RetryWindow`.
+Each endpoint has separate eight-receipt derivation and mutation domains.
+`derive` and `derive-managed` share the former; `mutate(sequence, method, args...)`
+uses the latter. Application methods declare read-only, idempotent or
+receipt-backed behavior. Current admission precedes replay, and source identity,
+exact method/arguments and any dependent target bind the recorded result.
+Changed intent conflicts, future requests refuse, and retired sequences expire.
+Capability results retain durable edges, including separate issuer control.
+The [implemented usage guide](../../loam/access.md#retrying-mutations) states limits,
+ownership and native recovery evidence. Terminal cleanup must preserve these
+floors after payload reclamation.
+
+An operation receipt makes a particular local mutation retryable. It binds
 operation identity and intent to the committed result, including publication
 identity when issuance is involved. Bound retention with persisted operation
 epochs and a retirement floor: a request from a retired epoch refuses as expired
@@ -228,9 +240,11 @@ and their acceptance tests. The attachment API below binds that lifecycle to
 the shared store.
 
 An attachment registers restorers and persistence callbacks on an existing
-Host. Its lifetime retains the store and application callback context, but it
-cannot run or close the Host. Ordinary actor state uses the same record and
-reference mechanisms as managed access state.
+Host. It borrows the store, behavior descriptors and application callback
+contexts; the embedding keeps them alive until attachment destruction succeeds.
+A Busy teardown leaves pending callbacks and storage completions alive. The
+attachment cannot run or close the Host. Ordinary actor state uses the same
+record and reference mechanisms as managed access state.
 
 Persistent actor descriptors identify behavior type/version and state edges.
 Dormant entries retain identity, publication eligibility, and live reference
@@ -246,23 +260,20 @@ promises, accepted calls, or network sessions across restart.
 
 ## Native and foreign implementation requirements
 
-Build the first foreign surface around a complete Rooms resource journey:
-create, share, edit, restart, and reopen. Reuse the existing binding Host and
-held capability types. Add the required Loam store, lease, and transaction
-ownership as that path needs them; a complete implementation of every sketch
-in this plan is not an entry requirement. Native managed-access tests must first prove
-atomic content/grant/event commitment and current admission during cold loading.
+The first foreign create/share/edit/restart/reopen journey is implemented
+through the existing Host and held capability types. Its
+[consumer guide](../../loam/c-and-rust.md) records
+scope and proof. `libglowcap_loam` projects portable Store, Attachment, borrowed
+Call and submitted Work ownership; `libglowcap_loam_lmdb` supplies optional
+LMDB execution. Rust exposes the first profile under `loam`.
 
-Zig descriptors and typed Rust wrappers must drive the same schema and effect
-contracts. The C ABI exposes opaque store, attachment, lease, prepared batch,
-and result handles with explicit release. Borrowed inputs last for the call;
+The remaining wider surface includes generic leases and graph transactions,
+saved-reference authoring and owner lifecycle. Project those only as real
+consumer journeys require them. Zig descriptors and typed wrappers must use
+the same schema and effect contracts. Borrowed inputs last for the call;
 asynchronously retained inputs have an explicit owning handle. Callbacks are
-bounded, synchronous where declared, non-reentrant, and cannot unwind across C.
-
-Loam and managed access share the libglowcap_loam archive. The Rust binding exposes managed access
-under its `loam::access` module. Database selection is separate from resource-model
-availability; callers using only plain records allocate no managed access state. Public
-codec selection does not permit replacing the authority evaluator.
+bounded, synchronous, non-reentrant, and cannot unwind across C. Public codec
+selection does not permit replacing the authority evaluator.
 
 Before freezing these interfaces, exercise a native caller, a Rust caller, and
 a browser executor through the same create/store-capability/restart/load path.

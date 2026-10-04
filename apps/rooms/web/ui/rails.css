@@ -180,7 +180,7 @@
 }
 /* The lists are one column under the title, above the status line. Slack sits
    below both sections rather than between them — growing the rooms list to
-   fill used to park direct messages on the foot, which reads as a rail that
+   fill would park direct messages on the foot, which reads as a rail that
    failed to finish loading. When the stack is taller than the rail, this
    region scrolls as one, headings included; the lists do not grow scrollers
    of their own. The roster is the same kind of region with no title or foot
@@ -256,8 +256,8 @@
 }
 /* The lockup is a button, and says so the way a rail row does: a quiet wash
    under the pointer, the page's focus ring on the keyboard. Its padding is
-   clawed back by margin so the chip and rows sit exactly where the old foot
-   put them while the press target runs a little past them. */
+   clawed back by margin so the chip and rows keep the rail's alignment
+   while the press target runs a little past them. */
 .foot-lockup {
 	all: unset;
 	box-sizing: border-box;

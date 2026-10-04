@@ -1,316 +1,139 @@
 ---
 description: "Zig glowcap architecture guardrails: codec-neutral model, authoritative session, sync no-I/O core."
-globs: src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h, build.zig, README.md, docs/**/*.md, AGENTS.md
+globs: src/**/*.zig, build.zig, include/**/*.h, tools/gen/header/**
+paths:
+  - "src/**/*.zig"
+  - "build.zig"
+  - "include/**/*.h"
+  - "tools/gen/header/**"
 ---
 
 # glowcap — Architecture Guardrails
 
-## Authority runs one direction
+## Authority
 
-The `1.0` profile answers to the pinned OCapN draft. Goblins compatibility is a
-separate, explicit feature/evidence question; a missing Goblins operation must
-not silently redefine the version. `glowcap-next` tracks current OCapN
-direction, including recorded consensus and live proposals, not only text
-already merged into the draft. Before deleting next behavior as non-spec,
-update the conformance submodules and inspect the meeting record plus the open
-issue or PR that owns it. Preserve conflicting proposals as explicit variants
-until consensus selects one; do not blend them into an unsourced wire format.
-Bindings remain dogfoods, never semantic oracles.
-
-**Read the draft before writing wire behavior, not only before deleting it.**
-The trigger is any change to what glowcap puts on the wire, and `conformance/
-ocapn-spec/upstream/draft-specifications/` usually answers outright. Designing
-the choreography first and checking after is how an unsourced wire format gets
-written: it compiles, it passes the tests written alongside it, and it is
-wrong in a way only a partner can see. A behavior the draft already specifies
-is not a design question.
+- The `1.0` profile answers to the pinned OCapN draft. Goblins compatibility is
+  a separate feature and evidence question; a missing Goblins operation never
+  redefines the version. `glowcap-next` tracks current OCapN direction,
+  including meeting consensus and live proposals. Keep conflicting proposals as
+  explicit variants; never blend them into an unsourced wire format.
+- **Read `conformance/ocapn-spec/upstream/draft-specifications/` before
+  changing anything glowcap puts on the wire**, and before deleting `next`
+  behavior (update the submodules and check the minutes and owning issue
+  first). A behavior the draft specifies is not a design question.
+- Bindings are consumers, never semantic oracles.
 
 ```text
 Frame -> Codec view -> Session state -> Outgoing Message -> Codec -> Frame
 ```
 
-**Session state owns authority.** Codecs parse and render bytes; they do not
-decide whether a reference, answer, export, import, or release is valid.
-**If a change moves authority downward into codec or adapter code, stop and
-redesign.** When a concern fits no layer above, give it to the layer that owns
-the decision, never the layer where the symptom appeared.
-
-Export positions are minted only by the session's allocator
-(`Peer.exportNextObject`), and the C Host exposes opaque Host identities rather
-than export positions. A counter kept outside the session eventually collides
-with that same counter's resolver and bootstrap exports and silently aliases a
-live object.
+**Session state owns authority.** Codecs parse and render; they never decide
+whether a reference, answer, export, import, or release is valid. If a change
+moves authority into codec or adapter code, stop and redesign. A concern that
+fits no layer goes to the layer that owns the decision, not the layer where the
+symptom appeared. Export positions are minted only by `Peer.exportNextObject`;
+the C Host exposes opaque identities, never positions.
 
 ## The core stays sync and no-I/O
 
-The portable core takes no sockets, no hidden scheduler, no background tasks, no
-`std.Io` in protocol modules, and no adapter policy inside codecs, session, or
-engine. Adapters may use `std.Io`, transports, callbacks, and host scheduling,
-but never invent semantics, lifecycle, ownership, or policy absent from shared
-Zig authority. Bindings adapt syntax and resource idioms and drive shared state
-machines; if one needs a second state machine, fix the core or C ABI first.
-The C ABI and bindings are plumbing: they marshal values, execute core-selected
-effects, and project exact outcomes into each runtime's native error and
-lifetime idioms. Protocol decisions, application/business rules, retry policy,
-and recovery policy do not belong there.
+- Protocol modules take no sockets, scheduler, background tasks, `std.Io`, or
+  adapter policy. `arch-check` enforces the ban, including in `driver_core`.
+- Adapters may use `std.Io`, transports, callbacks, and host scheduling, but
+  never invent semantics, lifecycle, ownership, or policy. If a binding needs a
+  second state machine, fix the core or C ABI. The C ABI and bindings marshal
+  values, execute core-selected effects, and project outcomes into native
+  idioms; protocol, business, retry, and recovery policy stay out of them.
+- A nonblocking operation's cancel edge interrupts the effect and retires its
+  worker before freeing state. Abandoning a result while I/O continues is not
+  cancellation.
 
-A nonblocking I/O operation's cancel edge interrupts the effect and retires its
-worker before freeing operation state. Abandoning a result while blocked I/O
-continues is not cancellation.
+## Netlayers
 
-CapTP is transport-agnostic and never names a transport. A netlayer is a locator
-transport symbol (`tcp`, `keyed-tcp`, `noise-tcp`, `keyed-relay`, `inproc`,
-`iroh`, `webrtc`, `onion`), and socket and stream code lives in transport
-residents. `keyed-tcp` and `noise-tcp` are their own symbols reusing `tcp`
-sockets, not second CapTP stacks; `noise-tcp`'s sealed channel (ADR-0107) is
-run by the core Host that owns the session, never by the resident, which is
-why the blocking tier refuses the symbol. The channel itself is
-`foundation.sealed.SealedChannel`, homed like `foundation.Spill` because both
-stream tiers run it: the byte-fed Host boxes one per sealed session, and the
-completion-loop tier composes the same machine in the sealing backend adapter
-(`net.noise_completion`), which finishes the handshake before the loop sees
-the dial connected and answers `verifiedChannelKey` — the same realizer seam
-iroh uses. `noise-relay` is that adapter over the keyed-relay pipe
-(`net.NoiseRelayLoop`) on the completion dial side. Registered accepts use the
-keyed-relay resident's sealed profile and the byte-fed Host. Browser wasm can
-run that same Host channel. Rooms uses WebRTC by default and `noise-relay` for
-its separately selected server-reachable DM path.
+CapTP never names a transport. A netlayer is a locator symbol (`tcp`,
+`keyed-tcp`, `noise-tcp`, `keyed-relay`, `noise-relay`, `inproc`, `iroh`,
+`webrtc`, `onion`), and socket code lives in transport residents. Only the code
+that authenticated the end-to-end channel may report a proved peer; a hello's
+session key proves continuity, never durable identity.
 
-## Not every shipped netlayer is deployable
+- Production: `noise-tcp` and `noise-relay` (Noise_XK proves the durable key,
+  ADR-0107; `BlockingSession` refuses `noise-tcp`), `iroh` (QUIC node id),
+  `webrtc` (signaling-authorized identity), and `onion`.
+- `onion` is the one symbol the draft standardizes and Goblins ships. Wire
+  onion locators stay bare (ADR-0108, ADR-0118).
+- `tcp`, `keyed-tcp`, and `keyed-relay` are cleartext with no peer proof;
+  `inproc` is tests only. Never make `tcp` a default, example, or demo; use
+  `iroh`. Choose `tcp` only to reach a peer that speaks nothing else, and say it
+  is cleartext.
 
-The split is not obvious from the code. The human page is
-`site/content/transports.smd` and the consequences are in `docs/boundaries.md`.
-
-| Symbol | Peer proof | Channel | Verdict |
-| --- | --- | --- | --- |
-| `tcp` | none; the designator is an address | cleartext | testing and Goblins interop only |
-| `inproc` | none, and nothing to prove | in-process pipes | tests only |
-| `keyed-tcp` | none; key designator is a dial target only | cleartext | trusted network only |
-| `noise-tcp` | Noise_XK between the CapTP peers; completing it proves the exact durable key in both directions (ADR-0107) | end-to-end encrypted records | production through the native Host tiers, C driver loop, and native bindings; `BlockingSession` refuses it |
-| `keyed-relay` | none; key designator is a dial target only | cleartext `ws://` | trusted relay and network only |
-| `noise-relay` | Noise_XK between the CapTP peers, over the relay pipe; the relay forwards ciphertext (ADR-0107) | end-to-end encrypted records | production through the relay provider package, generic C driver, native bindings, and the managed browser connector/byte-fed Host; Rooms' relay DM mode uses it |
-| `onion` | Tor's rendezvous handshake on the dialing side, nothing on the accepting side | encrypted, anonymized Tor circuit | proven live against Goblins in both directions and the complete portable upstream suite; blocking resident, provider package, native Zig completion loop, and every native binding ship |
-| `webrtc` | identity authorized by signaling | DTLS DataChannel | production |
-| `iroh` | QUIC remote node id, the one realizer proof in the tree | encrypted QUIC | production |
-
-**`onion` is the only symbol here the OCapN draft standardizes**, and the only
-one upstream Goblins ships, so it is where a glowcap peer and a Goblins vat meet
-on ground neither invented. Its designator stays an address: the service id names
-the rendezvous service, not the CapTP peer, and every wire-carried onion locator
-stays bare because the pinned Goblins dial arm refuses a hinted one; a hello may
-state a profile only toward a partner known to be glowcap (ADR-0108, ADR-0118).
-`zig build
-goblins-onion` is the meeting the symbol exists for, both directions over real
-circuits. `zig build ocapn-conformance-onion` passes all portable upstream
-modules plus the strict abort probe through the upstream onion netlayer. That
-netlayer returns from `ADD_ONION` before descriptor publication, so the dedicated
-harness self-dials through its upstream SOCKS client and consumes the accepted
-probe before exposing the locator; the barrier establishes readiness without
-replacing upstream connect, accept, or CapTP behavior. `driver.HostRuntime` polls an onion
-connection like any other socket, the onion archive installs into the generic C
-driver, and `net.OnionLoop` composes the platform completion backend without
-adding transport knowledge to the loop.
-
-**`tcp` is not an ordinary default.** The OCapN draft requires a netlayer to
-keep a session insertable only by its participants, upstream Goblins ships no
-TCP netlayer, and the upstream suite's own is `tcp-testing-only`. Reach for
-`iroh` when adding a default, an example, or a demo; pick `tcp` only to reach a
-peer that speaks nothing else, and say in the same breath that it is cleartext.
-
-A fresh session key signs each hello, so it proves session continuity and never
-durable identity. Only the code that authenticated the end-to-end channel may
-report a proved peer.
+`site/content/transports.smd` and `docs/boundaries.md` own the full matrix.
 
 ## Names carry three things
 
-A name that indexes a table is three things: the namespace it belongs to, whose
-namespace that is, and when it meant what it meant. A Zig type carries the
-first. A key of `u64` or `[]const u8` carries only the first, and the other two
-live in whatever the author was thinking.
-
-That gap is the costliest bug class this core has had, and every instance was
-one missing dimension: a near _or a far_ from one session naming an object on
-another, a projection settling an answer position the partner had released and
-reasked, two gifters reusing one gift id. **Both directions of that first one
-are live**, so when you close a position rule on one side of the wire, write
-down why the other side does not need the same rule, or give it the same rule.
-
-Every fix that held added a dimension: disjoint ranges, identity stamps, domain
-separation, a token that dies with its row. **Every fix that had to be taken
-back tried to _police_ the collision instead**, and policing a name the protocol
-lets a peer choose refuses correct peers.
-
-So prefer a key that carries its own dimensions, a distinct type or a composite
-naming the owner. Where a key stays bare, `zig build source-check` requires it to
-answer both questions in `tools/check/source_check/namespaces.zig`, in both
-directions.
+A key naming a table row carries its namespace, whose namespace it is, and when
+it meant that. A bare `u64` or byte slice carries only the first, and every
+costly bug here was a missing dimension. Fixes that held added a dimension
+(disjoint ranges, identity stamps, domain separation, a token that dies with
+its row); fixes that policed a peer-chosen name refused correct peers. Prefer a
+key that carries its own dimensions. Close a position rule on both sides of the
+wire, or write down why the other side needs none. A bare key must answer both
+questions in `tools/check/source_check/namespaces.zig`.
 
 ## Layer Ownership
 
-Where code goes. `build.zig`'s `layer_table` and `archive_table` are the
-authority for module edges and the archive set, `docs/architecture.md` is the
-readable tour, and `source-check` holds this list against `src/` in both
-directions.
+`build.zig`'s `layer_table` and `archive_table` are the authority for module
+edges; `docs/architecture.md` is the tour; `source-check` holds this list
+against `src/` both ways. Leaf `pub` is cross-file visibility, not a consumer
+promise: only supported roots define the namespace, and tests import leaves
+directly rather than widening a root.
 
-Zig leaf `pub` is cross-file visibility, not a supported consumer promise.
-Only supported roots define the consumer namespace; `source-check` pins their
-whole-module exports. Tests import internal leaves directly and never widen a
-root to reach test support.
-
-- `foundation`: bytes, IDs, frame ownership, and the `Spill` where a stream's
-  not-yet-consumed bytes wait. The `Spill` lives this low because both
-  stream-reading tiers need one and neither imports the other.
-- `ocapn/`: the OCapN / CapTP protocol itself, the four layers that _are_ the
-  protocol. Everything else adds none. Reached as `glowcap.ocapn.<layer>`.
+- `foundation`: bytes, IDs, frame ownership, `Spill`, and the sealed channel.
+- `ocapn/`: the protocol itself, reached as `glowcap.ocapn.<layer>`.
   - `ocapn/model`: codec-neutral semantic types.
-  - `ocapn/codec`: encode and decode, plus borrowed semantic views.
+  - `ocapn/codec`: encode, decode, and borrowed views.
   - `ocapn/session`: validation and the authoritative tables.
-  - `ocapn/engine`: the caller-owned `Peer`, `step`, inbound dispatch, outbound
-    drain.
-- `actors`: Goblins-shaped local objects and a sync, no-I/O `Vat` (spawn,
-  near-call `$`, eventual-send `<-`, promises) above the engine, adding no CapTP
-  semantics the engine lacks. Also owns opt-in local time-travel (ADR-0060),
-  which is local-only and never wire state.
-- `loam`: application persistence and its included managed access extension.
-  `loam_collections` owns the dependency-free immutable HAMT at
-  `loam/collections/`; actor snapshots use it without disk storage.
-  `loam_records` owns storage identities and bounded Syrup record envelopes;
-  `loam_core` imports it for transactions and record leases, with no I/O or
-  resource policy. `loam_volatile` realizes shared batches in memory, and the
-  optional `loam_lmdb` module realizes them through native LMDB. The facade
-  also exposes `loam_hosting`: bounded record-backed actors and stored local
-  capability restoration above `loam_core`, `actors`, and `driver_core`. It
-  queues wakeups through the existing Vat/Host and imports no native adapter.
-  `docs/loam.md` owns the supported durable behavior profile.
-  The access module owns resource identity, containment, policy algebra, and local grants,
-  reached through `glowcap.loam.access.core`. `loam_access_core` owns `loam/access/core/` and
-  imports no Host, actors, protocol, or I/O layer. `loam_access_records` owns bounded
-  record encoding over `loam_access_core` and `syrup`, with no I/O.
-  `loam_access_storage` loads managed records and stages changes in the existing
-  Store. `loam_access_hosting` prepares fixed-resource use/control/derive calls
-  through `loam_hosting`; the existing Host owns dispatch and settlement, and the
-  attachment owns commit. Reply materialization reserves publication custody at
-  the top-level Host boundary, outside the Vat callback (ADR-0170).
-  `loam_access` exports these modules through `glowcap.loam.access`; the build
-  graph enforces dependency direction. Resource IDs name data; restored
-  use/control references convey the bound grant's authority.
-- `diagnostics`: the vendor-neutral typed record and bounded journal for a
-  failure whose last deterministic return recipient has gone (ADR-0115).
-  Mutable storage belongs to an explicit Context, Host, or driver; the module
-  owns no global journal, logging backend, protocol outcome, or fatal policy.
-- `net`: the one place `std.Io` enters. Folds the one parser over a stream and
-  realizes netlayer residents over byte streams. Not part of the no-I/O core.
-- `driver/core` (`driver_core`): the sans-io serve core the driver stands on.
-  The vat serve loop `Served` and its verbs, the shared vocabulary, turn-time
-  `spawnAt`, stateless GC, and the byte-fed multi-session CapTP host core
-  `Host`. It is `core = true`, so **`arch-check` bans I/O here exactly as in
-  `engine`, and that ban is what keeps a socket from creeping back into the
-  serve core** (ADR-0072). A byte-fed consumer (the `libglowcap_host` C ABI, a
-  browser) drives a `Served` or a `Host` directly, net-free. The `Host` is split
-  across internal sibling files by responsibility, each presenting supported
-  verbs as `Host`'s own through decl aliases. `host.zig` keeps the aggregate
-  state and supported verb index; `host/delivery.zig` owns send/tell admission,
-  staging, and commit; `host/session*` owns the byte shell, ingress,
-  egress, realizer evidence, and terminal transport report,
-  `host/ownership.zig` owns whole-aggregate construction and retirement,
-  `host/interception.zig` owns the pre-Vat hooks and proxy projection,
-  `host/admission.zig` owns its affinity-only thread-id assertion and operation
-  gates, and **the root alias table is the index**. Internal
-  module `pub` exists for cross-file compilation and never widens the
-  `driver.core` consumer namespace by itself.
-- `driver`: the native application surface above `driver_core`, `actors`, and
-  `net`, composing the sans-io core with I/O. `BlockingSession` is the
-  no-router single-connection tier; `driver.Session` and `driver.Server` are
-  views onto an owning `driver.HostRuntime` (ADR-0090), so the front door redeems
-  handoffs; `driver.Bridge` plus `completion.Loop` is the scale embedding of the
-  same core (ADR-0068, ADR-0072, ADR-0076). Language bindings drive
-  `driver_core.Host` through `libglowcap_host` rather than rebuilding a Zig Host
-  type. Adds no CapTP semantics. It also owns the `drawSessionSecret` entropy
-  boundary and the transport constructors, the members that must stay above the
-  core's I/O ban.
-- `c_abi/`: the public C ABI family, grouped the way `src/ocapn/` groups the
-  protocol core. It ships as composable archives that **share types by _layout_,
-  not symbols** (ADR-0055, ADR-0059), each exporting only its own
-  `glowcap_<family>_*` family. Signatures and constants are reflected from Zig
-  while header prose lives in `tools/gen/header/*.zig`, so a C-contract change
-  edits both and then runs the `gen-*` step.
-  - `c_abi/shared` (`c_abi_shared`): archive-neutral C layouts and mechanics.
-    `locator.zig` is POD vocabulary only; `locator_adapter.zig` projects the
-    OCapN model without turning provider archives into OCapN symbol consumers.
-    **Declares no `export fn`**, so every archive reuses it without inheriting
-    another's exports.
-  - `c_abi/ocapn` (`c_abi`): `libglowcap_ocapn`, C-shaped only. Every handle
-    frees through exactly one `glowcap_*_release`; a `*_close` is a shutdown
-    lever and never frees, which `source-check` holds in the generated headers.
-    A C-convention function returns a code, not an error union, so an
-    `errdefer` in its body never runs: a refusal releases what it owns by
-    hand before returning, and `source-check` refuses the dead form.
-  - `c_abi/host` (`c_abi_host`): `libglowcap_host`, the byte-fed host tier
-    (ADR-0072). An embedder owning its own loop, sockets, and entropy drives a
-    full multi-session CapTP Host with bytes, and the host's own effects surface
-    as actions, so publish, fetch, send, vows, projections, and the full
-    three-party handoff run from C with no socket.
-  - `c_abi/driver` (`c_abi_driver`): `libglowcap_driver`, the native loop
-    archive (ADR-0112). Exports only the `glowcap_driver_*` family and adopts a
-    quiescent Host from `libglowcap_host` through
-    `glowcap_driver_take_host`: a stepping `driver.HostRuntime` behind one
-    readiness descriptor and one event queue, with the standalone provider ABI
-    as the transport seam. A new loop starts with zero transports; one thread
-    drives one loop; dial and accept handshakes advance across steps
-    (`HostRuntime.startDial`, `HostRuntime.startAcceptWire`), so loops
-    on one thread can dial each other and a stalled connector cannot park
-    the step.
-    `provider_registry.Registry` alone validates and adapts stream/multiplexed tables and
-    holds package leases. Listener locator projection and canonicalization use
-    one callback ABI across both execution models; their incompatible I/O
-    ownership stays separate. `source-check` holds this split.
-    Generic driver and binding loop modules name no concrete transport. Product
-    composition loads provider archives; each archive owns every profile it
-    advertises, its realization policy, and its lifecycle.
-    Bindings reject only unsafe or lossy ABI marshalling; the C ABI owns
-    semantic argument validity and bindings translate its diagnostic.
-  - `c_abi/wasm` (`c_abi_wasm`): the browser binding's freestanding `wasm32`
-    entry root (ADR-0070). Forces the `glowcap_*` and `glowcap_host_*` families
-    into one loadable module and adds the two JS-to-wasm linear-memory
-    primitives. Adds no CapTP surface; sits outside the layer DAG.
-  - `c_abi/net_transport/tcp` (`c_abi_net_transport_tcp`): the TCP transport
-    archive, exporting only `glowcap_tcp_*`. It owns the complete `tcp`,
-    `keyed-tcp`, and `noise-tcp` provider package together with the low-level
-    framed connection API; the provider lease is the native lifetime authority.
-  - `c_abi/net_transport`: the grouping directory for transport sidecars and
-    injected residents, holding no source of its own. Each child is its own
-    `.graph = false` layer outside the layer DAG because its artifact boundary
-    is not expressible as a DAG edge.
-    - `c_abi/net_transport/inproc` (`c_abi_net_transport_inproc`): the
-      in-process archive, exporting only `glowcap_inproc_*`.
-    - `c_abi/net_transport/iroh` (`c_abi_net_transport_iroh`): the iroh archive,
-      exporting only `glowcap_iroh_*`. `arch-check` still claims the directory
-      for file coverage and the I/O bans.
-    - `c_abi/net_transport/webrtc` (`c_abi_net_transport_webrtc`): the WebRTC
-      archive (ADR-0089), exporting only `glowcap_webrtc_*`. Alone among the
-      transports it imports `c_abi_shared` and not `net`, because its surface is
-      an endpoint readiness fd plus peer creation, signaling, non-blocking
-      try-I/O, and close. **A bare locator carries no signaling authority, so
-      the resident exposes no fake address `Netlayer`.**
-- `oracle`: canonical CapTP scenario drivers, the observable-trace reference the
-  Zig oracle tests compare against. Its own module off the public `glowcap`
-  namespace, imported by tests and consumed by no binding, because the bindings
-  prove the C ABI by dogfood rather than oracle traces. Not on the runtime path.
-  (The top-level `conformance/` tree is unrelated: it holds external authority.)
+  - `ocapn/engine`: the caller-owned `Peer`, `step`, dispatch, and drain.
+- `actors`: the sync `Vat` above the engine, plus local-only time travel.
+- `loam`: application persistence, collections, records, hosting, and the
+  managed access extension; `docs/loam.md` owns its durable profile.
+- `diagnostics`: the typed record and bounded journal for failures with no
+  surviving caller (ADR-0115). It owns no global storage or policy.
+- `net`: the one place `std.Io` enters; stream folding and residents.
+- `driver/core` (`driver_core`): the sans-io serve core and byte-fed `Host`.
+  `host.zig`'s alias table indexes the verbs split across `host/` siblings.
+- `driver`: the native surface above the core (`BlockingSession`,
+  `HostRuntime` with its `Session`/`Server` views, `Bridge`), entropy, and
+  transport constructors. It adds no CapTP semantics.
+- `c_abi/`: composable archives that share types by layout, not symbols
+  (ADR-0055, ADR-0059). Signatures reflect from Zig; header prose lives in
+  `tools/gen/header/*.zig`.
+  - `c_abi/shared`: archive-neutral layouts; declares no `export fn`.
+  - `c_abi/ocapn`: `libglowcap_ocapn`. Each handle frees through one
+    `glowcap_*_release`; `*_close` never frees. A C-convention function
+    releases by hand on refusal, since `errdefer` never runs there.
+  - `c_abi/host`: `libglowcap_host`, the byte-fed Host tier (ADR-0072).
+  - `c_abi/loam`: optional portable Store, content callbacks and submitted
+    storage effects borrowing the existing Host (ADR-0185).
+  - `c_abi/loam_lmdb`: optional LMDB executor and exclusive Store owner;
+    creates no Host or actor runtime (ADR-0185).
+  - `c_abi/driver`: `libglowcap_driver`, the native loop adopting a Host
+    (ADR-0112). It names no concrete transport; `provider_registry.Registry`
+    alone adapts provider tables.
+  - `c_abi/wasm`: the browser binding's freestanding entry root (ADR-0070).
+  - `c_abi/net_transport`: grouping for transport archives, each exporting only
+    its own `glowcap_<transport>_*` family. Children are `tcp`, `inproc`,
+    `iroh`, `onion`, `relay`, and `webrtc`; WebRTC exposes no fake address
+    `Netlayer`.
+- `oracle`: canonical scenario drivers for tests; not on the runtime path.
 
 ## CapTP vocabulary (ADR-0079)
-
-Kept here, not in human first-read docs.
 
 | Name | Is |
 | --- | --- |
 | `Host` / `GlowcapHost` / binding `Host` | multi-session CapTP product; owns `engine.Node` |
 | `engine.Node` | sans-io handoff router |
-| binding `Session` | one-partner app object, a view onto a `driver_core.HostSession` under a Host |
-| `driver.Session` | the same contract natively, a view onto an owning `driver.HostRuntime` (ADR-0090) |
-| `driver.BlockingSession` | the no-router single-connection tier, the one place `Settled.give` surfaces, and the only tier a transport with no pollable descriptor can ride — so it does not collapse into `HostRuntime` |
-| Goblins `mycapn` | two roles: product maps to Host; router tables map to `engine.Node` |
+| binding `Session` / `driver.Session` | one-partner view onto a Host session (ADR-0090) |
+| `driver.BlockingSession` | no-router single-connection tier; the only tier for a transport with no pollable descriptor |
+| Goblins `mycapn` | product maps to Host; router tables map to `engine.Node` |
 
-Application-level binding `Node` and `Connection` are deleted, and `net.Connection` is the byte
-stream only. There is no multi-session "node" alias for `GlowcapHost` and no
-`driver.Connection`.
+There is no binding `Node` or `Connection`, no `driver.Connection`, and no
+multi-session "node" alias; `net.Connection` is the byte stream only.

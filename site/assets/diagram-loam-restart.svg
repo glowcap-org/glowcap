@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 384" width="720" height="384" role="img" aria-label="Three moments in time above one store on disk. Running: the board, both columns, and their cards are awake, and every change is committed to the store. Stopped: nothing is in memory, but the store still holds every record, edge, and the board's durable name. Restarted: Carol fetches the board by its name, so only the board wakes; when she asks it for the to-do column, that column wakes too, and the done column and the cards stay asleep on disk.">
+  <style>
+    text { font-family: var(--font-sans, system-ui, sans-serif); fill: var(--ink, #3a3027); paint-order: stroke; stroke: var(--paper-raised, #fff9ee); stroke-width: 3px; stroke-linejoin: round; }
+    .title { font-size: 14px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink-soft, #6b5d4d); }
+    .chip { font-size: 12px; }
+    .small { font-size: 11px; }
+    .tag { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .ink-warm { fill: var(--dia-accent-deep, #9d5209); }
+    .ink-cool { fill: var(--dia-teal-deep, #1b5f66); }
+    .ink-danger { fill: var(--dia-danger, #b3403a); }
+    .ink-muted { fill: var(--dia-muted, #8a7862); }
+    .on-fill { fill: var(--on-accent, #fff8ef); stroke: none; }
+    .bead { visibility: hidden; }
+    @supports (offset-path: path("M0 0 L1 1")) { .bead { visibility: visible; } }
+    /* One 12s loop, read left to right: run and commit, stop, come back.
+       The finished picture is all three moments at once. */
+    .commit { offset-path: path("M115 238 L115 268"); animation: lr-commit 12s ease-in-out infinite; }
+    @keyframes lr-commit {
+      0%, 6% { offset-distance: 0%; opacity: 0; }
+      8% { opacity: 1; }
+      18% { offset-distance: 100%; opacity: 1; }
+      21%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .stage-2 { animation: lr-stage-2 12s ease-in-out infinite; }
+    @keyframes lr-stage-2 {
+      0%, 24% { opacity: 0.2; }
+      30%, 94% { opacity: 1; }
+      99%, 100% { opacity: 0.2; }
+    }
+    .stage-3 { animation: lr-stage-3 12s ease-in-out infinite; }
+    @keyframes lr-stage-3 {
+      0%, 38% { opacity: 0.2; }
+      44%, 94% { opacity: 1; }
+      99%, 100% { opacity: 0.2; }
+    }
+    .fetch { offset-path: path("M606 70 L528 70"); animation: lr-fetch 12s ease-in-out infinite; }
+    @keyframes lr-fetch {
+      0%, 48% { offset-distance: 0%; opacity: 0; }
+      50% { opacity: 1; }
+      56% { offset-distance: 100%; opacity: 1; }
+      58%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .read { offset-path: path("M480 268 L480 238"); animation: lr-read 12s ease-in-out infinite; }
+    @keyframes lr-read {
+      0%, 57% { offset-distance: 0%; opacity: 0; }
+      58% { opacity: 1; }
+      63% { offset-distance: 100%; opacity: 1; }
+      65%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .wake-board { animation: lr-wake-board 12s ease-in-out infinite; }
+    @keyframes lr-wake-board {
+      0%, 63% { opacity: 0.25; }
+      67%, 94% { opacity: 1; }
+      99%, 100% { opacity: 0.25; }
+    }
+    .ask { offset-path: path("M480 84 L445 112"); animation: lr-ask 12s ease-in-out infinite; }
+    @keyframes lr-ask {
+      0%, 69% { offset-distance: 0%; opacity: 0; }
+      70% { opacity: 1; }
+      76% { offset-distance: 100%; opacity: 1; }
+      78%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .wake-todo { animation: lr-wake-todo 12s ease-in-out infinite; }
+    @keyframes lr-wake-todo {
+      0%, 76% { opacity: 0.25; }
+      80%, 94% { opacity: 1; }
+      99%, 100% { opacity: 0.25; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .bead { visibility: hidden !important; }
+    }
+  </style>
+  <defs>
+    <marker id="lr-warm" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent, #c76f18)"/>
+    </marker>
+    <marker id="lr-cool" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--teal, #257f88)"/>
+    </marker>
+  </defs>
+
+  <!-- 1. Running: the whole board awake. Each mini board is drawn around a
+       center x: the board above, its two columns, a card under each. -->
+  <text x="15" y="22" class="tag ink-warm">1 &#160;running</text>
+  <rect x="15" y="32" width="200" height="206" rx="14" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
+  <g stroke="var(--accent, #c76f18)" stroke-width="1.5">
+    <path d="M115 84 L80 112 M115 84 L150 112 M80 138 L80 166 M150 138 L150 166"/>
+  </g>
+  <rect x="73" y="56" width="84" height="28" rx="8" fill="var(--accent, #c76f18)"/>
+  <text x="115" y="75" text-anchor="middle" class="chip on-fill">board</text>
+  <rect x="48" y="112" width="64" height="26" rx="8" fill="var(--accent, #c76f18)"/>
+  <text x="80" y="130" text-anchor="middle" class="chip on-fill">to do</text>
+  <rect x="118" y="112" width="64" height="26" rx="8" fill="var(--accent, #c76f18)"/>
+  <text x="150" y="130" text-anchor="middle" class="chip on-fill">done</text>
+  <rect x="57" y="166" width="46" height="24" rx="8" fill="var(--accent, #c76f18)"/>
+  <text x="80" y="182" text-anchor="middle" class="small on-fill">#12</text>
+  <rect x="127" y="166" width="46" height="24" rx="8" fill="var(--accent, #c76f18)"/>
+  <text x="150" y="182" text-anchor="middle" class="small on-fill">#7</text>
+  <text x="115" y="220" text-anchor="middle" class="sub">everything awake</text>
+
+  <!-- 2. Stopped: nothing in memory. -->
+  <g class="stage-2">
+    <text x="235" y="22" class="tag ink-danger">2 &#160;stopped</text>
+    <rect x="235" y="32" width="130" height="206" rx="14" fill="none" stroke="var(--rule, #e7d4b7)" stroke-dasharray="5 5"/>
+    <circle cx="300" cy="118" r="22" fill="var(--dia-danger-fill, #faece7)" stroke="var(--dia-danger, #b3403a)" stroke-width="2"/>
+    <path d="M291 109 L309 127 M309 109 L291 127" stroke="var(--dia-danger, #b3403a)" stroke-width="3" stroke-linecap="round"/>
+    <text x="300" y="170" text-anchor="middle" class="sub">the process exits;</text>
+    <text x="300" y="186" text-anchor="middle" class="sub">nothing in memory</text>
+  </g>
+
+  <!-- 3. Restarted: only what Carol asked for is awake. -->
+  <g class="stage-3">
+    <text x="385" y="22" class="tag ink-cool">3 &#160;restarted</text>
+    <rect x="385" y="32" width="320" height="206" rx="14" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+    <g stroke="var(--dia-muted, #8a7862)" stroke-width="1.5" stroke-dasharray="3 3">
+      <path d="M480 84 L515 112 M445 138 L445 166 M515 138 L515 166"/>
+    </g>
+    <path d="M480 84 L445 112" stroke="var(--accent, #c76f18)" stroke-width="2"/>
+    <rect x="438" y="56" width="84" height="28" rx="8" fill="var(--accent, #c76f18)" class="wake-board"/>
+    <text x="480" y="75" text-anchor="middle" class="chip on-fill">board</text>
+    <rect x="413" y="112" width="64" height="26" rx="8" fill="var(--accent, #c76f18)" class="wake-todo"/>
+    <text x="445" y="130" text-anchor="middle" class="chip on-fill">to do</text>
+    <rect x="483" y="112" width="64" height="26" rx="8" fill="none" stroke="var(--dia-muted, #8a7862)" stroke-dasharray="4 3"/>
+    <text x="515" y="130" text-anchor="middle" class="chip ink-muted">done</text>
+    <rect x="422" y="166" width="46" height="24" rx="8" fill="none" stroke="var(--dia-muted, #8a7862)" stroke-dasharray="4 3"/>
+    <text x="445" y="182" text-anchor="middle" class="small ink-muted">#12</text>
+    <rect x="492" y="166" width="46" height="24" rx="8" fill="none" stroke="var(--dia-muted, #8a7862)" stroke-dasharray="4 3"/>
+    <text x="515" y="182" text-anchor="middle" class="small ink-muted">#7</text>
+    <text x="480" y="220" text-anchor="middle" class="sub">awake only when asked for</text>
+
+    <!-- Carol comes back with the sturdyref she kept. -->
+    <rect x="608" y="48" width="86" height="54" rx="12" fill="var(--dia-card, #ffffff)" stroke="var(--rule, #e7d4b7)"/>
+    <text x="651" y="71" text-anchor="middle" class="title">Carol</text>
+    <text x="651" y="89" text-anchor="middle" class="small ink-muted">her sturdyref</text>
+    <path d="M606 70 L528 70" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#lr-warm)"/>
+    <text x="566" y="62" text-anchor="middle" class="small">fetch</text>
+    <text x="566" y="88" text-anchor="middle" class="small">then asks</text>
+    <text x="566" y="101" text-anchor="middle" class="small">for to do</text>
+  </g>
+
+  <!-- The store on disk, under all three moments. -->
+  <rect x="15" y="270" width="690" height="96" rx="14" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--teal, #257f88)" stroke-width="2"/>
+  <text x="35" y="294" class="tag ink-cool">store on disk</text>
+  <text x="685" y="294" text-anchor="end" class="sub">unchanged by the stop</text>
+  <g stroke="var(--teal, #257f88)" fill="var(--dia-card, #ffffff)">
+    <rect x="35" y="310" width="66" height="26" rx="8"/>
+    <rect x="109" y="310" width="58" height="26" rx="8"/>
+    <rect x="175" y="310" width="58" height="26" rx="8"/>
+    <rect x="241" y="310" width="44" height="26" rx="8"/>
+    <rect x="293" y="310" width="44" height="26" rx="8"/>
+  </g>
+  <text x="68" y="328" text-anchor="middle" class="chip">board</text>
+  <text x="138" y="328" text-anchor="middle" class="chip">to do</text>
+  <text x="204" y="328" text-anchor="middle" class="chip">done</text>
+  <text x="263" y="328" text-anchor="middle" class="small">#12</text>
+  <text x="315" y="328" text-anchor="middle" class="small">#7</text>
+  <text x="352" y="328" class="sub">records and their edges</text>
+  <rect x="520" y="310" width="165" height="26" rx="8" fill="var(--dia-card, #ffffff)" stroke="var(--accent, #c76f18)"/>
+  <text x="602" y="328" text-anchor="middle" class="chip">name &#8594; board</text>
+  <text x="602" y="354" text-anchor="middle" class="small ink-muted">the name index</text>
+
+  <!-- Into the store while running; out of it, on demand, after the restart. -->
+  <path d="M115 238 L115 264" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#lr-warm)"/>
+  <text x="123" y="257" class="small">commit each change</text>
+  <path d="M480 268 L480 242" stroke="var(--teal, #257f88)" stroke-width="2" marker-end="url(#lr-cool)"/>
+  <text x="488" y="257" class="small">read only what is asked for</text>
+
+  <circle class="bead commit" r="5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"/>
+  <circle class="bead fetch" r="5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"/>
+  <circle class="bead read" r="5" fill="var(--teal, #257f88)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"/>
+  <circle class="bead ask" r="5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"/>
+</svg>

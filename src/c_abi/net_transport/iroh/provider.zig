@@ -1,14 +1,13 @@
 //! Generic multiplexed-provider projection of the owned iroh endpoint.
 //!
 //! This leaf adapts the sidecar's one readiness loop to the driver's provider
-//! table. It owns the id-to-handle mapping and listener projection operations
-//! stored in `ownership.MultiplexedAdapter`; endpoint and teardown authority
+//! table. Shared native state owns connection identity and listener operations;
+//! endpoint and teardown authority
 //! remain in `ownership.zig`.
 
 const std = @import("std");
 
 const model = @import("model");
-const net = @import("net");
 const iroh = @import("iroh");
 const c = @import("c_abi_shared");
 const ownership = @import("ownership.zig");
@@ -51,6 +50,10 @@ pub export fn glowcap_iroh_transport_provider(
             return c.failInternal("iroh transport_provider adapter", err);
         adapter.* = .{
             .payload = nl,
+            .native = iroh.MultiplexedAdapter.init(nl.allocator, &nl.resident) catch |err| {
+                nl.allocator.destroy(adapter);
+                return c.failInternal("iroh transport_provider admission", err);
+            },
             .profile = transportProfile(),
             .multiplexed_transport = undefined,
             .entry = undefined,
@@ -147,39 +150,15 @@ fn multiplexedDrainReady(
     out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    const count_slot = out_count orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-    const out_ptr = out orelse if (cap == 0) null else return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-    var scratch: [32]iroh.ReadyEvent = undefined;
-    var total: usize = 0;
-    while (total < cap) {
-        const want = @min(cap - total, scratch.len);
-        const got = adapter.payload.resident.drainReady(scratch[0..want]);
-        if (got < 0) return c.transport_provider.failProvider(out_failure, c.GLOWCAP_ERR_IO, error.ReadinessFailed);
-        if (got == 0) break;
-        const count: usize = @intCast(got);
-        for (scratch[0..count]) |record| {
-            if (record.events & iroh.loop_ev_accept != 0) {
-                if (!adapter.listening) {
-                    while (adapter.payload.resident.loopTryAccept()) |conn| {
-                        adapter.payload.resident.loopConnClose(conn);
-                    }
-                    continue;
-                }
-                out_ptr.?[total] = .{
-                    .subject = adapter.listener_route orelse continue,
-                    .events = record.events,
-                };
-                total += 1;
-                if (total == cap) break;
-                continue;
-            }
-            out_ptr.?[total] = .{ .subject = @intCast(record.subject), .events = record.events };
-            total += 1;
-            if (total == cap) break;
-        }
-        if (count < want) break;
-    }
-    count_slot.* = total;
+    const slot = out_count orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+    slot.* = 0;
+    if (cap == 0) return GLOWCAP_OK;
+    const dest = out orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+    var ready: [32]@import("net").multiplexed_resident.ReadyEvent = undefined;
+    const count = adapter.native.drainReady(ready[0..@min(cap, ready.len)]) catch |err|
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
+    for (ready[0..count], 0..) |event, i| dest[i] = .{ .subject = @intCast(event.subject), .events = event.events };
+    slot.* = count;
     return GLOWCAP_OK;
 }
 
@@ -219,16 +198,8 @@ fn multiplexedStartConnect(
         return c.transport_provider.failProvider(out_failure, code, err);
     };
     defer borrowed.deinit(adapter.payload.allocator);
-    const locator = borrowed.value;
-    if (!std.mem.eql(u8, locator.transport, iroh.transport_name))
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidAddress);
-    adapter.payload.resident.loopStartConnectResolved(
-        @intCast(request_id),
-        locator.designator,
-        net.netlayer.directAddrHint(locator.hints) orelse "",
-    ) catch |err| {
-        const code = dialErrToCode(err, "");
-        return c.transport_provider.failProvider(out_failure, code, err);
+    adapter.native.startConnect(@intCast(request_id), borrowed.value, .inherit) catch |err| {
+        return c.transport_provider.failProvider(out_failure, dialErrToCode(err, ""), err);
     };
     return GLOWCAP_OK;
 }
@@ -245,21 +216,14 @@ fn multiplexedFinishConnect(
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     };
     var text: iroh.DialText = .{};
-    const handle = adapter.payload.resident.loopFinishConnect(@intCast(request_id), &text) catch |err| {
-        const code = dialErrToCode(err, text.slice());
-        return c.transport_provider.failProvider(out_failure, code, err);
-    };
-    const conn_id: u64 = @intCast(adapter.payload.resident.loopConnId(handle));
-    adapter.conns.put(adapter.payload.allocator, conn_id, .{ .handle = handle }) catch |err| {
-        adapter.payload.resident.loopConnClose(handle);
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
-    };
-    slot.* = conn_id;
+    slot.* = @intCast(adapter.native.finishConnect(@intCast(request_id), &text) catch |err| {
+        return c.transport_provider.failProvider(out_failure, dialErrToCode(err, text.slice()), err);
+    });
     return GLOWCAP_OK;
 }
 
 fn multiplexedCancelConnect(ctx: ?*anyopaque, request_id: u64, _: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    MultiplexedAdapter.fromOpaque(ctx).payload.resident.loopCancelConnect(@intCast(request_id));
+    MultiplexedAdapter.fromOpaque(ctx).native.cancelConnect(@intCast(request_id));
     return GLOWCAP_OK;
 }
 
@@ -279,35 +243,17 @@ fn multiplexedListen(
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
     const result = out_result orelse
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-    if (adapter.listening)
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.AlreadyListening);
     const selected = (transport orelse
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer))[0..transport_len];
-    if (!std.mem.eql(u8, selected, model.transport.iroh))
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidAddress);
     const requested: []const u8 = if (requested_designator) |ptr| ptr[0..requested_designator_len] else &.{};
-    var designator: [iroh.node_id_len]u8 = undefined;
-    const actual = adapter.payload.resident.nodeId(&designator);
-    if (actual.len == 0 or (requested.len != 0 and !std.mem.eql(u8, requested, actual))) {
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidAddress);
-    }
-    const direct_addresses = adapter.payload.resident.directAddrsOwned(adapter.payload.allocator) catch |err| switch (err) {
-        error.OutOfMemory => return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, error.OutOfMemory),
-        error.AddressListTooLarge => return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.MetadataTooLarge),
-        error.SidecarFailed => return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, error.SidecarFailed),
+    adapter.native.listen(@intCast(route_id), selected, requested, .inherit) catch |err| {
+        const code: i32 = switch (err) {
+            error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
+            error.SidecarFailed => GLOWCAP_ERR_IO,
+            else => GLOWCAP_ERR_INVALID_ARGUMENT,
+        };
+        return c.transport_provider.failProvider(out_failure, code, err);
     };
-    defer adapter.payload.allocator.free(direct_addresses);
-    var hint_storage: [1]model.HintEntry = undefined;
-    const locator: model.PeerLocator = .{
-        .transport = iroh.transport_name,
-        .designator = actual,
-        .hints = model.Hints.forDirectAddresses(direct_addresses, &hint_storage),
-    };
-    adapter.listener_locator = model.clonePeerLocator(adapter.payload.allocator, locator) catch {
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, error.OutOfMemory);
-    };
-    adapter.listening = true;
-    adapter.listener_route = route_id;
     result.* = .{
         .state = c.GLOWCAP_LISTEN_READY,
         .listener = adapter,
@@ -324,10 +270,8 @@ fn multiplexedListenerLocator(
     out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    if (!adapter.listening)
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.NotListening);
-    const locator = adapter.listener_locator orelse
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.MissingListenerLocator);
+    const locator = adapter.native.borrowListenerLocator() catch |err|
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, err);
     var hint_stack: [c.locator_adapter.inline_hint_capacity]c.GlowcapLocatorHintView = undefined;
     var projection = c.locator_adapter.Projection.init(
         adapter.payload.allocator,
@@ -346,8 +290,6 @@ fn multiplexedListenerAdvertise(
     out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    if (!adapter.listening)
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.NotListening);
     const view = locator_view orelse
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     var hint_stack: [c.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
@@ -357,85 +299,48 @@ fn multiplexedListenerAdvertise(
         &hint_stack,
     ) catch |err| return c.transport_provider.failProvider(out_failure, c.locatorAdapterErrorCode(err), err);
     defer borrowed.deinit(adapter.payload.allocator);
-    const active = adapter.listener_locator orelse
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.MissingListenerLocator);
-    iroh.validateListenerLocator(active.designator, borrowed.value) catch |err|
+    adapter.native.validateAdvertisement(borrowed.value) catch |err|
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, err);
     return sink(sink_ctx, view);
 }
 
 fn multiplexedFinishAccept(ctx: ?*anyopaque, out_conn: ?*u64, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    if (!adapter.listening) return GLOWCAP_ERR_WOULD_BLOCK;
     const slot = out_conn orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-    const handle = adapter.payload.resident.loopTryAccept() orelse return GLOWCAP_ERR_WOULD_BLOCK;
-    const conn_id: u64 = @intCast(adapter.payload.resident.loopConnId(handle));
-    adapter.conns.put(adapter.payload.allocator, conn_id, .{ .handle = handle }) catch |err| {
-        adapter.payload.resident.loopConnClose(handle);
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
-    };
-    slot.* = conn_id;
+    slot.* = @intCast((adapter.native.finishAccept() catch |err|
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err)) orelse return GLOWCAP_ERR_WOULD_BLOCK);
     return GLOWCAP_OK;
 }
 
-fn multiplexedStopListen(ctx: ?*anyopaque, _: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    adapter.listening = false;
-    adapter.listener_route = null;
-    if (adapter.listener_locator) |locator| model.freePeerLocator(adapter.payload.allocator, locator);
-    adapter.listener_locator = null;
-    while (adapter.payload.resident.loopTryAccept()) |conn| {
-        adapter.payload.resident.loopConnClose(conn);
-    }
+fn multiplexedStopListen(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
+    MultiplexedAdapter.fromOpaque(ctx).native.stopListen() catch |err|
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
     return GLOWCAP_OK;
-}
-
-/// Latch the first fault a try-I/O verb saw on `row`, so `conn_take_failure`
-/// can name it. Would-block is progress deferred, not a fault, and a fault
-/// already latched keeps its first cause.
-fn latchConnFailure(row: *ownership.ConnRow, n: isize) isize {
-    if (n < 0 and n != iroh.loop_would_block and c.transport_provider.providerFailureEmpty(row.failure))
-        c.transport_provider.setProviderFailure(&row.failure, GLOWCAP_ERR_IO, error.ConnectionLost);
-    return n;
 }
 
 fn multiplexedTryRead(ctx: ?*anyopaque, conn: u64, buf: ?[*]u8, cap: usize) callconv(.c) isize {
-    const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    const row = adapter.conns.getPtr(conn) orelse return -1;
-    const dst = buf orelse return -1;
-    return latchConnFailure(row, adapter.payload.resident.loopTryRead(row.handle, dst[0..cap]));
+    return MultiplexedAdapter.fromOpaque(ctx).native.tryRead(@intCast(conn), (buf orelse return -1)[0..cap]);
 }
 
 fn multiplexedTryWrite(ctx: ?*anyopaque, conn: u64, bytes: ?[*]const u8, len: usize) callconv(.c) isize {
-    const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    const row = adapter.conns.getPtr(conn) orelse return -1;
-    const src = bytes orelse return -1;
-    return latchConnFailure(row, adapter.payload.resident.loopTryWrite(row.handle, src[0..len]));
+    return MultiplexedAdapter.fromOpaque(ctx).native.tryWrite(@intCast(conn), (bytes orelse return -1)[0..len]);
 }
 
 fn multiplexedConnClose(ctx: ?*anyopaque, conn: u64, _: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    // Tolerant: a stale id drains to nothing, per the resident namespace rule.
-    if (adapter.conns.fetchRemove(conn)) |row| {
-        adapter.payload.resident.loopConnClose(row.value.handle);
-    }
+    MultiplexedAdapter.fromOpaque(ctx).native.closeConnection(@intCast(conn));
     return GLOWCAP_OK;
 }
 
 fn multiplexedConnTakeFailure(ctx: ?*anyopaque, conn: u64, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) void {
     const slot = out_failure orelse return;
     slot.* = std.mem.zeroes(c.GlowcapProviderFailure);
-    const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    const row = adapter.conns.getPtr(conn) orelse return;
-    slot.* = row.failure;
-    row.failure = std.mem.zeroes(c.GlowcapProviderFailure);
+    if (MultiplexedAdapter.fromOpaque(ctx).native.takeFailure(@intCast(conn))) |failure|
+        c.transport_provider.setProviderFailureChain(slot, GLOWCAP_ERR_IO, failure, c.dialFailureCode);
 }
 
 fn multiplexedConnRemoteKey(ctx: ?*anyopaque, conn: u64, out_key: ?[*]u8) callconv(.c) i32 {
-    const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    const row = adapter.conns.get(conn) orelse return 0;
     const dst = out_key orelse return 0;
-    const key = adapter.payload.resident.loopConnRemoteKey(row.handle) orelse return 0;
+    const key = MultiplexedAdapter.fromOpaque(ctx).native.remoteKey(@intCast(conn)) orelse return 0;
     @memcpy(dst[0..key.bytes.len], &key.bytes);
     return 1;
 }

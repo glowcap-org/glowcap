@@ -1,9 +1,9 @@
 // ── Interface icons ────────────────────────────────────────────────────────
-// The toolbar used to draw its controls with emoji. Emoji are pictures the
+// The toolbar draws its controls as strokes, not emoji. Emoji are pictures the
 // platform owns, not glyphs this app can style: they arrive full-colour against
 // a palette tuned to amber and teal, they sit on a different baseline in every
-// font, and on a system with no emoji font they are empty boxes. These are
-// plain strokes instead, so a control inherits the colour of the text around it
+// font, and on a system with no emoji font they are empty boxes. These
+// strokes mean a control inherits the colour of the text around it
 // and looks the same everywhere.
 //
 // Each path is drawn on a 24-unit grid and stroked, never filled, so one

@@ -125,9 +125,9 @@
    the way a shape-shaped control does, and it carries a ground to be approached
    by rather than only ink.
 
-   All of that is the variant's, not a caller's. It used to be a `link` wearing a
-   class that had to name itself twice to beat this family's `font: inherit`.
-   That duplicate name exposed the missing variant. Where the line goes
+   All of that is the variant's, not a caller's. A `link` wearing an extra class would
+   have to name itself twice to beat this family's `font: inherit`, which is
+   the sign of a missing variant. Where the line goes
    and how wide its mark column is remain the rail's to say. */
 /* A caption spans a whole line, so what is written on it sits in the middle of
    that line as one piece: a glyph and the words it belongs to, together, inset

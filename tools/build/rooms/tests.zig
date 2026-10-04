@@ -180,7 +180,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     web_tooling.has_side_effects = true;
     server_step.dependOn(&web_tooling.step);
     const archive = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
-    archive.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_TEST_BIN=", .make_absolute = true });
+    archive.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_BIN=", .make_absolute = true });
     archive.addArgs(command);
     archive.step.dependOn(ctx.archive_install);
     archive.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);

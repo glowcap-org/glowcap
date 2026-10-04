@@ -14,11 +14,19 @@ pub const CapabilityRecord = struct {
     grant: core.GrantId,
     role: Role,
     powers: core.Control.Powers = .{},
+    dependency: ?loam.ObjectId = null,
+    revoked: bool = false,
     pub const Role = enum { use, control };
     pub const max_encoded_bytes = 16 * 1024;
 
-    pub fn edges(self: CapabilityRecord) [2]loam.Edge {
-        return .{ .{ .target = self.owner }, .{ .target = self.grant_object } };
+    pub fn edges(self: CapabilityRecord, buffer: *[3]loam.Edge) []const loam.Edge {
+        buffer[0] = .{ .target = self.owner };
+        buffer[1] = .{ .target = self.grant_object };
+        if (self.dependency) |parent| {
+            buffer[2] = .{ .target = parent };
+            return buffer;
+        }
+        return buffer[0..2];
     }
 
     pub fn encodeAlloc(self: CapabilityRecord, allocator: std.mem.Allocator) ![]u8 {
@@ -36,7 +44,7 @@ pub const CapabilityRecord = struct {
 
     /// Only a selected management ceiling allocates, with at most 256 IDs.
     pub fn decodeOwned(allocator: std.mem.Allocator, view: loam.View) !Owned {
-        if (view.schema != profile.capability or view.schema_version != 1 or view.payload.len > max_encoded_bytes or view.edge_count != 2) return error.InvalidRecord;
+        if (view.schema != profile.capability or view.schema_version != 1 or view.payload.len > max_encoded_bytes or (view.edge_count != 2 and view.edge_count != 3)) return error.InvalidRecord;
         var edges_it = view.edges();
         const owner = edges_it.next().?;
         const grant_object = edges_it.next().?;
@@ -55,6 +63,12 @@ pub const CapabilityRecord = struct {
         result.value.powers.pause = try s.readBool(b, &c);
         result.value.powers.resume_access = try s.readBool(b, &c);
         result.value.powers.revoke = try s.readBool(b, &c);
+        result.value.revoked = try s.readBool(b, &c);
+        if (view.edge_count == 3) {
+            const dependency = edges_it.next().?;
+            if (dependency.strength != .strong) return error.InvalidRecord;
+            result.value.dependency = dependency.target;
+        }
         try s.readByte(b, &c, '>');
         try s.expectEnd(b, c);
         try result.value.validate();
@@ -63,7 +77,8 @@ pub const CapabilityRecord = struct {
 
     fn validate(self: CapabilityRecord) !void {
         if (self.grant.generation == 0 or self.owner.store != self.grant_object.store) return error.InvalidRecord;
-        if (self.role == .use and (self.powers.policy_ceiling != null or self.powers.pause or self.powers.resume_access or self.powers.revoke)) return error.InvalidRecord;
+        if (self.role == .use and (self.powers.policy_ceiling != null or self.powers.pause or self.powers.resume_access or self.powers.revoke or self.dependency != null or self.revoked)) return error.InvalidRecord;
+        if (self.dependency) |parent| if (parent.store != self.owner.store) return error.InvalidRecord;
         if (self.powers.policy_ceiling) |ceiling| try terms.validate(ceiling, self.grant.owner);
     }
 
@@ -78,6 +93,7 @@ pub const CapabilityRecord = struct {
         try s.writeBool(sink, self.powers.pause);
         try s.writeBool(sink, self.powers.resume_access);
         try s.writeBool(sink, self.powers.revoke);
+        try s.writeBool(sink, self.revoked);
         try s.endRecord(sink);
     }
 };

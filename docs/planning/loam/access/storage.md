@@ -8,7 +8,9 @@ phases, backend outcomes, and adapter execution. The
 [roadmap](../../../roadmap.md#durable-applications) owns priority; the
 [architecture](architecture.md) owns layering and the
 [API sketch](api.md) owns the consumer vocabulary. The
-[acceptance plan](acceptance.md) owns implementation order and exit evidence. The
+[completion queue](../completion.md#execution-order) owns remaining implementation task
+priority and dependencies; the [acceptance plan](acceptance.md) owns integration
+evidence. The
 [shipped inventory](../../../shipped.md#resource-models) describes implementation.
 The APIs, storage adapters, and budgets below are proposed unless explicitly
 identified as existing. They are requirements to implement and measure.
@@ -22,7 +24,7 @@ adds shared grant views, preparation, and codecs.
 durable owner headers and identity indexes, bounded resumable reads, and
 transaction staging.
 [ADR-0168](../../../decisions/adr/ADR-0168-durable-managed-capability-bindings.md)
-adds durable native use/control restoration and opaque operations.
+adds durable Zig use/control restoration and opaque operations.
 [ADR-0169](../../../decisions/adr/ADR-0169-managed-host-turns.md) adds fixed-resource
 managed Host turns and ordinary publication restoration. ADR-0170 adds
 fixed-resource derivation, reserved publication admission, and bounded retry
@@ -31,9 +33,22 @@ receipts.
 adds declared exact disclosure of stored reference fields.
 [ADR-0173](../../../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)
 adds dependent local disclosure plus transactional replacement and removal of
-strong reference fields. Application receipts remain to integrate.
+strong reference fields.
+[ADR-0178](../../../decisions/adr/ADR-0178-managed-lifecycle-and-mutation-receipts.md)
+adds transactional child indexes, persistent moves and leaf deletion, independent
+control dependencies and shared mutation receipts. The
+[usage guide](../../../loam/access.md#resource-moves-deletion-and-children) documents
+Zig query ownership, hosted structural effects and scoped observation.
+The [observation guide](../../../loam/access.md#observing-held-access) owns the
+implemented exact-context profile and capacity budgets.
+[Bounded owner cleanup](../../../loam/access.md#bounded-owner-cleanup) implements
+terminal payload reclamation, index pruning and publication retirement.
+[Held-authority reference recipes](../../../loam/references.md) implement local
+and foreign restoration. [LMDB maintenance](../../../loam.md#lmdb-capacity-and-measurements)
+implements map growth, inspection and offline compaction; macOS validation
+remains maintainer-owned in the completion queue.
 The [glowcap memory and persistence research](../research/memory-persistence.md)
-now evaluates the generic substrate beneath this contract and native backend
+now evaluates the generic substrate beneath this contract and storage backend
 selection. [ADR-0159](../../../decisions/adr/ADR-0159-memory-and-persistence-research.md)
 records that change of scope.
 
@@ -49,10 +64,10 @@ the embedding's executor. The
 the [actor contract](../actors.md) owns activation and eviction. The two-consumer
 experiment proves the API; a custom physical engine needs comparative evidence.
 
-Use the implemented LMDB adapter for native workload and application integration.
-Compare another engine when measurements warrant it; keep IndexedDB as the
-Rooms browser candidate. The profiles below specify
-candidate requirements, not a measured winner. Content and managed access records that
+Use the implemented LMDB adapter for LMDB workload and application integration.
+Compare another engine when measurements warrant it; use the
+[IndexedDB profile](../../../loam/browser.md) for browser execution. The profiles
+below specify requirements, not a measured winner. Content and managed access records that
 participate in one operation share one backend transaction. Keep a volatile adapter for local ephemeral
 applications and the same semantic test suite. Backend selection is explicit;
 failure to open durable storage cannot silently select the volatile adapter.
@@ -115,7 +130,7 @@ local restoration recipe or already-established foreign sturdyref and returns
 a typed stored-reference value for that content field. It consumes or retains
 actual capability custody through the existing Host surface. It is not a public
 constructor from resource/grant IDs. Typed bindings use this mechanism when
-encoding capability fields, rather than serializing their native handle bytes.
+encoding capability fields, rather than serializing their runtime handle bytes.
 Loading such a field reconstructs that reference under the field's declared
 return policy; copying it does not mint an independent grant.
 
@@ -129,13 +144,14 @@ remote call before the local transaction, never an invented foreign record ID.
 
 Applications explicitly declare whether a method hands over exact saved
 authority or keeps the invoking endpoint as an additional dependency.
-`ContentCall.discloseExact` implements direct handoff of a bound local strong
+`ContentCall.discloseExact` implements direct handoff of a prepared strong
 edge under [ADR-0172](../../../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md).
 `ContentCall.discloseDependent` returns a runtime facet whose target method
 must pass both current grants under
 [ADR-0173](../../../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md).
-`replaceReference` and `removeReference` update local strong fields in the
-content transaction. The storage codec cannot choose or widen a disclosure
+`replaceReference` and `removeReference` update prepared strong fields in the
+content transaction. The [implemented reference guide](../../../loam/references.md)
+owns local dependencies, checked foreign saves and restoration preparation. The storage codec cannot choose or widen a disclosure
 mode.
 
 ### Queries and consistency
@@ -171,33 +187,33 @@ the strength of local receipts. This does not introduce a general job scheduler.
 
 | Concern | Owner and reuse |
 | --- | --- |
-| Grant evaluation, scope, lifecycle, preparation, authority consequences of recovery | managed access core, retaining one Zig implementation for native and foreign consumers. |
+| Grant evaluation, scope, lifecycle, preparation, authority consequences of recovery | managed access core, retaining one Zig implementation for Zig and binding consumers. |
 | Shared record residency, storage leases, and byte accounting | Loam core, shared with ordinary records and actor persistence. |
 | Grant evaluation scratch and resource-specific limits | managed access core with explicit allocation and bounded operations, using shared storage leases. |
 | Record encoding and storage integration | `access/records` encodes owners, directories, resources, grants, and events using Syrup. `access/storage` binds model views and staging to Loam, which owns generic records and backend effects. |
-| Native database execution | Optional LMDB adapter. The embedding runs it on its existing blocking-work executor. Backend comparison is conditional on measured constraints. |
-| Browser database execution | Rooms' browser storage adapter executes shared persistence batches through IndexedDB; no browser-specific grant evaluator. |
+| LMDB execution | Optional LMDB adapter. The embedding runs it on its existing blocking-work executor. Backend comparison is conditional on measured constraints. |
+| Browser database execution | The optional Rust IndexedDB executor applies shared persistence batches; no browser-specific grant evaluator. Rooms adoption follows its integration plan. |
 | Calls, promises, reference custody, active publications | Existing actors, Vat, Host, and their supported public integration APIs. |
 | Network I/O and reachability | Existing driver and transports. Database work does not pass through network transports. |
 | Content schemas, application indexes, blobs | Application-owned records participating in the backend transaction; content remains opaque to the access module's authority evaluator. |
 
 The storage codec imports only the lower layers needed to encode records. The
-native backend may depend on its selected database library and storage support,
+storage backend may depend on its selected database library and storage support,
 and is an optional I/O boundary outside `access/core`. Core-only and browser
-builds do not link the native database. Adding these modules requires updating
+builds do not link the LMDB database. Adding these modules requires updating
 the build's dependency inventory and architecture checks together. The portable
-`loam_access_records` and `loam_access_storage` modules and optional native LMDB
+`loam_access_records` and `loam_access_storage` modules and optional blocking LMDB
 backend are implemented. The companion C archive must keep optional backend symbols
 separable so ordinary managed access users need no database dependency.
 
-The existing [native document worker](../../../../apps/rooms/rust/services/src/documents.rs)
+The existing [document worker](../../../../apps/rooms/rust/services/src/documents.rs)
 already retains blocking work until completion even if its observer cancels.
 The [browser transaction owner](../../../../apps/rooms/rust/browser/src/storage/transaction.rs)
 already retains callbacks until terminal transaction events. Reuse those
 execution and retirement patterns. Their existing separately written document
 and archive formats do not provide the new atomic owner store.
 
-The Host is not a general database executor. A native Zig embedding supplies
+The Host is not a general database executor. A Zig embedding supplies
 its work-execution boundary; a Rust embedding can use its existing executor.
 Workers receive immutable operation inputs and return completions. They never
 mutate a live managed access owner or call into the Host from their worker thread.
@@ -228,7 +244,7 @@ a database does not silently grant cross-owner atomic administration.
 | Retirement metadata | Non-reusable identity high-water marks, dead generations and publication retirement information needed to refuse obsolete access after compaction. |
 
 The table specifies the complete integration destination. The implemented
-profile stores owner, resource, grant, and latest-event records in ordinary Loam
+profile stores owner, resource, grant, and bounded change-batch records in ordinary Loam
 records. Four-level sparse radix directories map resource/grant slots to exact
 Loam object references; the owner header retains directory roots and persists
 the full policy descriptor. Strong record edges make retention visible to
@@ -242,7 +258,7 @@ records; an index cannot authorize a result without current record evaluation.
 Managed access owns a versioned record codec with explicit field names, bounds, and
 schema identities. Reuse Syrup encoding without copying CapTP session records
 into storage. The owner persists stable permission/constraint keys and operators;
-grant masks refer to that immutable descriptor. Native pointers, struct layouts,
+grant masks refer to that immutable descriptor. Process pointers, struct layouts,
 and runtime type names have no durable meaning. Decoders check
 lengths and canonical ordering before allocating. Unknown required schema or
 format versions refuse opening; prerelease replacement never silently resets
@@ -295,7 +311,7 @@ An operation epoch belongs to the issuer's capability context. Receipt lookup
 and replay recheck current authority and cannot resurrect a revoked publication
 or disclose an otherwise inaccessible result.
 
-### Native candidates
+### Storage candidates
 
 Loam owns these backend implementations. The research plan owns comparative
 selection and physical layouts; the profiles below specify managed access acceptance
@@ -425,7 +441,7 @@ before claiming move cost independent of subtree size.
 | Record pins and operation scratch | Owned by one active managed access operation until settlement, cancellation completion, or recovery transfers custody. |
 | Prepared mutation and content participant | Retained through the real write outcome, including uncertainty; caller cancellation cannot free them underneath storage. |
 | Host capabilities and answer completion | Retained/released by existing Host custody; workers carry operation tickets rather than thread-unsafe live owner pointers. |
-| Completed return buffers | Explicit transfer or bounded borrow through the existing native/FFI conventions, with one release owner. |
+| Completed return buffers | Explicit transfer or bounded borrow through the existing Zig/FFI conventions, with one release owner. |
 
 SQLite row data and browser database values can require bounded materialization
 before their backend callback ends. Name and measure that copy at the adapter;
@@ -454,7 +470,7 @@ future/promise. The lower-level embedding API exposes effects explicitly.
 
 Local hosted calls use the existing near-call/eventual-send mechanisms. A warm
 operation may finish in its turn; an operation needing storage defers through
-the existing Host answer mechanism. Direct non-hosted native calls use the same
+the existing Host answer mechanism. Direct non-hosted Zig calls use the same
 core and storage effect contract without dialing a dummy session. Blocking
 convenience APIs, if exposed, are explicitly named and forbidden on the Host
 execution thread. No synchronous core lookup hides an I/O wait.
@@ -484,7 +500,7 @@ joins the actual operation before state is released.
 
 Durable publication uses the existing Host's publication identity and capability
 custody. Store the exact authority recipe, including control ceilings and
-lifecycle, rather than serializing a native opaque pointer. Restoring a control
+lifecycle, rather than serializing a process-local opaque pointer. Restoring a control
 must not construct an unrestricted controller from just its target grant.
 Original publications retain original authority; facet publications retain
 their grant dependency. Preserve the peer/restorer identity needed by existing
@@ -578,7 +594,7 @@ capacity or latency claims:
 | Issue/edit/revoke at increasing descendant counts | Durable bytes/rows changed and commit latency. Parent revocation changes constant authoritative state; observer fanout is measured separately and bounded. |
 | Hot reads during slow writes, cold loads, and checkpoint pressure | Host turn duration, unrelated actor latency, busy responses, queue bytes, and recovery fencing. |
 | Repeated sharing, release, eviction, deletion, and revoke churn | Quiescent memory, allocator high-water marks, tombstone growth, WAL growth, and reclamation work. |
-| Browser native/Wasm boundary and IndexedDB | Copies and crossings per read/write batch, UI responsiveness, transaction completion latency, quota refusal, and abandoned-observer cleanup. |
+| Browser JavaScript/Wasm boundary and IndexedDB | Copies and crossings per read/write batch, UI responsiveness, transaction completion latency, quota refusal, and abandoned-observer cleanup. |
 
 Do not put one FFI call or one database transaction around each grant ancestor.
 Batch backend reads and foreign completions; the Zig continuation traverses

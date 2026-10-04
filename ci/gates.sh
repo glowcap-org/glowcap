@@ -3,7 +3,7 @@
 # The checks workflow (.github/workflows/check.yml) runs this inside the
 # committed devcontainer image. The sequence itself names no forge.
 # The script runs the isolated, runtime, infrastructure, and outside-authority
-# gates in order. The wider sibling inventory in .agents/rules/cli.md stays
+# gates in order. The wider sibling inventory in docs/build-steps.md stays
 # excluded until its CI cost earns recurring execution.
 
 set -euo pipefail
@@ -81,7 +81,7 @@ gate zig build native-tls-build
 # Bounded mutation fuzzing over every surface that takes bytes somebody else
 # chose. It stays out of `zig build check` because it spawns a nested
 # `zig build`, and check's steps run in parallel over one cache — two builders
-# racing that cache is the hazard .agents/rules/cli.md documents. Sequential
+# racing that cache is the hazard the build lease exists to prevent. Sequential
 # here it is safe.
 #
 # The run count is set here rather than left at the step's default, because the
@@ -132,6 +132,10 @@ gate zig build wasm-import-check
 # installed native CLI cold-dials, fetches and calls it, while the relay audits
 # that the CapTP canary never appeared outside the Noise channel.
 gate zig build web-peer-test
+# Shared storage changes must preserve the Rust/Wasm consumer's IndexedDB
+# transactions, cold restoration and capability custody in a real browser.
+gate zig build loam-browser-test
+gate zig build rooms-rust-browser-test
 # The production Rooms page is a peer, and every supported browser journey is
 # release evidence rather than an opt-in demo.
 gate zig build rooms-web-proofs

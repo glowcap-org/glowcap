@@ -151,7 +151,7 @@ test "access cold owner completion cannot restore a precommit authority snapshot
     try f.commit(&fixture.store, &fixture.backend);
     try std.testing.expectError(error.StaleCompletion, read.completeRead(request.ticket, result));
     try std.testing.expectError(error.RevisionConflict, read.advance());
-    try std.testing.expect(read.header_lease == null);
+    try std.testing.expect(read.header_revision == null);
 }
 
 test "access aborted resource append leaves the durable directory and counter unchanged" {
@@ -166,6 +166,7 @@ test "access aborted resource append leaves the durable directory and counter un
         var append = try storage.Append.init(&read, .resource);
         defer append.deinit() catch unreachable;
         _ = try f.pump(&append, &fixture.backend);
+        try f.prepareResource(&append, &read, &fixture.backend, null);
         try fixture.store.begin();
         proposed = try storage.stage.appendResource(&append, f.vocabulary.kind, null);
         try fixture.store.abort();
@@ -249,6 +250,7 @@ test "access owner creation releases every failed allocation and partial batch" 
     try fixture.store.begin();
     const content = try fixture.store.allocateId();
     try fixture.store.putCopying(.{ .id = content, .revision = 0, .schema = 7, .payload = "staged content" }, null);
+    try f.prepareResource(&append, &read, &fixture.backend, null);
     try std.testing.expectError(error.RecordTooLarge, storage.stage.appendResource(&append, f.vocabulary.kind, null));
     try std.testing.expectEqual(.idle, fixture.store.phase);
     try std.testing.expectEqual(@as(u64, 1), fixture.store.metadata.objects);

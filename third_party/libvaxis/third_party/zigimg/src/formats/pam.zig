@@ -227,6 +227,8 @@ const Header = struct {
             .rgb565,
             .sega_grb333,
             .sega_bgr333,
+            .sega_bgr222,
+            .sega_bgr444,
             => return error.Unsupported, // unsupported pixel format
 
             .grayscale1 => {
@@ -382,7 +384,7 @@ pub const PAM = struct {
 
         if (src_maxval == dst_maxval) return val;
 
-        const W = std.meta.Int(.unsigned, @bitSizeOf(T) * 2);
+        const W = @Int(.unsigned, @bitSizeOf(T) * 2);
         return @intCast(@min(std.math.maxInt(T), @as(W, dst_maxval) * @as(W, val) / @as(W, src_maxval)));
     }
 

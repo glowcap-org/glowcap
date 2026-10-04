@@ -530,6 +530,11 @@ test "a fed connection flooding a sibling condemns the sibling with a close acti
         }
     }
     try std.testing.expect(saw_close);
+    // The close carries its cause, so the embedder can tell amplification
+    // apart from an ordinary teardown.
+    const cause = pair_b.b.served.port.peer.lastAbort() orelse return error.NoCauseRecorded;
+    try std.testing.expectEqualStrings("LocalTurnLimitExceeded", cause.error_name);
+    try std.testing.expectEqual(model.AbortKind.resource_exhausted, cause.kind.?);
     try std.testing.expectError(
         driver.core.HostError.SessionCondemned,
         server.fetch(pair_b.b, "amp"),

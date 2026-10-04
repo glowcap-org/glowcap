@@ -233,10 +233,10 @@ const registered = [_]Table{
         .epoch = "The row is inserted when the key is verified and removed on unindex, condemn, and release; key-shaped lookups compare the selected shell's exact retained key before accepting equality.",
     },
     .{
-        .file = "c_abi/net_transport/iroh/ownership.zig",
+        .file = "net/transport/iroh/multiplexed.zig",
         .name = "conns",
-        .owner = "The sidecar's endpoint-scoped connection ids: the endpoint mints them from one counter and never reuses one for its lifetime, so no other endpoint's id can alias a row (one adapter per netlayer, one netlayer per endpoint).",
-        .epoch = "A row enters when `finish_connect` claims the connection and leaves at `conn_close` (or netlayer release, which sweeps stragglers). A stale id looks up nothing — the resident contract's drain-to-nothing rule.",
+        .owner = "The sidecar's endpoint-scoped connection ids: the endpoint mints them from one counter and never reuses one for its lifetime, so no other endpoint's id can alias a row (one managed adapter per borrowed endpoint).",
+        .epoch = "A row enters when `finishConnect` or `finishAccept` claims the connection and leaves at `closeConnection` (or adapter teardown, which sweeps stragglers). A stale id looks up nothing — the resident contract's drain-to-nothing rule.",
     },
     .{
         .file = "driver/bridge_connect.zig",

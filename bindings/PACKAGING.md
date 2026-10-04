@@ -60,28 +60,39 @@ Linux and macOS are the current packaging targets. Windows needs
 zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline
 ```
 
-This writes checksummed, target-specific archives under `zig-out/release/`.
-The tarball and checksums replace that build-output directory as one generation.
-Handled failures restore the previous generation; if restoration fails, the
-diagnostic names its preserved staging directory. This is process-failure
-recovery, not a power-loss guarantee. Keep downloads elsewhere: a successful
-build replaces the prior contents of its release-output directory.
-`release-pack` refuses Debug mode so a bare invocation cannot accidentally
-publish development binaries; another explicit Release mode remains available
-to an embedding with a documented size or speed posture.
-It requires baseline CPU instructions and a build matching the running host's
-OS, architecture, and ABI. A package named only by architecture must not
-silently depend on the release runner's additional CPU features.
-Before it returns, the step safely extracts the tarball outside the checkout.
-It builds and runs one C consumer for every self-contained static archive, one
-consumer across the packaged shared libraries, loads the iroh companion through
-that shared path.
-The archive table in `build.zig` is the release manifest. Packaging copies only
-those libraries and their public headers by name, so a
-dirty `zig-out` cannot contribute another target or an internal artifact. Each
-tarball also carries the repository's `PROVENANCE.md` disclosure and its license
-files. The extracted smoke compares that disclosure byte for byte against the
-source tree. The tarballs contain regular files rather than library symlinks.
+This writes checksummed archives for the current target under
+`zig-out/release/`.
+
+**Replacing the output.** The tarball and checksums replace the contents of
+that directory as one unit, so keep downloads somewhere else. If the build
+fails in a way it handles, it restores the previous contents. If restoring
+fails too, the error names the staging directory it kept. This protects
+against a failed process, not against power loss.
+
+**Build requirements.**
+
+- `release-pack` refuses Debug mode, so a bare invocation cannot publish
+  development binaries by accident. Other explicit Release modes are still
+  available, for an embedding that documents a size or speed choice.
+- It requires baseline CPU instructions, and a build that matches the running
+  host's OS, architecture, and ABI. A package named only by its architecture
+  must not quietly depend on extra CPU features of the machine that built it.
+
+**What goes in.** The archive table in `build.zig` is the release manifest.
+Packaging copies only those libraries and their public headers, by name, so
+leftover files in `zig-out` cannot add another target or an internal
+artifact. Each tarball also carries the repository's `PROVENANCE.md` and its
+license files. The tarballs contain regular files, not library symlinks.
+
+**What it checks.** Before returning, the step extracts the tarball outside
+the checkout. It then builds and runs:
+
+- one C program for every self-contained static archive;
+- one C program across the packaged shared libraries, which also loads the
+  iroh companion through them.
+
+It also compares the extracted `PROVENANCE.md` byte for byte with the one in
+the source tree.
 
 The [glowcap product package](../apps/rooms/host.md) is a separate download
 for CLI and Rooms users. It includes private runtimes, prepared browser assets,

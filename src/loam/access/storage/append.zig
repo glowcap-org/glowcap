@@ -1,110 +1,95 @@
-//! Appending an identity loads a bounded path and stages only changed pages.
-const std = @import("std");
+//! Identity allocation and child membership share the composed owner transaction.
 const loam = @import("loam_core");
+const core = @import("loam_access_core");
 const records = @import("loam_access_records");
-const Page = records.DirectoryPage;
 const read = @import("read.zig");
-const Load = @import("load.zig").Load;
-const record = @import("record.zig");
+const DirectoryEdit = @import("directory_edit.zig").DirectoryEdit;
 
 pub const Append = struct {
     view: *read.Read,
-    family: Page.Family,
-    slot: u32,
-    cursor: ?loam.ObjectId,
-    frames: [4]Frame = undefined,
-    count: u3 = 0,
-    load: Load = .{},
-    staged: bool = false,
-    cancelled: bool = false,
+    directory: DirectoryEdit,
+    child: ?*DirectoryEdit = null,
+    parent: ?core.ResourceId = null,
+    resource_ready: bool = false,
 
-    const Frame = struct { object: ?loam.ObjectId, revision: ?u64, page: Page };
-
-    pub fn init(view: *read.Read, family: Page.Family) !Append {
+    pub fn init(view: *read.Read, family: records.DirectoryPage.Family) !Append {
         try view.opened();
-        if (view.appending) return error.Busy;
+        if (view.header.lifecycle != .active) return error.OwnerRetired;
+        if (view.exclusive != .none) return error.Busy;
         const next = switch (family) {
             .resource => view.header.next_resource,
             .grant => view.header.next_grant,
+            .identity => return error.WrongFamily,
         };
         if (next >= records.OwnerRecord.max_slots) return error.CapacityExceeded;
-        view.appending = true;
-        return .{ .view = view, .family = family, .slot = @intCast(next), .cursor = switch (family) {
+        view.exclusive = .append;
+        const root = switch (family) {
             .resource => view.header.resources,
             .grant => view.header.grants,
-        } };
+            .identity => unreachable,
+        };
+        return .{ .view = view, .directory = DirectoryEdit.init(view, family, root, @intCast(next)) };
     }
 
     pub fn deinit(self: *Append) !void {
-        if (self.load.pending != null) return error.Busy;
-        self.view.appending = false;
+        if (self.view.load.pending != null or self.directory.load.pending != null) return error.Busy;
+        if (self.child) |child| if (child.load.pending != null) return error.Busy;
+        if (self.child) |child| self.view.allocator.destroy(child);
+        self.view.exclusive = .none;
         self.* = undefined;
     }
 
     pub fn cancel(self: *Append) !void {
-        try self.load.cancel(self.view.store);
-        self.cancelled = true;
+        if (self.view.load.pending != null) try self.view.load.cancel(self.view.store);
+        try self.directory.cancel();
+        if (self.child) |child| try child.cancel();
     }
 
     pub fn completeRead(self: *Append, ticket: loam.Ticket, result: loam.ReadResult) !void {
-        try self.load.complete(self.view.store, ticket, result);
+        if (self.view.load.pending != null) return self.view.completeRead(ticket, result);
+        if (self.directory.load.pending != null) return self.directory.completeRead(ticket, result);
+        if (self.child) |child| if (child.load.pending != null) return child.completeRead(ticket, result);
+        return error.StaleCompletion;
     }
 
     pub fn advance(self: *Append) !read.Step {
-        try self.view.current();
-        if (self.cancelled) return error.Cancelled;
-        if (self.staged) return error.WrongPhase;
-        while (self.count < 4) {
-            const level: u2 = @intCast(self.count);
-            var frame: Frame = .{ .object = self.cursor, .revision = null, .page = .{ .owner = self.view.header.owner, .family = self.family, .level = level, .prefix = Page.prefixFor(self.slot, level) } };
-            if (self.cursor) |object| {
-                if (try self.view.store.proposed(object)) |staged| {
-                    // A composed transaction may have staged this page already:
-                    // walk the composed directory and keep the staged page's
-                    // expectation so stageDirectory re-proposes it in place.
-                    frame.revision = staged.expected;
-                    frame.page = try Page.decode(staged.view);
-                } else {
-                    const lease = switch (try self.load.acquire(self.view.store, object)) {
-                        .ready => |lease| lease,
-                        .read => |request| return .{ .read = request },
-                        .waiting => return .waiting,
-                    };
-                    defer self.view.store.release(lease) catch unreachable;
-                    const row = try self.view.store.currentView(lease);
-                    frame.revision = row.revision;
-                    frame.page = try Page.decode(row);
-                }
-                if (frame.page.owner != self.view.header.owner or frame.page.family != self.family or frame.page.level != level or frame.page.prefix != Page.prefixFor(self.slot, level)) return error.InvalidRecord;
-            }
-            self.frames[self.count] = frame;
-            self.cursor = frame.page.get(Page.digit(self.slot, level));
-            self.count += 1;
+        self.view.history_requested = true;
+        if (!self.view.history_ready) {
+            const step = try self.view.advance();
+            if (step != .ready) return step;
         }
-        if (self.cursor != null) return error.IdentityCollision;
-        return .ready;
+        return self.directory.advance();
     }
 
-    /// Called by the managed staging path inside an existing Loam transaction.
-    /// Failures require aborting that transaction, including its content changes.
-    pub fn stageDirectory(self: *Append, target: loam.ObjectId) !loam.ObjectId {
-        try self.view.current();
-        if (self.cancelled or self.staged or self.count != 4 or self.load.pending != null) return error.WrongPhase;
-        self.staged = true;
-        var child = target;
-        var remaining: usize = 4;
-        while (remaining != 0) {
-            remaining -= 1;
-            const frame = &self.frames[remaining];
-            const digit = Page.digit(self.slot, @intCast(remaining));
-            if (frame.page.get(digit)) |existing| if (existing.eql(child)) break;
-            frame.page.set(digit, child);
-            const object = frame.object orelse try self.view.store.allocateId();
-            const payload = try frame.page.encodeAlloc(self.view.store.allocator);
-            defer self.view.store.allocator.free(payload);
-            try record.put(self.view.store, object, records.profile.directory, payload, frame.page.targets[0..frame.page.count()], frame.revision, false);
-            child = object;
+    /// Prepare the child-index path before staging a resource append. A model
+    /// miss is driven through Read; directory faults use this append's completion.
+    pub fn prepareResource(self: *Append, parent: ?core.ResourceId) !read.Step {
+        if (self.directory.family != .resource or self.directory.count != 4) return error.WrongPhase;
+        try self.view.prepareHistory();
+        if (parent) |id| _ = try @import("history.zig").resourcePath(self.view, id);
+        var resources = try self.view.resourceView();
+        var root = self.view.header.roots;
+        if (parent) |target| {
+            if (resources.max_depth == 0) return error.DepthLimit;
+            resources.max_depth -= 1;
+            _ = try resources.isDescendant(target, target);
+            const binding = (try self.view.binding(.{ .resource = target })).?;
+            const row = (try read.Read.rowFor(self.view.store, binding)).?.view;
+            root = (try records.ResourceRecord.decode(row)).children;
         }
-        return self.frames[0].object orelse child;
+        if (self.child == null) {
+            self.parent = parent;
+            const child = try self.view.allocator.create(DirectoryEdit);
+            child.* = DirectoryEdit.init(self.view, .resource, root, self.directory.slot);
+            self.child = child;
+        } else if (!@import("std").meta.eql(self.parent, parent)) return error.WrongPhase;
+        const step = try self.child.?.advance();
+        self.resource_ready = step == .ready;
+        return step;
+    }
+
+    pub fn stageDirectory(self: *Append, target: loam.ObjectId) !loam.ObjectId {
+        if (self.directory.cursor != null) return error.IdentityCollision;
+        return (try self.directory.stage(target)).?;
     }
 };

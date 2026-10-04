@@ -6,7 +6,7 @@
 # Adding a dependency is four edits here: a name in GLOWCAP_PINS_DEPS, its
 # pins.sh variable in glowcap_pins_dep_var, how a bump is proven in
 # glowcap_pins_dep_class and glowcap_pins_dep_gate, and the query in
-# glowcap_pins_latest_version. A file that also restates the pin belongs in
+# glowcap_pins_query_version. A file that also restates the pin belongs in
 # update-pins-companions.sh instead.
 
 glowcap_pins_fetch() {
@@ -146,7 +146,7 @@ glowcap_pins_dep_requires_devcontainer_rebuild() {
 # Every consumer below reads its whole input: under `set -o pipefail`, an
 # early-exiting head / grep -m1 / awk-exit closes the pipe and turns curl's
 # EPIPE into a query failure.
-glowcap_pins_latest_version() {
+glowcap_pins_query_version() {
     case "$1" in
         debian) glowcap_pins_docker_hub_index_digest library/debian "${DEBIAN_BASE_TAG}" ;;
         distroless)
@@ -201,6 +201,28 @@ glowcap_pins_latest_version() {
                    }' ;;
         goblins) git ls-remote https://codeberg.org/spritely/racket-goblins.git HEAD | cut -f1 ;;
     esac
+}
+
+# Release metadata is input, not shell source. Reject missing JSON fields,
+# multiple results, prereleases on stable channels, and shell metacharacters
+# before either the report or a staged pins.sh can consume them.
+glowcap_pins_latest_version() {
+    local dep="$1" version pattern
+    version="$(glowcap_pins_query_version "${dep}")" || return 1
+    case "${dep}" in
+        debian | distroless) pattern='^sha256:[0-9a-f]{64}$' ;;
+        postgres) pattern='^[0-9]+\.[0-9]+-alpine@sha256:[0-9a-f]{64}$' ;;
+        zls | goblins) pattern='^[0-9a-f]{40}$' ;;
+        zig) pattern='^[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+\+[0-9a-f]+)?$' ;;
+        racket) pattern='^[0-9]+\.[0-9]+(\.[0-9]+)?$' ;;
+        cursor-agent) pattern='^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]+$' ;;
+        *) pattern='^[0-9]+\.[0-9]+\.[0-9]+$' ;;
+    esac
+    if ! [[ "${version}" =~ ${pattern} ]]; then
+        printf 'update-pins: %s: invalid upstream version: %q\n' "${dep}" "${version}" >&2
+        return 1
+    fi
+    printf '%s\n' "${version}"
 }
 
 glowcap_pins_manual_procedure() {

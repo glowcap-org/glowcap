@@ -279,6 +279,7 @@ pub fn registerChecks(
     b: *std.Build,
     check_step: *std.Build.Step,
     onion_dynamic_install: *std.Build.Step,
+    rooms_browser: *std.Build.Step,
     reg: Registered,
 ) void {
     const bindings_fmt_deps = reg;
@@ -333,6 +334,7 @@ pub fn registerChecks(
     // it is formatted by whoever last edited a file in it, which is drift with
     // nobody watching.
     const rust_manifests = [_][]const u8{
+        "bindings/proofs/loam_browser/rust/Cargo.toml",
         "bindings/rust/Cargo.toml",
         "bindings/rust/relay/Cargo.toml",
         "bench/langs/clients/rust_bench/Cargo.toml",
@@ -366,11 +368,14 @@ pub fn registerChecks(
         bindings_fmt_step.dependOn(&write.step);
         const check = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--all", "--check", "--manifest-path", manifest });
         bindings_fmt_check_step.dependOn(&check.step);
-        // Rooms has its own feature-complete workspace lint step, and the
-        // binding has the async whole-target leg registered above. Every other
-        // standalone crate is fully represented by its default target set.
+        // Rooms has its own feature-complete workspace lint step, the binding
+        // has the async whole-target leg registered above, and the Loam browser
+        // proof compiles only for wasm32, so `loam-browser-build` lints it for
+        // that target. Every other standalone crate is fully represented by its
+        // default target set.
         if (!std.mem.eql(u8, manifest, "apps/rooms/rust/Cargo.toml") and
-            !std.mem.eql(u8, manifest, "bindings/rust/Cargo.toml"))
+            !std.mem.eql(u8, manifest, "bindings/rust/Cargo.toml") and
+            !std.mem.eql(u8, manifest, "bindings/proofs/loam_browser/rust/Cargo.toml"))
         {
             const lint = addRootedSystemCommand(b, .build_tool, &.{
                 "cargo", "clippy", "--all-targets", "--manifest-path", manifest, "--", "-D", "warnings",
@@ -415,6 +420,9 @@ pub fn registerChecks(
     const deno_check_root = execution.addSystemCommand(b, .build_tool, &.{
         "deno", "check", "apps", "bindings/proofs", "interop", "transports", "bench", "tools",
     });
+    // The Rooms page and its proofs import the generated browser module's
+    // declarations from zig-out, so the type check needs that build first.
+    deno_check_root.step.dependOn(rooms_browser);
     bindings_fmt_check_step.dependOn(&deno_check_root.step);
 
     // The Python binding gets the same two checks the TypeScript one has. It

@@ -1,20 +1,38 @@
 ---
 name: serena
-description: "Use when calling Serena MCP tools for Zig symbols, diagnosing Serena responses, handling cold start, or using Serena memories."
+description: "Use first for Zig code-symbol work: mapping a file, finding a declaration, callers, or implementations, renaming, replacing or inserting a symbol body, or single-file diagnostics. Also covers cold start, call shapes, memories, and fallback."
 ---
 
 # Serena MCP — Zig glowcap operator notes
 
-Use this after the [`serena-mcp`](../../rules/serena-mcp.md) rule says Serena is
-the right tool.
+Serena is the first-class tool for Zig symbols. Reach for it before text
+search:
 
-## When not to use
+| Task | Tool |
+| --- | --- |
+| Map a file | `get_symbols_overview` |
+| Find a declaration | `find_symbol`, `find_declaration` |
+| Find callers | `find_referencing_symbols` |
+| Find implementations | `find_implementations` |
+| Rename | `rename_symbol` |
+| Replace or insert a body | `replace_symbol_body`, `insert_before_symbol` / `insert_after_symbol` |
+| Delete a symbol | `safe_delete_symbol` |
+| Check one file | `get_diagnostics_for_file` |
 
-- Non-Zig symbol work, or host file/search tools already suffice → skip Serena
-- The [`serena-mcp`](../../rules/serena-mcp.md) rule says not to use Serena for
-  this task → obey the rule
-- CapTP / rooms presence → [glowcap-mcp](../glowcap-mcp/SKILL.md) /
-  [glowcap-cli](../glowcap-cli/SKILL.md) / [rooms-peer](../rooms-peer/SKILL.md)
+Use `depth=1` on a large struct (`Peer`, `Session`) before reading bodies.
+Prefer symbol-aware rename and body replacement over search-and-replace.
+
+Use host tools instead for prose, JSON/YAML, exact literal scans, known
+byte-pinned edits, broad inventory, and non-Zig code. Live CapTP belongs to
+[glowcap-mcp](../glowcap-mcp/SKILL.md), [glowcap-cli](../glowcap-cli/SKILL.md),
+and [rooms-peer](../rooms-peer/SKILL.md).
+
+## Fallback
+
+Check once whether the session has Serena. If it is absent, or a call still
+fails after one diagnostic attempt, continue with `rg`, bounded reads, and the
+owning checks, and say so once. Do not turn ordinary work into MCP repair unless
+missing symbol information blocks a safe edit or the user asked for the repair.
 
 ## Project State
 
@@ -134,11 +152,6 @@ committed rules and docs, not memories, are the durable guidance.
 
 ## Verification
 
-Serena edits are not proof. After code changes, run:
-
-```sh
-zig build check
-```
-
-Use `get_diagnostics_for_file` only for focused iteration while editing a single
-Zig file.
+Use `get_diagnostics_for_file` for focused iteration. The
+[execution rule](../../rules/cli.md#gates) owns final checks; using Serena does
+not independently require another product-gate run.

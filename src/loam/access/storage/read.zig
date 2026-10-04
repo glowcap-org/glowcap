@@ -5,10 +5,12 @@ const core = @import("loam_access_core");
 const records = @import("loam_access_records");
 const Page = records.DirectoryPage;
 const Load = @import("load.zig").Load;
+const Registry = @import("identity_registry.zig").Registry;
 
 pub const Target = union(Page.Family) {
     resource: core.ResourceId,
     grant: core.GrantId,
+    identity: struct { owner: core.OwnerId, slot: u32 },
 
     pub fn slot(self: Target) u32 {
         return switch (self) {
@@ -30,16 +32,22 @@ pub const Read = struct {
     owner_object: loam.ObjectId,
     snapshot: u64,
     incarnation: u64,
+    transaction: ?loam.Ticket = null,
     header: records.OwnerRecord = undefined,
-    header_lease: ?loam.Lease = null,
+    header_revision: ?u64 = null,
     header_ready: bool = false,
+    history: records.ChangeHistoryRecord = undefined,
+    history_ready: bool = false,
+    history_requested: bool = false,
+    history_expected: ?u64 = null,
+    identities: ?*Registry = null,
     bindings: []Binding,
     count: usize = 0,
     load: Load = .{},
     demand: ?Target = null,
     cursor: ?Cursor = null,
     cancelled: bool = false,
-    appending: bool = false,
+    exclusive: enum { none, append, resource_change } = .none,
     grant_scratch: [2 * core.max_scope_objects * @sizeOf(core.ResourceId)]u8 align(@alignOf(core.ResourceId)) = undefined,
 
     const Cursor = struct { node: ?loam.ObjectId, level: u3 = 0 };
@@ -53,27 +61,40 @@ pub const Read = struct {
         return .{ .allocator = allocator, .store = store, .owner_object = owner, .snapshot = store.metadata.revision, .incarnation = store.metadata.incarnation, .bindings = try allocator.alloc(Binding, capacity) };
     }
 
+    pub fn hasPendingRead(self: *const Read) bool {
+        return self.load.pending != null or (if (self.identities) |registry| registry.pending() else false);
+    }
+
     pub fn deinit(self: *Read) !void {
-        if (self.load.pending != null or self.appending) return error.Busy;
+        if (self.hasPendingRead() or self.exclusive != .none) return error.Busy;
+        if (self.identities) |registry| {
+            try registry.deinit();
+            self.allocator.destroy(registry);
+        }
         for (self.bindings[0..self.count]) |entry| if (entry.lease) |lease| try self.store.release(lease);
-        if (self.header_lease) |lease| try self.store.release(lease);
         self.allocator.free(self.bindings);
         self.* = undefined;
     }
 
     pub fn cancel(self: *Read) !void {
         try self.load.cancel(self.store);
+        if (self.identities) |registry| try registry.cancel();
         self.cancelled = true;
     }
 
     pub fn completeRead(self: *Read, ticket: loam.Ticket, result: loam.ReadResult) !void {
-        try self.load.complete(self.store, ticket, result);
+        if (self.load.pending != null) return self.load.complete(self.store, ticket, result);
+        if (self.identities) |registry| return registry.completeRead(ticket, result);
+        return error.StaleCompletion;
     }
 
     pub fn current(self: *const Read) !void {
         if (self.cancelled) return error.Cancelled;
         if (self.store.phase == .uncertain) return error.RecoveryRequired;
         if (self.snapshot != self.store.metadata.revision or self.incarnation != self.store.metadata.incarnation) return error.RevisionConflict;
+        if (self.transaction) |ticket| {
+            if (self.store.phase != .staging or !std.meta.eql(self.store.ticket, @as(?loam.Ticket, ticket))) return error.RevisionConflict;
+        }
     }
 
     pub fn advance(self: *Read) !Step {
@@ -84,6 +105,7 @@ pub const Read = struct {
                 // this transaction's own proposal so a further managed change
                 // prepares against the deltas already staged here.
                 self.header = try records.OwnerRecord.decode(staged.view);
+                self.transaction = self.store.ticket;
                 self.header_ready = true;
             } else {
                 const lease = switch (try self.load.acquire(self.store, self.owner_object)) {
@@ -91,17 +113,37 @@ pub const Read = struct {
                     .read => |read| return .{ .read = read },
                     .waiting => return .waiting,
                 };
-                errdefer self.store.release(lease) catch unreachable;
-                self.header = try records.OwnerRecord.decode(try self.store.currentView(lease));
-                self.header_lease = lease;
+                defer self.store.release(lease) catch unreachable;
+                const committed = try self.store.currentView(lease);
+                self.header = try records.OwnerRecord.decode(committed);
+                self.header_revision = committed.revision;
                 self.header_ready = true;
             }
+        }
+        if (!self.history_ready and (self.history_requested or self.header.history == null)) {
+            if (self.header.history) |id| {
+                const loaded = switch (try self.load.resolve(self.store, id)) {
+                    .ready => |row| row,
+                    .read => |request| return .{ .read = request },
+                    .waiting => return .waiting,
+                };
+                defer loaded.release(self.store);
+                self.history = try records.ChangeHistoryRecord.decode(loaded.view);
+                if (self.history.owner != self.header.owner) return error.InvalidRecord;
+                self.history_expected = if (try self.store.proposed(id)) |proposal| proposal.expected else loaded.view.revision;
+            } else self.history = .{ .owner = self.header.owner };
+            self.history_ready = true;
+        }
+        if (self.identities) |registry| {
+            const step = try registry.advance();
+            if (step != .ready) return step;
         }
         const target = self.demand orelse return .ready;
         if (self.count == self.bindings.len) return error.WorkingSetCapacity;
         if (self.cursor == null) self.cursor = .{ .node = switch (target) {
             .resource => self.header.resources,
             .grant => self.header.grants,
+            .identity => self.header.identities,
         } };
         const cursor = &self.cursor.?;
         while (cursor.node) |node| {
@@ -142,10 +184,47 @@ pub const Read = struct {
         const next = switch (target) {
             .resource => self.header.next_resource,
             .grant => self.header.next_grant,
+            .identity => self.header.next_identity,
         };
         self.bindings[self.count] = .{ .target = target, .lease = null, .absence = if (target.slot() < next) .gone else .unknown };
         self.finish();
         return .ready;
+    }
+
+    /// Reserve bounded weak membership paths before object creation. This is
+    /// independent of authority revisions and shares the caller's transaction.
+    pub fn prepareIdentities(self: *Read, count: usize) !void {
+        try self.opened();
+        if (self.header.lifecycle != .active) return error.OwnerRetired;
+        if (count == 0 or count > Registry.max_registration) return error.InvalidLimits;
+        if (self.identities) |registry| {
+            if (!registry.available(count)) {
+                var replacement = try Registry.init(self, count);
+                errdefer replacement.deinit() catch unreachable;
+                try registry.deinit();
+                registry.* = replacement;
+            }
+        } else {
+            const registry = try self.allocator.create(Registry);
+            errdefer self.allocator.destroy(registry);
+            registry.* = try Registry.init(self, count);
+            self.identities = registry;
+        }
+        if (self.identities.?.preparing != self.identities.?.paths.len) return error.RecordUnloaded;
+    }
+
+    pub fn stageIdentity(self: *Read, object: loam.ObjectId) !u32 {
+        const registry = self.identities orelse return error.RecordUnloaded;
+        return registry.stage(object);
+    }
+
+    /// Demand retained history only for mutation or observation preparation.
+    pub fn prepareHistory(self: *Read) !void {
+        try self.opened();
+        if (!self.history_ready) {
+            self.history_requested = true;
+            return error.RecordUnloaded;
+        }
     }
 
     fn finish(self: *Read) void {
@@ -156,17 +235,26 @@ pub const Read = struct {
 
     pub fn resourceView(self: *Read) !core.ResourceView {
         try self.opened();
+        if (self.header.lifecycle != .active) return error.OwnerRetired;
         return core.ResourceView.init(.{ .owner = self.header.owner, .revision = self.header.version.resources }, self.header.max_resource_depth, self, readResource);
     }
 
     pub fn grantView(self: *Read) !core.GrantView {
         try self.opened();
+        if (self.header.lifecycle != .active) return error.OwnerRetired;
         return core.GrantView.init(.{ .owner = self.header.owner, .revisions = self.header.version }, self.header.max_grant_depth, self, readGrant);
     }
 
-    pub fn opened(self: *const Read) !void {
+    pub fn opened(self: *Read) !void {
         try self.current();
         if (!self.header_ready) return error.RecordUnloaded;
+        if (try self.store.proposed(self.owner_object)) |proposal| {
+            const composed = try records.OwnerRecord.decode(proposal.view);
+            if (!std.meta.eql(composed.version, self.header.version) or composed.control_revision != self.header.control_revision) return error.RevisionConflict;
+            // Registration changes retention roots without changing authority.
+            // Every later writer must preserve that transaction's header.
+            self.header = composed;
+        }
     }
 
     pub const Row = struct { view: loam.RecordView, expected: ?u64 };
@@ -177,8 +265,13 @@ pub const Read = struct {
     /// view. Null means the binding resolved absent.
     pub fn rowFor(store: *loam.Store, entry: Binding) !?Row {
         const object = entry.object orelse return null;
+        return try rowForObject(store, object, entry.lease);
+    }
+
+    pub fn rowForObject(store: *loam.Store, object: loam.ObjectId, lease: ?loam.Lease) !Row {
         if (try store.proposed(object)) |staged| return .{ .view = staged.view, .expected = staged.expected };
-        const committed = try store.currentView(entry.lease.?);
+        const committed = try store.currentView(lease orelse return error.RecordUnloaded);
+        if (!committed.id.eql(object)) return error.InvalidRecord;
         return .{ .view = committed, .expected = committed.revision };
     }
 
@@ -191,6 +284,21 @@ pub const Read = struct {
             if (!std.meta.eql(prior, target)) return error.PendingRead;
         } else self.demand = target;
         return null;
+    }
+
+    pub fn forgetResources(self: *Read) !void {
+        try self.opened();
+        if (self.demand != null or self.load.pending != null or self.exclusive != .none) return error.Busy;
+        var output: usize = 0;
+        for (self.bindings[0..self.count]) |entry| {
+            if (entry.target == .resource) {
+                if (entry.lease) |lease| try self.store.release(lease);
+            } else {
+                self.bindings[output] = entry;
+                output += 1;
+            }
+        }
+        self.count = output;
     }
 
     fn checkPage(page: Page, owner: core.OwnerId, target: Target, level: u2) !void {
@@ -214,9 +322,9 @@ pub const Read = struct {
         const row = ((rowFor(self.store, found) catch |err| return sourceError(err)) orelse
             return .{ .version = version, .value = .{ .absent = found.absence } }).view;
         if (row.schema != records.profile.resource or row.schema_version != 1) return error.InvalidRecord;
-        const record = records.ResourceRecord.decode(row.payload) catch return error.InvalidRecord;
+        const record = records.ResourceRecord.decode(row) catch return error.InvalidRecord;
         if (record.resource.id.owner != id.owner or record.resource.id.slot != id.slot or @backingInt(record.revision) > @backingInt(version.revision)) return error.InvalidRecord;
-        if (record.resource.id.generation != id.generation) return .{ .version = version, .value = .{ .absent = .gone } };
+        if (!record.live or record.resource.id.generation != id.generation) return .{ .version = version, .value = .{ .absent = .gone } };
         return .{ .version = version, .value = .{ .present = record.resource } };
     }
 

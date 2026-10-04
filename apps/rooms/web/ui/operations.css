@@ -18,7 +18,7 @@
 /* A pane is its sections, and a section is a title with the well it names.
    The two gaps are not the same number on purpose. A title standing as far
    from the well it belongs to as from the one that ended above it belongs to
-   neither. One box around the whole pane used to hide that ambiguity. */
+   neither. One box around the whole pane would hide that ambiguity. */
 .ops-pane {
 	--field-name-w: 88px;
 	display: flex;

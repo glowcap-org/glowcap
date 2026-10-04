@@ -9,6 +9,8 @@ pub const Lmdb = struct {
     env: *c.Env,
     dbi: c_uint,
     lock_fd: c_int,
+    directory_fd: c_int,
+    environment_open: bool = true,
     metadata: core.Metadata,
     users: std.atomic.Value(usize) = .init(0),
     const closing: usize = @as(usize, 1) << (@bitSizeOf(usize) - 1);
@@ -25,9 +27,14 @@ pub const Lmdb = struct {
     /// reserves a fresh incarnation while holding exclusive lifetime custody.
     pub fn open(path: [:0]const u8, options: Options) !Lmdb {
         if (options.map_bytes < 1024 * 1024 or options.max_readers == 0) return error.InvalidLimits;
-        const fd = c.loam_lmdb_lock(path.ptr);
+        var absolute: [std.fs.max_path_bytes:0]u8 = undefined;
+        try check(c.loam_lmdb_canonical_path(path.ptr, &absolute, absolute.len));
+        const directory = c.loam_lmdb_directory(&absolute);
+        if (directory < 0) return error.StorageFailure;
+        errdefer c.loam_lmdb_close_fd(directory);
+        const fd = c.loam_lmdb_lock(directory);
         if (fd < 0) return error.CustodyUnavailable;
-        errdefer c.loam_lmdb_unlock(fd);
+        errdefer c.loam_lmdb_close_fd(fd);
         var env: ?*c.Env = null;
         try check(c.mdb_env_create(&env));
         errdefer c.mdb_env_close(env.?);
@@ -35,7 +42,7 @@ pub const Lmdb = struct {
         try check(c.mdb_env_set_maxreaders(env.?, options.max_readers));
         // Default synchronous durability. No NOSYNC, NOMETASYNC, WRITEMAP, or
         // MAPASYNC flags are permitted by this profile.
-        try check(c.mdb_env_open(env.?, path.ptr, c.notls, 0o600));
+        try check(c.mdb_env_open(env.?, &absolute, c.notls, 0o600));
         var txn: ?*c.Txn = null;
         try check(c.mdb_txn_begin(env.?, null, 0, &txn));
         defer if (txn) |active| c.mdb_txn_abort(active);
@@ -61,7 +68,7 @@ pub const Lmdb = struct {
         // Commit consumes its transaction even on failure. An uncertain open
         // returns no store; retry must verify the metadata instead of resetting.
         if (c.mdb_txn_commit(active) != 0) return error.OpenOutcomeUnknown;
-        return .{ .env = env.?, .dbi = dbi, .lock_fd = fd, .metadata = claimed };
+        return .{ .env = env.?, .dbi = dbi, .lock_fd = fd, .directory_fd = directory, .metadata = claimed };
     }
 
     /// Stops new work and refuses to free the environment while a worker or
@@ -69,8 +76,9 @@ pub const Lmdb = struct {
     /// Store must also retire its leases and staging before its own deinit.
     pub fn close(self: *Lmdb) !void {
         if (self.users.fetchOr(closing, .acq_rel) & ~closing != 0) return error.Busy;
-        c.mdb_env_close(self.env);
-        c.loam_lmdb_unlock(self.lock_fd);
+        if (self.environment_open) c.mdb_env_close(self.env);
+        c.loam_lmdb_close_fd(self.lock_fd);
+        c.loam_lmdb_close_fd(self.directory_fd);
         self.* = undefined;
     }
 
@@ -81,6 +89,94 @@ pub const Lmdb = struct {
         tree_pages: usize,
         entries: usize,
     };
+
+    /// One offline replacement. Keep the backend stable until deinit. A failed
+    /// copy is canceled; an installed copy can retry its directory sync. The
+    /// original owner lock remains held until backend close in every state.
+    pub const Compaction = struct {
+        owner: *Lmdb,
+        files: c.ReplacementFiles,
+        copy_path: [std.fs.max_path_bytes:0]u8,
+        phase: enum { copying, prepared, installed, finished, failed } = .copying,
+
+        fn init(owner: *Lmdb) !Compaction {
+            var source_path: [*:0]const u8 = undefined;
+            try check(c.mdb_env_get_path(owner.env, &source_path));
+            var result: Compaction = .{ .owner = owner, .files = undefined, .copy_path = undefined };
+            try check(c.mdb_env_sync(owner.env, 1));
+            try check(c.loam_lmdb_replacement_begin(owner.directory_fd, source_path, &result.copy_path, result.copy_path.len, &result.files));
+            errdefer c.loam_lmdb_replacement_end(&result.files);
+            // Establish the existing directory entry before creating a durable
+            // replacement. Synchronous commits already flushed source data.
+            try check(c.loam_lmdb_replacement_sync_directory(&result.files));
+            return result;
+        }
+
+        /// Compact using LMDB's bounded copy machinery, flush the copy, and
+        /// compare every key/value against the quiescent source. No application
+        /// row, index, receipt, or authority floor is interpreted or omitted.
+        pub fn prepare(self: *Compaction) !void {
+            if (self.phase != .copying) return error.WrongPhase;
+            errdefer self.phase = .failed;
+            try check(c.mdb_env_copyfd2(self.owner.env, self.files.copy, c.compact));
+            try check(c.loam_lmdb_replacement_sync_copy(&self.files));
+            try @import("compaction.zig").verify(self.owner.env, self.owner.dbi, self.owner.metadata, &self.copy_path);
+            self.phase = .prepared;
+        }
+
+        /// Close source admission and atomically replace data.mdb in the same
+        /// directory. Even a rename refusal leaves the backend fenced for
+        /// close/reopen. Call finish before reporting durable installation.
+        pub fn install(self: *Compaction) !void {
+            if (self.phase != .prepared) return error.WrongPhase;
+            self.owner.closeForReplacement();
+            self.phase = .failed;
+            try check(c.loam_lmdb_replacement_install(&self.files));
+            self.phase = .installed;
+        }
+
+        /// Sync the installed directory entry. Failure leaves the installed
+        /// state intact for retry; close/reopen resolves an unknown outcome.
+        pub fn finish(self: *Compaction) !void {
+            if (self.phase != .installed) return error.WrongPhase;
+            if (c.loam_lmdb_replacement_sync_directory(&self.files) != 0) return error.InstallOutcomeUnknown;
+            self.phase = .finished;
+        }
+
+        /// Release this operation after success, cancellation, or failure. An
+        /// incomplete copy is discarded. After installation the backend stays
+        /// closed to work, and close alone releases lifetime writer custody.
+        pub fn deinit(self: *Compaction) void {
+            c.loam_lmdb_replacement_end(&self.files);
+            self.owner.endMaintenance();
+            self.* = undefined;
+        }
+    };
+
+    /// Reserves the backend exclusively until Compaction.deinit. Join workers
+    /// and retire the associated Store before beginning this offline operation.
+    /// Installation closes backend admission; close it before reopening.
+    pub fn beginCompaction(self: *Lmdb) !Compaction {
+        try self.beginMaintenance();
+        errdefer self.endMaintenance();
+        return Compaction.init(self);
+    }
+
+    /// Complete offline replacement and release its maintenance reservation.
+    /// Successful installation fences this backend; close and reopen normally.
+    pub fn compact(self: *Lmdb) !void {
+        var operation = try self.beginCompaction();
+        defer operation.deinit();
+        try operation.prepare();
+        try operation.install();
+        try operation.finish();
+    }
+
+    fn closeForReplacement(self: *Lmdb) void {
+        _ = self.users.fetchOr(closing, .acq_rel);
+        c.mdb_env_close(self.env);
+        self.environment_open = false;
+    }
 
     /// Reports physical geometry while no backend transaction is active.
     /// High water includes reusable free pages; map minus high water is unused
@@ -154,6 +250,20 @@ pub const Lmdb = struct {
     pub fn commit(self: *Lmdb, batch: core.Batch) core.Outcome {
         var pending = self.beginCommit(batch) catch |err| return .{ .unchanged = err };
         return pending.finish();
+    }
+
+    pub fn lookup(self: *Lmdb, request: core.NameLookup) core.NameResult {
+        self.retain() catch |err| return .{ .failed = err };
+        defer self.release();
+        return self.lookupName(request) catch |err| .{ .failed = err };
+    }
+
+    fn lookupName(self: *Lmdb, request: core.NameLookup) !core.NameResult {
+        var txn: ?*c.Txn = null;
+        try check(c.mdb_txn_begin(self.env, null, c.readonly, &txn));
+        defer c.mdb_txn_abort(txn.?);
+        var kv: Kv = .{ .txn = txn.?, .dbi = self.dbi };
+        return request.read(&kv);
     }
 
     /// Begins and fills one backend transaction without making it durable.
@@ -278,6 +388,8 @@ fn check(rc: c_int) !void {
         0 => {},
         c.map_full => error.StorageCapacity,
         c.readers_full => error.ReaderCapacity,
+        @backingInt(std.posix.E.NOSPC), @backingInt(std.posix.E.FBIG) => error.StorageCapacity,
+        @backingInt(std.posix.E.NAMETOOLONG) => error.NameTooLong,
         -30796, -30793, -30795, -30794 => error.Corrupt,
         else => error.StorageFailure,
     };

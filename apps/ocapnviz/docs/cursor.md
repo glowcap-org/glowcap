@@ -29,48 +29,63 @@ state that runs it. The ladder mirrors `interaction-model.md` § 4.2:
    describe.
 5. Over a hover, resolve the gesture for that hit and read the answer.
 
-That last step has its own order. A `tool-refuses` reads `not-allowed`, and so
-does a two-click pick that the host's `willPick` declines; the tool works on
-nodes and will not take this one, and the cursor says so before the click rather
-than an error saying so after it. Any other tool-create reads the tool's own
-resting cursor, because the node it is about to act on is the last place to stop
-saying which tool is active. Under the Select tool, a verb that commits into the
-selection reads `copy` under Shift and `no-drop` under Shift-Option. The mode
-comes from `selectModeFromModifiers`, so the preview and the commit read one
-grammar, and a surface whose verb does not touch the selection keeps its own
-cursor under a held modifier. A build tool's resting cursor stays on stage
-surfaces only (`restingCursorOver` / `isStageSurface`); over the timeline the
-lane's own answer wins, so the affordance does not advertise a click no timeline
-surface performs.
+That last step has its own order:
 
-Otherwise the resolved verb answers. Two glyphs carry the horizontal gestures
-and they are not interchangeable. `ew-resize` means the drag moves something
-along time: a scrub, a retimed event, the ends of the overview window.
-`col-resize` means a handle that resizes an extent: an event pill's edge, the
-gutter's seam. The rest are `pointer` for anything whose click acts on what is
-under it, including the gutter's chevron, eyeballs, and row labels; `grab` for
-the Overview's pan; and `crosshair` for a marquee.
+1. A `tool-refuses` reads `not-allowed`. So does a two-click pick that the
+   host's `willPick` declines: the tool works on nodes but will not take this
+   one, and the cursor says so before the click instead of an error saying so
+   after it.
+2. Any other tool-create reads the tool's own resting cursor. The node the tool
+   is about to act on is the last place where the cursor should still show
+   which tool is active.
+3. Under the Select tool, a verb that adds to the selection reads `copy` under
+   Shift and `no-drop` under Shift-Option. The mode comes from
+   `selectModeFromModifiers`, so the preview and the commit follow the same
+   rule. A surface whose verb does not touch the selection keeps its own cursor
+   while a modifier is held.
+4. A build tool's resting cursor applies only on stage surfaces
+   (`restingCursorOver` / `isStageSurface`). Over the timeline, the lane's own
+   answer wins, so the cursor never advertises a click that no timeline surface
+   performs.
+5. Otherwise, the resolved verb decides.
+
+The cursors the verbs use:
+
+| Cursor | Means |
+| --- | --- |
+| `ew-resize` | Dragging moves something along time: a scrub, a retimed event, or the ends of the overview window. |
+| `col-resize` | A handle that resizes an extent: an event pill's edge, or the gutter's seam. |
+| `pointer` | A click acts on what is under it, including the gutter's chevron, eyeballs, and row labels. |
+| `grab` | The Overview's pan. |
+| `crosshair` | A marquee. |
+
+The two horizontal cursors are not interchangeable: `ew-resize` moves along
+time, and `col-resize` changes a size.
 
 A row label reads `pointer` rather than a vertical resize cursor, because its
 click selects the row's entity and only its drag reorders the stack. The click
 is what the cursor is describing, and the reorder is a discovered affordance.
 While the row is moving, the in-flight step answers `grabbing`.
 
-**`willPick` is the injected half.** Whether a two-click tool will take the node
-under the pointer depends on the pick it already holds, and that is a fact about
-the document. With a claim armed, the only legal partner is the node at the
-other end of that claim's session, and no `GestureContext` can see it. The Stage
-supplies `twoClickAccepts` from `builder/two-click.ts`, the same statement the
-click path consults, so the pointer refuses exactly what the click refuses. Left
-out, the cursor answers with the half the resolver can see, which is the whole
-answer until a pick is armed. The armed pick travels in
-`CursorContext.toolState`, filled from the Stage's `armedNode`, and it is the
-cursor's context rather than the resolver's, because the resolver never asks.
+**`willPick` is supplied by the host.** Whether a two-click tool will take the
+node under the pointer depends on the pick it already holds, and that is a fact
+about the document. With a claim armed, the only valid partner is the node at
+the other end of that claim's session, and no `GestureContext` can see that.
+
+- The Stage supplies `twoClickAccepts` from `builder/two-click.ts`, the same
+  function the click path uses, so the pointer refuses exactly what the click
+  refuses.
+- Without it, the cursor answers with what the resolver alone can see. That is
+  the complete answer until a pick is armed.
+- The armed pick travels in `CursorContext.toolState`, filled from the Stage's
+  `armedNode`. It belongs to the cursor's context, not the resolver's, because
+  the resolver never needs it.
 
 **What the Stage feeds it.** The machine state, with one addition.
 `makeStageHit` returns null over a sprite, so the machine's hover is empty in
-exactly the places the pointer is over something; the Pixi hover is that same
-fact arriving by the other door, and the Stage folds it in before asking.
+exactly the places where the pointer is over something. The Pixi hover reports
+that same fact through the other route, and the Stage merges it in before
+asking.
 Modifiers come from the app's one keyboard listener rather than a pointer event,
 because a modifier pressed while the pointer sits still still changes what the
 next click would do.

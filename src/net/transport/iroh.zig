@@ -37,6 +37,7 @@ pub const ReadyEvent = sidecar.ReadyEvent;
 pub const DialText = sidecar.DialText;
 pub const dial_text_bytes = sidecar.dial_text_bytes;
 pub const Resident = resident.Resident;
+pub const MultiplexedAdapter = @import("iroh/multiplexed.zig").MultiplexedAdapter;
 pub const loop_would_block = resident.loop_would_block;
 pub const loop_ev_readable = resident.loop_ev_readable;
 pub const loop_ev_writable = resident.loop_ev_writable;

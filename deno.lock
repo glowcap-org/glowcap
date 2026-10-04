@@ -9,9 +9,9 @@
     "npm:es-module-lexer@3.0.2": "3.0.2",
     "npm:playwright@1.63.0": "1.63.0",
     "npm:react-dom@19.3.0": "19.3.0_react@19.3.0",
-    "npm:react-router@8.3.1": "8.3.1_react@19.3.0_react-dom@19.3.0",
+    "npm:react-router@8.4.0": "8.4.0_react@19.3.0_react-dom@19.3.0",
     "npm:react@19.3.0": "19.3.0",
-    "npm:zod@4.6.4": "4.6.4",
+    "npm:zod@4.6.5": "4.6.5",
     "npm:zustand@5.0.15": "5.0.15_@types+react@19.3.0_react@19.3.0"
   },
   "jsr": {
@@ -26,6 +26,9 @@
     }
   },
   "npm": {
+    "@remix-run/route-pattern@0.22.1": {
+      "integrity": "sha512-czdGJWh09Lapvcqt7Vb09KlrU2PhRJ8xQaI+AItTuD9aDJ5MAgxnS38lnys6Ll+6RJEqPiaUqTwIQhVLwFvv+w=="
+    },
     "@types/react-dom@19.3.0_@types+react@19.3.0": {
       "integrity": "sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q==",
       "dependencies": [
@@ -65,9 +68,10 @@
         "scheduler"
       ]
     },
-    "react-router@8.3.1_react@19.3.0_react-dom@19.3.0": {
-      "integrity": "sha512-TEOpiO2g0TJHEOJeRVv4amUFun9v1npCKszvcquNvzETUtJ8udV86ah5eFoHT7g26bsBvT6EiIhqulR8eDF++A==",
+    "react-router@8.4.0_react@19.3.0_react-dom@19.3.0": {
+      "integrity": "sha512-JtydAkBvU9UTEe5qNC+POhu+ZBNM7rlKY2IegwXc7Idj7xfRG16x5RZrw3mju+XlqBxfvb2ky9P3jUp9WyWC1g==",
       "dependencies": [
+        "@remix-run/route-pattern",
         "cookie-es",
         "react",
         "react-dom"
@@ -82,8 +86,8 @@
     "scheduler@0.28.0": {
       "integrity": "sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw=="
     },
-    "zod@4.6.4": {
-      "integrity": "sha512-AXSD6hvGdvRjajG/l1cC+d6IrhH+sjmPKtYeQdJIK8MFJl3LyClzS+o/YsVC+zQZPupAaeH5skwwm8YqYH7BqA=="
+    "zod@4.6.5": {
+      "integrity": "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="
     },
     "zustand@5.0.15_@types+react@19.3.0_react@19.3.0": {
       "integrity": "sha512-MpSEjRiBkA9crSYeOUH32rJC7SVqAbm0Fqcqge/bUi2PPoLcBWKOsG+C8mevmpr8TwXHBVkChbbJiyvkE+i/3A==",
@@ -104,9 +108,9 @@
       "npm:es-module-lexer@3.0.2",
       "npm:playwright@1.63.0",
       "npm:react-dom@19.3.0",
-      "npm:react-router@8.3.1",
+      "npm:react-router@8.4.0",
       "npm:react@19.3.0",
-      "npm:zod@4.6.4",
+      "npm:zod@4.6.5",
       "npm:zustand@5.0.15"
     ],
     "links": {

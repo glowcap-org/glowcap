@@ -1,10 +1,9 @@
 // Everything Rooms says to a person, in one place.
 //
-// Until this existed there was no set of Rooms' words to look at. They were
-// JSX literals, literals in this directory's siblings, and — for the failures a
-// reader meets most often — Rust. Nobody could review the product's voice,
-// because reviewing it meant reading sixty files and guessing which strings
-// reached a screen; and nobody could translate it for the same reason.
+// Scattered across JSX literals, sibling modules, and Rust, Rooms' words
+// would have no set to look at. Reviewing the product's voice would mean
+// reading sixty files and guessing which strings reach a screen, and
+// translating it would mean the same.
 //
 // So the rule is that a sentence a person reads is written here and nowhere
 // else. `zig build source-check` holds it: a reader-facing literal in a file
@@ -29,10 +28,9 @@
 //
 // ## Write about the reader, not about the machine
 //
-// The deeper habit, and the one that survived a first pass at the vocabulary:
-// nearly every sentence in this product had the system as its subject. The
-// session knew things. The directory introduced people and stepped out. The
-// room kept messages. This browser refused to save. A reader appears in those
+// The deeper habit is making the system the subject of every sentence. The
+// session knows things. The directory introduces people and steps out. The
+// room keeps messages. This browser refuses to save. A reader appears in those
 // sentences as an object if at all, and what they are handed is a narration of
 // somebody else's state machine.
 //

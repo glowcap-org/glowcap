@@ -31,7 +31,7 @@ const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 /// consumed and the session is closing; drain its typed `op:abort` and release
 /// it. `GLOWCAP_ERR_INTERNAL` with no last-abort is allocation failure before
 /// frame admission, so the same borrowed frame remains retryable.
-pub export fn glowcap_host_session_feed(raw: ?*GlowcapHostSession, frame_in: ?*const GlowcapFrame) i32 {
+pub fn glowcap_host_session_feed(raw: ?*GlowcapHostSession, frame_in: ?*const GlowcapFrame) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(instOf(session.host), "session_feed")) return GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -57,11 +57,11 @@ pub export fn glowcap_host_session_feed(raw: ?*GlowcapHostSession, frame_in: ?*c
 /// acts on the fresh session (publish, fetch), and
 /// `glowcap_host_session_resume_feed` feeds them once the embedder has
 /// installed that post-open authority.
-pub export fn glowcap_host_session_feed_bytes(
+pub fn glowcap_host_session_feed_bytes(
     raw: ?*GlowcapHostSession,
     bytes: ?[*]const u8,
     len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(instOf(session.host), "session_feed_bytes")) return GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -77,11 +77,11 @@ pub export fn glowcap_host_session_feed_bytes(
 /// transports pass arbitrary chunks carrying ADR-0110's outer envelope;
 /// message-framed transports pass one bare codec frame per packet. The Host's
 /// transport profile owns that choice. Borrowed for the call.
-pub export fn glowcap_host_session_feed_packet(
+pub fn glowcap_host_session_feed_packet(
     raw: ?*GlowcapHostSession,
     bytes: ?[*]const u8,
     len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(instOf(session.host), "session_feed_packet")) return GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -96,7 +96,7 @@ pub export fn glowcap_host_session_feed_packet(
 /// Resume input retained by a previous feed. Byte-stream sessions may
 /// dispatch their held tail; message-framed sessions have no hidden tail and
 /// no-op. Refused inside a callback.
-pub export fn glowcap_host_session_resume_feed(raw: ?*GlowcapHostSession) i32 {
+pub fn glowcap_host_session_resume_feed(raw: ?*GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(instOf(session.host), "session_resume_feed")) return GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -109,13 +109,13 @@ pub export fn glowcap_host_session_resume_feed(raw: ?*GlowcapHostSession) i32 {
 /// canonical outer prefix; message-framed sessions return an empty prefix and
 /// one bare frame. Free `out_frame` through `glowcap_managed_frame_release`.
 /// Refused inside a callback.
-pub export fn glowcap_host_session_take_packet(
+pub fn glowcap_host_session_take_packet(
     raw: ?*GlowcapHostSession,
     out_frame: ?*GlowcapManagedFrame,
     out_prefix: ?[*]u8,
     prefix_cap: usize,
     out_prefix_len: ?*usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(instOf(session.host), "session_take_packet")) return GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -139,13 +139,13 @@ pub export fn glowcap_host_session_take_packet(
 /// sessions return their canonical outer Syrup prefix; sealed sessions return
 /// an empty prefix because their payload is already wire-ready ciphertext.
 /// Free `out_frame` through `glowcap_managed_frame_release`.
-pub export fn glowcap_host_session_take_outbound(
+pub fn glowcap_host_session_take_outbound(
     raw: ?*GlowcapHostSession,
     out_frame: ?*GlowcapManagedFrame,
     out_prefix: ?[*]u8,
     prefix_cap: usize,
     out_prefix_len: ?*usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(instOf(session.host), "session_take_outbound")) return GLOWCAP_ERR_INVALID_ARGUMENT;

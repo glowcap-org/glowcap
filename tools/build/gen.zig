@@ -182,6 +182,8 @@ pub const Context = struct {
     host_mods: []*std.Build.Module,
     host_abi_mod: *std.Build.Module,
     driver_abi_mod: *std.Build.Module,
+    loam_abi_mod: *std.Build.Module,
+    loam_lmdb_abi_mod: *std.Build.Module,
     reflected_archives: ReflectedArchives,
     support: Support,
 };
@@ -198,11 +200,23 @@ pub fn register(ctx: Context) void {
     const reflected_archives = ctx.reflected_archives;
     const support = ctx.support;
 
+    addHeaderGen(b, check_step, target, optimize, support, .{
+        .check_step_name = "gen-binding-loam-layout-check",
+        .check_desc = "Verify reflected Rust Loam layouts and fingerprints",
+        .write_step_name = "gen-binding-loam-layout",
+        .write_desc = "Generate Rust Loam layouts and fingerprints",
+        .generator = "tools/gen/binding/loam_layout.zig",
+        .reflects = .{ .name = "c_abi_loam", .module = ctx.loam_abi_mod },
+        .extra_imports = &.{ .{ .name = "c_abi_loam_lmdb", .module = ctx.loam_lmdb_abi_mod }, .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] } },
+    });
     // ── Generated headers / binding mirrors (per archive; ADR-0059) ──────────
     // Each row reflects a Zig C ABI module through the shared verify/emit
     // harness. `*-check` steps fail on stale committed mirrors; bare steps
     // rewrite them.
     const header_gens = [_]HeaderGen{
+        .{ .check_step_name = "gen-header-loam-check", .check_desc = "Verify portable Loam header", .write_step_name = "gen-header-loam", .write_desc = "Generate portable Loam header", .generator = "tools/gen/header/loam.zig", .reflects = .{ .name = "c_abi_loam", .module = ctx.loam_abi_mod } },
+        .{ .check_step_name = "gen-header-loam-lmdb-check", .check_desc = "Verify LMDB Loam companion header", .write_step_name = "gen-header-loam-lmdb", .write_desc = "Generate LMDB Loam companion header", .generator = "tools/gen/header/loam_lmdb.zig", .reflects = .{ .name = "c_abi_loam_lmdb", .module = ctx.loam_lmdb_abi_mod } },
+
         .{
             .check_step_name = "gen-header-locator-check",
             .check_desc = "Verify include/glowcap_locator.h matches the shared locator ABI (fails if stale)",
@@ -330,6 +344,7 @@ pub fn registerMirrors(
         .{ .name = "c_abi_net_transport_webrtc", .module = webrtc_abi_mod },
     };
     const ffi_layout_extra_imports = [_]AbiImport{
+        .{ .name = "c_abi_loam", .module = ctx.loam_abi_mod },
         .{ .name = "c_abi_host", .module = host_abi_mod },
         .{ .name = "c_abi_driver", .module = driver_abi_mod },
         .{ .name = "c_abi_net_transport_tcp", .module = reflected_archives.tcp },
@@ -393,7 +408,10 @@ pub fn registerMirrors(
         .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi (types reflected, names from the generated headers)",
         .generator = "tools/gen/binding/rust_ffi.zig",
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
-        .extra_imports = &ffi_extra_imports,
+        .extra_imports = &(ffi_extra_imports ++ [_]AbiImport{
+            .{ .name = "c_abi_loam", .module = ctx.loam_abi_mod },
+            .{ .name = "c_abi_loam_lmdb", .module = ctx.loam_lmdb_abi_mod },
+        }),
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-binding-racket-ffi-check",

@@ -22,6 +22,7 @@ pub const RestorationStateError = error{ProviderFailure};
 pub const DialError = error{
     InvalidAddress,
     InvalidOptions,
+    WouldBlock,
     ConnectionRefused,
     NetworkUnreachable,
     TimedOut,

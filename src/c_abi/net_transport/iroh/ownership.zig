@@ -45,16 +45,13 @@ pub const NetlayerPayload = struct {
     pub fn release(self: *NetlayerPayload) ?anyerror {
         if (self.references.fetchSub(1, .acq_rel) != 1) return null;
         const alloc = self.allocator;
+        var failure: ?anyerror = null;
         if (self.multiplexed_adapter) |adapter| {
-            var it = adapter.conns.valueIterator();
-            while (it.next()) |row| self.resident.loopConnClose(row.handle);
-            adapter.conns.deinit(alloc);
-            if (adapter.listener_locator) |locator| model.freePeerLocator(alloc, locator);
+            if (adapter.native.deinit()) |reported| failure = reported.cause;
             alloc.destroy(adapter);
         }
-        var failure: ?anyerror = null;
         self.resident.deinit() catch |err| {
-            failure = err;
+            if (failure == null) failure = err;
         };
         self.threaded.deinit();
         alloc.destroy(self);
@@ -72,27 +69,13 @@ pub const ConnPayload = struct {
     netlayer: *NetlayerPayload,
 };
 
-/// State behind the provider's multiplexed table. Drained records name a
-/// connection by stable id while sidecar verbs take its handle, so this is the
-/// one id-to-handle mapping and listener-state owner.
-/// One provider-path connection: the sidecar handle and the first failure the
-/// try-I/O verbs saw on it, latched until `conn_take_failure` reads it, so a
-/// connection that dies on this path names its cause exactly as one on the
-/// low-level loop archive does.
-pub const ConnRow = struct {
-    handle: *anyopaque,
-    failure: c.GlowcapProviderFailure = std.mem.zeroes(c.GlowcapProviderFailure),
-};
-
+/// C projection storage; transport state lives in the native adapter.
 pub const MultiplexedAdapter = struct {
     payload: *NetlayerPayload,
     profile: c.GlowcapTransportProfile,
     multiplexed_transport: c.GlowcapMultiplexedTransport,
     entry: c.GlowcapTransportProviderEntry,
-    conns: std.AutoHashMapUnmanaged(u64, ConnRow) = .empty,
-    listening: bool = false,
-    listener_route: ?u64 = null,
-    listener_locator: ?model.PeerLocator = null,
+    native: iroh.MultiplexedAdapter,
 
     pub fn fromOpaque(ctx: ?*anyopaque) *MultiplexedAdapter {
         return @ptrCast(@alignCast(ctx.?));

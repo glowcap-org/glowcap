@@ -349,7 +349,6 @@ pub fn main(init: std.process.Init) !void {
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
     var host = try driver.core.Host.init(server_alloc, @as([32]u8, @splat(0x42)), session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
-        .local_turn_budget = driver.core.default_loop_local_turn_budget,
         // This live proof targets the completion loop's byte-queue mark, not
         // the Host's independent retained-semantic-work waterline. The fixed
         // `backpressure_batches` bound still caps the proof's total work; an

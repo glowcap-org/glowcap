@@ -292,6 +292,9 @@ int32_t glowcap_iroh_sidecar_endpoint_cancel_connect(
  * instead of the blocking accept. Idempotent. Returns 0 on success, -1 if the
  * readiness channel could not be created. Borrows the handle. */
 int32_t glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(glowcap_iroh_sidecar_endpoint *ep);
+/* Seal admission and discard queued raw accepts (0), or start a fresh
+ * generation (1). Does not close connections already claimed by the caller. */
+int32_t glowcap_iroh_sidecar_endpoint_admission(glowcap_iroh_sidecar_endpoint *ep, uint8_t enabled);
 
 /* Claim one connection the acceptor has pulled off the wire, or NULL when none
  * is waiting (the non-blocking accept: NULL is WOULD_BLOCK, not failure — retry

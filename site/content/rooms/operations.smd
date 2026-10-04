@@ -45,8 +45,8 @@ image. To select a tag, digest, or local image explicitly, pass `--image`.
 The default image is the versioned GHCR name derived from the installed CLI;
 this repository does not claim that the image has been published.
 
-Deployment state defaults to `$XDG_STATE_HOME/glowcap/rooms-deployment`, or
-`$HOME/.local/state/glowcap/rooms-deployment`. Pass `--dir` to select another
+Deployment state lives in `glowcap/rooms-deployment` under `$XDG_STATE_HOME`, or
+under `$HOME/.local/state` when that is unset or empty. Pass `--dir` to select another
 configuration directory. It selects credentials and configuration, not another
 stack: container, network, and volume names are fixed per Docker daemon. Keep
 operator settings in `docker-compose.override.yml`, which `up` preserves.

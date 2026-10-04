@@ -39,6 +39,7 @@ asked.
 | Frames, allocators, wire-path copies                  | [memory rule](../../rules/memory.md)                                                                       |
 | Semantic claims, fixtures, conformance                | [tests rule](../../rules/tests.md) + `test/oracle/`                                                        |
 | Docs, README, agent scaffolding                       | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md)                              |
+| Dependency or toolchain updates                       | [cli](../../rules/cli.md#devcontainer) + [prerelease](../../rules/prerelease.md)                           |
 | Live CapTP from the shell (argv/REPL/listen/`--json`) | [glowcap-cli skill](../glowcap-cli/SKILL.md)                                                               |
 | Live CapTP via Cursor/Claude MCP tools                | [glowcap-mcp skill](../glowcap-mcp/SKILL.md) — dogfood CapTP while editing glowcap                         |
 | Room presence wake-loop                               | [rooms-peer skill](../rooms-peer/SKILL.md)                                                                   |
@@ -46,168 +47,81 @@ asked.
 | OCapN current direction (settled or pending)          | updated `conformance/ocapn-spec/upstream/`: draft, recent minutes, and the owning live proposal            |
 
 For Zig symbols — modules, types, renames, reference walks — use Serena first
-per [serena-mcp rule](../../rules/serena-mcp.md).
+per the [serena skill](../serena/SKILL.md).
 
-## 2. Assess (every touched surface)
+## 2. Assess and execute
 
-- **Inevitability:** Would a competent reader think this is the obvious shape
-  for a networking library at this layer? "Good enough for CapTP" is not the
-  bar. If not, that gap is the work.
-- **Names:** Do file, module, type, and function names say what they own?
-- **Boundaries:** Is authority in session, I/O in adapters, semantics out of
-  codecs? Is the core still sync and no-I/O?
-- **Evidence:** Does every semantic claim have a scenario, oracle trace, or
-  Goblins fixture? A wish is not shipped.
-- **Polish:** Would a rough edge here multiply across every future contribution?
+Name the changed contract, its owner, affected consumers, and the evidence that
+will establish correctness. Check the shape against the vision: protocol
+semantics, explicit ownership and costs, a sync no-I/O core, and usable APIs.
+An awkward boundary or missing symmetric path is implementation work, not a
+reason to preserve the first design.
 
-**Decide:**
+Fix the cause at its owning seam. Prefer types, shared boundaries, generated
+mirrors, and behavior checks to instructions that callers must remember. Keep
+code, tests, generated state, and living documentation aligned in the same
+change. Apply the [prerelease posture](../../rules/prerelease.md) to unreleased
+contracts. A load-bearing decision belongs in an ADR.
 
-- **Act** when any answer is "no" and you can fix it within scope. Load-bearing
-  architectural or naming changes are in scope when they are the right move.
-- **Inaction** only with evidence: gates pass, vision gap is a documented
-  boundary (README, vision, or ADR), not neglect dressed as prudence.
+Proceed within the requested scope. If a discovered defect blocks that work,
+fix it and resume the original task. Leave unrelated work intact. A decision
+to leave a suspected problem alone needs evidence or an existing documented
+boundary; passing an unrelated gate is insufficient.
 
-## 3. Execute
+### Review the diff cold
 
-- Prefer no-footgun structure (types, boundaries, build gates) over comments.
-- Use automation to save reasoning, never evidence: if a check or generated
-  spine can hold the invariant, wire it or run it instead of asking future agents
-  to remember it.
-- Same change: code + tests + living-state docs. Write or supersede an ADR when
-  the move is load-bearing.
-- Do not commit external taste-reference names from prompts; encode intent as
-  Zig-native control, protocol vocabulary, and tests.
-- Match surrounding code. Minimal correct diff beats a wide cosmetic sweep.
+After a coherent stretch of work, inspect the result as if someone else wrote
+it. Include code added earlier in this session. Answer:
 
-### Four questions before "done"
+- **Cause:** Does the change remove the defect's class at its owner, or only
+  suppress the observed instance?
+- **Symmetry:** Which other targets, features, transports, directions, and
+  callers share the contract? Exercise the affected sibling paths.
+- **Consumers:** What assumed the old ownership, lifetime, format, or refusal
+  behavior? Compilation alone cannot prove those assumptions still hold.
+- **Truth:** Which docs, examples, generated files, and rules became untrue?
+- **Coupling:** What fact did the diff repeat, and what unrelated concern did
+  it require changing? Collapse duplication at the shared owner.
+- **Optimum:** How far is the result from the obvious design the
+  [release bar](../../rules/project-values.md#release-bar) describes?
 
-A review of finished-looking work finds the same few classes every time, and
-each is a question that was never asked rather than a skill that was missing.
-Ask them while the work is open, not after a reviewer finds them.
+Fix findings within scope. Name any untested path or remaining boundary
+explicitly; do not convert an unresolved design question into a green-check
+claim.
 
-**Does the other half do this?** A capability built and proven on one side is
-half-built. Name the symmetric cases explicitly — dial and accept, the near
-and the far target, each transport whose designator or hint is load-bearing,
-each tier that shares the surface — and write the test for the side you did
-*not* build first. Every memory-safety and wire defect found in the owning
-host face lived on the untested half: the accept path's unwind, the listening
-half's dial table, the keyed transport's hint. The happy-path proof is the one
-that cannot see them. Treat "not in this phase" as a deferral, never a
-contract: name the living owner of the remaining work and still inventory every
-sibling surface the changed contract governs.
+## 3. Verify
 
-**Who believed the old contract?** When what a function owns, retains,
-borrows, or refuses changes, the compiler checks types, not lifetimes.
-Enumerate every caller and ask what each assumed. A slice that used to be
-borrowed for one call and is now retained for a session dangles in every
-caller that built it on a frame — and it compiles, links, and runs until the
-retained path fires.
+Use the [execution rule](../../rules/cli.md#gates) to choose focused checks
+while iterating and the final gates for the changed boundaries. It owns evidence
+reuse, build leases, deadlines, and failure diagnosis. A scaffolding-only edit
+uses `source-check`, plus `infrastructure-check` when executable workflow
+behavior changes; it does not require the product gate.
 
-**What did this change make untrue?** Sweep referrers in the same diff, before
-declaring done: rules, ADRs, living-state docs, generated headers, examples,
-comments naming an owner or a tier. A claim that outlives the code it
-described is worse than no claim, and the agent rules are the worst place for
-one because the next session acts on them without checking.
-
-**What did this diff repeat, and what did it drag?** Scan the finished diff
-against the "DRY, orthogonal, and easier to change" value in
-[project-values](../../rules/project-values.md). Logic, tables, or claims the
-diff stated twice collapse at the layer that owns them. A change that had to
-touch an unrelated concern is a coupling to name or fix, not a chore to
-finish. Where two representations could carry one fact, prefer the shared seam, the
-generated mirror, or the build check over the parallel copy.
-
-### Step back before calling it done
-
-Asking the four questions while heads-down is not the same as reading the work
-cold. **After each focused stretch of execution, stop and review what you just
-built as though someone else wrote it**, and do it as often as the work keeps
-changing shape rather than once at the end.
-
-This is the cheapest quality step available and it catches what nothing else
-does. A living-state doc still describing the gap the diff just closed. One
-explanation copy-pasted into every binding instead of living at its one
-authority. A knob added with no caller that exercises it. A test broken by a
-later widening in the same session. An asymmetry between two neighbours that
-turns out to be a missing mechanism rather than a style difference.
-
-Two things make it work. **Nothing is exempt for being recent**: code touched
-an hour ago, or held up as the model the rest were matched to, gets read with
-the same suspicion as code from a year ago, because being fresh in mind is not
-the same as being right. And **an unproven claim is named, not implied**: when
-a path cannot be covered hermetically, say so where it lives rather than let a
-green suite imply it was checked.
-
-Act on what the pass finds, including in your own work from earlier in the
-same session. The fix is the deliverable; the findings are not. A pass that
-ends in a list of what someone else should do has moved the work rather than
-done it, and it costs the reader the time the pass was supposed to save.
-Mention only what changes the reader's decisions: a defect that alters how
-they use the thing, or a judgement call that was theirs to make.
-
-## 4. Verify
-
-Choose the final evidence from the boundary the change touched:
+Invoke builds through the worktree's environment front:
 
 ```sh
-zig build source-check         # docs, plans, static scaffolding, and cross-file contracts
-zig build check                # in-process Zig, generated, static, compile-only, and performance evidence
-zig build runtime-check        # process lifecycle, application, and language-workspace behavior
-zig build infrastructure-check # executable devcontainer and worktree behavior
-zig build check-external       # outside protocol authority or shipped browser journeys
+.agents/skills/work/bin/glowcap-dev zig build source-check
 ```
 
-A substantial product change normally needs `check`. Add `runtime-check` only
-when it changed an application, child-process lifecycle, language workspace, or
-live loopback behavior. A plan-only or prose-only change needs `source-check`,
-not a full product gate. Protocol claims still need their focused oracle or
-external evidence before the matching aggregate.
+The front and lease are links to their canonical implementations under
+`.devcontainer/bin/`. Continue independent work during a long check while
+preserving its inputs. Browser proofs require stable generated assets for the
+whole run. A host-side live service needs a PTY so Ctrl-C reaches its children.
 
-Treat a long gate as a work lane, not a lock: continue independent assessment
-or work on non-overlapping artifacts while it runs. A browser proof owns one
-stable generated-asset generation; do not rebuild those assets underneath it,
-and invalidate and rerun the proof if they change.
+Commit or integrate only when the user has authorized it. The
+[Git posture](../../rules/cli.md#git-posture) owns the worktree procedure,
+including `.agents/skills/work/bin/glowcap-integrate --sync` and publication
+through `.agents/skills/work/bin/glowcap-integrate`. A generic direction to
+continue work does not itself authorize either operation.
 
-Use focused gates while iterating (see [cli rule](../../rules/cli.md)).
-Agent sessions invoke build commands through
-`.agents/skills/work/bin/glowcap-dev`, for example
-`.agents/skills/work/bin/glowcap-dev zig build source-check`. From the host,
-the front enters this worktree's running devcontainer. Inside that image, it
-runs locally from the repository root instead of nesting another `docker exec`.
-Both paths add Zig's per-test timeout and take the same per-worktree build
-lease. If another session owns the lease, the front reports its PID, working
-directory, and command instead of racing caches or ports. A contributor with
-the complete declared toolchain may still invoke `zig build` directly on the
-host.
-The skill's build front and lease are links to their canonical implementations
-under `.devcontainer/bin/`; the checkout launcher shares that environment owner.
+## 4. Ratchet and hand off
 
-A host-side live service invocation needs a PTY so Ctrl-C crosses `docker exec`
-and reaches its container process tree. `glowcap-dev` refuses a service build
-without one instead of leaving children behind when its caller disconnects.
+Update `docs/shipped.md` and `docs/boundaries.md` when product behavior or
+boundaries change. Fix drift on touched surfaces. An unresolved limitation
+needs a living owner, not an unowned deferral marker.
 
-When the user has directed worktree commits into the shared `dev` integration
-ref, start a clean work stint with
-`.agents/skills/work/bin/glowcap-integrate --sync`; it rebases onto the current
-`main` and `dev` without publishing. Make additive commits from explicit owned
-paths; never amend in a shared worktree because another session may move `HEAD`
-between inspection and the command. Then run
-`.agents/skills/work/bin/glowcap-integrate` without the flag to absorb both
-shared lines again and fast-forward `dev`. Both modes discover the current
-branch from Git; the worktree/container name is deliberately not an input.
-In an active named worktree, a direction to go or land means completing this
-commit-and-integrate path, not reporting a verified diff while leaving it dirty.
-
-## 5. Compound (leave the next agent better off)
-
-- Update `docs/shipped.md` and `docs/boundaries.md` when behavior or boundaries
-  change.
-- Fix doc drift in files you touched; leave prose more readable than you found
-  it.
-- Do not leave "someone should fix X later" without recording X as a present
-  boundary in vision, `docs/boundaries.md`, or an ADR. `zig build source-check`
-  refuses unowned deferral markers in first-party source for the same reason.
-- Scaffolding changes answer to
-  [agent-scaffolding](../../rules/agent-scaffolding.md): the lesson lands at the
-  strongest layer that can hold it, and the gate moves in the same change. The
-  [ratchet skill](../ratchet/SKILL.md) is the landing procedure.
+Run the [ratchet review](../ratchet/SKILL.md): encode reusable lessons at their
+strongest owner and prune instructions they replace. If existing guidance
+already covers the lesson, no additional rule is needed. Report the outcome,
+relevant verification and its limits, and what the ratchet changed or why
+nothing qualified.

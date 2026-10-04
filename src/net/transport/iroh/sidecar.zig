@@ -44,6 +44,7 @@ pub extern fn glowcap_iroh_sidecar_endpoint_start_connect(ep: *CEndpoint, reques
 pub extern fn glowcap_iroh_sidecar_endpoint_finish_connect(ep: *CEndpoint, request_id: usize, out_conn: *?*CConn, out_text: ?[*]u8, out_text_cap: usize, out_text_len: ?*usize) i32;
 pub extern fn glowcap_iroh_sidecar_endpoint_cancel_connect(ep: *CEndpoint, request_id: usize) i32;
 pub extern fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *CEndpoint) i32;
+pub extern fn glowcap_iroh_sidecar_endpoint_admission(ep: *CEndpoint, enabled: u8) i32;
 pub extern fn glowcap_iroh_sidecar_endpoint_try_accept(ep: *CEndpoint) ?*CConn;
 pub extern fn glowcap_iroh_sidecar_conn_set_nonblocking(ep: *CEndpoint, conn: *CConn) i32;
 pub extern fn glowcap_iroh_sidecar_conn_id(conn: *const CConn) usize;

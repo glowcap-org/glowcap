@@ -45,7 +45,7 @@ The available tabs are:
 
 | Tab | Why it earns a place |
 | --- | --- |
-| `iroh` | Managed C and language-binding providers; native Zig uses the completion backend |
+| `iroh` | Managed native Zig, C and language-binding providers |
 | `noise-tcp` | Same sockets as keyed; Noise_XK seals CapTP |
 | `keyed-tcp` | Key designator, cleartext; restart-stable identity |
 | `tcp` | Cleartext address dial; testing and the Goblins TCP suite |

@@ -564,13 +564,15 @@ fn resolverCapability(local: bool) !void {
     }
     const pair = try openPair(allocator, &client, &server, "127.0.0.1:7861", &dials);
     const other = try openPair(allocator, &server, &exporter, "127.0.0.1:7862", &dials);
+    const direct = try openPair(allocator, &client, &exporter, "127.0.0.1:7862", &dials);
     const hosts = [_]*Host{ &client, &server, &exporter };
-    const pairs = [_]Pair{ pair, other };
+    const pairs = [_]Pair{ pair, other, direct };
     _ = try other.b.served.publish(&exporter.vat, "widget", Widget, .{});
     var imported = CapturedRef{};
     try server.vowOn(try server.fetch(other.a, "widget"), .{ .ctx = &imported, .func = CapturedRef.record });
     try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
     const foreign = try server.liftCapability(other.a, try imported.require());
+    defer server.releaseCapabilityTerminal(foreign, null);
     var resolver: u64 = 0;
     const hosted = try pair.b.served.publish(&server.vat, "worker", Deferring, .{ .host = &server, .session = pair.b, .out_resolver = &resolver });
     var fetched = CapturedRef{};
@@ -579,8 +581,10 @@ fn resolverCapability(local: bool) !void {
     const caller = if (local) &server else &client;
     const session = if (local) pair.b else pair.a;
     const target = if (local) hosted.nearRef() else try fetched.require();
-    var answer = CapturedRef{};
-    try caller.vowOn(try caller.send(session, target, .{ .verb = "work", .args = &.{} }), .{ .ctx = &answer, .func = CapturedRef.record });
+    const held_target = try caller.liftCapability(session, target);
+    defer caller.releaseCapabilityTerminal(held_target, null);
+    const answer = try caller.callCapability(allocator, session, held_target, "work", &.{}, 4096);
+    defer answer.deinit();
     try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
     try std.testing.expect(resolver != 0);
     const actor = try server.vat.spawn(Widget, .{});
@@ -588,28 +592,23 @@ fn resolverCapability(local: bool) !void {
     const exports = pair.b.served.port.exports.count();
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const nested = driver.core.Value{ .list = &.{ .{ .capability = capability }, .{ .capability = foreign } } };
-    try std.testing.expectError(error.ForeignArgument, server.resolverFulfillValue(resolver, nested, arena.allocator()));
+    const invalid = server.capabilities.refFromRaw(std.math.maxInt(u64));
+    const refused = driver.core.Value{ .list = &.{ .{ .capability = capability }, .{ .capability = invalid } } };
+    try std.testing.expectError(error.UnknownCapability, server.resolverFulfillValue(resolver, refused, arena.allocator()));
     try std.testing.expectEqual(exports, pair.b.served.port.exports.count());
     try std.testing.expectEqual(@as(usize, 1), server.resolver_index.count());
-    try server.resolverFulfillValue(resolver, .{ .capability = capability }, arena.allocator());
+    const nested = driver.core.Value{ .list = &.{ .{ .capability = capability }, .{ .capability = foreign } } };
+    try server.resolverFulfillValue(resolver, nested, arena.allocator());
     try std.testing.expectError(actors.Error.AlreadySettled, server.resolverFulfillValue(resolver, .void, arena.allocator()));
     try server.releaseCapability(capability, 1);
     try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
-    var poked = CapturedString{};
-    const poke = try caller.send(session, try answer.require(), .{ .verb = "poke", .args = &.{} });
-    if (local) {
-        // A local synchronous answer is already on the action queue before
-        // send returns, so it cannot acquire an observer afterwards.
-        while (try caller.nextAction()) |action| switch (action) {
-            .settled => |result| if (result.vow_id == poke) {
-                CapturedString.record(&poked, .{ .fulfilled = result.value });
-            },
-            else => {},
-        };
-    } else {
-        try caller.vowOn(poke, .{ .ctx = &poked, .func = CapturedString.record });
+    try std.testing.expect(answer.result() == .ready);
+    if (local) try std.testing.expectEqual(exports, pair.b.served.port.exports.count());
+    for (answer.result().ready.list) |value| {
+        const poke = try caller.callCapability(allocator, session, value.capability, "poke", &.{}, 512);
+        defer poke.deinit();
         try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
+        try std.testing.expect(poke.result() == .ready);
+        try std.testing.expectEqualStrings("poked over fed bytes", poke.result().ready.string);
     }
-    try std.testing.expectEqualStrings("poked over fed bytes", poked.buf[0..poked.len]);
 }

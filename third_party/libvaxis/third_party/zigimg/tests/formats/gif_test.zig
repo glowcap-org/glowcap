@@ -520,7 +520,7 @@ fn makeAnimatedTestImage(allocator: std.mem.Allocator) !zigimg.Image {
 
     var frame0_pixels = try zigimg.color.PixelStorage.init(allocator, .indexed8, width * height);
     frame0_pixels.resizePalette(palette.len);
-    std.mem.copy(zigimg.color.Rgba32, frame0_pixels.indexed8.palette, palette[0..]);
+    @memcpy(frame0_pixels.indexed8.palette[0..palette.len], palette[0..]);
     for (0..width * height) |i| frame0_pixels.indexed8.indices[i] = @intCast(i % 2);
 
     const frame0 = zigimg.Image.AnimationFrame{
@@ -532,7 +532,7 @@ fn makeAnimatedTestImage(allocator: std.mem.Allocator) !zigimg.Image {
 
     var frame1_pixels = try zigimg.color.PixelStorage.init(allocator, .indexed8, width * height);
     frame1_pixels.resizePalette(palette.len);
-    std.mem.copy(zigimg.color.Rgba32, frame1_pixels.indexed8.palette, palette[0..]);
+    @memcpy(frame1_pixels.indexed8.palette[0..palette.len], palette[0..]);
     for (0..height) |row| {
         for (0..width) |col| {
             const idx = row * width + col;
@@ -565,7 +565,7 @@ const SINGLE_GIF_FILE_TEST = false;
 fn loadRotatingEarthImage(allocator: std.mem.Allocator) !zigimg.Image {
     var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
     const image_path = helpers.fixtures_path ++ "gif/rotating_earth.gif";
-    return zigimg.Image.fromFilePath(allocator, test_io, image_path, read_buffer[0..]);
+    return helpers.testImageFromFileWithAllocator(allocator, test_io, image_path, read_buffer[0..]);
 }
 
 test "GIF test suite" {
@@ -610,6 +610,83 @@ test "GIF test suite" {
     if (has_failed_file) {
         return error.GifTestSuiteFailed;
     }
+}
+
+test "GIF Netscape extension between graphic control and image" {
+    var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
+    var img = try helpers.testImageFromFileWithAllocator(
+        helpers.zigimg_test_allocator,
+        test_io,
+        helpers.fixtures_path ++ "gif/gce-then-netscape.gif",
+        read_buffer[0..],
+    );
+    defer img.deinit(helpers.zigimg_test_allocator);
+
+    try helpers.expectEq(img.width, 2);
+    try helpers.expectEq(img.height, 2);
+    try helpers.expectEq(img.animation.frames.items.len, 1);
+    try helpers.expectEq(img.animation.loop_count, zigimg.Image.AnimationLoopInfinite);
+    try helpers.expectApproxEqAbs(img.animation.frames.items[0].duration, 0.05, 0.001);
+}
+
+test "GIF ignores a zero byte before the trailer" {
+    var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
+    var img = try helpers.testImageFromFileWithAllocator(
+        helpers.zigimg_test_allocator,
+        test_io,
+        helpers.fixtures_path ++ "gif/nul-before-trailer.gif",
+        read_buffer[0..],
+    );
+    defer img.deinit(helpers.zigimg_test_allocator);
+
+    try helpers.expectEq(img.width, 2);
+    try helpers.expectEq(img.height, 2);
+    try helpers.expectEq(img.animation.frames.items.len, 2);
+    try helpers.expectEq(img.animation.loop_count, zigimg.Image.AnimationLoopInfinite);
+}
+
+test "GIF graphic control survives a short read buffer" {
+    // 20 bytes empties the reader on the first tossed byte of this file.
+    var read_buffer: [20]u8 = undefined;
+    var img = try helpers.testImageFromFileWithAllocator(
+        helpers.zigimg_test_allocator,
+        test_io,
+        helpers.fixtures_path ++ "gif/toss-boundary.gif",
+        read_buffer[0..],
+    );
+    defer img.deinit(helpers.zigimg_test_allocator);
+
+    try helpers.expectEq(img.width, 2);
+    try helpers.expectEq(img.height, 2);
+    try helpers.expectEq(img.animation.frames.items.len, 2);
+}
+
+test "GIF truncated after a complete frame keeps that frame" {
+    var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
+    var img = try helpers.testImageFromFileWithAllocator(
+        helpers.zigimg_test_allocator,
+        test_io,
+        helpers.fixtures_path ++ "gif/truncated-after-frame.gif",
+        read_buffer[0..],
+    );
+    defer img.deinit(helpers.zigimg_test_allocator);
+
+    try helpers.expectEq(img.width, 2);
+    try helpers.expectEq(img.height, 2);
+    try helpers.expectEq(img.animation.frames.items.len, 1);
+}
+
+test "GIF truncated inside a frame drops that frame" {
+    var read_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE]u8 = undefined;
+    var img = try helpers.testImageFromFileWithAllocator(
+        helpers.zigimg_test_allocator,
+        test_io,
+        helpers.fixtures_path ++ "gif/truncated-mid-frame.gif",
+        read_buffer[0..],
+    );
+    defer img.deinit(helpers.zigimg_test_allocator);
+
+    try helpers.expectEq(img.animation.frames.items.len, 1);
 }
 
 test "Rotating Earth GIF" {
@@ -698,7 +775,7 @@ const IniFile = struct {
                         // Do nothing
                     },
                     '[' => {
-                        const end_bracket_position_opt = std.mem.lastIndexOf(u8, read_line[0..], "]");
+                        const end_bracket_position_opt = std.mem.findLast(u8, read_line[0..], "]");
 
                         if (end_bracket_position_opt) |end_bracket_position| {
                             current_section = try allocator.dupe(u8, read_line[1..end_bracket_position]);
@@ -709,7 +786,7 @@ const IniFile = struct {
                         }
                     },
                     else => {
-                        const equals_sign_position_opt = std.mem.indexOf(u8, read_line[0..], "=");
+                        const equals_sign_position_opt = std.mem.find(u8, read_line[0..], "=");
 
                         if (equals_sign_position_opt) |equals_sign_position| {
                             const key_name = std.mem.trimEnd(u8, read_line[0..(equals_sign_position - 1)], " ");
@@ -834,8 +911,8 @@ fn doGifTest(entry_name: []const u8) !void {
         try helpers.expectEq(gif_file.loopCount(), expected_loop_count);
 
         if (config_section.getValue("comment")) |comment_value| {
-            const first_quote_index = std.mem.indexOfScalar(u8, comment_value.string, '\'') orelse 0;
-            const last_quote_index = std.mem.lastIndexOfScalar(u8, comment_value.string, '\'') orelse comment_value.string.len;
+            const first_quote_index = std.mem.findScalar(u8, comment_value.string, '\'') orelse 0;
+            const last_quote_index = std.mem.findScalarLast(u8, comment_value.string, '\'') orelse comment_value.string.len;
 
             const comment_slice = comment_value.string[(first_quote_index + 1)..(last_quote_index)];
 
@@ -904,7 +981,7 @@ fn doGifTest(entry_name: []const u8) !void {
                     }
 
                     if (config_section.getValue("delay")) |delay| {
-                        const actual_duration: u32 = @intFromFloat(frames.items[frame_index].duration * 100);
+                        const actual_duration: u32 = @trunc(frames.items[frame_index].duration * 100);
 
                         try helpers.expectEq(actual_duration, delay.number);
                     }

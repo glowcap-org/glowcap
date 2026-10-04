@@ -11,7 +11,7 @@
 /** A control pressed on a conversation that is no longer there. */
 export const roomNoLongerOpen = "That room is no longer open.";
 export const roomNoLongerInSession = "That room is no longer in this shared session.";
-export const roomRecoveryInProgress = "This room recovery is already in progress.";
+export const roomRecoveryInProgress = "You're already recovering this room.";
 export const roomRecoveryNeedsLink = "Paste a current link for this private room.";
 export const roomRecoveryFailed = "That room could not be recovered. It still needs an explicit rejoin.";
 export const roomStillUnavailable = "That room is still unavailable.";
@@ -69,21 +69,24 @@ export function ignoredButYou(name: string): string {
 /** Saving what this browser holds. */
 export const bundleIncomplete = "That file is not a complete Rooms state bundle.";
 export const bundleAndChoiceIncomplete = "That file and session choice do not form a complete Rooms state bundle.";
-export const bundleSaveRefused = "This browser refused to save the imported Rooms state.";
-export const noLongerInSharedSession = "This browser is no longer in a shared Rooms session.";
+export const bundleSaveRefused =
+	"The imported Rooms state wasn't saved, because your browser refused. Try the import again.";
+export const noLongerInSharedSession = "You're no longer in a shared Rooms session in this browser.";
 export function sessionChangedBut(why: string): string {
 	return `The shared session changed, but ${why[0].toLowerCase()}${why.slice(1)}`;
 }
 export const capabilitySetSaveRefused =
-	"The capability set changed, but this browser refused to save it. Retry Save before reloading.";
+	"The capability set changed, but your browser wouldn't save it. Press Save again before you reload.";
 export const connectionChoiceSaveRefused =
-	"The session changed its connection choice, but this browser refused to save it. Retry Save before reloading.";
-export const nothingToShare = "This browser is not in a local session it can share.";
-export const localCopySaveRefused = "This browser refused to save local Rooms reconstruction.";
-export const leaveSessionRefused = "This browser refused to leave the current Rooms session.";
-export const forgetWorkspaceRefused = "This browser refused to forget the saved workspace.";
+	"The connection choice changed, but your browser wouldn't save it. Press Save again before you reload.";
+export const nothingToShare = "You have no session of your own in this browser to share.";
+export const localCopySaveRefused =
+	"You're still in the shared session: your browser wouldn't save the switch to one of your own. Try again.";
+export const leaveSessionRefused =
+	"You're still in this Rooms session: your browser wouldn't save leaving it. Try again.";
+export const forgetWorkspaceRefused = "Your saved workspace is still here: your browser wouldn't erase it. Try again.";
 export const clearWorkspaceRefused =
-	"Browser history was erased, but this browser refused to clear the saved Rooms workspace. Retry Delete browser data.";
+	"Browser history was erased, but your saved Rooms workspace is still here. Press Delete browser data again.";
 
 /** Files on a line. */
 export function tooManyFiles(max: number): string {

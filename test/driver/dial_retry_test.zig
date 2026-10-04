@@ -13,12 +13,13 @@ const RetryProbe = struct {
     hits: u32 = 0,
     fail_until: u32 = 3,
     result: u32 = 99,
+    refusal: DialError = error.ConnectionLost,
 };
 
 fn probeDial(ctx: ?*anyopaque) DialError!u32 {
     const self: *RetryProbe = @ptrCast(@alignCast(ctx.?));
     self.hits += 1;
-    if (self.hits < self.fail_until) return error.ConnectionLost;
+    if (self.hits < self.fail_until) return self.refusal;
     return self.result;
 }
 
@@ -50,6 +51,7 @@ test "isTransientDialError matches ADR-0081 axis" {
     try std.testing.expect(driver.isTransientDialError(error.NetworkUnreachable));
     try std.testing.expect(driver.isTransientDialError(error.TimedOut));
     try std.testing.expect(driver.isTransientDialError(error.ConnectionLost));
+    try std.testing.expect(driver.isTransientDialError(error.WouldBlock));
     try std.testing.expect(!driver.isTransientDialError(error.InvalidAddress));
     try std.testing.expect(!driver.isTransientDialError(error.ConnectionRefused));
     try std.testing.expect(!driver.isTransientDialError(error.OutOfMemory));
@@ -72,6 +74,20 @@ test "DialRetry dial does not retry InvalidAddress" {
     try std.testing.expectError(error.InvalidAddress, client.dial(void, fatalDial, &probe, probeSleep));
     try std.testing.expectEqual(@as(u32, 1), probe.hits);
     try std.testing.expectEqual(@as(u32, 0), sleep_count);
+}
+
+test "DialRetry admission pressure retries within the attempt bound" {
+    var probe = RetryProbe{ .refusal = error.WouldBlock };
+    sleep_count = 0;
+    const retry = driver.DialRetry.init(.{ .max_attempts = 2, .retry_interval_ms = 1 });
+    try std.testing.expectError(error.WouldBlock, retry.dial(u32, probeDial, &probe, probeSleep));
+    try std.testing.expectEqual(@as(u32, 2), probe.hits);
+    try std.testing.expectEqual(@as(u32, 1), sleep_count);
+    probe = .{ .refusal = error.WouldBlock, .fail_until = 2 };
+    sleep_count = 0;
+    try std.testing.expectEqual(@as(u32, 99), try retry.dial(u32, probeDial, &probe, probeSleep));
+    try std.testing.expectEqual(@as(u32, 2), probe.hits);
+    try std.testing.expectEqual(@as(u32, 1), sleep_count);
 }
 
 const OutcomeLog = struct {

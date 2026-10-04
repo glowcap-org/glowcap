@@ -1,8 +1,10 @@
 //! Borrowed Rooms protocol views over the existing glowcap Rust binding.
-//! Shared by native services and browser Wasm; platform adapters own I/O.
+//! Shared by services and browser Wasm; platform adapters own I/O.
 
 pub mod archive;
 pub mod client;
+#[cfg(feature = "loam")]
+pub mod policy;
 pub mod routes;
 pub mod snapshot;
 
@@ -12,7 +14,7 @@ use rooms_application::{
 	room::{ArgumentView, attachment::AttachmentArgument},
 };
 
-/// Rooms peers offer the native profile and full optional feature set. The
+/// Rooms peers offer the glowcap-next profile and full optional feature set. The
 /// binding negotiates the supported intersection, including the interop floor.
 /// Application hosts must share this posture so identity routes survive across
 /// directory, session, archive and browser connections.

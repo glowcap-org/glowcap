@@ -162,6 +162,31 @@ test "the partner's fulfill on the listener export surfaces as a resolve on the 
     }
 }
 
+test "a V1.0 notification naming our own export surfaces for the local promise to follow" {
+    // A V1.0 exporter whose answer resolved to a promise we host tells our
+    // settling listener so; the resolve carries our own export, which the
+    // application layer follows locally.
+    const allocator = std.testing.allocator;
+    var pair = try syrupPair(allocator, .v1_0);
+    defer pair.deinit();
+    try pair.p1.session_state.registerExport(.from(7));
+    var listening = try listenOnImportFive(&pair.p1);
+    defer listening.deinit();
+
+    try pair.p2.session_state.registerImport(.from(7));
+    try notify(&pair.p2, &pair.p1, listening.listener, &.{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .far = model.FarRef.promise(7) } },
+    });
+
+    var event = pair.p1.pollEvent().?;
+    defer event.deinit();
+    try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
+    const view = try event.view();
+    try std.testing.expectEqual(listening.answer, view.resolve.answer);
+    try std.testing.expectEqual(@as(u64, 7), view.resolve.resolution.fulfill.reference.near.export_position.int());
+}
+
 test "the partner's break on the listener export surfaces as a broken resolve" {
     const allocator = std.testing.allocator;
     for (profiles) |version| {

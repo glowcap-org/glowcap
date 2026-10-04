@@ -37,7 +37,7 @@ const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 /// the opaque Host-scoped capability.
 /// Refused inside a callback (ctx stays the caller's on a null-pointer or
 /// reentry refusal).
-pub export fn glowcap_host_session_publish(
+pub fn glowcap_host_session_publish(
     raw: ?*GlowcapHostSession,
     name: ?[*]const u8,
     name_len: usize,
@@ -45,7 +45,7 @@ pub export fn glowcap_host_session_publish(
     ctx: ?*anyopaque,
     free: ?c.GlowcapHostCtxFree,
     out_ref: ?*shared.GlowcapReference,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const b = behavior orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -63,13 +63,13 @@ pub export fn glowcap_host_session_publish(
 /// this session, without a fetchable name. It becomes reachable once a reply or
 /// argument carries its reference. Same `free` contract as
 /// `glowcap_host_session_publish`.
-pub export fn glowcap_host_session_spawn(
+pub fn glowcap_host_session_spawn(
     raw: ?*GlowcapHostSession,
     behavior: ?c.GlowcapHostBehavior,
     ctx: ?*anyopaque,
     free: ?c.GlowcapHostCtxFree,
     out_ref: ?*shared.GlowcapReference,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const b = behavior orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -90,12 +90,12 @@ pub export fn glowcap_host_session_spawn(
 /// a node-unique token — recorded before the completion is queued, so a
 /// reply that immediately re-gifts it routes to the right exporter. Refused
 /// inside a callback.
-pub export fn glowcap_host_session_fetch(
+pub fn glowcap_host_session_fetch(
     raw: ?*GlowcapHostSession,
     name: ?[*]const u8,
     name_len: usize,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -111,12 +111,12 @@ pub export fn glowcap_host_session_fetch(
 /// selected session before the swiss namespace is consulted or wire traffic
 /// is emitted. A dedup-cache hit settles before this returns; a fresh enliven
 /// rides bootstrap-fetch. Refused inside a callback.
-pub export fn glowcap_host_session_enliven(
+pub fn glowcap_host_session_enliven(
     raw: ?*GlowcapHostSession,
     sturdyref_uri: ?[*]const u8,
     sturdyref_uri_len: usize,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -135,11 +135,11 @@ pub export fn glowcap_host_session_enliven(
 /// session transparently, and a give in the settlement auto-redeems exactly
 /// as a fetch's would. The vow is plain — a listen makes no claim the result
 /// is a capability. Legal inside a callback.
-pub export fn glowcap_host_session_listen(
+pub fn glowcap_host_session_listen(
     raw: ?*GlowcapHostSession,
     target: ?*const shared.GlowcapReference,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -156,12 +156,12 @@ pub export fn glowcap_host_session_listen(
 /// An object returns one owned retain in out_reference and zero in out_vow.
 /// A promise returns zero in out_reference and a settlement vow in out_vow.
 /// All pointers are required. Outputs change only on success.
-pub export fn glowcap_host_session_resolve(
+pub fn glowcap_host_session_resolve(
     raw: ?*GlowcapHostSession,
     target: ?*const shared.GlowcapReference,
     out_reference: ?*shared.GlowcapReference,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -198,7 +198,7 @@ pub export fn glowcap_host_session_resolve(
 /// the family's ptr+len contract admits — is a real message, not an error: it
 /// delivers positionally, the way Goblins invokes a capability. Legal inside
 /// a callback (the send encodes when the enclosing call unwinds).
-pub export fn glowcap_host_session_send(
+pub fn glowcap_host_session_send(
     raw: ?*GlowcapHostSession,
     target: ?*const shared.GlowcapReference,
     verb: ?[*]const u8,
@@ -206,7 +206,7 @@ pub export fn glowcap_host_session_send(
     args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -225,14 +225,14 @@ pub export fn glowcap_host_session_send(
 
 /// Fire-and-forget eventual-send: `glowcap_host_session_send` with no answer and
 /// no vow. Same routing and refusals.
-pub export fn glowcap_host_session_tell(
+pub fn glowcap_host_session_tell(
     raw: ?*GlowcapHostSession,
     target: ?*const shared.GlowcapReference,
     verb: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -252,7 +252,7 @@ pub export fn glowcap_host_session_tell(
 /// minting a new vow for this call's own answer. A local vow (a NEAR send's
 /// answer) has no wire answer to pipeline against and is refused
 /// `GLOWCAP_ERR_INVALID_ARGUMENT` (NotPipelineable).
-pub export fn glowcap_host_vow_send(
+pub fn glowcap_host_vow_send(
     host: ?*GlowcapHost,
     vow: u64,
     verb: ?[*]const u8,
@@ -260,7 +260,7 @@ pub export fn glowcap_host_vow_send(
     args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
     out_vow: ?*u64,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -272,14 +272,14 @@ pub export fn glowcap_host_vow_send(
 
 /// Fire-and-forget promise-pipelined send. The target rules and argument
 /// lowering match `glowcap_host_vow_send`, but no answer or Host vow is minted.
-pub export fn glowcap_host_vow_tell(
+pub fn glowcap_host_vow_tell(
     host: ?*GlowcapHost,
     vow: u64,
     verb: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
     _ = inst.core.vowSession(vow) catch |err| return errToCode(err);
@@ -291,7 +291,7 @@ pub export fn glowcap_host_vow_tell(
 /// Release one public Host vow. The handle remains a valid promise-pipeline
 /// target after settlement until this call succeeds. A far answer publishes
 /// its `op:gc-answer`; a non-OK return consumes nothing and is retryable.
-pub export fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) i32 {
+pub fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
     inst.core.vowRelease(vow) catch |err| return errToCode(err);
@@ -302,7 +302,7 @@ pub export fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) i32 {
 /// vow for the projected element. Same local-vow and unknown-vow refusals as
 /// `glowcap_host_vow_send`; an index above INT64_MAX is refused
 /// `GLOWCAP_ERR_INVALID_ARGUMENT` (the wire index is a signed integer).
-pub export fn glowcap_host_vow_index(host: ?*GlowcapHost, vow: u64, index: u64, out_vow: ?*u64) i32 {
+pub fn glowcap_host_vow_index(host: ?*GlowcapHost, vow: u64, index: u64, out_vow: ?*u64) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -317,7 +317,7 @@ pub export fn glowcap_host_vow_index(host: ?*GlowcapHost, vow: u64, index: u64, 
 /// Pipeline an `op:untag` projection against a far host vow, minting a new
 /// vow for the unwrapped payload (a single-value Tagged unwraps to that
 /// value; a variadic one to its value list). `tag` is borrowed.
-pub export fn glowcap_host_vow_untag(host: ?*GlowcapHost, vow: u64, tag: ?[*]const u8, tag_len: usize, out_vow: ?*u64) i32 {
+pub fn glowcap_host_vow_untag(host: ?*GlowcapHost, vow: u64, tag: ?[*]const u8, tag_len: usize, out_vow: ?*u64) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -329,7 +329,7 @@ pub export fn glowcap_host_vow_untag(host: ?*GlowcapHost, vow: u64, tag: ?[*]con
 /// Pipeline an `op:get` projection against a far host vow, minting a new
 /// vow for the named Struct field. Same local-vow and unknown-vow refusals as
 /// `glowcap_host_vow_send`; `field` is borrowed.
-pub export fn glowcap_host_vow_get(host: ?*GlowcapHost, vow: u64, field: ?[*]const u8, field_len: usize, out_vow: ?*u64) i32 {
+pub fn glowcap_host_vow_get(host: ?*GlowcapHost, vow: u64, field: ?[*]const u8, field_len: usize, out_vow: ?*u64) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -343,12 +343,12 @@ pub export fn glowcap_host_vow_get(host: ?*GlowcapHost, vow: u64, field: ?[*]con
 /// Return the opaque Host capability currently published under `name`, lazily
 /// projecting its actor from the Host-owned Vat onto `session` when needed. The returned
 /// identity itself is Host-scoped and carries no export position.
-pub export fn glowcap_host_session_published_ref(
+pub fn glowcap_host_session_published_ref(
     raw: ?*GlowcapHostSession,
     name: ?[*]const u8,
     name_len: usize,
     out_ref: ?*shared.GlowcapReference,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_ref orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -362,7 +362,7 @@ pub export fn glowcap_host_session_published_ref(
     return GLOWCAP_OK;
 }
 
-pub export fn glowcap_host_session_break_far_vows(raw: ?*GlowcapHostSession, message: ?[*]const u8, message_len: usize) i32 {
+pub fn glowcap_host_session_break_far_vows(raw: ?*GlowcapHostSession, message: ?[*]const u8, message_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(instOf(session.host), "session_break_far_vows"))
@@ -372,7 +372,7 @@ pub export fn glowcap_host_session_break_far_vows(raw: ?*GlowcapHostSession, mes
     return GLOWCAP_OK;
 }
 
-pub export fn glowcap_host_session_transport_closed(raw: ?*GlowcapHostSession, message: ?[*]const u8, message_len: usize) i32 {
+pub fn glowcap_host_session_transport_closed(raw: ?*GlowcapHostSession, message: ?[*]const u8, message_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(instOf(session.host), "session_transport_closed"))
@@ -385,7 +385,7 @@ pub export fn glowcap_host_session_transport_closed(raw: ?*GlowcapHostSession, m
 /// Record the exporter locator to embed in gives whose exporter is `session`,
 /// overriding the session record. Null clears the override. The node owns a
 /// validated clone, so the borrowed C view may die when this call returns.
-pub export fn glowcap_host_session_set_exporter_location(raw: ?*GlowcapHostSession, locator: ?*const shared.GlowcapLocatorView) i32 {
+pub fn glowcap_host_session_set_exporter_location(raw: ?*GlowcapHostSession, locator: ?*const shared.GlowcapLocatorView) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const view = locator orelse {
@@ -408,7 +408,7 @@ pub export fn glowcap_host_session_set_exporter_location(raw: ?*GlowcapHostSessi
 /// process-static). Returns `GLOWCAP_OK` when a failure has been recorded, or
 /// `GLOWCAP_ERR_WOULD_BLOCK` when none has. The flat per-feed return code
 /// names the failure family; this names the member.
-pub export fn glowcap_host_session_last_abort(raw: ?*GlowcapHostSession, out: ?*shared.GlowcapLastAbort) i32 {
+pub fn glowcap_host_session_last_abort(raw: ?*GlowcapHostSession, out: ?*shared.GlowcapLastAbort) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -431,10 +431,10 @@ pub export fn glowcap_host_session_last_abort(raw: ?*GlowcapHostSession, out: ?*
 ///
 /// See `GlowcapPartnerIdentity` for what the signature covers and how long the
 /// borrowed views stay valid.
-pub export fn glowcap_host_session_partner_identity(
+pub fn glowcap_host_session_partner_identity(
     raw: ?*GlowcapHostSession,
     out: ?*c.GlowcapPartnerIdentity,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -469,11 +469,11 @@ pub export fn glowcap_host_session_partner_identity(
 /// means the designator does not spell a durable key, or names a different key
 /// from one this connection's realizer already asserted. Asserting the same key
 /// twice is the same statement made twice and succeeds.
-pub export fn glowcap_host_session_bind_verified_channel_key(
+pub fn glowcap_host_session_bind_verified_channel_key(
     raw: ?*GlowcapHostSession,
     designator: ?[*]const u8,
     designator_len: usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(instOf(session.host), "session_bind_verified_channel_key")) return GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -488,14 +488,14 @@ pub export fn glowcap_host_session_bind_verified_channel_key(
 /// bounded diagnostic into `out_msg`, with the retained length in
 /// `*out_len`. Returns `GLOWCAP_ERR_WOULD_BLOCK` when no partner abort has
 /// arrived. Any out-pointer may be null to skip that piece.
-pub export fn glowcap_host_session_partner_abort(
+pub fn glowcap_host_session_partner_abort(
     raw: ?*GlowcapHostSession,
     out_kind_name: ?*?[*]const u8,
     out_kind_name_len: ?*usize,
     out_msg: ?[*]u8,
     cap: usize,
     out_len: ?*usize,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const served = &session.served;

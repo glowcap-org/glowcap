@@ -79,6 +79,7 @@ pub fn stepServe(
     var session = try server.accept();
     defer session.deinit();
     _ = try session.publish("treasure", Treasure, .{});
+    try session.attend();
     while (!stop.load(.acquire)) {
         var fds = [_]std.posix.pollfd{
             .{ .fd = ready_fd, .events = std.posix.POLL.IN, .revents = 0 },

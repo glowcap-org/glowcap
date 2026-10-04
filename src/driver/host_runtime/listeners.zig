@@ -382,6 +382,7 @@ pub fn acceptReady(self: *HostRuntime, listener: *TransportListener) !usize {
         },
     };
     if (!acceptable) return 0;
+    if (!observation.observer.can_accept(observation.observer.ctx)) return 0;
     try self.startAcceptWire(stream.handle, listener.transport, observation.tag, observation.observer);
     return 1;
 }

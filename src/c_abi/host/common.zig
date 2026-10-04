@@ -73,6 +73,8 @@ pub const Instance = struct {
     /// diagnostic namespace to allocate from.
     diagnostic_id: u64,
     drive_owner: DriveOwner = .embedder,
+    /// Companion attachments borrow this Host until their successful release.
+    attachment_borrows: usize = 0,
     /// The C trace callback (`glowcap_host_set_trace`), bridged onto the
     /// core's sink; null when tracing is off.
     trace_cb: ?c.GlowcapTraceCallback = null,
@@ -140,7 +142,6 @@ pub fn releaseFromDriver(handle: *GlowcapHost) ?anyerror {
 pub fn projectCompletionInto(inst: *Instance, action: driver_core.HostAction, slot: *GlowcapHostAction) i32 {
     const projection = inst.core.projectCompletion(
         action,
-        inst.completion_scratch.allocator(),
         inst.completion_scratch.allocator(),
         valueToC,
     );

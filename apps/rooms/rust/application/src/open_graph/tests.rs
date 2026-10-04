@@ -73,16 +73,18 @@ fn oembed_admission_ignores_executable_html_and_bounds_shared_metadata() {
 	assert_eq!(metadata.site_name.as_deref(), Some("YouTube"));
 	assert_eq!(metadata.object_type.as_deref(), Some("video"));
 	assert_eq!(metadata.images[0].width, Some(480));
-	assert!(Metadata::from_oembed(&OEmbedObservation {
-		requested_url: "https://example.com/",
-		title: Some("Safe title"),
-		provider_name: None,
-		object_type: Some("executable"),
-		thumbnail_url: None,
-		thumbnail_width: None,
-		thumbnail_height: None,
-	})
-	.is_none());
+	assert!(
+		Metadata::from_oembed(&OEmbedObservation {
+			requested_url: "https://example.com/",
+			title: Some("Safe title"),
+			provider_name: None,
+			object_type: Some("executable"),
+			thumbnail_url: None,
+			thumbnail_width: None,
+			thumbnail_height: None,
+		})
+		.is_none()
+	);
 }
 
 #[test]

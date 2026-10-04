@@ -122,11 +122,11 @@ leave, was it someone else all along, or did we just stop being able to look.
 
 Learning something about a peer never changes its stage id. Re-minting one to
 make it read better would claim that a row ended and another began. A loose end
-is named the same way and for the same reason: its id is the session and the
-side, through `endpointStageId`, which is what the thing is rather than the
-designator it happens to be claiming. A name a partner chose is not a name this
-stage may adopt, and minting one from the claim is what used to let a
-placeholder collide with the very peer it was a claim about.
+is named the same way and for the same reason. Its id comes from the session
+and the side, through `endpointStageId`. That describes what the loose end is,
+not the designator it happens to claim. A name a partner chose is not one this
+stage may adopt; minting an id from the claim once let a placeholder collide
+with the very peer it was claiming to be.
 
 Having a stage id does not make a loose end an entity. It has no row in the
 document, no lifetime of its own, and no keyframes. It is born and dies with the

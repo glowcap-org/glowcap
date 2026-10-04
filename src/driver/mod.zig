@@ -142,8 +142,10 @@ pub const CloseGrace = driver_core.CloseGrace;
 /// The shared close barrier's observable result.
 pub const CloseOutcome = driver_core.CloseOutcome;
 pub const connect = session.connect;
+pub const connectProviders = session.connectProviders;
 pub const connectUriOwned = session.connectUriOwned;
 pub const listen = session.listen;
+pub const listenProviders = session.listenProviders;
 
 const dial_retry = @import("dial_retry.zig");
 /// CapTP-honest dial continuity (ADR-0082): DialError classification, discovery

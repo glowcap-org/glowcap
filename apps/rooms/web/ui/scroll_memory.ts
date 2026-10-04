@@ -14,12 +14,12 @@ export class ScrollMemory {
 	}
 
 	remember(key: string, position: number): void {
-		this.#limit ??= applicationModule().workspaceConversationLimit();
+		const limit = this.#limit ??= applicationModule().workspaceConversationLimit();
 		// Refresh recency on every real scroll; Map.set alone preserves the old
 		// insertion position and would evict an actively read conversation.
 		this.#positions.delete(key);
 		this.#positions.set(key, position);
-		if (this.#positions.size <= this.#limit) return;
+		if (this.#positions.size <= limit) return;
 		const oldest = this.#positions.keys().next().value;
 		if (oldest !== undefined) this.#positions.delete(oldest);
 	}

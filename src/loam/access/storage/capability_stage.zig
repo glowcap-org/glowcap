@@ -5,11 +5,16 @@ const records = @import("loam_access_records");
 const Read = @import("read.zig").Read;
 const record = @import("record.zig");
 
-pub fn descriptor(store: *loam.Store, value: records.CapabilityRecord, rooted: bool) !loam.ObjectId {
+pub fn descriptor(read: *Read, value: records.CapabilityRecord, rooted: bool) !loam.ObjectId {
+    const store = read.store;
+    if (!value.owner.eql(read.owner_object)) return error.ForeignOwner;
+    try read.prepareIdentities(1);
     if (store.phase != .staging) return error.WrongPhase;
-    errdefer store.abort() catch unreachable;
+    errdefer if (store.phase == .staging) store.abort() catch unreachable;
     const object = try store.allocateId();
-    try record.putEncoded(store, object, records.profile.capability, value, &value.edges(), null, rooted);
+    _ = try read.stageIdentity(object);
+    var edges: [3]loam.Edge = undefined;
+    try record.putEncoded(store, object, records.profile.capability, value, value.edges(&edges), null, rooted);
     return object;
 }
 
@@ -24,5 +29,5 @@ pub fn create(read: *Read, grant: core.GrantId, powers: ?core.Control.Powers, ro
     }
     const binding = (try read.binding(.{ .grant = grant })).?;
     const grant_row = (try Read.rowFor(read.store, binding) orelse return error.Gone).view;
-    return descriptor(read.store, .{ .owner = read.owner_object, .grant_object = grant_row.id, .grant = grant, .role = if (powers != null) .control else .use, .powers = powers orelse .{} }, rooted);
+    return descriptor(read, .{ .owner = read.owner_object, .grant_object = grant_row.id, .grant = grant, .role = if (powers != null) .control else .use, .powers = powers orelse .{} }, rooted);
 }

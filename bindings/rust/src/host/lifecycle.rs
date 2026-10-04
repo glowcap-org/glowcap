@@ -368,6 +368,11 @@ impl HostShared {
 		}
 		debug_assert!(self.sessions.borrow().is_empty());
 		debug_assert!(self.vows.only_settled());
+		#[cfg(feature = "loam")]
+		if let Err(error) = self.loam.close() {
+			self.fail_close(background_failure.map_or(error.clone(), |primary| primary.with_secondary(error)));
+			return;
+		}
 		let rc = unsafe { ffi::glowcap_host_release(raw) };
 		if rc != sys::OK {
 			let release = host_refusal(rc, "releasing host");

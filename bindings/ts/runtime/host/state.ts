@@ -184,8 +184,10 @@ export abstract class HostState {
 	 * v1.0/Syrup when needed, and runs only the intersection of the two offered
 	 * feature sets. Omitted profile options use the generated C ABI defaults.
 	 * `context` routes every byte the host owns through a caller-supplied
-	 * allocation scope; `localTurnBudget` is `0` for unbounded (the default) or
-	 * a nonzero cap on local-turn amplification per drive (ADR-0076). */
+	 * allocation scope; `localTurnBudget` caps local-turn amplification per
+	 * session (ADR-0076): `0` applies the Host's finite default, `0xFFFF_FFFF`
+	 * (the C ABI's `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED`) turns the cap off, and
+	 * any other value is the cap. */
 	constructor(
 		seed?: Uint8Array,
 		opts: HostOptions = {},

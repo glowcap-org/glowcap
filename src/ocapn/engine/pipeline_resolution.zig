@@ -96,13 +96,19 @@ pub const ListenerDrainAction = union(enum) {
 
 /// Decide how `entry` drains against `resolution` (ADR-0007 § Listener fire matrix).
 /// `Fulfill(Promise(_))` re-anchors the listener on the same peer's answer
-/// without notification. A far promise is shortening and concludes listeners
-/// that requested it; settled values conclude listeners that requested
-/// settling. Pure and infallible: listener entries are POD `FarRef` values, so
-/// the decision moves values and touches no heap.
+/// without notification. Settled values conclude listeners that requested
+/// settling. A far promise is the listener's own peer's promise. On next it
+/// concludes only shortening listeners, because every next settling listener
+/// is paired with a shortening one that reissues it against the target
+/// (ADR-0111). V1.0 has no such pair: Goblins listens with wants-partial #f
+/// alone, and the spec exempts only same-peer promises, so the far promise
+/// concludes every V1.0 listener and its peer follows it locally. Pure and
+/// infallible: listener entries are POD `FarRef` values, so the decision
+/// moves values and touches no heap.
 pub fn classifyListenerDrain(
     entry: session.ListenerEntry,
     resolution: model.Resolution,
+    profile: model.CaptpVersion,
 ) ListenerDrainAction {
     const fire_position = entry.listener.import_position.int();
     if (resolution == .fulfill and resolution.fulfill == .reference and
@@ -115,7 +121,10 @@ pub fn classifyListenerDrain(
         resolution.fulfill.reference == .far and
         resolution.fulfill.reference.far.kind == .promise)
     {
-        return if (entry.mode.wantsShortening()) .{ .fire = fire_position } else .discard;
+        return switch (profile) {
+            .v1_0 => .{ .fire = fire_position },
+            .next => if (entry.mode.wantsShortening()) .{ .fire = fire_position } else .discard,
+        };
     }
     return if (entry.mode.wantsSettling()) .{ .fire = fire_position } else .discard;
 }
@@ -136,8 +145,9 @@ pub const TerminalDrainAction = union(enum) {
 pub fn classifyTerminalListenerDrain(
     entry: session.ListenerEntry,
     resolution: model.Resolution,
+    profile: model.CaptpVersion,
 ) TerminalDrainAction {
-    return switch (classifyListenerDrain(entry, resolution)) {
+    return switch (classifyListenerDrain(entry, resolution, profile)) {
         .fire => |position| .{ .fire = position },
         .discard => .discard,
         .reinstall => unreachable,

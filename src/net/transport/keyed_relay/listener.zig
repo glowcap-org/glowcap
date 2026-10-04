@@ -262,6 +262,7 @@ pub fn vtable(comptime profile: ChannelProfile) netlayer.Listener.VTable {
         .sealed_channel = profile.known().metadata().sealed_channel,
         .accept = listenerAcceptOutcome,
         .wait_acceptable = listenerWaitAcceptableOutcome,
+        .readiness_fd = listenerReadinessFd,
         .local_locator = netlayer.adaptListenerLocator(listenerLocalLocator),
         .canonicalize_locator = netlayer.adaptListenerCanonicalize(listenerCanonicalizeLocator),
         .close = listenerClose,
@@ -279,6 +280,10 @@ fn listenerAcceptOutcome(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net
         return .{ .failed = failure };
     };
     return .{ .accepted = conn };
+}
+
+fn listenerReadinessFd(ctx: *anyopaque) i32 {
+    return readinessFd(@ptrCast(@alignCast(ctx)));
 }
 
 fn listenerWaitAcceptableOutcome(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptReadinessOutcome {
@@ -349,6 +354,10 @@ pub fn acceptOutcome(box: *Box, allocator: std.mem.Allocator) AcceptStreamOutcom
         .failed => |failure| return .{ .failed = failure },
     }
     var stream = box.ready orelse return .{ .failed = acceptFailure(box, error.ConnectionLost) };
+    box.wake.drain() catch |err| {
+        box.wake_failure.record(err);
+        return .{ .failed = acceptFailure(box, err) };
+    };
     box.ready = null;
     box.startRegistration() catch |err| switch (err) {
         error.Closing => {
@@ -378,12 +387,24 @@ fn waitLockedOutcome(
         if (box.stopping.load(.acquire))
             return .{ .failed = acceptFailure(box, error.ConnectionLost) };
 
+        // A cached arrival retains its readable token until accept claims it.
+        if (box.ready != null) return .{ .ready = true };
+        box.wake.drain() catch |err| {
+            box.wake_failure.record(err);
+            return .{ .failed = acceptFailure(box, err) };
+        };
         box.collectRegistration() catch |err| return .{ .failed = acceptFailure(box, err) };
 
-        if (target == .acceptable and box.ready != null) return .{ .ready = true };
+        if (box.ready != null) {
+            _ = box.wake.nudge() catch |err| {
+                box.wake_failure.record(err);
+                return .{ .failed = acceptFailure(box, err) };
+            };
+            return .{ .ready = true };
+        }
 
-        if (target == .established and (box.ready != null or
-            (box.registration_active and box.registration.established.load(.acquire))))
+        if (target == .established and
+            box.registration_active and box.registration.established.load(.acquire))
         {
             box.listener_established = true;
             return .{ .ready = true };
@@ -417,11 +438,6 @@ fn waitLockedOutcome(
         if (ready == 0 and
             timeout_ms > 0 and clock.nowMs(box.carrier.io()) - started_at >= timeout_ms)
             return .{ .ready = false };
-        box.wake_failure.check() catch |err| return .{ .failed = acceptFailure(box, err) };
-        box.wake.drain() catch |err| {
-            box.wake_failure.record(err);
-            return .{ .failed = acceptFailure(box, err) };
-        };
     }
 }
 

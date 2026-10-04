@@ -197,6 +197,10 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // in the interop drivers; the resident only supplies the netlayer and the
     // completion `Backend` (ADR-0076).
 
+    for ([_][]const u8{ "dial", "listen" }) |role| {
+        common.addSiteZigExampleCompile(b, target, optimize, b.fmt("site-{s}-iroh", .{role}), b.fmt("site/examples/{s}/iroh.zig", .{role}), &.{ .{ .name = "glowcap", .module = lib_mod }, .{ .name = "iroh", .module = iroh_resident_mod } }, ctx.site_zig_examples_check);
+    }
+
     // The same resident published for a downstream package, with the sidecar
     // attached, so `glowcap.module("glowcap_iroh")` is the `iroh` import the
     // site's Zig tabs name and a program that links it needs nothing beyond
@@ -251,6 +255,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .sidecar_archive = sidecar_archive,
     });
 
+    var managed_step: ?*std.Build.Step = null;
     const iroh_drivers = [_]struct {
         step_name: []const u8,
         description: []const u8,
@@ -260,6 +265,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         posture: execution.Posture,
         goblins: bool = false,
     }{
+        .{ .step_name = "iroh-managed", .description = "Native Zig Session and Server over real iroh: identity, fetch, call and accepted-session lifetime (needs cargo)", .exe_name = "glowcap-iroh-managed", .root_source = "test/driver/iroh_managed.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)", .exe_name = "glowcap-iroh-interop", .root_source = "interop/iroh_interop/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "glowcap-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig", .posture = .real_internet },
         .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "glowcap-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
@@ -281,6 +287,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         linkIrohSidecar(b, run_mod, target, sidecar_archive);
         const exe = b.addExecutable(.{ .name = drv.exe_name, .root_module = run_mod });
         const live_step = b.step(drv.step_name, drv.description);
+        if (std.mem.eql(u8, drv.step_name, "iroh-managed")) managed_step = live_step;
         const run = execution.addArtifact(b, drv.posture, exe);
         run.setCwd(b.path("."));
         run.has_side_effects = true;
@@ -333,7 +340,9 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         const seam_run = execution.addArtifact(b, .{ .deterministic = 30 }, seam_exe);
         seam_run.setCwd(b.path("."));
         seam_run.has_side_effects = true;
-        b.step("iroh-driver-provider", "Live ADR-0112 seam proof: the driver archive dials a real iroh endpoint through the C multiplexed-transport table (needs cargo)").dependOn(&seam_run.step);
+        const provider_step = b.step("iroh-driver-provider", "Live ADR-0112 seam proof: the driver archive dials a real iroh endpoint through the C multiplexed-transport table (needs cargo)");
+        provider_step.dependOn(&seam_run.step);
+        provider_step.dependOn(managed_step.?);
     }
 
     // Hermetic type-check of the resident: compile it to an object, where its

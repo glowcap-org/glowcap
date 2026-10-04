@@ -37,7 +37,7 @@ SOFTWARE.
 IBM Plex Sans and IBM Plex Mono, the typefaces the documentation site and the
 rooms interface are set in. The five `.woff2` files are the Latin subsets
 published by the Fontsource project from IBM's releases, taken from
-`@fontsource-variable/ibm-plex-sans@5` and `@fontsource/ibm-plex-mono@5` and
+`@fontsource-variable/ibm-plex-sans@5.3.0` and `@fontsource/ibm-plex-mono@5.3.0` and
 vendored on 27 July 2026. Both surfaces reach these files through symlinks, so
 this directory is the only copy.
 
@@ -76,7 +76,12 @@ copy of Apache-2.0 is `LICENSE-APACHE`.
 
 ## `third_party/libvaxis/`
 
-The CapTP lab REPL vendors libvaxis under `third_party/libvaxis`.
+The CapTP lab REPL vendors libvaxis under `third_party/libvaxis` at
+`173a890d1394946b5d7623c66cd34bcd36d8eeb8`. Its nested zigimg revision is
+`fcdd0d28d6393c747b2091874ed180856ab0ab73`; uucode is
+`9d55524551411b493cca41ca06363625d90aff1e`. Local adaptations target the
+pinned Zig compiler: reflection and integer types, futex arguments, array initialization, and
+build-run arguments.
 License: MIT. The full notice is in `third_party/libvaxis/LICENSE`.
 Its vendored `zigimg` dependency lives under
 `third_party/libvaxis/third_party/zigimg`; its MIT notice is in that
@@ -111,8 +116,8 @@ generator. Both packages are MIT licensed; their full notices are in
 
 ## `third_party/lmdb/`
 
-Loam's optional native backend vendors LMDB 0.9.36 from the OpenLDAP project,
-commit `028f61b6832032174f893484719ed4848d8d60db`.
+Loam's optional native backend vendors LMDB 1.0.2 from the OpenLDAP project,
+commit `c279e0477c713076893e8c2b1a6337e421c15867`.
 The OpenLDAP Public License and copyright notice are included in
 `third_party/lmdb/LICENSE` and `third_party/lmdb/COPYRIGHT`.
 The library sources are unmodified; glowcap's adapter lives under `src/loam/`.

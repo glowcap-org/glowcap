@@ -7,7 +7,7 @@ decision: "`driver.connect` and `driver.listen` keep their signatures but return
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0110, ADR-0112, ADR-0113, ADR-0116]
+amended_by: [ADR-0110, ADR-0112, ADR-0113, ADR-0116, ADR-0184]
 ---
 
 # ADR-0090 The owning host face

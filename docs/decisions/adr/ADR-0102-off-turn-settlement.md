@@ -7,7 +7,7 @@ decision: "A behavior defers its answer onto a resolver vow: a Vat promise minte
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0113]
+amended_by: [ADR-0113, ADR-0182]
 ---
 
 # ADR-0102 Off-turn settlement

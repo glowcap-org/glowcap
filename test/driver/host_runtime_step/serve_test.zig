@@ -26,6 +26,44 @@ const RecordingSink = harness.RecordingSink;
 const DialRecorder = harness.DialRecorder;
 const opts = harness.opts;
 
+test "attendance failure settles registered reply listeners before the wait frame unwinds" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var tcp_resident = tcp.Resident{ .io = io };
+    const server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, harness.steppedQuiet());
+    defer server.deinit();
+    var address_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
+    var stop = std.atomic.Value(bool).init(false);
+    var client = try io.concurrent(connectAndHold, .{ allocator, io, tcp_resident.netlayer(), address, &stop });
+    defer {
+        stop.store(true, .release);
+        client.await(io) catch {};
+    }
+    const accepted = try server.accept();
+    defer accepted.deinit();
+    const promise = try accepted.beginFetch("pending");
+    defer promise.release() catch {};
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // Refuse re-enrollment without closing either live descriptor. The
+    // pending reply already has a stack listener by the time attendance
+    // attempts to update this readiness set.
+    const ready_set = &accepted.runtime.drive.stepped.ready_set;
+    const live_fd = ready_set.fd;
+    ready_set.fd = -1;
+    {
+        defer ready_set.fd = live_fd;
+        try std.testing.expectError(error.ReadinessUpdateFailed, promise.settle(arena.allocator()));
+    }
+    // Settlement retires the vow row and its listener. A failed attendance
+    // must leave no listener pointing into the now-returned wait frame.
+    try std.testing.expectError(error.NoSuchVow, accepted.runtime.core.vowSession(promise.id));
+}
+
 test "native operation failures classify at the I/O-owning driver" {
     const Failure = driver.OperationFailure;
     try std.testing.expectEqual(Failure.Kind.internal, Failure.classify(error.OutOfMemory));
@@ -234,6 +272,7 @@ test "a close observer may drop its owning Session without freeing the pump's bo
 
     owned = try server.accept();
     errdefer if (owned) |session| session.deinit();
+    try owned.?.attend();
 
     stop.store(true, .release);
     try client.await(io);
@@ -332,6 +371,7 @@ test "a refusing open observer settles failure and releases the unexposed sessio
     _ = try runtime.stepAny(0);
     const accepted = try server.accept();
     defer accepted.deinit();
+    try accepted.attend();
     var rounds: usize = 0;
     while (recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
         _ = try runtime.stepAny(10);
@@ -381,6 +421,6 @@ test "blocking opens share the staged-open admission bound" {
     try std.testing.expectError(driver.Error.PendingOpenLimitReached, runtime.connectLocator(locator, .inherit));
     try std.testing.expectError(
         driver.Error.PendingOpenLimitReached,
-        runtime.acceptWire(server.listener, server.listener.transportName()),
+        runtime.acceptWire(server.runtime.active_listeners.get(server.listener_tag).?.transport.source.stream.handle, "tcp"),
     );
 }

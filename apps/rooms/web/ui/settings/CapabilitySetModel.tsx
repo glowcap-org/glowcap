@@ -34,11 +34,14 @@ interface CapabilitySetModel {
 	readonly errors: readonly string[];
 	readonly notice: string;
 	readonly retryPending: boolean;
+	/** The capability whose swiss number is being entered, held here so the
+	 * value card survives a tab change; `CapabilityValueEditor` draws it. */
 	readonly editing: OpsCap | null;
-	readonly modalLayer: boolean;
 	setDraft(draft: OpsBundleDraft): void;
 	setError(error: string): void;
 	edit(capability: OpsCap): void;
+	stopEditing(): void;
+	saveValue(capability: OpsCap, swiss: string): void;
 	setMode(mode: "controls" | "text"): void;
 	setText(text: string): void;
 	discard(): void;
@@ -65,7 +68,6 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 	const [editing, setEditing] = useState<OpsCap | null>(null);
 	const [mode, setMode] = useState<"controls" | "text">("controls");
 	const [text, setText] = useState("");
-	const [modalLayer, setModalLayer] = useState(false);
 	const latest = useRef({ draft, savedBundle });
 	const loadGeneration = useRef(0);
 	const committing = useRef(false);
@@ -163,7 +165,6 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 		notice,
 		retryPending,
 		editing,
-		modalLayer,
 		setDraft: (next) => {
 			setDraftState(next);
 			setErrors([]);
@@ -177,6 +178,15 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 			setErrors([]);
 			setNotice("");
 			setEditing(capability);
+		},
+		stopEditing: () => setEditing(null),
+		saveValue: (capability, swiss) => {
+			const next = new Map(draft);
+			next.set(capability, swiss);
+			setDraftState(next);
+			setEditing(null);
+			setErrors([]);
+			setNotice("");
 		},
 		commit: async (wanted) => {
 			if (commitWork.current != null) return await commitWork.current;
@@ -217,31 +227,31 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 	return (
 		<CapabilitySetContext.Provider value={model}>
 			{children}
-			<CapabilityValueModal
-				capability={editing}
-				draft={draft}
-				onClose={() => setEditing(null)}
-				onSave={(capability, swiss) => {
-					const next = new Map(draft);
-					next.set(capability, swiss);
-					setDraftState(next);
-					setEditing(null);
-					setErrors([]);
-					setNotice("");
-				}}
-				onLayer={setModalLayer}
-			/>
 		</CapabilitySetContext.Provider>
 	);
 }
 
+/** The card for one capability's swiss number. Drawn inside Settings, beside
+ * the form that opens it, so it stacks over Settings the way the other
+ * settings cards do instead of standing in its place. */
+export function CapabilityValueEditor() {
+	const model = useCapabilitySetModel();
+	return (
+		<CapabilityValueModal
+			capability={model.editing}
+			draft={model.draft}
+			onClose={model.stopEditing}
+			onSave={model.saveValue}
+		/>
+	);
+}
+
 function CapabilityValueModal(
-	{ capability, draft, onClose, onSave, onLayer }: {
+	{ capability, draft, onClose, onSave }: {
 		capability: OpsCap | null;
 		draft: OpsBundleDraft;
 		onClose(): void;
 		onSave(capability: OpsCap, swiss: string): void;
-		onLayer(held: boolean): void;
 	},
 ) {
 	const commitments = useCommitments();
@@ -252,10 +262,6 @@ function CapabilityValueModal(
 	const dialog = useRef<HTMLDialogElement>(null);
 	const field = useRef<HTMLInputElement>(null);
 	const { held, onExited } = useHeldModal(open);
-	useLayoutEffect(() => {
-		onLayer(held);
-		return () => onLayer(false);
-	}, [held, onLayer]);
 	useLayoutEffect(() => {
 		if (capability == null) return;
 		setShowing(capability);

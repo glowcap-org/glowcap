@@ -13,6 +13,8 @@ const Separate = struct {
 /// Optional module graphs are compile roots owned by their build-family module.
 /// Naming that owner keeps this audit valid as `build.zig` is split by subject.
 const separately_registered = [_]Separate{
+    .{ .test_path = "c_abi/loam_execution_test.zig", .owner_path = "tools/build/loam_abi.zig" },
+    .{ .test_path = "c_abi/loam_test.zig", .owner_path = "tools/build/loam_abi.zig" },
     .{ .test_path = "loam_lmdb_test.zig", .owner_path = "tools/build/loam.zig" },
     .{ .test_path = "net/completion_loop_deadlines_test.zig", .owner_path = "tools/build/gates.zig" },
     .{ .test_path = "onion_loop_test.zig", .owner_path = "tools/build/gates.zig" },

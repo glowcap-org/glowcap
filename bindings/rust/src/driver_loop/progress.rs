@@ -56,6 +56,12 @@ impl LoopShared {
 		// parked driver's own quiescent re-step from waking itself in an
 		// endless exchange.
 		if stepped {
+			#[cfg(feature = "loam")]
+			if let Some(host) = self.wrapper.borrow().as_ref().and_then(Weak::upgrade)
+				&& host.loam.pending()?
+			{
+				host.schedule_kick_or_record();
+			}
 			self.note_step_activity();
 		}
 		Ok(())

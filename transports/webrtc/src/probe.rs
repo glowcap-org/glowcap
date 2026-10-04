@@ -7,7 +7,7 @@
 //!
 //! * the `webrtc` crate builds and drives a peer connection here;
 //! * ICE gathers usable candidates on loopback inside a headless container
-//!   (host candidates, no STUN — `set_include_loopback_candidate(true)`);
+//!   (host candidates, no STUN — `with_include_loopback_candidate(true)`);
 //! * DTLS brings the encrypted channel up between Chromium and this crate;
 //! * bytes round-trip both directions over the open channel.
 //!
@@ -36,7 +36,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 use webrtc::peer_connection::{
 	MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
-	RTCIceCandidateInit, RTCPeerConnectionIceEvent, RTCSessionDescription, Registry, SettingEngine,
+	RTCIceCandidateInit, RTCPeerConnectionIceEvent, RTCSessionDescription, Registry, SettingEngineBuilder,
 	register_default_interceptors,
 };
 use webrtc::runtime::TokioRuntime;
@@ -96,12 +96,13 @@ impl PeerConnectionEventHandler for ProbeHandler {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	// Loopback host candidates are the whole ICE path here: no STUN, no TURN, no
-	// discovery. `set_include_loopback_candidate(true)` is what makes the webrtc
+	// discovery. `with_include_loopback_candidate(true)` is what makes the webrtc
 	// crate offer 127.0.0.1 as a candidate; the browser offers its own host
 	// candidates (the harness disables Chromium's mDNS obfuscation so they are
 	// raw IPs), and the two connect directly on the same host.
-	let mut setting_engine = SettingEngine::default();
-	setting_engine.set_include_loopback_candidate(true);
+	let setting_engine = SettingEngineBuilder::new()
+		.with_include_loopback_candidate(true)
+		.build();
 
 	// Fires once the round-trip completes (browser message received and reply
 	// sent), so main can emit its verdict and exit after a grace window.

@@ -130,16 +130,17 @@ pub(crate) async fn pump_channel(dc: Arc<dyn DataChannel>, shared: Arc<PeerShare
 				cvar.notify_all();
 				shared.endpoint.signal(shared.id, EV_READABLE);
 			}
-			DataChannelEvent::OnBufferedAmountLow => {}
+			DataChannelEvent::OnBufferedAmountLow | DataChannelEvent::OnBufferedAmountHigh => {}
 			DataChannelEvent::OnClose | DataChannelEvent::OnClosing => {
 				publish_peer_closed(&shared);
 				return;
 			}
-			DataChannelEvent::OnError => {
+			// OnError and events without a defined sidecar contract fail this peer
+			// and settle its waiters instead of silently losing a lifecycle event.
+			_ => {
 				publish_peer_failed(&shared);
 				return;
 			}
-			DataChannelEvent::OnBufferedAmountHigh => {}
 		}
 	}
 	publish_peer_closed(&shared);

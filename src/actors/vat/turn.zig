@@ -317,6 +317,9 @@ fn prepareTurnBoundary(self: *Vat) Error!TurnBoundary {
 }
 
 fn beginTurn(self: *Vat, boundary: *TurnBoundary) std.mem.Allocator {
+    // Destructors are application code too. Establish the execution boundary
+    // before reclaiming retired state, so adapters cannot re-drive this Vat.
+    self.turn_depth += 1;
     if (boundary.outermost) {
         // Every allocation the boundary needs succeeded in prepareTurnBoundary,
         // so the lifetime transition below is one infallible commit.
@@ -332,7 +335,6 @@ fn beginTurn(self: *Vat, boundary: *TurnBoundary) std.mem.Allocator {
         // resets. A borrowed reply from the last turn is now invalid too.
         drainMovedReplies(self);
     }
-    self.turn_depth += 1;
     return self.turn_arena.allocator();
 }
 
@@ -362,8 +364,10 @@ pub fn openTurnFrame(self: *Vat, id: u64) Error!TurnFrame {
     errdefer boundary.deinit(self.allocator);
     try boxed.ensureUnshared(self, cell);
     const box = cell.box;
-    const arena = beginTurn(self, &boundary);
     cell.running += 1;
+    // beginTurn runs destructors, which can spawn or release actors. Commit
+    // the running hold before that effect and never reuse the borrowed cell.
+    const arena = beginTurn(self, &boundary);
     return .{ .box = box, .arena = arena, .id = id };
 }
 

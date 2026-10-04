@@ -174,7 +174,8 @@ pub const Graph = struct {
         const parent_index = if (parent) |p| try self.indexOf(p) else null;
         if (self.slots[index].node.?.parent == parent_index) return;
         const next_revision = try self.nextRevision(base);
-        if (parent) |p| if (try self.isDescendant(p, id)) return error.ContainmentCycle;
+        var resources = self.readView();
+        _ = try resources.checkReparent(id, parent, 0);
         const depth = try self.childDepth(parent_index);
         const delta = @as(i64, depth) - @as(i64, self.slots[index].node.?.depth);
         var cursor: ?u32 = index;

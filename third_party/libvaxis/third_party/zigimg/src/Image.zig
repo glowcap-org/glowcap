@@ -9,7 +9,7 @@ const utils = @import("utils.zig");
 
 width: usize = 0,
 height: usize = 0,
-pixels: color.PixelStorage = .{ .invalid = void{} },
+pixels: color.PixelStorage = .{ .invalid = {} },
 animation: Animation = .{},
 
 const Image = @This();
@@ -219,6 +219,34 @@ pub fn create(allocator: std.mem.Allocator, width: usize, height: usize, pixel_f
         .height = height,
         .pixels = try color.PixelStorage.init(allocator, pixel_format, width * height),
     };
+
+    return result;
+}
+
+/// Return a duplicate copy of the current image
+pub fn dupe(self: Image, allocator: std.mem.Allocator) !Image {
+    var result: Image = .{
+        .width = self.width,
+        .height = self.height,
+        .pixels = try color.PixelStorage.init(allocator, std.meta.activeTag(self.pixels), self.width * self.height),
+    };
+
+    @memcpy(result.pixels.asBytes(), self.pixels.asConstBytes());
+
+    result.animation.frames = try .initCapacity(allocator, self.animation.frames.items.len);
+    result.animation.loop_count = self.animation.loop_count;
+
+    for (self.animation.frames.items, 0..) |self_frame, index| {
+        var dupe_frame = self_frame;
+        if (index == 0) {
+            dupe_frame.pixels = result.pixels;
+        } else {
+            dupe_frame.pixels = try color.PixelStorage.init(allocator, std.meta.activeTag(self_frame.pixels), result.pixels.len());
+            @memcpy(dupe_frame.pixels.asBytes(), self_frame.pixels.asConstBytes());
+        }
+
+        try result.animation.frames.append(allocator, dupe_frame);
+    }
 
     return result;
 }

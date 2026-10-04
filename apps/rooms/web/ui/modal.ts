@@ -8,8 +8,8 @@
 // the layer. A form focuses its first field or tab. A layer that is only
 // something to read or dismiss focuses Close.
 //
-// Closing used to drop `[open]` in the same frame as the press, which is why
-// the sheets could only animate in. The element stays mounted until the exit
+// Dropping `[open]` in the same frame as the press would let a sheet animate
+// in but never out. So the element stays mounted until the exit
 // transition finishes (`useHeldModal`), and `close()` plus `allow-discrete`
 // display/overlay is what the CSS reverse rides. `retain` keeps Settings in
 // the tree while Help has the top layer, so the opener that opened Settings

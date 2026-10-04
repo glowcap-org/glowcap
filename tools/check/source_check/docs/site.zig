@@ -1,6 +1,7 @@
 //! The site's own contracts: content links and heading fragments, the
 //! generated transport tabs, nav parity, ASCII-only SVG, the reduced-motion
-//! guard, diagram theme tokens, and per-page metadata.
+//! guard, diagram theme tokens, label colors a diagram's stylesheet would
+//! override, and per-page metadata.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -482,6 +483,88 @@ pub fn checkSiteDiagramTokens(
             try appendViolation(gpa, violations, "site/assets/{s}: names `{s}`, which site/assets/style.css never declares, so the dark theme paints that part in the light literal", .{ entry.name, name });
         }
     }
+}
+
+/// A diagram's own stylesheet beats its presentation attributes: once a `text`
+/// rule sets `fill`, a `fill="..."` written on one `<text>` element is ignored,
+/// and the label renders in the rule's ink. Nothing errors, and the drawing
+/// only looks slightly wrong, which is how three diagrams lost their colored
+/// titles unnoticed. Such a diagram colors a label through a class instead.
+pub fn checkSiteDiagramTextFill(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, "site/assets", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "site/assets: failed to open for diagram text-fill check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.startsWith(u8, entry.name, "diagram-") or !std.mem.endsWith(u8, entry.name, ".svg")) continue;
+
+        const svg = dir.readFileAlloc(io, entry.name, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "site/assets/{s}: failed to read for diagram text-fill check with {s}", .{ entry.name, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(svg);
+
+        if (!textRuleSetsFill(svg)) continue;
+        if (firstTextFillAttribute(svg)) |line_no| {
+            try appendViolation(gpa, violations, "site/assets/{s}:{d}: `fill=` on a <text> element is overridden by the diagram's `text {{ fill }}` rule; color the label with a class", .{ entry.name, line_no });
+        }
+    }
+}
+
+fn textRuleSetsFill(svg: []const u8) bool {
+    var search: usize = 0;
+    while (std.mem.indexOfPos(u8, svg, search, "text")) |at| {
+        search = at + "text".len;
+        // A type selector: preceded by whitespace or `{`/`}`, followed by `{`.
+        if (at > 0 and !std.ascii.isWhitespace(svg[at - 1]) and svg[at - 1] != '}') continue;
+        const rest = std.mem.trimStart(u8, svg[search..], " \t");
+        if (rest.len == 0 or rest[0] != '{') continue;
+        const close = std.mem.indexOfScalar(u8, rest, '}') orelse return false;
+        if (std.mem.indexOf(u8, rest[0..close], "fill:") != null) return true;
+    }
+    return false;
+}
+
+fn firstTextFillAttribute(svg: []const u8) ?usize {
+    var search: usize = 0;
+    while (std.mem.indexOfPos(u8, svg, search, "<text")) |at| {
+        const end = std.mem.indexOfScalarPos(u8, svg, at, '>') orelse return null;
+        search = end;
+        if (std.mem.indexOf(u8, svg[at..end], " fill=\"") != null) {
+            return std.mem.count(u8, svg[0..at], "\n") + 1;
+        }
+    }
+    return null;
+}
+
+test "a text rule's fill shadows a text element's fill attribute" {
+    const shadowed =
+        \\<style>
+        \\  text { font-size: 12px; fill: var(--ink); }
+        \\</style>
+        \\<text x="1" fill="red">a</text>
+    ;
+    try std.testing.expect(textRuleSetsFill(shadowed));
+    try std.testing.expectEqual(@as(?usize, 4), firstTextFillAttribute(shadowed));
+
+    const classed =
+        \\<style>
+        \\  .context { fill: red; }
+        \\  text { font-size: 12px; }
+        \\</style>
+        \\<text x="1" class="warm">a</text>
+    ;
+    try std.testing.expect(!textRuleSetsFill(classed));
+    try std.testing.expectEqual(@as(?usize, null), firstTextFillAttribute(classed));
 }
 
 fn frontmatterField(body: []const u8, needle: []const u8) ?[]const u8 {

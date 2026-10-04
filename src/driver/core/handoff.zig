@@ -26,7 +26,6 @@ const sessions_mod = @import("sessions.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
-const resolvePublishedTarget = @import("publish.zig").resolvePublishedTarget;
 
 fn captureGiftTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, export_position: model.ExportPosition) ?u64 {
     const host: *Host = @ptrCast(@alignCast(ctx.?));
@@ -85,7 +84,7 @@ fn resolveGifterSession(ctx: ?*anyopaque, gifter_side: [32]u8, session_name: []c
 pub fn wireNodeServices(self: *Host) void {
     self.node.setLocalObjectProjection(.{
         .ctx = self,
-        .resolve_name = resolvePublishedTarget,
+        .resolve_fetch = @import("publication_lookup.zig").resolveFetch,
         .capture = captureGiftTarget,
         .project = projectGiftTarget,
         .rollback = rollbackGiftTarget,

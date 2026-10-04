@@ -194,8 +194,8 @@ const Projection = struct {
     seen_target: ?u64 = null,
     fail: bool = false,
 
-    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: []const u8) !?model.ExportPosition {
-        return null;
+    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, request: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
+        return if (request.session_fallback) |position| .{ .found = position } else .missing;
     }
 
     fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {
@@ -259,7 +259,7 @@ test "a withdraw projects the exact deposited local target on the receiving Port
     var projection = Projection{ .position = projected_here };
     const local_projection: engine.bootstrap.gifts.LocalObjectProjection = .{
         .ctx = &projection,
-        .resolve_name = Projection.resolveName,
+        .resolve_fetch = Projection.resolveName,
         .capture = Projection.capture,
         .project = Projection.project,
         .rollback = Projection.rollback,
@@ -354,8 +354,8 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
         position: model.ExportPosition,
         rollbacks: usize = 0,
 
-        fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: []const u8) !?model.ExportPosition {
-            return null;
+        fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, request: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
+            return if (request.session_fallback) |position| .{ .found = position } else .missing;
         }
         fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {
             return null;
@@ -383,7 +383,7 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
         var projection = TrackingProjection{ .position = projected };
         const seam: engine.bootstrap.gifts.LocalObjectProjection = .{
             .ctx = &projection,
-            .resolve_name = TrackingProjection.resolveName,
+            .resolve_fetch = TrackingProjection.resolveName,
             .capture = TrackingProjection.capture,
             .project = TrackingProjection.project,
             .rollback = TrackingProjection.rollback,

@@ -71,7 +71,9 @@ pub fn writeBarrier(progress: *Progress, kv: anytype, view: records.View) !void 
 pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.Limits, schemas: []const records.Schema) !void {
     if (request.work_limit == 0 or request.scratch.len < limits.max_record_bytes) return error.InvalidLimits;
     const progress = &metadata.collection;
-    if (progress.phase == .idle) progress.* = .{ .phase = .clearing };
+    // Idle is committed only after finishing removed every temporary row.
+    // Reopening an interrupted cycle selects clearing through Metadata.claim.
+    if (progress.phase == .idle) progress.* = .{ .phase = .roots };
     var seeded = false;
     for (0..request.work_limit) |_| {
         if (progress.tracing() and !seeded) {
@@ -89,6 +91,10 @@ pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.L
                     try kv.remove(row.key);
                 } else if (progress.phase == .clearing) {
                     progress.phase = .roots;
+                    // A clearing request submits no custody obligations: its
+                    // mutations erase old marks. Retire this batch before the
+                    // Store submits pending custody and tracing can reach sweep.
+                    break;
                 } else progress.phase = .idle;
             },
             .roots => {

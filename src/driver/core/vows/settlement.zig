@@ -49,6 +49,9 @@ pub const VowRow = struct {
     /// session to mark dirty and lets teardown cancel the deferred answer
     /// before freeing its Port.
     forwarded_peer: ?engine.PeerHandle = null,
+    /// A deferred local eventual answer borrows projections only while its
+    /// listeners run. It publishes no capability occurrence to the peer.
+    forwarded_local: bool = false,
 
     /// Settlement projection applied before dispatch. A fetch enrolls its
     /// fulfilled far capability under a node-unique route.
@@ -176,7 +179,7 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
     completion.queueVowCompletion(self, peer_handle, id, routed);
 }
 
-fn settleObservedAnswer(self: *Host, row: *VowRow, session: *HostSession) void {
+pub fn settleObservedAnswer(self: *Host, row: *VowRow, session: *HostSession) void {
     switch (row.answer_release) {
         .none => {},
         .session_private => retireAnswerInSession(row, session),

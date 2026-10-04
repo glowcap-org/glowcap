@@ -71,16 +71,20 @@ External evidence is separate:
 - `zig build goblins-handoff`, `goblins-gift`, and `goblins-exporter` exercise
   glowcap in each three-party handoff role against Goblins.
 
-External evidence does not resolve its direct inputs from moving package
-catalogs. OCapN conformance dependencies and Python WebSocket proofs use
-committed `uv` locks. Direct Racket packages are installed at the checksums in
-`.devcontainer/pins.sh`; the pinned crypto-lib compatibility change is a
-committed patch whose source and output hashes are checked during image build.
-Racket's `--auto` still resolves transitive packages through its catalogs; the
-direct source pins prevent those roots from moving but do not make that graph a
-lockfile.
-GitHub workflow actions use immutable commit SHAs, with the corresponding
-major tag left only as a review aid; upgrades change both together.
+The external checks pin their direct inputs rather than pulling whatever a
+package catalog serves today:
+
+- OCapN conformance dependencies and the Python WebSocket proofs use committed
+  `uv` locks.
+- Direct Racket packages are installed at the checksums in
+  `.devcontainer/pins.sh`. The crypto-lib compatibility change is a committed
+  patch, and its source and output hashes are checked when the image is built.
+  Racket's `--auto` still resolves transitive packages through its catalogs.
+  The direct pins keep those roots fixed, but the transitive graph is not
+  locked.
+- GitHub workflow actions are pinned to immutable commit SHAs. The matching
+  major tag is kept beside each one only to help review, and an upgrade
+  changes both together.
 
 [Community review](docs/community-review.md) distinguishes in-tree evidence
 from outside evidence. [Known boundaries](docs/boundaries.md) records what the

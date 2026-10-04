@@ -25,6 +25,7 @@
 //! * No panic crosses the FFI boundary: every entry point runs under
 //!   `catch_unwind` and maps a panic to the function's error return.
 
+mod admission;
 mod conn;
 mod connect;
 mod constants_gen;
@@ -35,7 +36,7 @@ mod nonblocking;
 use connect::*;
 use nonblocking::*;
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::fd::AsRawFd;
 use std::panic::{AssertUnwindSafe, catch_unwind};

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
 import { checkRtcPeers } from "./check_rtc_peers.mjs";
+import { snippet } from "./assets.mjs";
 
 const repository = new URL("../../../../../", import.meta.url);
 const local = (path) => fileURLToPath(new URL(path, repository));
@@ -44,7 +45,7 @@ async function readyBase(stdout) {
 // Exercise the executable users start: it supervises the native directory and
 // relays this Wasm client's WebSocket bytes. Deno drives the proof but carries
 // no application traffic.
-export async function checkChannels(page, { script, wasm }, transport = "tcp") {
+export async function checkChannels(page, { script, wasm, root }, transport = "tcp") {
 	const environment = Object.fromEntries(
 		Object.entries(Deno.env.toObject()).filter(([key]) =>
 			!key.startsWith("GLOWCAP_ROOMS_") && !key.startsWith("GLOWCAP_RELAY_") && key !== "LD_LIBRARY_PATH" &&
@@ -109,6 +110,10 @@ export async function checkChannels(page, { script, wasm }, transport = "tcp") {
 			`${base}/rooms_contract_proofs_bg.wasm`,
 			(route) => route.fulfill({ contentType: "application/wasm", body: wasm }),
 		);
+		await page.route(`${base}/snippets/**`, async (route) => {
+			const path = new URL(route.request().url()).pathname;
+			await route.fulfill({ contentType: "text/javascript", body: await snippet(root, path) });
+		});
 		await page.goto(`${base}/locator`);
 		await evaluate(page, runtimeContract, { location });
 		if (transport !== "tcp") return;

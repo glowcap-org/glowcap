@@ -31,9 +31,7 @@ pub trait Facts {
 }
 impl Facts for () {}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Command {
+crate::session::command::catalog! { Command {
 	SetDraft,
 	Select,
 	AcceptInvitation,
@@ -63,7 +61,7 @@ pub enum Command {
 	ChooseHistoryRetention,
 	ChooseConnection,
 	SelectArchive,
-}
+} }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
 	Arguments,

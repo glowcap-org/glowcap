@@ -72,6 +72,23 @@ pub fn init(
     return result;
 }
 
+/// Construct the same runtime over borrowed stream or multiplexed providers.
+/// Provider contexts remain stable until every runtime lease is retired.
+pub fn initProviders(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    providers: []const HostRuntime.ProviderRegistration,
+    identity: driver_core.Identity,
+    opts: HostRuntime.Options,
+) !HostRuntime {
+    var result = try init(allocator, io, &.{}, identity, opts);
+    errdefer result.deinit();
+    const indices = try allocator.alloc(?usize, providers.len);
+    defer allocator.free(indices);
+    try result.addProviders(providers, indices);
+    return result;
+}
+
 pub fn initWithCore(
     allocator: std.mem.Allocator,
     io: std.Io,

@@ -3,10 +3,10 @@
 //
 // Joining is an async action, so React owns the pending state: the button reads
 // "Joining…" for exactly as long as the join is outstanding, including the part
-// where the peer session is still opening. That window used to be its own
-// bookkeeping — a staged request, a button label written by hand, and a reset
-// called from every path that might end the wait — because there was nothing
-// holding "this is in flight" except the label itself.
+// where the peer session is still opening. Without that, the window needs its own
+// bookkeeping (a staged request, a hand-written label, and a reset on every
+// path that might end the wait), with nothing but the label holding "this is
+// in flight".
 
 import { memo, useActionState, useRef } from "react";
 import { avatarLabel } from "../../../lib/text/controls.ts";

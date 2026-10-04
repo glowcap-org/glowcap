@@ -17,8 +17,8 @@ const DrivenGiftSeams = struct {
 
     const target: u64 = 1;
 
-    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: []const u8) !?model.ExportPosition {
-        return null;
+    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, request: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
+        return if (request.session_fallback) |position| .{ .found = position } else .missing;
     }
 
     fn capture(ctx: ?*anyopaque, scope: engine.PeerHandle, position: model.ExportPosition) ?u64 {
@@ -91,7 +91,7 @@ pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
     };
     exporter_node.setLocalObjectProjection(.{
         .ctx = &seams,
-        .resolve_name = DrivenGiftSeams.resolveName,
+        .resolve_fetch = DrivenGiftSeams.resolveName,
         .capture = DrivenGiftSeams.capture,
         .project = DrivenGiftSeams.project,
         .rollback = DrivenGiftSeams.rollback,

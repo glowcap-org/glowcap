@@ -1,9 +1,10 @@
 // Where a rooms test finds the repository and the installed native executables.
 //
 // The build names every executable through one shape, `GLOWCAP_ROOMS_<NAME>_BIN`,
-// set for each Deno batch and each proof by `tools/build/rooms/tests.zig`. A
-// proof run by hand gets the same executables from the install prefix, so the
-// fallback is the path `zig build` installs to and nothing else.
+// set for each Deno batch by `tools/build/rooms/tests.zig` and for each browser
+// proof by `tools/build/rooms.zig`. A proof run
+// by hand gets the same executables from the install prefix, so the fallback
+// is `zig-out/libexec`, where `zig build` installs these private runtimes.
 
 /** The repository root, with a trailing slash. */
 export const ROOT = new URL("../../../../", import.meta.url).pathname;
@@ -12,7 +13,7 @@ export const ROOT = new URL("../../../../", import.meta.url).pathname;
 export const LIB_DIR = `${ROOT}zig-out/lib`;
 
 function installed(name: string, variable: string): string {
-	return Deno.env.get(variable) || `${ROOT}zig-out/bin/${name}`;
+	return Deno.env.get(variable) || `${ROOT}zig-out/libexec/${name}`;
 }
 
 /** The room server: the directory members register with and the rooms they enter. */

@@ -106,6 +106,107 @@ owner and mediated facets. Editing policy changes what those held facets will
 do on later calls. It neither rewrites references already handed out nor adds
 a universal property bag or pause operation to every OCapN capability.
 
+## Preset definitions and public defaults
+
+The [operation contract](authority.md#policy-declarations) owns permission
+meanings. The table below owns the first preset expansions. Every named group
+replaces exactly its listed fields; all other fields remain unchanged. An
+omitted Boolean inside that group becomes false. Groups have disjoint fields,
+including when several groups appear in the same visual section.
+
+| Applicable resource and group | Replaced fields | Presets and true fields |
+| --- | --- | --- |
+| Directory Participation | Browse, Presence, Introduce, Signal | Visitor: Browse. Member: all four. |
+| Directory Construction | CreateRoom, PublishListing | None: neither. Creator: CreateRoom. Publisher: PublishListing. Builder: both. |
+| Room/conversation Participation | Receive, Post, EditOwn, WithdrawOwn | Observer: Receive. Participant: all four. Speaker: Receive and Post. |
+| Content Reading | ReadContent, ListEntries | Item reader: ReadContent. Collection reader: both. Unavailable interface fields are omitted from that interface's descriptor. |
+| Files | ReadFile, Upload | None: neither. Reader: ReadFile. Contributor: both, subject to Post and storage support. |
+| Room Facilities | SetTopic, Invite | None: neither. Host: both. Each remains individually editable. |
+| Moderation | Moderate | None: false. Moderator: true. |
+| Collection Structure | CreateChild, Rename, Reorganize, ArchiveConversation | None: all false. Organizer: all four. Reorganize still needs audience-change control when coverage changes. |
+| Exact content editing | EditContent, WithdrawContent | None: neither. Editor: EditContent. Curator: both. These require explicitly issued source authority, not authorship inferred from a nickname. |
+| Session Participation | ObserveWorkspace, InteractWorkspace | Observer: ObserveWorkspace. Collaborator: both. |
+| Session Custody | ReplaceWorkspace, ManageCustody, ResolvePending, UseOperations | None: all false. Administrator: all four, with actual target authorities still required. |
+| Archive Storage | ReadArchive, RecordArchive | Reader: ReadArchive. Recorder: RecordArchive. Custodian: both. |
+| Public Resource Settings | ManagePublicOffer, ManagePublication | None: neither. Publisher: ManagePublication. Manager: both. |
+| Held access control | Inspect, Issue, Edit, Pause, Resume, Revoke, DelegateControl | Inspector: Inspect. Grant manager: all except DelegateControl. Administrator: all seven. Scope and Issue/Edit ceiling remain explicit separate fields. |
+
+History, history floor, scope, source dependency, lifetime, label, management
+ceiling, delegation/concurrency quotas and status remain independent controls.
+
+The [session declarations](../../../apps/rooms/rust/application/src/content/session.rs)
+implement the Participation and Custody groups, preset matching and candidate
+replacement with application validation. Saved terms contain explicit values.
+An Administrator candidate without ObserveWorkspace refuses instead of adding
+it implicitly. The browser receives generated names, descriptions and values;
+the [integration queue](integration.md#shared-prerequisite-and-remaining-order)
+owns editor adoption and shared ceiling enforcement. Matching a preset does
+not select editor mode or close the Custom controls.
+Custom is available in every group and preserves explicit editor mode. Matching
+compares that group's full normalized field set only. Unsupported fields are
+not silently dropped from a submitted preset. The owner rejects the whole
+change and explains its unavailable requirements.
+
+A new restricted directory exposes Visitor access only. An explicitly selected
+Open deployment additionally exposes Member and CreateRoom, with creation
+quotas shown; publishing and management still require deliberately issued
+authority. A room's Open public offer grants Participant, ReadContent and
+ReadFile. Moderated grants Observer, ReadContent and ReadFile. Private publishes
+no offer. History, Upload, SetTopic, Invite, moderation and management are absent
+from these defaults. The owner can explicitly configure an attenuated public
+offer; a client cannot choose a stronger preset at admission.
+
+Public offers are reusable, one-visit admissions. Their accepted grants are
+independently issued by the room owner under the accepted terms. Replacing the
+public offer retires unused old entrances without changing those admissions.
+Rejoin creates a new admission under the current public policy; it does not
+restore a previous seat or confer continuing private access.
+
+## Inventory, editing and acceptance
+
+The resource details Access action opens a paged inventory authorized by the
+held management control. Rows show label, exact resource/scope, configured and
+effective access, source restriction, live/persistent lifetime, active/paused
+status and whether this row is an offer or accepted grant. A separate presence
+view links to rows only when inspection is authorized. Unknown holders are
+shown as unknown; a bearer grant is not a verified person.
+
+Opening a row creates a draft bound to resource/grant generation and base
+revision. Save sends the full explicit values and original operation identity;
+the editor shows committed success only after the owner acknowledges it.
+Conflict preserves the draft beside the current scoped snapshot for deliberate
+reapplication. Unavailable ownership, exhausted quotas, unknown write outcome
+and publication failure have distinct feedback. An unknown outcome retains the
+request for recovery and does not invite an automatic second issuance.
+
+Share offers two explicit actions: Send existing access, and Create managed
+access. The first shows the authority being copied and its current revocation
+boundary. The second shows target scope, source dependency, offered policy,
+ceiling, delegation, lifetime and separate issuer control. Issuers may deliver
+use authority without its control. Copy link copies only the selected exact
+use/offer reference; sharing control is another explicit action.
+
+Create invitation adds two independent choices: Single admission or Reusable,
+and One visit or Can rejoin. Its acceptance page describes these same terms,
+source, history boundary and durability before Accept. The recipient retains
+receipt/sequence before sending and, on success, the exact accepted access.
+The result page offers current access/status, Join or Leave, and any available
+return route. It never recovers a limited invitation through a public room link.
+
+Pause preserves policy and explains content silence; Resume rechecks ceilings
+and ancestors. Close invitation stops new admissions; Revoke branch additionally
+withdraws dependent accepted access. These are distinct actions with separate
+previews. Revocation names visible dependent grants/seats, unknown counts,
+independent public offers and whether it will close the current editor's access.
+Confirmation binds the preview's revision; stale previews require refresh.
+Already delivered data remains data.
+
+All dialogs have explicit cancel/save, keyboard focus and return to the opening
+row or nearest surviving resource detail. A self-revocation moves to the bounded
+terminal-status view, not to a stale editable form. Narrow screens retain scope,
+source and committed-result feedback. No edit controls appear without the
+appropriate held management power.
+
 ## Prior art and the design choice
 
 [Sandstorm's permissions and roles](https://docs.sandstorm.io/en/latest/developing/auth/)

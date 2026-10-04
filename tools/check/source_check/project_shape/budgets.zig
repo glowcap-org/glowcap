@@ -39,7 +39,6 @@ const budget_facts = [_]BudgetFact{
         .quotes = &.{
             .{ .path = "docs/ladder.md", .anchor = "| Completion-loop slot beyond its embedded peer | exactly " },
             .{ .path = "bench/peer_scaling_bench.zig", .anchor = "(`Conn`) adds " },
-            .{ .path = ".agents/rules/memory.md", .anchor = "`conn_slot_overhead_bytes` (", .suffix = ")" },
         },
     },
     .{
@@ -48,7 +47,6 @@ const budget_facts = [_]BudgetFact{
         .decl = "pub const host_session_struct_budget_bytes = ",
         .quotes = &.{
             .{ .path = "docs/ladder.md", .anchor = "| Host session shell | at most " },
-            .{ .path = ".agents/rules/memory.md", .anchor = "The Host session ceiling is " },
             .{ .path = "docs/decisions/adr/ADR-0096-host-scoped-capability-identity.md", .anchor = "`HostSession` ceiling is " },
             .{ .path = "docs/decisions/adr/ADR-0098-sturdyref-peer-authority.md", .anchor = "the `HostSession` shell is " },
             .{ .path = "docs/decisions/adr/ADR-0099-shared-vat-scheduling.md", .anchor = "per-session `HostSession` ceiling is " },
@@ -59,24 +57,7 @@ const budget_facts = [_]BudgetFact{
         .source_path = "src/ocapn/engine/mod.zig",
         .decl = "pub const peer_session_struct_budget_bytes = ",
         .quotes = &.{
-            .{ .path = ".agents/rules/memory.md", .anchor = "(`peer_session_struct_budget_bytes`, ", .suffix = ")" },
             .{ .path = "docs/ladder.md", .anchor = "| `engine.Peer` inline state | at most ", .suffix = " bytes |" },
-        },
-    },
-    .{
-        .label = "steady queue retention",
-        .source_path = "src/ocapn/engine/peer/queue.zig",
-        .decl = "pub const steady_retain_bytes: usize = ",
-        .quotes = &.{
-            .{ .path = ".agents/rules/memory.md", .anchor = "`steady_retain_bytes: usize = ", .suffix = "`" },
-        },
-    },
-    .{
-        .label = "recv-scratch retention",
-        .source_path = "src/ocapn/session/mod.zig",
-        .decl = "const steady_recv_scratch_bytes: usize = ",
-        .quotes = &.{
-            .{ .path = ".agents/rules/memory.md", .anchor = "`steady_recv_scratch_bytes = ", .suffix = "`" },
         },
     },
     .{
@@ -85,7 +66,6 @@ const budget_facts = [_]BudgetFact{
         .decl = "const keyed_relay_connection_state_bytes: usize = ",
         .quotes = &.{
             .{ .path = "docs/ladder.md", .anchor = "| Completion-backed keyed-relay adapter state | exactly ", .suffix = " bytes per relay leg |" },
-            .{ .path = ".agents/rules/memory.md", .anchor = "adapter state at exactly " },
         },
     },
     .{
@@ -102,7 +82,6 @@ const budget_facts = [_]BudgetFact{
         .decl = "const iroh_connection_state_bytes: usize = ",
         .quotes = &.{
             .{ .path = "docs/ladder.md", .anchor = "| iroh completion-adapter row | exactly ", .suffix = " bytes per loop connection |" },
-            .{ .path = ".agents/rules/memory.md", .anchor = "one iroh loop connection's adapter row at exactly " },
         },
     },
     .{
@@ -111,14 +90,13 @@ const budget_facts = [_]BudgetFact{
         .decl = "const webrtc_connection_state_bytes: usize = ",
         .quotes = &.{
             .{ .path = "docs/ladder.md", .anchor = "| WebRTC completion-adapter row | exactly ", .suffix = " bytes per open DataChannel |" },
-            .{ .path = ".agents/rules/memory.md", .anchor = "one open WebRTC DataChannel's adapter row at exactly " },
         },
     },
 };
 
 /// Each footprint budget is one number with one authoritative declaration,
-/// quoted by the docs a reader actually opens (`docs/ladder.md` step 2, the
-/// memory rule, the deciding ADRs). A constant moved once while its quotes did
+/// quoted by the docs a reader actually opens (`docs/ladder.md` step 2 and the
+/// deciding ADRs). A constant moved once while its quotes did
 /// not, so the prose said 112 while the build asserted 128 and nothing
 /// noticed. Every quote in `budget_facts` is therefore derived from the source
 /// declaration rather than written down again.

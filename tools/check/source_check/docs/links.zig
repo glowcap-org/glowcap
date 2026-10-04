@@ -14,10 +14,12 @@ pub fn checkMarkdownLinks(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    // The first-read living-state surfaces that carry relative links: the root
-    // contracts, the bindings READMEs (every language), and the examples index.
-    // `site/content` is `.smd`, whose link syntax this `.md` walker does not
-    // parse; `checkSiteContentLinks` gates those references instead.
+    // The root contracts and the examples index, then every tree whose
+    // Markdown a reader opens. A tree is walked whole rather than listed file
+    // by file, because a listed subset let links in unlisted package READMEs
+    // point at deleted files unnoticed. `site/content` is `.smd`, whose link
+    // syntax this `.md` walker does not parse; `checkSiteContentLinks` gates
+    // those references instead.
     const files = [_][]const u8{
         "AGENTS.md",
         "README.md",
@@ -26,21 +28,15 @@ pub fn checkMarkdownLinks(
         // registered living-state; they should be the best-gated, not the least.
         "PROVENANCE.md",
         "SECURITY.md",
-        "bindings/README.md",
-        "bindings/DEVELOPING.md",
-        "bindings/PACKAGING.md",
-        "bindings/rust/README.md",
-        "bindings/ts/README.md",
-        "bindings/python/README.md",
-        "bindings/racket/README.md",
         "examples/README.md",
     };
     for (files) |path| {
         try checkMarkdownLinksInFile(io, gpa, root, violations, path);
     }
-    try checkMarkdownLinksUnder(io, gpa, root, violations, ".agents");
-    try checkMarkdownLinksUnder(io, gpa, root, violations, ".devcontainer");
-    try checkMarkdownLinksUnder(io, gpa, root, violations, "docs");
+    const trees = [_][]const u8{ ".agents", ".devcontainer", "docs", "bindings", "apps", "bench", "interop", "ui", "test" };
+    for (trees) |dir_path| {
+        try checkMarkdownLinksUnder(io, gpa, root, violations, dir_path);
+    }
 }
 
 fn checkMarkdownLinksUnder(

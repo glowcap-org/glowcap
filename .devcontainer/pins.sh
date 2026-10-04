@@ -10,16 +10,16 @@
 # compatible system runtime below. Both pins name multi-architecture indexes;
 # update-pins tracks them and env-sync checks their Dockerfile consumers.
 DEBIAN_BASE_TAG="trixie-slim"
-DEBIAN_BASE_DIGEST="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+DEBIAN_BASE_DIGEST="sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a"
 
 # --- Production service images ---
 DISTROLESS_BASE_DIGEST="sha256:4594d59540d1948417f6ca2829ddd9294493a7c68b7528f4dd459de7f203a750"
 # The complete tag + digest is one pin because both identify the exact image
 # Compose runs. update-pins.sh selects PostgreSQL's newest stable release.
-POSTGRES_IMAGE_PIN="18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2"
+POSTGRES_IMAGE_PIN="18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
 
 # --- Zig ---
-ZIG_VERSION="0.17.0-dev.2127+e90365cd5"
+ZIG_VERSION="0.17.0-dev.2294+71403f299"
 ZLS_VERSION="0.17.0-dev"
 ZLS_SOURCE_REVISION="0ea69abdd8f50d81989c00b6a3b9cf8ced7f9522"
 ZLS_SOURCE_SHA256="1abfd6c1f4c5d6d09c069e80682d62340e2d27bbb1d49ef81eb68a409a8ccbe9"
@@ -29,9 +29,9 @@ RUST_VERSION="1.98.1"
 RUSTUP_INIT_VERSION="1.29.1"
 
 # --- JavaScript / TypeScript dogfood ---
-DENO_VERSION="2.9.6"
-NODE_VERSION="26.8.2"
-NPM_VERSION="12.0.2"
+DENO_VERSION="2.9.7"
+NODE_VERSION="26.10.0"
+NPM_VERSION="12.1.0"
 BUN_VERSION="1.4.2"
 
 # --- Playwright (the browser proofs' Chromium) ---
@@ -42,16 +42,16 @@ BUN_VERSION="1.4.2"
 PLAYWRIGHT_VERSION="1.63.0"
 
 # --- Python (uv) / agent tools ---
-UV_VERSION="0.12.13"
+UV_VERSION="0.12.19"
 PYTHON_VERSION="3.14.7"
 SERENA_AGENT_VERSION="1.7.0"
-CLAUDE_CODE_VERSION="2.1.270"
-OPENCODE_VERSION="1.18.30"
-CODEX_VERSION="0.154.0"
+CLAUDE_CODE_VERSION="2.1.283"
+OPENCODE_VERSION="1.18.32"
+CODEX_VERSION="0.157.0"
 # Cursor publishes the agent CLI as one dated build per platform. The version
 # string is the whole path segment (date and commit), so it is copied verbatim
 # into the download URL rather than composed from parts.
-CURSOR_AGENT_VERSION="2026.09.10-fd3934a"
+CURSOR_AGENT_VERSION="2026.09.23-86fc751"
 
 # --- Host side (not in the image; used by up.sh when no CLI is installed) ---
 DEVCONTAINER_CLI_VERSION="0.89.0"

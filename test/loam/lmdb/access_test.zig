@@ -9,7 +9,10 @@ const records = glowcap.loam.access.records;
 const Lmdb = @import("loam_lmdb").Lmdb;
 const f = @import("loam_test_support");
 const a = std.testing.allocator;
-const schemas = [_]loam.Schema{.{ .id = 7, .version = 1, .max_payload = records.GrantRecord.max_encoded_bytes, .max_edges = 8 }};
+const schemas = [_]loam.Schema{
+    .{ .id = 7, .version = 1, .max_payload = records.GrantRecord.max_encoded_bytes, .max_edges = 8 },
+    .{ .id = records.profile.change_batch, .version = 1, .max_payload = records.ChangeBatchRecord.max_encoded_bytes, .max_edges = 0 },
+};
 const limits: loam.Store.Limits = .{ .records = .{ .max_record_bytes = 33 * 1024, .max_edges = 8 }, .cache_slots = 2, .max_leases = 2, .resident_bytes = 66 * 1024, .max_changes = 8, .staging_bytes = 128 * 1024 };
 
 const Source = struct {
@@ -37,6 +40,7 @@ fn putEncoded(store: *loam.Store, id: loam.ObjectId, value: anytype, expected: ?
     defer a.free(payload);
     var row = f.record(id, payload);
     row.edges = edges;
+    if (@TypeOf(value) == records.ChangeBatchRecord) row.schema = records.profile.change_batch;
     try store.putCopying(row, expected);
 }
 
@@ -105,7 +109,7 @@ test "loam LMDB commits access content and change records together through uncer
         try std.testing.expectEqual(@as(access.Revision, @fromBackingInt(8)), changes.event.version.grants);
         const event_object = try store.allocateId();
         try putEncoded(&store, grant_object, records.GrantRecord{ .grant = changes.record }, original_row_revision, &.{.{ .target = resource_object }});
-        try putEncoded(&store, event_object, records.ChangeRecord{ .change = changes.event }, null, &.{.{ .target = grant_object }});
+        try putEncoded(&store, event_object, records.ChangeBatchRecord{ .owner = graph.owner, .commit_revision = 3, .sequence = 1, .effects = &.{.{ .grant = .{ .change = changes.event, .path = &.{initial.id} } }} }, null, &.{});
         content.payload = "revocation committed";
         content.edges = &.{ .{ .target = grant_object }, .{ .target = event_object } };
         try store.putCopying(content, original_row_revision);
@@ -135,9 +139,10 @@ test "loam LMDB commits access content and change records together through uncer
             try std.testing.expectError(error.Revoked, grants.require(&resources, &policy, initial.id, resource, req));
             const lease = try f.load(&store, &db, event_object);
             const row = try store.currentView(lease);
-            const event = try records.ChangeRecord.decode(row.payload);
-            try std.testing.expectEqualDeep(changes.event, event.change);
-            try std.testing.expectEqual(grants.version.revisions.grants, event.change.version.grants);
+            var event = try records.ChangeBatchRecord.decodeOwned(a, row);
+            defer event.deinit(a);
+            try std.testing.expectEqualDeep(changes.event, event.value.effects[0].grant.change);
+            try std.testing.expectEqual(grants.version.revisions.grants, event.value.effects[0].grant.change.version.grants);
             try std.testing.expectEqual(@as(u64, 3), row.revision);
             try store.release(lease);
         } else {

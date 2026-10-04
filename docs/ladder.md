@@ -7,7 +7,7 @@ more ways to reach a peer.
 | Milestone | Standing |
 | --- | --- |
 | 1. Protocol conformance | In progress. Live Goblins over testing TCP, and the upstream suite, cover the main conversation and handoff paths; several edge cases still lack outside-peer evidence. |
-| 2. Performance at scale | Met. Memory and latency budgets run on main and dev pushes and pull requests; a release-mode run held 500,000 authenticated socket sessions live. |
+| 2. Performance at scale | Met. Memory and latency budgets run on main and dev pushes and pull requests; a release-mode run held 500,000 signed sessions live over loopback TCP. |
 | 3. Hosted applications | Met. Native and cross-language applications exercise the public API. |
 | 4. C ABI and bindings | Met. All four bindings dial Goblins and are dialed by it through the C ABI. |
 | 5. Transport reachability | In progress. The first-party provider seams, routed browser cold dial, and recurring macOS runtime suite ship; Windows support and a deployed public-certificate relay proof remain. |
@@ -98,7 +98,11 @@ The figure is a same-machine capacity measurement, not WAN latency.
 The host's connection-tracking table was capped below the target, so the run
 used an isolated user/network namespace and exempted its loopback traffic from
 connection tracking. The benchmark itself spreads the clients over 32
-listeners so one ephemeral-port range is not mistaken for session capacity:
+listeners so one ephemeral-port range is not mistaken for session capacity.
+Each listener is its own Host on the completion loop (`Bridge(TcpLoop)`), and
+all 32 share one identity key. The connections are plain TCP: each handshake
+is signed, but the bytes are not encrypted. `driver.Session`, `HostRuntime`,
+and the bindings run a different loop, which this run does not measure.
 
 ```sh
 unshare -Urn sh -eu -c '

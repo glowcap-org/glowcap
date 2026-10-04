@@ -220,6 +220,13 @@ pub const Resident = struct {
         return sidecar.glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) == 0;
     }
 
+    /// Seal admission and discard bounded raw accepts, or open a fresh
+    /// generation. Already claimed connections keep their ownership.
+    pub fn setLoopAdmission(self: *Resident, enabled: bool) error{SidecarFailed}!void {
+        if (sidecar.glowcap_iroh_sidecar_endpoint_admission(self.endpoint, @intFromBool(enabled)) != 0)
+            return error.SidecarFailed;
+    }
+
     /// The endpoint's single read-only OS-level readiness fd, registered once
     /// with the host's poller. Readable whenever the ready queue has records.
     pub fn readinessFd(self: *Resident) i32 {
@@ -247,7 +254,7 @@ pub const Resident = struct {
 
     /// Admit one evented dial under a caller-owned request id. Accepted starts
     /// produce exactly one `ev_connect`; rejected starts produce none.
-    pub fn loopStartConnectResolved(self: *Resident, request_id: usize, designator: []const u8, direct_addrs: []const u8) (net.netlayer.DialError || error{WouldBlock})!void {
+    pub fn loopStartConnectResolved(self: *Resident, request_id: usize, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!void {
         if (request_id == 0) return error.InvalidAddress;
         if (direct_addrs.len == 0 and !locators.resolvesById(self.reachability)) return error.InvalidAddress;
         return switch (sidecar.glowcap_iroh_sidecar_endpoint_start_connect(

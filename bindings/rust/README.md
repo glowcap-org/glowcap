@@ -201,8 +201,9 @@ including when it is dropped inside a behavior. Cancellation therefore does
 not leave the caller waiting for an answer whose owner is gone.
 Cleanup also succeeds if session shutdown already retired that answer. Explicit
 fulfillment and break calls still refuse an already-consumed resolver. `Resolver::fulfill_value` can
-return owning-thread capabilities reachable in the original caller session;
-cross-session handoffs refuse without consuming the resolver. The existing
+return owning-thread capabilities through the original caller session, using
+ordinary handoff staging for foreign authority. Failed preparation leaves the
+resolver available for retry. The existing
 `fulfill` method remains the capability-free data path.
 
 `Session::closed().await` observes terminal retirement without requesting close
@@ -296,3 +297,20 @@ policy. It is not covered by the crate's ordinary unit tests.
 For the shared API, read the [binding overview](../README.md). Maintainers of
 the C pump and generated FFI should read
 [Developing a binding](../DEVELOPING.md).
+
+## Persistent resources
+
+Enable the optional `loam` feature for `loam::{Store, Attachment, Content, Policy}`.
+It links the portable Loam archive and the LMDB companion and reuses `Host`,
+`Ref` and Session. Opening, creation and privileged restoration are blocking
+startup operations. Host progress runs on a Tokio `LocalSet`; submitted storage
+runs on the blocking executor. Contexts survive until detach succeeds, and a
+cancelled observer retains its work until physical retirement. Host close
+retires quiescent attachments; close the Store after its borrows finish.
+
+The [lifecycle guide](../../docs/loam/c-and-rust.md)
+describes create/share/edit/restart/reopen, receipt calls and indeterminate
+creation recovery. `Resource::encode` is trusted local metadata, not an
+invokable capability. Browser storage and wider graph/owner projections remain
+outside this first profile. `zig build loam-rust-test` exercises the complete
+consumer lifecycle, ownership and Clippy, including a Loam-only feature build.

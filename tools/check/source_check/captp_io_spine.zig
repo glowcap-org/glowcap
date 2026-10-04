@@ -218,7 +218,7 @@ pub fn check(
         "docs/roadmap.md",
         ".agents/rules/architecture.md",
         ".agents/rules/memory.md",
-        ".agents/rules/memory-ledger.md",
+        ".agents/skills/memory-ledger/SKILL.md",
         ".agents/rules/cli.md",
     };
     const ghosts = [_]struct { needle: []const u8, reason: []const u8 }{

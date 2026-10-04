@@ -463,10 +463,16 @@ pub const Session = struct {
     /// alive — a later break firing it into a dead frame is the memory bug,
     /// not the timeout (the same contract `BlockingSession`'s waits hold).
     fn pumpWait(self: *Session, hs: *driver_core.HostSession, flag: *const bool) !void {
-        self.runtime.pumpUntilFlag(hs, flag, self.runtime.opts.settle) catch |err| {
+        self.attendAndPump(hs, flag) catch |err| {
             hs.served.port.breakFarVows(hs.served.closeReason("wait failed"));
             return err;
         };
+    }
+
+    fn attendAndPump(self: *Session, hs: *driver_core.HostSession, flag: *const bool) !void {
+        try self.runtime.attendSession(self.hs);
+        if (hs != self.hs) try self.runtime.attendSession(hs);
+        try self.runtime.pumpUntilFlag(hs, flag, self.runtime.opts.settle);
     }
 
     /// Fire-and-forget eventual-send (see `Served.tell`), routed exactly as
@@ -538,12 +544,23 @@ pub const Session = struct {
         try self.runtime.core.releaseCapability(cap, 1);
     }
 
+    /// Finish this Session's root setup and enable inbound delivery by sibling
+    /// or aggregate runtime pumps. Parked resident input may invoke behavior
+    /// synchronously here. Step, serve and blocking reply waits attend implicitly.
+    pub fn attend(self: *Session) !void {
+        try self.runtime.refuseReentry();
+        self.enterCall();
+        defer self.leaveCall();
+        try self.runtime.attendSession(self.hs);
+    }
+
     /// One blocking pump cycle across the host: drain actions, wait for any
     /// live session's readable progress, feed it. Returns this session's
     /// `Progress` so a caller's loop can act on `.closed`.
     pub fn step(self: *Session) !net.Progress {
         self.enterCall();
         defer self.leaveCall();
+        try self.runtime.attendSession(self.hs);
         return (try self.runtime.stepSession(self.hs, -1)) orelse .idle;
     }
 
@@ -552,6 +569,7 @@ pub const Session = struct {
     pub fn stepReadable(self: *Session, timeout_ms: i32) !?net.Progress {
         self.enterCall();
         defer self.leaveCall();
+        try self.runtime.attendSession(self.hs);
         return self.runtime.stepSession(self.hs, timeout_ms);
     }
 
@@ -561,6 +579,7 @@ pub const Session = struct {
     pub fn serve(self: *Session) !void {
         self.enterCall();
         defer self.leaveCall();
+        try self.runtime.attendSession(self.hs);
         while (true) {
             const progress = (try self.runtime.stepSession(self.hs, -1)) orelse continue;
             if (progress == .closed) return;

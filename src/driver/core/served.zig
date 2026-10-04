@@ -47,10 +47,10 @@ pub const ServeOptions = struct {
     before_serve: ?BeforeServeHook = null,
 };
 
-/// Default finite local-turn amplification cap for multi-session loop hosts.
-/// `null` remains the blocking/single-session default; loop demos and benches
-/// opt into this cap so one amplifying partner cannot monopolize their shared
-/// Host.
+/// The finite local-turn amplification cap every Host applies by default, so
+/// one amplifying partner cannot monopolize the Vat its sessions share. A bare
+/// `Served` (the one-connection `BlockingSession`) stays unbounded: a
+/// self-send chain there starves only its own partner.
 pub const default_loop_local_turn_budget: usize = 4096;
 
 /// The sans-io serve core: an `actors.Port` over one borrowed `engine.Peer`,

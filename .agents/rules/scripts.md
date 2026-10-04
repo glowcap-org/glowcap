@@ -1,6 +1,15 @@
 ---
 description: "Committed helper scripts need one caller, one owner, a stable interface, and verification at the boundary they serve."
 globs: **/*.sh, **/ops, glowcap, .agents/hooks/*, .agents/skills/**/bin/*, apps/**/scripts/**, tools/**/*.py, .devcontainer/**/*.py
+paths:
+  - "**/*.sh"
+  - "**/ops"
+  - "glowcap"
+  - ".agents/hooks/*"
+  - ".agents/skills/**/bin/*"
+  - "apps/**/scripts/**"
+  - "tools/**/*.py"
+  - ".devcontainer/**/*.py"
 ---
 
 # glowcap — Script Standard

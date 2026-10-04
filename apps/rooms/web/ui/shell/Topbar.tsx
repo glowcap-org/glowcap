@@ -4,9 +4,8 @@
 // conversation's.
 //
 // Every word and every pressed-state here is derived from the conversation on
-// screen. The old header was written by four functions that each set some of it,
-// which is why one of them had to go back and rewrite a label another had left
-// describing a wait that was over.
+// screen. A header that several functions each set part of ends up with one of
+// them rewriting a label another left describing a wait that was over.
 
 import { memo } from "react";
 import { railToggleLabel } from "../../../lib/text/controls.ts";

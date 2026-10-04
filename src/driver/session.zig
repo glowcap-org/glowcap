@@ -12,7 +12,9 @@ pub const Promise = client.Promise;
 pub const SessionOptions = client.SessionOptions;
 pub const Session = client.Session;
 pub const connect = client.connect;
+pub const connectProviders = @import("session/connect.zig").connectProviders;
 pub const connectUriOwned = client.connectUriOwned;
 
 pub const Server = server.Server;
 pub const listen = server.listen;
+pub const listenProviders = server.listenProviders;

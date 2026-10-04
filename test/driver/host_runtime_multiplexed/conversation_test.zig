@@ -42,6 +42,7 @@ fn exporterServe(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror
     while (!done.load(.acquire)) {
         if (second == null and try server.waitAcceptable(20)) {
             second = try server.accept();
+            try second.?.attend();
         }
         _ = first.stepReadable(20) catch |err| switch (err) {
             error.ConnectionClosed, error.ProtocolAbort => break,

@@ -7,7 +7,7 @@ decision: "Implement one portable record and transaction contract with volatile 
 supersedes: []
 superseded_by: []
 amends: [ADR-0061, ADR-0161]
-amended_by: [ADR-0163, ADR-0164, ADR-0165]
+amended_by: [ADR-0163, ADR-0164, ADR-0165, ADR-0181, ADR-0182]
 ---
 
 # ADR-0162 Loam records, transactions, and native storage
@@ -21,7 +21,7 @@ and owns completion, recovery, and bounded leases. Neither depends on managed
 access, actors, Host, or database I/O.
 
 The optional Zig module `"glowcap_loam_lmdb"` executes the same batches as the
-volatile backend. LMDB 0.9.36 is pinned from OpenLDAP, with its unmodified
+volatile backend. LMDB 1.0.2 is pinned from OpenLDAP, with its unmodified
 sources and license notices. Ordinary networking and portable Loam consumers
 do not link it. The initial native profile supports POSIX lifetime locking and
 uses LMDB's synchronous durability settings without weaker flush flags.
@@ -63,6 +63,8 @@ This establishes those process-failure boundaries, not hardware power-loss
 behavior or a performance comparison with another engine.
 
 The [Loam guide](../../loam.md) owns current usage and limitations.
+[ADR-0181](ADR-0181-offline-lmdb-replacement.md) extends the native profile
+with offline compaction and installation under continuous writer custody.
 [ADR-0163](ADR-0163-record-backed-sleepy-actors.md) extends this foundation with
 record-backed sleepy actors and local capability restoration. Managed access
 participation, foreign/browser APIs, and backend comparison

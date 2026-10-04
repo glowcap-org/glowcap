@@ -48,8 +48,7 @@ mod tests {
 
 	#[test]
 	fn output_substitution_is_one_literal_argument_even_with_shell_characters() {
-		let recipe =
-			Recipe::parse(br#"{"args":["bundle","ui/page.js","--outdir","{outdir}"],"inputs":[]}"#).unwrap();
+		let recipe = Recipe::parse(br#"{"args":["bundle","ui/page.js","--outdir","{outdir}"],"inputs":[]}"#).unwrap();
 		assert_eq!(
 			recipe.arguments(Path::new("/tmp/space and $(literal)")).unwrap(),
 			["bundle", "ui/page.js", "--outdir", "/tmp/space and $(literal)"]

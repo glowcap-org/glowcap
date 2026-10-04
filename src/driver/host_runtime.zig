@@ -332,6 +332,7 @@ pub const HostRuntime = struct {
     const PendingListener = pending_state.Listener;
 
     pub const init = runtime_providers.init;
+    pub const initProviders = runtime_providers.initProviders;
     pub const initWithCore = runtime_providers.initWithCore;
     pub const addNetlayer = runtime_providers.addNetlayer;
     pub const addResident = runtime_providers.addResident;
@@ -490,7 +491,7 @@ pub const HostRuntime = struct {
     pub const pumpUntilFlag = runtime_step.pumpUntilFlag;
     pub const stepSession = runtime_step.stepSession;
     pub const stepAny = runtime_step.stepAny;
-    const stepAnyToward = runtime_step.stepAnyToward;
+    pub const stepAnyToward = runtime_step.stepAnyToward;
     const stepAnyOwned = runtime_step.stepAnyOwned;
     const stepAfterTerminalFailure = runtime_step.stepAfterTerminalFailure;
     const waitForTerminalSignal = runtime_step.waitForTerminalSignal;

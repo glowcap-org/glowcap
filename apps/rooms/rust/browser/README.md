@@ -32,19 +32,22 @@ does not keep a second reducer for any of them. `RoomsBrowserFile`,
 boundary as bounded readers.
 
 **Persistence** (`workspace_persistence.rs`, `storage/`).
-`RoomsWorkspacePersistence` applies the shared workspace save policy to
-browser storage and cancellable timers: a refused write keeps the previous
-document, and a successful one fences the earlier writer.
-`storage::Database` opens the `rooms-history` IndexedDB schema and
-`storage::Archive` implements the shared archive backend on it. Record
-replacement, blob positions, byte accounting, and revision advance commit in
-one transaction, and a retained write compares its recording epoch there, so
-an older tab cannot refill erased history. `RoomsBrowserArchive` is the erase
-verb behind **Delete browser data**: it closes the recorder, deletes the whole
-database including device identity, and keeps its completion effects even
-when the caller stops waiting. Blob staging hashes 64 KiB chunks before it
-builds an immutable `Blob`, and a verified-blob cache holds at most 32 blobs
-and 64 MiB.
+
+
+- `RoomsWorkspacePersistence` applies the shared workspace save policy to
+  browser storage and cancellable timers. A refused write keeps the previous
+  document, and a successful write shuts out the earlier writer.
+- `storage::Database` opens the `rooms-history` IndexedDB schema, and
+  `storage::Archive` implements the shared archive backend on top of it.
+  Replacing a record, blob positions, byte accounting, and the revision
+  counter all commit in one transaction. A retained write checks its
+  recording epoch in that same transaction, so an older tab cannot refill
+  history that was erased.
+- `RoomsBrowserArchive` performs **Delete browser data**. It closes the
+  recorder and deletes the whole database, including the device identity.
+  It finishes its cleanup even if the caller stops waiting.
+- Blob staging hashes 64 KiB chunks before building an immutable `Blob`. A
+  cache of verified blobs holds at most 32 blobs and 64 MiB.
 
 ## What the platform supplies
 
@@ -57,22 +60,26 @@ as the Host; preferences and archive records persist through the owners above.
 `transport::open` composes one glowcap `Runtime` around the application's
 Host. `WebFront::deployment` names the page's own native web front and
 forwards complete TCP, keyed and Noise TCP, iroh, and onion locators through
-it, keeping their routing hints. The front authenticates the remote iroh QUIC
-peer itself, so that route trusts the deployment for its key proof; the other
-forwarded profiles receive no synthetic proof. Relay routes selected by
+it, keeping their routing hints. For iroh, the front itself authenticates the
+remote QUIC peer, so that route relies on the deployment for its key proof.
+The other forwarded profiles are given no stand-in proof. Relay routes selected by
 locator use `glowcap::browser::relay`.
 
-`signaling` carries WebRTC over one held Rooms directory connection per
-attempt. `signaling::connector` selects a directory from the application's own
-inventory and refuses one that belongs to another Host or another introducing
-session. `signaling::Listener::open` files an answering inbox and returns once
-the directory accepts it; drive `Listener::serve` inside the Host's `LocalSet`
-and it hands each established session to the application. The listener admits
-at most 32 pending offers and 64 candidates per offer, and every offer gets
-fresh ICE configuration inside a 30 second preparation deadline. A dialing
-exchange is scoped to the expected target key, and an inbound offer names an
-exchange rather than a caller key, so the accepting side never invents a
-verified identity.
+`signaling` carries WebRTC signaling over one held Rooms directory connection
+per attempt.
+
+- `signaling::connector` picks a directory from the application's own
+  inventory. It refuses a directory that belongs to another Host or another
+  introducing session.
+- `signaling::Listener::open` registers an answering inbox and returns once
+  the directory accepts it. Drive `Listener::serve` inside the Host's
+  `LocalSet`, and it hands each established session to the application.
+- The listener accepts at most 32 pending offers and 64 candidates per offer.
+  Each offer gets a fresh ICE configuration within a 30-second preparation
+  deadline.
+- A dialing exchange is tied to the target key it expects. An inbound offer
+  names an exchange, not a caller key, so the accepting side never invents a
+  verified identity.
 
 `ice::Source::deployment` reads the native front's `/ice` endpoint. Concurrent
 readers share one request and each receives its own configuration object; a
@@ -99,10 +106,14 @@ cargo run --manifest-path apps/rooms/rust/Cargo.toml -p rooms-application --exam
 
 `zig build rooms-browser-test` exercises the production exports in Deno and
 Chromium. `zig build rooms-rust-browser-host-test` drives the transport,
-signaling, and ICE halves against the native `rooms-web` directory in
-Chromium: explicit dials and three-party handoffs, calls in both directions
-over keyed and Noise relay registrations, native TCP and iroh forwarding to
-distinct rooms, and shutdown during a pending ICE request. Those scenarios
+signaling, and ICE parts against the native `rooms-web` directory in
+Chromium. It covers:
+
+- explicit dials and three-party handoffs;
+- calls in both directions over keyed and Noise relay registrations;
+- native TCP and iroh forwarding to distinct rooms;
+- shutdown while an ICE request is pending.
+ Those scenarios
 check socket closure and callback retirement; they do not establish live
 keyed or Noise TCP or onion forwarding through this crate. The same step runs
 the shared session, grant, and directory workers over volatile documents and

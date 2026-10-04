@@ -13,11 +13,11 @@ test "resolveForSwissnum fulfills with the mapped export, breaks on a miss" {
 
     // Fulfill is a POD NearRef. The miss diagnostic is a named string dupe
     // `send` owns on the wire path; this test must free it.
-    const hit = try engine.bootstrap.resolveForSwissnum(&sess, null, null, .{ .swissnum = "k", .answer = .fromWire(.from(7)) });
+    const hit = (try engine.bootstrap.resolveForSwissnum(&sess, null, null, .{ .swissnum = "k", .answer = .fromWire(.from(7)) })).?;
     defer model.freeResolution(std.testing.allocator, hit);
     try std.testing.expectEqual(model.NearRef.object(export_position.int()), hit.fulfill.reference.near);
 
-    const miss = try engine.bootstrap.resolveForSwissnum(&sess, null, null, .{ .swissnum = "nope", .answer = .fromWire(.from(9)) });
+    const miss = (try engine.bootstrap.resolveForSwissnum(&sess, null, null, .{ .swissnum = "nope", .answer = .fromWire(.from(9)) })).?;
     defer model.freeResolution(std.testing.allocator, miss);
     try std.testing.expectEqualStrings("unknown swissnum", miss.@"break".message);
 }

@@ -9,7 +9,8 @@ root build passes these two package forks with `--fork`:
   its `build.zig.zon` packages.
 - `superhtml`, from `https://github.com/kristoff-it/superhtml` at
   `23ef2f44ca0df2d2e05a0be3874370553c5b591d`, with `ArrayList.getLast` replaced
-  in `src/template.zig` for Zig 0.17.
+  in `src/template.zig` for Zig 0.17. Its known-folders dependency is updated
+  to `6da0d0c41b78b9ed2d34fa364fcb81b5ebece6c4`.
 
 These forks are site-build inputs only, and the site build is a sibling of
 `zig build check` rather than a member, so a Zig pin bump does not exercise

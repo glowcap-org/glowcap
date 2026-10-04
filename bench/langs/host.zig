@@ -81,11 +81,7 @@ pub fn main(init: std.process.Init) !void {
     defer std.crypto.secureZero(u8, &session_root);
     try io.randomSecure(&session_root);
 
-    var host = try driver.core.Host.init(allocator, identity_seed, session_root, blk: {
-        var options = driver.core.Host.Options.withFrameCap(frame_cap);
-        options.local_turn_budget = driver.core.default_loop_local_turn_budget;
-        break :blk options;
-    });
+    var host = try driver.core.Host.init(allocator, identity_seed, session_root, driver.core.Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
     var loop: net.TcpLoop = undefined;

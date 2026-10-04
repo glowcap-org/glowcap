@@ -5,7 +5,7 @@ use std::sync::Arc;
 use webrtc::error::{Error as WebrtcError, Result as WebrtcResult};
 use webrtc::peer_connection::{
 	MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
-	RTCIceServer, Registry, SettingEngine, register_default_interceptors,
+	RTCIceServer, Registry, SettingEngineBuilder, register_default_interceptors,
 };
 use webrtc::runtime::TokioRuntime;
 
@@ -19,8 +19,10 @@ pub(crate) fn build(
 	receive_buffer_bound: usize,
 	send_buffer_bound: usize,
 ) -> WebrtcResult<Arc<dyn PeerConnection>> {
-	let mut setting_engine = SettingEngine::default();
-	setting_engine.set_include_loopback_candidate(include_loopback);
+	let setting_engine = SettingEngineBuilder::new()
+		.with_include_loopback_candidate(include_loopback)
+		.with_sctp_max_receive_buffer_size(receive_buffer_bound as u32)
+		.build();
 
 	let mut media_engine = MediaEngine::default();
 	media_engine.register_default_codecs()?;
@@ -38,7 +40,6 @@ pub(crate) fn build(
 			.with_handler(handler)
 			.with_runtime(Arc::new(TokioRuntime))
 			.with_udp_addrs(udp_addrs)
-			.with_sctp_receive_buffer_size(receive_buffer_bound as u32)
 			.with_data_channel_send_buffer_limit(send_buffer_bound)
 			.build()
 			.await?;

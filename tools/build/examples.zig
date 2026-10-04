@@ -17,6 +17,7 @@ pub fn register(
     check_step: *std.Build.Step,
     ocapn_static: *std.Build.Step.Compile,
     host_static: *std.Build.Step.Compile,
+    loam_lmdb: *std.Build.Module,
 ) void {
     // ── Examples ─────────────────────────────────────────────────────────────
     const examples_step = b.step("examples", "Build and run examples");
@@ -30,20 +31,29 @@ pub fn register(
     // compiling. `frame_view`, `connect_explicit_buffers`, and
     // `many_sessions_one_loop` are the lower-level library-mechanics
     // walkthroughs.
-    const zig_examples = [_]struct { name: []const u8, path: []const u8 }{
+    // `lmdb` examples also import the optional LMDB Loam backend and own a
+    // fresh store directory per run.
+    const zig_examples = [_]struct { name: []const u8, path: []const u8, lmdb: bool = false }{
         .{ .name = "glowcap-ex-01-connect-and-serve", .path = "examples/zig/01_connect_and_serve.zig" },
         .{ .name = "glowcap-ex-02-introduce-and-redeem", .path = "examples/zig/02_introduce_and_redeem.zig" },
         .{ .name = "glowcap-ex-03-actor-far-send", .path = "examples/zig/03_actor_far_send.zig" },
         .{ .name = "glowcap-ex-04-look-up-by-name", .path = "examples/zig/04_look_up_by_name.zig" },
         .{ .name = "glowcap-ex-05-call-a-remote-method", .path = "examples/zig/05_call_a_remote_method.zig" },
         .{ .name = "glowcap-ex-06-pipeline-and-attenuate", .path = "examples/zig/06_pipeline_and_attenuate.zig" },
+        .{ .name = "glowcap-ex-07-durable-card", .path = "examples/zig/07_durable_card.zig", .lmdb = true },
         .{ .name = "glowcap-readme-quick-start", .path = "examples/zig/readme_quick_start.zig" },
         .{ .name = "glowcap-dev-frame-view", .path = "examples/zig/frame_view.zig" },
         .{ .name = "glowcap-dev-connect-explicit-buffers", .path = "examples/zig/connect_explicit_buffers.zig" },
         .{ .name = "glowcap-dev-many-sessions-one-loop", .path = "examples/zig/many_sessions_one_loop.zig" },
     };
     for (zig_examples) |ex| {
-        const run = execution.addArtifact(b, .{ .deterministic = 30 }, glowcapExecutable(b, lib_mod, target, optimize, ex.name, ex.path));
+        const exe = glowcapExecutable(b, lib_mod, target, optimize, ex.name, ex.path);
+        if (ex.lmdb) {
+            exe.root_module.addImport("glowcap_loam_lmdb", loam_lmdb);
+            exe.root_module.link_libc = true;
+        }
+        const run = execution.addArtifact(b, .{ .deterministic = 30 }, exe);
+        if (ex.lmdb) _ = run.addOutputDirectoryArg("store");
         examples_step.dependOn(&run.step);
     }
 

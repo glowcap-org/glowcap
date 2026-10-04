@@ -15,7 +15,7 @@ pub const DirectoryPage = struct {
     mask: u256 = 0,
     targets: [256]loam.Edge = undefined,
 
-    pub const Family = enum { resource, grant };
+    pub const Family = enum { resource, grant, identity };
 
     pub fn count(self: *const DirectoryPage) usize {
         return @popCount(self.mask);
@@ -46,7 +46,15 @@ pub const DirectoryPage = struct {
             std.mem.copyBackwards(loam.Edge, self.targets[index + 1 .. n + 1], self.targets[index..n]);
             self.mask |= @as(u256, 1) << key;
         }
-        self.targets[index] = .{ .target = target };
+        self.targets[index] = .{ .target = target, .strength = if (self.family == .identity and self.level == 3) .weak else .strong };
+    }
+
+    pub fn remove(self: *DirectoryPage, key: u8) void {
+        if (self.get(key) == null) return;
+        const index = self.rank(key);
+        const n = self.count();
+        std.mem.copyForwards(loam.Edge, self.targets[index .. n - 1], self.targets[index + 1 .. n]);
+        self.mask &= ~(@as(u256, 1) << key);
     }
 
     pub fn encodeAlloc(self: *const DirectoryPage, allocator: std.mem.Allocator) ![]u8 {
@@ -63,7 +71,7 @@ pub const DirectoryPage = struct {
         if (try s.readPositiveInt(b, &c) != 1) return error.UnsupportedVersion;
         const owner: core.OwnerId = @fromBackingInt(try fields.readWide(b, &c));
         const tag = try s.readSymbol(b, &c);
-        const family: Family = if (std.mem.eql(u8, tag, "resource")) .resource else if (std.mem.eql(u8, tag, "grant")) .grant else return error.InvalidRecord;
+        const family: Family = if (std.mem.eql(u8, tag, "resource")) .resource else if (std.mem.eql(u8, tag, "grant")) .grant else if (std.mem.eql(u8, tag, "identity")) .identity else return error.InvalidRecord;
         const level = std.math.cast(u2, try s.readPositiveInt(b, &c)) orelse return error.InvalidRecord;
         const prefix = std.math.cast(u32, try s.readPositiveInt(b, &c)) orelse return error.InvalidRecord;
         const mask_bytes = try s.readBytesLimited(b, &c, b.len);
@@ -73,7 +81,8 @@ pub const DirectoryPage = struct {
         var edges = view.edges();
         for (result.targets[0..result.count()]) |*target| {
             target.* = edges.next().?;
-            if (target.strength != .strong) return error.InvalidRecord;
+            const strength: @FieldType(loam.Edge, "strength") = if (family == .identity and level == 3) .weak else .strong;
+            if (target.strength != strength) return error.InvalidRecord;
         }
         try s.readByte(b, &c, '>');
         try s.expectEnd(b, c);

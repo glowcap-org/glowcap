@@ -283,6 +283,7 @@ fn dialErrorToCode(err: net.netlayer.DialError, detail: []const u8) i32 {
     else
         setLastError("connect: {s}", .{@errorName(err)});
     return switch (err) {
+        error.WouldBlock => GLOWCAP_ERR_WOULD_BLOCK,
         // Permanent under ADR-0082 `isTransient`: bindings must not retry these.
         error.InvalidAddress, error.InvalidOptions, error.ConnectionRefused => GLOWCAP_ERR_INVALID_ARGUMENT,
         error.OutOfMemory => GLOWCAP_ERR_INTERNAL,

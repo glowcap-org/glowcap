@@ -494,6 +494,7 @@ fn failPendingOpenFailure(self: *HostRuntime, row: *PendingOpen, original_failur
         .listener_accept => |observation| {
             const obs = observation.observer;
             obs.abandoned(obs.ctx, observation.tag);
+            if (obs.arrival_failed) |notify| notify(obs.ctx, observation.tag, failure);
         },
     }
     try self.drainActions();

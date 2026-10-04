@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Fail if devcontainer pins, mounts, names, structure, or host lifecycle
 # contracts drift. Pure file checks, so it runs anywhere, host or container.
-# Its sibling test/host-invariants.sh covers behaviour; `zig build
-# source-check` runs both.
+# `zig build source-check` runs this; `infrastructure-check` runs the
+# executable behavior proofs in test/host-invariants.sh.
 
 set -euo pipefail
 

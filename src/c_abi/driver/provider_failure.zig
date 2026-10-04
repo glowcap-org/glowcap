@@ -125,6 +125,7 @@ pub fn dialError(code: i32) net.netlayer.DialError {
     return switch (code) {
         shared.GLOWCAP_ERR_INVALID_ARGUMENT => error.InvalidAddress,
         shared.GLOWCAP_ERR_TIMEOUT => error.TimedOut,
+        shared.GLOWCAP_ERR_WOULD_BLOCK => error.WouldBlock,
         shared.GLOWCAP_ERR_INTERNAL => error.OutOfMemory,
         else => error.ConnectionLost,
     };

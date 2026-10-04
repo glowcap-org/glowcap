@@ -187,6 +187,7 @@ pub const Host = struct {
     /// Host-wide bootstrap aliases. A fetch performs one keyed discovery lookup
     /// and lazily projects the actor onto the requesting Port.
     giftables: std.StringHashMapUnmanaged(publish_mod.Publication) = .empty,
+    publication_lookup: ?*const @import("publication_lookup.zig").Lookup = null,
     /// The embedder-facing action FIFO; `nextAction` drains it.
     actions: engine.ActionFifo(HostAction) = .{},
     /// The most recently popped action; its byte views stay valid until the
@@ -307,6 +308,10 @@ pub const Host = struct {
     pub const LifecyclePhase = host_close.LifecyclePhase;
     const Lifecycle = host_close.Lifecycle;
     pub const PendingWorkLease = host_admission.PendingWorkLease;
+    pub const PublicationLookup = @import("publication_lookup.zig").Lookup;
+    pub const PublicationFetch = @import("publication_lookup.zig").Fetch;
+    pub const setPublicationLookup = @import("publication_lookup.zig").install;
+    pub const clearPublicationLookup = @import("publication_lookup.zig").uninstall;
 
     // Whole-aggregate construction, destruction, and exclusive transfer live
     // in `host/ownership.zig`; these aliases preserve the supported Host API.
@@ -374,6 +379,8 @@ pub const Host = struct {
     pub const queueSendCapability = host_delivery.queueSendCapability;
     pub const sendValues = host_delivery.sendValues;
     pub const queueSendValues = host_delivery.queueSendValues;
+    pub const Call = @import("host/owned_call.zig").Call;
+    pub const callCapability = @import("host/owned_call.zig").callCapability;
 
     pub const tell = host_delivery.tell;
     pub const tellCapability = host_delivery.tellCapability;
@@ -524,6 +531,8 @@ pub const Host = struct {
     /// Sturdyref enlivenment (`enliven.zig`): a complete sturdyref becomes a
     /// live capability, selecting a session or staging a dial.
     pub const enliven = enliven_mod.enliven;
+    pub const Enliven = enliven_mod.Enliven;
+    pub const enlivenCapability = enliven_mod.enlivenCapability;
     pub const enlivenSessionUri = enliven_mod.enlivenSessionUri;
     pub const enlivenSelectOrDial = enliven_mod.enlivenSelectOrDial;
     pub const authenticatedSessionForKey = enliven_mod.authenticatedSessionForKey;
@@ -612,10 +621,11 @@ pub const Host = struct {
 
     // Session Argument/completion lifting and complete failed-projection retirement.
     pub const liftValue = host_capability_lift.liftValue;
+    pub const discardValueObservation = host_capability_lift.discardValueObservation;
     pub const projectValue = host_capability_lift.projectValue;
     pub const projectValues = host_capability_lift.projectValues;
-    pub const ProjectedCompletion = host_capability_lift.ProjectedCompletion;
-    pub const projectCompletion = host_capability_lift.projectCompletion;
+    pub const ProjectedCompletion = @import("host/capabilities/completion.zig").ProjectedCompletion;
+    pub const projectCompletion = @import("host/capabilities/completion.zig").projectCompletion;
     pub const liftValues = host_capability_lift.liftValues;
 
     // Raw/opaque target routing and the bounded foreign-Argument policy.

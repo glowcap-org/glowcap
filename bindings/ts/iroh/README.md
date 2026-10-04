@@ -48,4 +48,4 @@ relay request. A byte-transparent relay leaves the keyed handshake and session a
 `zig build bindings-relay-iroh` proves a wasm browser peer holds a live OCapN session with a real
 iroh endpoint through each runtime's relay (fetch and call round-trip). The relay pump and WebSocket
 adapter live in [`@glowcap/relay`](../relay/); the rooms endpoint that adds policy is
-[`apps/rooms/web/relay.ts`](../../../apps/rooms/web/relay.ts).
+[`apps/rooms/rust/services/src/web/relay.rs`](../../../apps/rooms/rust/services/src/web/relay.rs).

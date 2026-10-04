@@ -194,6 +194,11 @@ explicit user choice rather than an automatic fallback.
 
 ## Reorganization contracts
 
+The [storage contract](persistence.md#reorganization-transaction) owns the
+atomic authority checks, audience-change management ceiling and bounded
+transaction. [ADR-0183](../../decisions/adr/ADR-0183-rooms-scoped-sharing-and-recovery.md)
+settles this design; application integration remains unimplemented.
+
 Move distinguishes changing an entry's placement from changing original owned
 content. The UI labels the operation and shows its scope before execution.
 Reference placements may cross directories, rooms, and conversations through

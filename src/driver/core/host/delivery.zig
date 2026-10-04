@@ -144,7 +144,7 @@ pub fn sendValues(
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !u64 {
-    return sendValuesWithProgress(self, session, target, verb, values, arena, true);
+    return sendValuesWithProgress(self, session, target, verb, values, arena, true, null);
 }
 
 pub fn queueSendValues(
@@ -155,7 +155,19 @@ pub fn queueSendValues(
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !u64 {
-    return sendValuesWithProgress(self, session, target, verb, values, arena, false);
+    return sendValuesWithProgress(self, session, target, verb, values, arena, false, null);
+}
+
+pub fn sendObservedValues(
+    self: *Host,
+    session: *HostSession,
+    target: capability.Ref,
+    verb: []const u8,
+    values: []const value_mod.Value,
+    arena: std.mem.Allocator,
+    observer: *@import("owned_call.zig").Call,
+) !u64 {
+    return sendValuesWithProgress(self, session, target, verb, values, arena, false, observer);
 }
 
 fn sendValuesWithProgress(
@@ -166,6 +178,7 @@ fn sendValuesWithProgress(
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
     drive_now: bool,
+    observer: ?*@import("owned_call.zig").Call,
 ) !u64 {
     try self.admitApplicationOperation();
     const resolved_target = self.capabilities.resolve(target) orelse return error.UnknownCapability;
@@ -174,6 +187,7 @@ fn sendValuesWithProgress(
             return error.UnknownCapability;
         switch (promise.state) {
             .pending, .settling => {
+                if (observer != null) return error.NotResolved;
                 const id = try capability_promise.queueSendValues(
                     self,
                     resolved_target.deferred,
@@ -197,7 +211,7 @@ fn sendValuesWithProgress(
     const id = try commitRoutedSend(self, routed, .{
         .verb = verb,
         .args = prepared.values,
-    }, drive_now, .{ .arena = arena, .retained = retained });
+    }, drive_now, .{ .arena = arena, .retained = retained }, observer);
     _ = prepared.commit();
     lower.releaseUntransferredCapabilityRetains(self, retained);
     retained_live = false;
@@ -214,7 +228,7 @@ fn sendWithProgress(
     try self.admitApplicationOperation();
     const routed = try routing.routeSend(self, session, target, msg.args);
     try self.checkOutboundAdmission(routed.session);
-    return commitRoutedSend(self, routed, msg, drive_now, null);
+    return commitRoutedSend(self, routed, msg, drive_now, null, null);
 }
 
 fn sendCapabilityWithProgress(
@@ -228,7 +242,7 @@ fn sendCapabilityWithProgress(
     const routed = try routing.routeCapability(self, session, target, true);
     try self.checkOutboundAdmission(routed.session);
     try routing.validateRoutedArguments(self, routed.session, msg.args);
-    return commitRoutedSend(self, routed, msg, drive_now, null);
+    return commitRoutedSend(self, routed, msg, drive_now, null, null);
 }
 
 const OutboundStagingContext = struct {
@@ -242,6 +256,7 @@ fn commitRoutedSend(
     msg: actors.Message,
     drive_now: bool,
     staging: ?OutboundStagingContext,
+    observer: ?*@import("owned_call.zig").Call,
 ) !u64 {
     const location: actors.VowLocation = switch (routed.target) {
         .local => .local,
@@ -253,7 +268,11 @@ fn commitRoutedSend(
     };
     const reservation = try vows.reserveVow(self, routed.session, location, .plain, answer_release);
     var reservation_live = true;
-    errdefer if (reservation_live) vows.cancelVowReservation(self, reservation);
+    errdefer if (reservation_live) {
+        vow_settlement.cancelObserverRelease(reservation.row, routed.session);
+        vows.cancelVowReservation(self, reservation);
+    };
+    if (observer) |owned| try @import("owned_call.zig").observe(owned, routed.session, reservation.row);
     const vow = if (staging) |context|
         try lower.servedSendWithStaging(
             self,

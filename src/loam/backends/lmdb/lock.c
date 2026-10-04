@@ -4,15 +4,27 @@
  * the same path. Uses BSD flock(), available on macOS and Linux. */
 #include <fcntl.h>
 #include <limits.h>
-#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
 #include <sys/file.h>
 #include <unistd.h>
 
-int loam_lmdb_lock(const char *directory) {
-    char path[PATH_MAX];
-    int length = snprintf(path, sizeof(path), "%s/loam-owner.lock", directory);
-    if (length < 0 || (size_t)length >= sizeof(path)) return -1;
-    int fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+int loam_lmdb_canonical_path(const char *path, char *result, size_t capacity) {
+    char resolved[PATH_MAX];
+    if (!realpath(path, resolved)) return errno;
+    size_t length = strlen(resolved);
+    if (length >= capacity) return ENAMETOOLONG;
+    memcpy(result, resolved, length + 1);
+    return 0;
+}
+
+int loam_lmdb_directory(const char *path) {
+    return open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+}
+
+int loam_lmdb_lock(int directory) {
+    int fd = openat(directory, "loam-owner.lock", O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if (fd < 0) return -1;
     if (flock(fd, LOCK_EX | LOCK_NB) < 0) {
         close(fd);
@@ -21,6 +33,6 @@ int loam_lmdb_lock(const char *directory) {
     return fd;
 }
 
-void loam_lmdb_unlock(int fd) {
+void loam_lmdb_close_fd(int fd) {
     close(fd);
 }

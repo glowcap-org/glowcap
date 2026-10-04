@@ -7,7 +7,7 @@ decision: "Durable managed descriptors restore distinct use and control referenc
 supersedes: []
 superseded_by: []
 amends: [ADR-0156, ADR-0167]
-amended_by: [ADR-0169]
+amended_by: [ADR-0169, ADR-0178]
 ---
 
 # ADR-0168 Durable managed capability bindings

@@ -292,7 +292,12 @@ pub fn checkMemoryLedgerSymbolClaims(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const path = ".agents/rules/memory-ledger.md";
+    for ([_][]const u8{ ".agents/skills/memory-ledger/SKILL.md", ".agents/skills/memory-ledger/references/loam.md" }) |path| {
+        try checkMemoryLedgerFile(io, gpa, root, violations, path);
+    }
+}
+
+fn checkMemoryLedgerFile(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *std.ArrayList([]const u8), path: []const u8) !void {
     const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for the ledger symbol check with {s}", .{ path, @errorName(err) });
         return;

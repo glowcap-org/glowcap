@@ -42,12 +42,3 @@ fn copyAt(comptime To: type, allocator: std.mem.Allocator, value: anytype, depth
         },
     }
 }
-
-pub fn plain(value: driver.Value) bool {
-    value.forEachCapability({}, rejectCapability) catch return false;
-    return true;
-}
-
-fn rejectCapability(_: void, _: driver.Capability) anyerror!void {
-    return error.CapabilityFound;
-}

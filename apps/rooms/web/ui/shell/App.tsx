@@ -1,10 +1,8 @@
 // The whole page, and the only place that decides what each layout is showing.
 //
 // Every class on the containers below is derived here from the store, in one
-// expression each. The classes used to be the state: code asked the container
-// whether it carried `show-list` to decide what a button should announce, and a
-// separate handler re-applied a dozen of them whenever the window crossed the
-// breakpoint. Nothing reads a class now, and crossing the breakpoint is just a
+// expression each. Nothing reads a class back: a class is output, never state, so
+// no code asks a container what it shows, and crossing the breakpoint is just a
 // different answer from `state.mobile`.
 
 import * as store from "../store.ts";
@@ -50,7 +48,6 @@ import {
 	sendControlsFor,
 } from "../types.ts";
 import { directoryName, dirWhere, roomCalled } from "../text.ts";
-import { useCapabilitySetModel } from "../settings/CapabilitySetModel.tsx";
 import { mayInteract, mayObserve } from "../../../lib/session/access_view.ts";
 import { effectiveRoomsSessionAccess } from "../controller/access.ts";
 import { loadOpsPage } from "../chunks.ts";
@@ -207,9 +204,6 @@ export function App() {
 		}
 	}, [mobile, state.listScreen]);
 
-	// Read live from the line it names, so bytes arriving while the viewer is
-	// open reach it rather than settling behind a copy taken when it opened.
-	const capabilitySet = useCapabilitySetModel();
 	const [helpLayer, setHelpLayer] = useState(false);
 	const [dirLayer, setDirLayer] = useState(false);
 	const [convLayer, setConvLayer] = useState(false);
@@ -229,8 +223,8 @@ export function App() {
 	// top layer *after* the card it opened from, so Settings would come back
 	// standing over its own open manager card. Nested dialogs need no such
 	// dance: the browser already makes everything under the topmost one inert.
-	const settingsBlocked = state.helpOpen || capabilitySet.editing !== null || capabilitySet.modalLayer ||
-		helpLayer || state.aboutDir !== null || dirLayer || state.aboutConv || convLayer ||
+	const settingsBlocked = state.helpOpen || helpLayer || state.aboutDir !== null || dirLayer || state.aboutConv ||
+		convLayer ||
 		state.aboutMember !== null || memberLayer;
 	// The toggles and the Operations control mirror possession, whose one
 	// authority is the row fields the data layer sets and clears.

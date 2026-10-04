@@ -28,12 +28,12 @@ const GLOWCAP_ERR_INTERNAL = shared.GLOWCAP_ERR_INTERNAL;
 /// underlying pop may synchronously invoke a `GlowcapHostBehavior` before an
 /// action hook runs; binding runtimes must install their Host delivery context
 /// around this whole call.
-pub export fn glowcap_host_pump_drain(
+pub fn glowcap_host_pump_drain(
     host: ?*GlowcapHost,
     hooks: ?*const GlowcapHostPumpHooks,
     out_acted: ?*u32,
     out_yielded: ?*u32,
-) i32 {
+) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = common.instanceFrom(host) orelse {
         shared.setLastError("null host", .{});

@@ -3,6 +3,8 @@
     text { font-family: var(--font-sans, system-ui, sans-serif); fill: var(--ink, #3a3027); paint-order: stroke; stroke: var(--paper-raised, #fff9ee); stroke-width: 3px; stroke-linejoin: round; }
     .title { font-size: 15px; font-weight: 700; }
     .sub { font-size: 12px; fill: var(--ink-soft, #6b5d4d); }
+    .ink-warm { fill: var(--dia-accent-deep, #9d5209); }
+    .ink-cool { fill: var(--dia-teal-deep, #1b5f66); }
     .step { font-size: 12px; font-weight: 700; fill: var(--accent-deep, #9d5209); }
     .cap { font-size: 12px; font-weight: 700; fill: var(--teal-deep, #1b5f66); }
     .bead { visibility: hidden; }
@@ -53,14 +55,14 @@
 
   <!-- Row 1: the directory, the one object a page fetches first. -->
   <rect x="270" y="20" width="220" height="60" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
-  <text x="380" y="46" text-anchor="middle" class="title" fill="var(--teal-deep, #1b5f66)">room server</text>
+  <text x="380" y="46" text-anchor="middle" class="title ink-cool">room server</text>
   <text x="380" y="66" text-anchor="middle" class="sub">names, rooms, introductions</text>
 
   <path d="M380 80 L380 114" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#rc-arrow)"/>
 
   <!-- Row 2: the room, answered as a live reference. -->
   <rect x="270" y="120" width="220" height="60" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
-  <text x="380" y="146" text-anchor="middle" class="title" fill="var(--accent-deep, #9d5209)">#team-guide</text>
+  <text x="380" y="146" text-anchor="middle" class="title ink-warm">#team-guide</text>
   <text x="380" y="166" text-anchor="middle" class="sub">the room and its seats</text>
 
   <!-- The bus: one drop from the room, one rail, one drop to each peer. -->

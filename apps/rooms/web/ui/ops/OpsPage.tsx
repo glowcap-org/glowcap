@@ -195,9 +195,9 @@ export function OpsMain({ segment }: { segment: string | null }) {
 						<p>{opsNotFoundSaid(segment)}</p>
 						{
 							/* Named the way the chooser names them, and each name is the way
-							   there. The list used to be the address segments themselves,
-							   which asked a reader who had just mistyped one to read four
-							   more and retype the right one. */
+							   there. Listing the address segments themselves would ask a reader
+							   who had just mistyped one to read four more and retype the
+							   right one. */
 						}
 						<p className="hint">
 							{opsPanesAre} {OPS_PANES.map((face, at) => (

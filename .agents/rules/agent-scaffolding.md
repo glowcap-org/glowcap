@@ -1,133 +1,51 @@
 ---
 description: "The scaffolding is a public API whose consumers are agents. Living-state discipline, the scaffolding gate, the ratchet, and the budget. Load before changing anything under .agents/, AGENTS.md, overlays, hooks, or skills."
-alwaysApply: true
+globs: AGENTS.md, .agents/**, .claude/**, .cursor/**, .codex/**
+paths:
+  - "AGENTS.md"
+  - ".agents/**"
+  - ".claude/**"
+  - ".cursor/**"
+  - ".codex/**"
 ---
 
 # glowcap — Agent Scaffolding
 
-The scaffolding — `AGENTS.md`, everything under `.agents/`, the `.claude/`,
-`.cursor/`, and `.codex/` overlays, the hooks, the skills — is a public API
-whose consumers are agents. Every value this project holds about public
-surfaces therefore applies to it, and applies harder, because the consumers act
-on what the surface says, every session, at machine speed. A stale README
-misleads a reader who might notice. A stale rule instructs an executor who
-won't. A rough edge in code becomes a rough edge in one contribution; a rough
-edge in a rule becomes a rough edge in every contribution that follows. The
-rest of this rule is not new policy. It is the project's existing values
-pointed at the surface that delivers them.
+Agent guidance is a public API whose consumers are every future session. Keep
+its ownership, scope, and failure behavior as precise as a product interface.
 
-## The scaffolding is living-state
-
-Every rule, every README under `.agents/`, every skill body, every hook doc is a
-living-state surface under the doc-drift rubric, registered in the doc-drift
-living-state table. A rule that cites a path is claiming the path exists. A rule
-that shows a command is claiming the command works. A rule that describes a
-convention is claiming the convention holds. When the state moves, the claim
-moves in the same diff, aligned, removed, or stripped of its state claim. No
-fourth outcome, and no follow-up PR.
-
-## The scaffolding has a gate
-
-Static scaffolding answers to `zig build source-check`. Executable devcontainer
-and worktree behavior answers to `zig build infrastructure-check`. The full
-code gate still includes `source-check`, but a scaffolding-only edit runs the
-focused owner instead of spending the product gate. These gates verify every
-claim they can reach.
-`tools/check/source_check.zig` (the driver) and its `tools/check/source_check/`
-check modules and tables are the complete inventory, read them before assuming
-a claim is unchecked. The shape of
-what it holds:
-
-- Cursor and Claude overlays are complete and unbroken, and Codex's direct
-  loading contract has no duplicate skills mirror; the map itself lives in the
-  [`.agents/` index](../README.md). A canonical rule without its overlay is
-  silently unloaded, the failure mode is invisible at exactly the moment it
-  matters. **Edit only the canonical files** (`AGENTS.md`, `.agents/rules/*.md`).
-  Never write through `.cursor/rules/*.mdc` or `CLAUDE.md`: a bulk in-place edit
-  that follows those symlinks turns them into regular files and the overlay
-  dies. The gate already rejects a non-symlink overlay; do not create that
-  failure to begin with.
-- The indexes and the directories agree in both directions. An unindexed rule or
-  skill is undiscoverable; an indexed ghost is a broken promise. The same holds
-  for build steps (every documented `zig build` command is a real step, every
-  step is documented), for relative links across `.agents/**`, `AGENTS.md`, and
-  the docs corpus, and for the doc-drift living-state registry (every top-level
-  doc registered, every registered path real).
-
-The gate also creates a standing pressure: **a rule sentence that could be a
-check is a TODO for a check.** When a check lands, the prose that asserted the
-same thing shrinks to a pointer. Over time the rules should get shorter and the
-gate should get longer. That is the intended direction of travel. It is "make
-the correct path the easy path," applied to the rules themselves, because a
-build step holds the line without asking anyone to remember it.
-
-## The ratchet
-
-Every session ends with one question: what did this session learn that the
-scaffolding didn't already teach? If the answer is non-empty, the lesson lands
-before the session does, and it lands at the strongest layer that can hold it:
-
-1. **A build check**, if the lesson is mechanically checkable.
-2. **A fixture or conformance scenario**, if the lesson is semantic.
-3. **A rule line**, only when neither of the above fits, and then the sharpest
-   line that carries it, placed in the rule that owns the surface.
-4. **A deletion**, when the lesson is that an existing line no longer earns its
-   load.
-
-A correction from the human is always a ratchet event: the session that receives
-it encodes it, or explains in the handoff why it couldn't. The measure of a
-session is not only whether the task completed but whether the floor is higher
-for the next agent than it was for this one. The
-[ratchet skill](../skills/ratchet/SKILL.md) is the landing procedure: layer
-choice, check wiring, validation against the defect, and the prune.
+- **Living-state.** When a path, command, or convention changes, update or
+  remove its claims in the same diff ([doc-drift](doc-drift.md)).
+- **Edit canonical files only** (`AGENTS.md`, `.agents/**`). Never write through
+  the `CLAUDE.md` or `.cursor/rules/*.mdc` symlinks; an in-place edit turns them
+  into regular files and the overlay dies.
+- **Gates.** Static scaffolding answers to `zig build source-check`;
+  executable devcontainer, worktree, and hook behavior answers to
+  `zig build infrastructure-check`. `tools/check/source_check.zig` and its
+  modules are the inventory of what is checked; read them before assuming a
+  claim is unchecked.
+- **Routing.** A rule is resident (`alwaysApply: true`) only when nearly every
+  session needs it. Otherwise it is scoped by `globs:` plus a matching quoted
+  `paths:` list, or it is a skill. Procedures, inventories, and reference data
+  are skills or check tables, never rules.
 
 ## The budget
 
-Every rule line is context every future session must carry, so every line pays
-rent. Additions displace or compress; they do not merely accumulate. A rule that
-outgrows a single attentive read splits by responsibility, the way a module
-would. Prefer one sentence with teeth over five with hedges, bullet accretion
-is the drift mode of scaffolding, and it kills documents slowly: the
-load-bearing lines drown, the voice flattens, and agents start skimming the very
-text that was supposed to stop them from skimming. Pruning is not maintenance
-deferred from the ratchet; it is half the ratchet. The budget saves tokens with
-sharper routing and mechanical checks, not by erasing the ownership, evidence,
-or verification standard a future agent needs.
+Every resident line is paid by every session. Each concern has one owner and
+other surfaces link to it. Additions displace or compress existing prose. Write
+directives with their precondition and reason; cut persuasion, repetition, and
+anecdote. When a check enforces a list or ban, keep the list in the check and
+drop the prose copy. Name current contracts positively; an old-name ban is a
+tombstone that belongs in the ADR and git history once the move lands.
 
-## The gate accretes too
+Committed guidance names protocol vocabulary, owners, boundaries, and
+evidence, never people to emulate. Commit messages describe what the diff
+demonstrates, with a short subject and no session machinery.
 
-The budget binds `source-check` itself. Its honest job is current doc and
-scaffolding truth (overlay symlinks, index parity, link and build-step
-resolution, the living-state registry) and current cross-file invariants (ABI
-version lockstep, host-action drains, constant parity, and layer ownership).
-Those earn their rent every run.
+## The ratchet
 
-Banning an exact sentence, symbol, or file name that a rename replaced is a
-tombstone with a half-life. It is useful while the move is landing and a
-straggler can preserve the old shape; once the tree and its generated mirrors
-agree, the old spelling belongs to the ADR and git history, not a permanent grep
-ledger. Keep the current contract positively (required exports, module edges,
-and cross-language parity), and prefer one general invariant to fifty old-name
-bans.
-
-## Taste lands as structure
-
-Committed guidance carries explicit protocol vocabulary, ownership, boundaries,
-and evidence, never names of people an agent was asked to emulate. Live humans
-stay out of rules and human docs except for copyright attribution; examples use
-generic nicks such as `Alice`. The destination's ambition and the maintainer's
-biography steer choices; they are not slogans or copy for a first-read page.
-
-Commit messages describe only what their diff demonstrates and why. Keep the
-subject short, omit session machinery and persona names, and put durable design
-rationale in an ADR rather than a long commit body.
-
-## Scaffolding litmus
-
-Before changing the scaffolding, ask:
-
-- Does this make the next agent's first correct action more likely?
-- Could the gate enforce this instead of prose? Then wire the gate.
-- Does this line earn its tokens in every session that loads it?
-- Would the gate notice if this claim drifted?
-- Is the floor higher when this diff lands than it was before?
+Before handing off, ask what the session learned that guidance did not teach;
+a human correction always triggers this. Land the lesson at its strongest
+owner (a check, regression test, fixture, rule line, or deletion) and validate
+a new check against the defect it claims to catch. Existing coverage is a valid
+outcome. The [ratchet skill](../skills/ratchet/SKILL.md) is the procedure.

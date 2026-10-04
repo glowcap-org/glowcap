@@ -34,9 +34,7 @@ impl Kind {
 		}
 	}
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Command {
+crate::session::command::catalog! { Command {
 	TakeRoomLink,
 	EnsureRoomLink,
 	LinkRoom,
@@ -44,7 +42,7 @@ pub enum Command {
 	TakeRoomManager,
 	RecoverRoomManager,
 	OpenManagedRoom,
-}
+} }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]

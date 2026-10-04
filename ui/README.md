@@ -12,13 +12,15 @@ fonts/       IBM Plex Sans and IBM Plex Mono
 ```
 
 Each surface keeps its own layout and component styles. The site is static
-HTML; rooms is React. Similar-looking controls are not shared CSS. A theme
-button or a tab strip does a different job on each surface (a code listing's
-folder tabs versus a settings mode switch), and a shared class would make one
-of them wrong. If a third glowcap surface needs the same control, extract then. The wordmark
-lockup is the extraction that already earned it: rooms' rail and the site
-header set the same logotype. Shared *names* still name separate widgets:
-`--accent-ink` is one word for readable accent text on both surfaces.
+HTML, and Rooms is React.
+
+Controls that look alike are not shared CSS. A theme button or a tab strip
+does a different job on each surface (folder tabs on a code listing, a mode
+switch in settings), and one shared class would be wrong for one of them.
+Extract a shared control only when a third glowcap surface needs it. The
+wordmark lockup has already earned that: the Rooms rail and the site header
+show the same logotype. Shared token *names* still describe separate widgets;
+`--accent-ink` means readable accent text on both surfaces.
 
 ## What belongs here
 
@@ -73,84 +75,105 @@ local stylesheet.
 
 ## The mark
 
-There is one mushroom, and it is the shader's. Which reading of it a place gets
-is decided by what the mark is doing there.
+There is one mushroom, and it comes from the WebGPU shader in the
+`apps/rooms/web/ui/mark_gpu*.ts` modules. Each place that shows it uses one of
+three forms, chosen by what the mark is doing there:
 
-As a **performance**, it is the shader, and the shader runs only where it is
-large enough to be worth a device and where arriving is the point: rooms'
-opening screen and its session setup, and the home page's hero. As an
-**object**, saying whose page this is, it is the still artwork: the tab icon,
-the header and footer lockups, and the project README, which takes the one
-still reading that carries light. As a **glyph** among other glyphs,
-it is the line drawing: rooms' two mark buttons, a card's lead mark, the rule
-at the end of a page.
+- **The live shader**, where the mark is an event. It runs only where it is
+  large enough to justify the device work and where arriving is the point:
+  the Rooms opening screen, Rooms session setup, and the home page's hero.
+  Running it everywhere would turn it into wallpaper.
+- **The still artwork**, where the mark says whose page this is: the tab icon,
+  the header and footer lockups, and the project README. The README uses the
+  one still version that shows light.
+- **The line drawing**, where the mark is one glyph among others: Rooms' two
+  mark buttons, a card's lead mark, and the rule at the end of a page.
 
-Spending the shader everywhere made it wallpaper. Keeping it to the two places
-that open something is what makes it read as an event again.
+### Generated files
 
-The still readings are not a second design. They are traced from the shader's
-own render in the settled pose, so they stand in for it exactly.
+Every still form is generated from the shader, so the way to change the mark
+is to change the shader.
 
-`site/assets/mark.svg` is that artwork, and it is the standard asset: the
-favicon, the square icon the touch icon and the README and the social card all
-read, and the two tokens below are all cut from it. All of it is generated.
-`zig build gen-mark` renders the shader in the pinned headless browser, traces
-that render, and rewrites every one of those files together, so the way to
-change the mark is to change the shader. `zig build gen-mark-check` renders
-again and fails if any of them has parted from it. The browser is why both
-steps sit beside `zig build check` rather than inside it; the half that needs
-no browser is in `zig build source-check`, which holds the committed files to
-one geometry.
+- `zig build gen-mark` renders the shader in the pinned headless browser,
+  traces that render, and rewrites all the generated files together.
+- `zig build gen-mark-check` renders again and fails if any committed file no
+  longer matches.
+- Both steps need a browser, so they run beside `zig build check` rather than
+  inside it. `zig build source-check` covers the part that needs no browser:
+  it checks that the committed files share one geometry.
 
-`site/assets/mark-lit.svg` is the same mushroom with its lamps on, and the
-project README is the one place that reads it. Its lamps are not a fifth layer
-of the drawing: they are found by asking the lit render what it added to the
-unlit one, which is the only way to reach the line of light under the brim,
-since that line belongs to no unlit tone. The color is measured inside that
-same cut. An SVG has no emission and no bloom pass, so the glow is three
-passes of the lamp geometry, a wide soft wash and a tight bright one under the
-lamps themselves, and the two blurred passes are clipped to the mushroom. That
-clip is what makes it read as light inside a thing rather than a halo around
-one.
+The generated files are:
 
-The render it came from is a cel drawing rather than a shaded one. Its
-brightness falls into four flat tones with near-empty gaps between them, so
-the artwork is four flat fills and not a reduction of anything.
-`tokens.css` carries two readings of it. The first is four masks,
-`--mark-silhouette`, `--mark-flesh`, `--mark-shade` and `--mark-windows`, each
-covering the same frame, so `.icon-mark` stacks four `.mark-piece` children in
-one box and paints each its own tone. Masks rather than one finished picture,
-because then the drawing is one geometry and the theme is four colors rather
-than two whole drawings that have to be kept in step. Those tones are measured off the shader in each theme. It keeps one mushroom
-and lights it differently, so on cream the flesh and the rim come up warm and
-open. The windows stay as dark as they are at night, being holes rather than
-surfaces.
-`--mark-line` is the same trace as one-color linework. It is for an ornament
-that wants a drawn mark rather than a picture, such as a card's lead mark or
-the rule at the end of a page. It is also for a control where the mark is one
-glyph among others, which is rooms' two mark buttons. In a control it paints
-through the mask over
-`currentColor`, the way the stroked glyphs beside it do, so it answers to the
-control in every state rather than carrying a color of its own. Its line is the rim band itself, the region between each
-outline and the flesh inside it, so it carries the shader's own varying
-thickness rather than an even stroke's average of it. A second band, traced
-from the cap rendered without its stalk, carries the brim across the stalk
-with its bend, which is what says the cap stands in front. The windows are
-filled rather than outlined, because these ornaments are set between twenty
-and forty pixels and a ring that small closes up. Both ornaments are
-pseudo-elements or bare spans, so a mask is the only way to give them the
-mushroom, and a mask takes its color from whatever paints it.
+- **`site/assets/mark.svg`**, the standard still artwork. The favicon, the
+  square touch icon, the README, and the social card all use it, and the two
+  CSS forms below are cut from it.
+- **`site/assets/mark-lit.svg`**, the same mushroom with its lamps on. Only the
+  project README uses it.
+- **The mark blocks in `tokens.css`**, described below.
 
-The picture stands a fifth larger than the box it is given, because the
-shader's canvas does the same. The four percentages on `.mark-piece` in
-`mark.css` are what keeps a lockup from shifting when the shader takes the
-still mark's place.
+The still artwork is traced from the shader's own render in its settled pose,
+so it matches the shader exactly. That render is cel-shaded: its brightness
+falls into four flat tones with almost nothing between them. So the artwork is
+exactly four flat fills, not a simplification of a shaded image.
 
-The still mark carries no play beyond a bloom under the pointer. Light and its
-beats belong to the shader. The picture's tones are measured from the render
-rather than picked, so they are literals inside the artwork and carry no theme
-arms: the mushroom is a thing seen at night, and its flesh and its rim are the
-night's in both themes.
+### The lit version
+
+The lamps in `mark-lit.svg` are not a fifth tone. The generator finds them by
+comparing the lit render with the unlit one and keeping what the light added.
+That is the only way to capture the line of light under the brim, which
+matches none of the unlit tones. The lamp color is measured from the same
+comparison.
+
+SVG has no emission or bloom, so the glow is drawn as passes of the lamp
+shape: a wide, soft wash and a tight, bright one, under the lamps themselves.
+The blurred passes are clipped to the mushroom, which makes them read as light
+inside it rather than a halo around it.
+
+### The two CSS forms
+
+`tokens.css` carries the mark in two forms.
+
+**Four masks.** `--mark-silhouette`, `--mark-flesh`, `--mark-shade`, and
+`--mark-windows` each cover the same frame. `.icon-mark` stacks four
+`.mark-piece` children in one box and paints each with its own tone. Using
+masks keeps the drawing as one geometry, so a theme is just four colors and
+there are never two whole drawings to keep in step.
+
+The tones are measured from the shader in each theme. The shader keeps one
+mushroom and lights it differently, so on the cream background the flesh and
+rim come up warm and open. The windows stay as dark as they are at night,
+because they are holes, not surfaces.
+
+**Linework.** `--mark-line` is the same trace as one-color line art.
+
+- It is for ornaments that want a drawn mark rather than a picture, such as a
+  card's lead mark or the rule at the end of a page, and for controls where
+  the mark is one glyph among others, such as Rooms' two mark buttons.
+- In a control it paints through the mask over `currentColor`, like the
+  stroked icons beside it, so it follows the control's color in every state.
+- The line is the shader's rim band itself, the region between each outline
+  and the flesh inside it. So it keeps the shader's varying thickness instead
+  of an even stroke.
+- A second band, traced from the cap rendered without its stalk, carries the
+  brim across the stalk with its bend. That band is what shows the cap is in
+  front.
+- The windows are filled, not outlined, because these ornaments appear at
+  twenty to forty pixels, where a small ring would close up.
+- Both ornaments are pseudo-elements or bare spans, so a mask is the only way
+  to give them the mushroom, and a mask takes its color from whatever paints
+  it.
+
+### Sizing and motion
+
+The picture is a fifth larger than the box it is given, because the shader's
+canvas is too. The four percentages on `.mark-piece` in `mark.css` keep a
+lockup from shifting when the shader replaces the still mark.
+
+The still mark's only motion is a bloom under the pointer; light and its
+timing belong to the shader. The artwork's tones are measured from the render,
+not chosen, so they are literal values in the artwork with no theme variants.
+The mushroom is something seen at night, and its flesh and rim keep their
+night colors in both themes.
 
 ## Light and dark values
 
@@ -160,34 +183,39 @@ Tokens with two values use `light-dark()`:
 --ink: light-dark(#3a3027, #f3e6d0);
 ```
 
-Syrup, the dark face, is the default. A root the reader has not stamped is
-dark whatever the desktop prefers, and `data-theme="light"` is the only thing
-that turns it off, so each surface sets `color-scheme` under one selector,
-`:root:not([data-theme="light"])`. The diagram colors are different: their SVGs
-include light fallbacks, while the stylesheet supplies only dark overrides.
-Giving those tokens a shared light value would flatten distinct colors in the
-artwork. `source-check` holds every surface to that one selector and refuses a
-theme decision made from `prefers-color-scheme`.
+The dark theme, Syrup, is the default. A page is dark unless the reader has
+chosen light, whatever the desktop prefers, and `data-theme="light"` is the
+only switch. So each surface sets `color-scheme` under one selector,
+`:root:not([data-theme="light"])`. `source-check` holds every surface to that
+selector and refuses a theme decision based on `prefers-color-scheme`.
 
-Do not add a plain custom-property declaration before a `light-dark()`
-declaration as a compatibility fallback. Browsers accept any token sequence
-when declaring a custom property, so the second declaration wins even where
-`light-dark()` cannot be used later.
+The diagram colors work differently. Their SVGs include light fallbacks, and
+the stylesheet supplies only dark overrides. Giving those tokens a shared
+light value would flatten colors the artwork keeps distinct.
+
+Do not put a plain custom-property declaration before a `light-dark()`
+declaration as a fallback. Browsers accept any token sequence in a custom
+property, so the second declaration always wins, even where `light-dark()`
+later fails.
 
 ## Making a change
 
-Edit `site/assets/mark.svg` to change the mark itself, then cut its two tokens
-in `tokens.css`, the favicon, and the square icon again from it. Edit
-`tokens.css` alone for a shared color or a typeface. Edit `mark.css` to change
-where the still mark sits in its box, its bloom, or the wordmark drawing.
-Edit `apps/rooms/web/ui/boot.css` to change the rooms opening bloom.
+- **The mark itself:** edit the shader in the
+  `apps/rooms/web/ui/mark_gpu*.ts` modules, then run `zig build gen-mark` to
+  regenerate the artwork, the favicon, the square icon, and the mark tokens.
+- **A shared color or typeface:** edit `tokens.css`.
+- **Where the still mark sits in its box, its bloom, or the wordmark:** edit
+  `mark.css`.
+- **The Rooms opening bloom:** edit `apps/rooms/web/ui/boot.css`.
 
-- The rooms app reads the stylesheet on each request, so CSS changes need only
-  a browser refresh. Changes to `ui/*.ts` need a server restart because the
-  bundle is built at startup.
-- Rebuild the site with `zig build site`, or use `zig build docs-serve` while
-  editing: Zine reloads content and templates, regenerates CapTP example tabs
-  when `site/examples/` changes, and nudges a CSS reload when `ui/tokens.css` or
-  `ui/mark.css` changes.
+To see the change:
+
+- The Rooms app reads the stylesheet on each request, so a CSS change needs
+  only a browser refresh. A change to `ui/*.ts` needs a server restart,
+  because the bundle is built at startup.
+- Rebuild the site with `zig build site`, or run `zig build docs-serve` while
+  editing. Zine reloads content and templates, regenerates the CapTP example
+  tabs when `site/examples/` changes, and triggers a CSS reload when
+  `ui/tokens.css` or `ui/mark.css` changes.
 
 Run `zig build source-check` before committing.

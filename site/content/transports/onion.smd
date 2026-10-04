@@ -54,6 +54,13 @@ service id to reach.
 >     } };
 >     const netlayers = [_]glowcap.net.netlayer.Netlayer{onion_resident.netlayer()};
 >     const partner = glowcap.net.onion.locator("<56-character onion service id>");
+>     const session = try glowcap.driver.connect(
+>         allocator,
+>         &netlayers,
+>         partner,
+>         .ephemeral,
+>         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
+>     );
 > ```
 > **TypeScript**
 > ```ts

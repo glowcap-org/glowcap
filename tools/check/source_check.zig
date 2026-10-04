@@ -21,6 +21,7 @@ const bs_python_sigs = @import("source_check/binding_spine/python_sigs.zig");
 const docs_adr = @import("source_check/docs/adr.zig");
 const docs_links = @import("source_check/docs/links.zig");
 const docs_site = @import("source_check/docs/site.zig");
+const docs_maps = @import("source_check/docs/maps.zig");
 const docs_inventories = @import("source_check/docs/inventories.zig");
 const docs_claim_parity = @import("source_check/docs/claim_parity.zig");
 const docs_snippets = @import("source_check/docs/snippets.zig");
@@ -146,6 +147,7 @@ pub fn check(
     try docs_site.checkSiteContentLinks(io, gpa, root, &violations);
     try docs_site.checkSiteTransportTabs(io, gpa, root, &violations);
     try docs_site.checkSiteNavParity(io, gpa, root, &violations);
+    try docs_maps.checkModuleMapLayers(io, gpa, root, &violations);
     try docs_site.checkSitePageMetadata(io, gpa, root, &violations);
     try docs_inventories.checkResidentRoster(io, gpa, root, &violations);
     try docs_snippets.checkQuickStartSnippet(io, gpa, root, &violations);
@@ -302,6 +304,7 @@ pub fn check(
     try docs_site.checkSiteSvgAscii(io, gpa, root, &violations);
     try docs_site.checkSiteMotionReducedGuard(io, gpa, root, &violations);
     try docs_site.checkSiteDiagramTokens(io, gpa, root, &violations);
+    try docs_site.checkSiteDiagramTextFill(io, gpa, root, &violations);
     try docs_snippets.checkExampleFenceIndent(io, gpa, root, &violations);
     try ps_hygiene.checkRemoveDiscards(io, gpa, root, &violations);
     try ps_hygiene.checkDiscardedErrors(io, gpa, root, &violations);
@@ -348,6 +351,7 @@ test {
     _ = cp_node_actions;
     _ = docs_links;
     _ = docs_site;
+    _ = docs_maps;
     _ = docs_claim_parity;
     _ = docs_registry;
     _ = docs_snippets;

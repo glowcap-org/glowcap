@@ -5,13 +5,16 @@ policy algebra, held access, and management operations for `glowcap.loam.access`
 The notation is illustrative; Rust examples describe a consumer of the shared
 Zig implementation. The [shipped inventory](../../../shipped.md#resource-models)
 names implemented evidence.
-The [durable owner usage guide](../../../loam.md#durable-owner-operations)
-describes the implemented Zig storage API; the hosted and Rust shapes below
-remain the integration destination. The implemented native Host methods and
+The [durable owner usage guide](../../../loam/access.md#durable-owner-operations)
+describes the implemented Zig storage API. The hosted sketches below
+remain broader integration contracts; the
+[first C/Rust profile](../../../loam/c-and-rust.md) is implemented. The implemented Zig Host methods and
 bounded derivation retry contract live in the
-[sharing guide](../../../loam.md#deriving-and-recovering-a-shared-facet).
-The [inspection guide](../../../loam.md#inspecting-held-access) documents the
-implemented use-only snapshot and its limited disclosure.
+[sharing guide](../../../loam/access.md#deriving-and-recovering-a-shared-facet).
+The [inspection guide](../../../loam/access.md#inspecting-held-access) documents the
+implemented scoped use and control snapshots and their limited disclosure.
+The [management guide](../../../loam/access.md#managing-a-held-control) describes Zig
+attenuation, independent revocation and issuer-held control recovery.
 
 The [access architecture](architecture.md) owns enforcement and actor integration;
 [storage requirements](storage.md) own durable resource and grant invariants.
@@ -28,8 +31,10 @@ Managed access provides a resource graph, scoped access grants, and the machiner
 keeps held facets subject to those grants. An application supplies content,
 operation meanings, and policy definitions. Host integration binds those
 decisions to actual local or remote capabilities. Loam supplies shared persistence and residency; scheduling remains in the
-existing Host/Vat and embedding executor. The Rust notation below assumes
-`use glowcap::loam::access`; no separate managed access package is required.
+existing Host/Vat and embedding executor. The Rust notation below illustrates
+the wider model and hosting contract. The implemented
+[Rust profile](../../../loam/c-and-rust.md) exposes fixed-resource lifecycle
+operations under `glowcap::loam`; it does not project every API in this sketch.
 
 There are three API surfaces, with distinct callers:
 
@@ -429,12 +434,14 @@ recall bytes already delivered or reverse an earlier committed content change.
 ## Returned references and cross-owner operations
 
 `ContentCall.discloseExact` implements the `existing` shape below for a bound
-local strong edge and refuses undeclared capabilities under
+prepared strong edge and refuses undeclared capabilities under
 [ADR-0172](../../../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md).
-`ContentCall.discloseDependent` implements the local `derived` shape. It keeps
+`ContentCall.discloseDependent` implements the runtime `derived` shape. It keeps
 both the invoking endpoint and the stored target as live authority under
 [ADR-0173](../../../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md).
-The broader typed transaction output and foreign fields remain proposed.
+Typed local and foreign fields are implemented through the
+[reference preparation API](../../../loam/references.md). The broader typed
+transaction output below remains proposed.
 
 ```rust
 // During an authorized Attachments response, produce a limited output reference.
@@ -515,7 +522,7 @@ tombstones, graph size, recursion, child grants, pending effects, and inventory
 pages. A grant or owner generation is never reused to revive a revoked link.
 Error details are scoped so a denied lookup cannot reveal private siblings.
 
-## How this looks in native Zig
+## How this looks in Zig
 
 Zig can provide the same typed model with compile-time policy parameters and
 explicit allocators. It need not reduce the model to strings or untyped calls.
@@ -574,42 +581,42 @@ ordering, or complete mediation of returned capabilities.
 
 ## The foreign-language boundary
 
-Rust embeds the Zig implementation through a C ABI. Native Zig helpers and
+Rust embeds the Zig implementation through a C ABI. Zig helpers and
 foreign typed wrappers use the same runtime registration and access model.
 The ABI adds marshaling and ownership work without moving grant decisions
 into the binding.
 
-The illustrative ABI has opaque owner, capability, prepared-transaction,
-and result handles. These resource-specific handles participate in the shared Loam transaction
-contract. A minimal outline is:
+The first implemented profile is specified by
+[ADR-0185](../../../decisions/adr/ADR-0185-loam-c-and-rust-resource-lifecycle.md)
+and the [consumer guide](../../../loam/c-and-rust.md).
+`libglowcap_loam` owns portable Store, Attachment, synchronous Call and submitted
+Work handles. The optional `libglowcap_loam_lmdb` supplies LMDB startup and
+worker execution. Rust exposes `loam::{Store, Attachment, Content, Policy}` and
+uses the existing `Host`, `Ref` and Session types. It creates no second runtime.
 
-```c
-LoamAccessStatus glowcap_loam_access_owner_create(const LoamAccessConfig *, LoamAccessOwner **out);
-LoamAccessStatus glowcap_loam_access_owner_stage(LoamAccessOwner *, LoamTransaction *,
-    LoamAccessInvocation *, const LoamAccessCommand *, LoamAccessStagedResult **out);
-LoamAccessStatus glowcap_loam_access_result(const LoamInstalledTransaction *,
-    LoamAccessStagedResult *, LoamAccessEffects **out);
-void glowcap_loam_access_staged_result_release(LoamAccessStagedResult *);
-void glowcap_loam_access_effects_release(LoamAccessEffects *);
-void glowcap_loam_access_owner_release(LoamAccessOwner *);
-```
-
-Loam drives participant installation inside its shared commit transition.
-The managed access result operation reads that installed result; it is not a second
-commit or a binding-controlled authority transition.
-
-This is only an ABI outline. Its full ownership and policy interface is the
-substantial design work. In particular, it requires the following contracts:
-
-| Boundary | Decision that must be explicit |
+| Boundary | Implemented contract |
 | --- | --- |
-| Application policy | Bounded descriptors evaluated by Zig; application hooks supply content facts or domain predicates, never generic narrowing, intersection, graph traversal, or lifecycle. |
-| Callback ownership | The application context outlives registration; callbacks are synchronous, bounded, non-reentrant, and cannot unwind across the ABI. Teardown waits for outstanding use. |
-| Content storage | Application bytes stay opaque; managed access exposes transaction participants and effects without interpreting message schemas. Loam owns atomic commitment; the embedding realizes its storage effects. |
-| Memory | Borrowed inputs last for the call; prepared writes last for their prepared handle; returned allocations have one release owner. No hidden cross-allocator frees. |
-| Capability custody | References are retained/released through the owning Host. Arbitrary integers and serialized model IDs cannot create invocation authority. |
-| Async effects | Tickets identify outstanding storage or host effects; late and duplicate completions are checked against owner generation and phase. |
-| Failure | Stable tagged outcomes carry bounded details; cancellation distinguishes unstarted, known-unchanged, committed, and indeterminate work. |
+| Policy | Bounded identity, permission keys and lower/upper bounds evaluated by Zig. Callbacks supply content requirements and facts. |
+| Callbacks | Copied method tables; contexts survive until successful detach. Synchronous borrowed calls cannot unwind or reenter Host driving. |
+| Storage | Opaque content replacement joins the shared managed transaction and receipt. Startup creation commits before returning usable metadata. |
+| Memory | Input borrows end at callback return; reply and replacement bytes copy into the bounded retained arena. Fixed Work slots retain submitted buffers until physical retirement, completion and release. |
+| Capabilities | Restored endpoints acquire ordinary held Host references. Serialized object names are trusted metadata, never network invocation authority. |
+| Completion | Core tickets retain generation and phase checks. Completion reports consumption explicitly; refusal preserves ownership. Unknown writes select recovery only after the original worker retires. |
+
+The tested consumer lifecycle includes delegated sharing, narrowed admission,
+content edits and durable mutation replay, ancestor pause/resume, restart and
+cold fetching the original derived publication. C tests exercise release
+refusal, duplicate completion and the indeterminate-write recovery barrier.
+
+The fixed-resource profile also projects strong reference authoring and exact
+or dependent restoration through shared Host preparation. Its
+[consumer guide](../../../loam/c-and-rust.md) owns bounds and scope.
+Remaining projections are general object/graph transactions,
+application-specific derivation decoders, privileged owner lifecycle,
+and the broader hosted sketches above. Add them for an exercised consumer path,
+with the shared storage and authority contracts intact. The
+[browser profile](../../../loam/browser.md) now exercises the same fixed-resource
+lifecycle. These consumer proofs do not freeze the broader interfaces.
 
 Rust traits and Zig compile-time types provide typed views over registered
 schemas and construct requirements for the same runtime model. The vocabulary
@@ -634,7 +641,7 @@ attachments, reorganization, and lost storage acknowledgements. Measure ABI
 calls, copying, allocation ownership, and native/Wasm behavior. Verify that
 Rust wrappers execute selected effects without reconstructing the grant model.
 
-This sketch has not been compiled or benchmarked. Implementation must validate
+The broader illustrative APIs above have not been compiled or benchmarked. Their implementation must validate
 policy laws, capability custody, transaction boundaries, and failure paths
 against the [access evidence matrix](architecture.md#implementation-evidence)
 and [Rooms integration scenarios](../../rooms/access-grants.md#verification-matrix)

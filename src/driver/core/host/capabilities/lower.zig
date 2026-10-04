@@ -90,6 +90,20 @@ pub const PreparedValues = struct {
         return self.values;
     }
 
+    /// A local deferred reply's listeners acquire canonical Host custody
+    /// synchronously. Reclaim newly minted local export names unless a listener
+    /// published a wire occurrence. Foreign routes retain their normal owner.
+    pub fn finishLocalBorrow(self: *PreparedValues) void {
+        for (self.receipts.items()) |receipt| switch (receipt) {
+            .local => |local| {
+                if (local.session.served.port.peer.session_state.exportRefcount(.from(local.position)) == 1)
+                    local.session.served.port.rollbackExport(&self.host.vat, .{ .local = local.actor_id }, local.position);
+            },
+            .foreign, .deferred_projection => {},
+        };
+        self.committed = true;
+    }
+
     pub fn deinit(self: *PreparedValues) void {
         if (!self.committed) rollbackCapabilityLowerings(self.host, self.receipts.items());
         self.* = undefined;

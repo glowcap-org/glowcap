@@ -69,6 +69,13 @@ fn main() {
 			println!("cargo:rerun-if-changed={}", path.display());
 			println!("cargo:rustc-link-lib=static={archive}");
 		}
+		if cfg!(feature = "loam") {
+			println!("cargo:rustc-link-lib=static=glowcap_loam");
+			println!(
+				"cargo:rerun-if-changed={}",
+				directory.join("libglowcap_loam.a").display()
+			);
+		}
 		return;
 	}
 
@@ -93,6 +100,17 @@ fn main() {
 	println!("cargo:rustc-link-lib=static=glowcap_driver");
 	println!("cargo:rustc-link-lib=static=glowcap_host");
 	println!("cargo:rustc-link-lib=static=glowcap_ocapn");
+
+	if cfg!(feature = "loam") {
+		println!("cargo:rustc-link-lib=static=glowcap_loam_lmdb");
+		println!("cargo:rustc-link-lib=static=glowcap_loam");
+		for name in ["glowcap_loam", "glowcap_loam_lmdb"] {
+			println!(
+				"cargo:rerun-if-changed={}",
+				lib_dir.join(format!("lib{name}.a")).display()
+			);
+		}
+	}
 
 	if cfg!(feature = "tcp") {
 		println!("cargo:rustc-link-lib=static=glowcap_net_transport_tcp");

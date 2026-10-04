@@ -7,7 +7,7 @@ decision: "Facet derivation commits its grant, endpoint, publication, and bounde
 supersedes: []
 superseded_by: []
 amends: [ADR-0169]
-amended_by: []
+amended_by: [ADR-0178]
 ---
 
 # ADR-0170 Durable facet derivation

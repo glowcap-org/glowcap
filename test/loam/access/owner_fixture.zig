@@ -12,7 +12,8 @@ pub const limits: loam.core.Store.Limits = .{
     .cache_slots = 8,
     .max_leases = 8,
     .resident_bytes = 512 * 1024,
-    .max_changes = 16,
+    // Composed content, grant and child-index changes share this capacity.
+    .max_changes = 32,
     .staging_bytes = 256 * 1024,
 };
 pub const store_id: loam.core.StoreId = @fromBackingInt(92);
@@ -50,13 +51,30 @@ pub fn create(store: *loam.core.Store, backend: anytype, owner: core.OwnerId) !l
     return object;
 }
 
+pub fn prepareResource(append: *storage.Append, read: *storage.Read, backend: anytype, parent: ?core.ResourceId) !void {
+    for (0..512) |_| {
+        const step = append.prepareResource(parent) catch |err| {
+            if (err != error.RecordUnloaded) return err;
+            _ = try pump(read, backend);
+            continue;
+        };
+        switch (step) {
+            .ready => return,
+            .read => |request| try append.completeRead(request.ticket, backend.read(request)),
+            .waiting => return error.UnexpectedWait,
+        }
+    }
+    return error.NoProgress;
+}
+
 pub fn resource(store: *loam.core.Store, backend: anytype, owner: loam.core.ObjectId, parent: ?core.ResourceId) !core.ResourceId {
-    var read = try storage.Read.init(a, store, owner, @min(6, store.limits.max_leases -| 1));
+    var read = try storage.Read.init(store.allocator, store, owner, @min(6, store.limits.max_leases -| 1));
     defer read.deinit() catch unreachable;
     _ = try pump(&read, backend);
     var append = try storage.Append.init(&read, .resource);
     defer append.deinit() catch unreachable;
     _ = try pump(&append, backend);
+    try prepareResource(&append, &read, backend, parent);
     try store.begin();
     errdefer if (store.phase == .staging or store.phase == .prepared) store.abort() catch unreachable;
     for (0..128) |_| {
@@ -74,6 +92,7 @@ pub fn resource(store: *loam.core.Store, backend: anytype, owner: loam.core.Obje
 /// Stages one resource append inside the caller's transaction, completing any
 /// record demand the parent lookup raises before it can stage.
 pub fn stageResource(append: *storage.Append, read: *storage.Read, backend: anytype, kind: core.KindId, parent: ?core.ResourceId) !core.ResourceId {
+    try prepareResource(append, read, backend, parent);
     var result: ?core.ResourceId = null;
     for (0..128) |_| {
         result = storage.stage.appendResource(append, kind, parent) catch |err| {
@@ -87,26 +106,38 @@ pub fn stageResource(append: *storage.Append, read: *storage.Read, backend: anyt
 }
 
 pub fn prepare(read: *storage.Read, backend: anytype, command: core.GrantPlan.Command) !?core.GrantPlan {
+    read.history_requested = true;
+    _ = try pump(read, backend);
     for (0..128) |_| {
         var grants = try read.grantView();
         var resources = try read.resourceView();
         const fresh: ?core.GrantId = if (read.header.next_grant < loam.access.records.OwnerRecord.max_slots) .{ .owner = read.header.owner, .slot = @intCast(read.header.next_grant), .generation = 1 } else null;
-        const plan = core.GrantPlan.prepareCopying(a, &grants, &resources, &read.header.policy, read.header.max_grant_children, fresh, command) catch |err| {
+        const plan = core.GrantPlan.prepareCopying(read.allocator, &grants, &resources, &read.header.policy, read.header.max_grant_children, fresh, command) catch |err| {
             if (err != error.RecordUnloaded) return err;
             _ = try pump(read, backend);
             continue;
         };
-        return plan;
+        if (plan) |value| {
+            var owned = value;
+            storage.stage.prepareGrant(read, &owned) catch |err| {
+                owned.deinit(read.allocator);
+                if (err != error.RecordUnloaded) return err;
+                _ = try pump(read, backend);
+                continue;
+            };
+            return owned;
+        }
+        return null;
     }
     return error.NoProgress;
 }
 
 pub fn change(store: *loam.core.Store, backend: anytype, owner: loam.core.ObjectId, command: core.GrantPlan.Command) !?core.GrantPlan.Change {
-    var read = try storage.Read.init(a, store, owner, @min(6, store.limits.max_leases -| 1));
+    var read = try storage.Read.init(store.allocator, store, owner, @min(6, store.limits.max_leases -| 1));
     defer read.deinit() catch unreachable;
     _ = try pump(&read, backend);
     var plan = (try prepare(&read, backend, command)) orelse return null;
-    defer plan.deinit(a);
+    defer plan.deinit(read.allocator);
     var append: ?storage.Append = null;
     defer if (append) |*path| path.deinit() catch unreachable;
     if (plan.delta == .issue) {
@@ -152,3 +183,30 @@ pub const Fixture = struct {
         self.backend.deinit();
     }
 };
+
+/// Inspect the private retained history for transaction/recovery assertions.
+pub fn latestGrant(read: *storage.Read, backend: anytype) !core.GrantPlan.Change {
+    read.history_requested = true;
+    _ = try pump(read, backend);
+    var cursor = read.history.count;
+    while (cursor != 0) {
+        cursor -= 1;
+        const id = read.history.batches[cursor];
+        const lease = switch (try read.store.acquire(id)) {
+            .ready => |lease| lease,
+            .read => |request| value: {
+                try read.store.completeRead(request.ticket, backend.read(request));
+                break :value (try read.store.acquire(id)).ready;
+            },
+        };
+        defer read.store.release(lease) catch unreachable;
+        var batch = try loam.access.records.ChangeBatchRecord.decodeOwned(read.allocator, try read.store.currentView(lease));
+        defer batch.deinit(read.allocator);
+        var effect = batch.value.effects.len;
+        while (effect != 0) {
+            effect -= 1;
+            if (batch.value.effects[effect] == .grant) return batch.value.effects[effect].grant.change;
+        }
+    }
+    return error.MissingGrantEvent;
+}

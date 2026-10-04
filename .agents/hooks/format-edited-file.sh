@@ -36,9 +36,9 @@ case "$abs_path" in
       printf 'glowcap hook: rustfmt not on PATH; skipping %s\n' "$abs_path" >&2
       exit 0
     fi
-    # Config (tabs, edition) comes from the root rustfmt.toml, which rustfmt
-    # discovers upward from the file.
-    rustfmt "$abs_path" >&2 || true
+    # Discover the file's config, but never walk its child modules: this hook
+    # owns only the edited file. infrastructure-check exercises that boundary.
+    rustfmt --config skip_children=true "$abs_path" >&2 || true
     ;;
   *.ts|*.tsx|*.js)
     if ! command -v deno >/dev/null 2>&1; then

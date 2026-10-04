@@ -149,9 +149,15 @@ pub fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *
                 // An unlistened vow's completion; the tests in this file that
                 // route completions drain `nextAction` by hand instead.
                 .settled, .failed => {},
-                // Only a budgeted host condemns and closes; no test in this
-                // file sets a `local_turn_budget`.
-                .close => {},
+                // Tests that close a session assert its consequences directly.
+                // A session the Host condemned for amplification is a real
+                // failure; the Host applies the local-turn budget by default.
+                .close => |peer_handle| if (host.sessionForPeer(peer_handle)) |session| {
+                    if (session.served.port.peer.lastAbort()) |abort| {
+                        if (std.mem.eql(u8, abort.error_name, "LocalTurnLimitExceeded"))
+                            return error.LocalTurnLimitExceeded;
+                    }
+                },
                 // A finite host quantum can yield internal work without an
                 // external effect; the next action drain is the continuation.
                 .resume_work => {},

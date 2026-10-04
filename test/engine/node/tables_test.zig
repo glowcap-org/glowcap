@@ -92,7 +92,7 @@ const ReleaseProjection = struct {
     fn seam(self: *@This()) engine.bootstrap.gifts.LocalObjectProjection {
         return .{
             .ctx = self,
-            .resolve_name = resolveName,
+            .resolve_fetch = resolveName,
             .capture = capture,
             .project = project,
             .rollback = rollback,
@@ -100,8 +100,8 @@ const ReleaseProjection = struct {
         };
     }
 
-    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: []const u8) !?model.ExportPosition {
-        return null;
+    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, request: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
+        return if (request.session_fallback) |position| .{ .found = position } else .missing;
     }
 
     fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {

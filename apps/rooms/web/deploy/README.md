@@ -7,8 +7,8 @@ session run the same product CLI as a host installation.
 
 Install the [complete host product](../../host.md), then install Docker with
 Compose on the deployment host. A published image needs no checkout, compiler,
-Python, or product source. The repository is prerelease, so this repository does
-not claim that a release image or archive has been published.
+Python, or product source. glowcap has no release yet, so this repository does
+not claim that any release image or archive has been published.
 
 ## Run it
 

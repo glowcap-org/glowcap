@@ -123,6 +123,8 @@ where
 /// enforces the header's "release the host always after its CapTP sessions" (the
 /// host pointer cannot be released while any session wrapper lives).
 pub(crate) struct HostShared {
+	#[cfg(feature = "loam")]
+	pub(crate) loam: crate::loam::Registry,
 	applications: application::States,
 	raw: Cell<*mut ffi::GlowcapHost>,
 	/// Binding-local close barrier coordination. Native Host lifecycle remains
@@ -264,6 +266,8 @@ impl HostShared {
 			diagnostic_id,
 		);
 		Ok(Rc::new(HostShared {
+			#[cfg(feature = "loam")]
+			loam: crate::loam::Registry::default(),
 			applications: Default::default(),
 			raw: Cell::new(raw),
 			close_barrier: Cell::new(CloseBarrierState::Idle),
@@ -316,6 +320,8 @@ impl HostShared {
 			);
 		}
 		Ok(Rc::new(HostShared {
+			#[cfg(feature = "loam")]
+			loam: crate::loam::Registry::default(),
 			applications: Default::default(),
 			raw: Cell::new(raw),
 			close_barrier: Cell::new(CloseBarrierState::Idle),

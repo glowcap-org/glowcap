@@ -106,6 +106,7 @@ fn exporterServe(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror
     while (!done.load(.acquire)) {
         if (second == null and try server.waitAcceptable(20)) {
             second = try server.accept();
+            try second.?.attend();
             // No publication on the withdrawing Port: the gift retained the
             // exact Host-Vat actor reached through the first Port and projects
             // that actor here. A swiss-name lookup would fail this proof.
@@ -349,13 +350,19 @@ test "driver Server can replace listener-derived reachability with deployment ro
     try server.setAdvertisedLocator(.{
         .transport = net.tcp.keyed.transport_name,
         .designator = designator,
-        .hints = model.Hints.forDirectAddresses("proxy.example:443", &hints),
+        .hints = model.Hints.forDirectAddresses("192.0.2.18:443", &hints),
     });
 
     const advertised = try server.advertisedLocator();
     try std.testing.expectEqualStrings(designator, advertised.designator);
-    try std.testing.expectEqualStrings("proxy.example:443", advertised.hints.entries[0].value.string);
-    try std.testing.expectError(error.TransportMismatch, server.setAdvertisedLocator(.{
+    try std.testing.expectEqualStrings("192.0.2.18:443", advertised.hints.entries[0].value.string);
+    try std.testing.expectError(error.InvalidAddress, server.setAdvertisedLocator(.{
+        .transport = net.tcp.keyed.transport_name,
+        .designator = designator,
+        .hints = model.Hints.forDirectAddresses("proxy.example:443", &hints),
+    }));
+    try std.testing.expectEqualStrings("192.0.2.18:443", (try server.advertisedLocator()).hints.entries[0].value.string);
+    try std.testing.expectError(error.InvalidAddress, server.setAdvertisedLocator(.{
         .transport = model.transport.tcp,
         .designator = "proxy.example:443",
         .hints = model.Hints.emptyFalse(),

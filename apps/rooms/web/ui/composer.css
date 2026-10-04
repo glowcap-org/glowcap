@@ -55,12 +55,10 @@
 	   which is where that slack came from. */
 	bottom: calc(env(safe-area-inset-bottom) + 2px);
 	height: var(--composer-status-h);
-	/* A row, read left to right: what is standing, then what is passing. These
-	   lines used to be stacked in this box and faded in and out of it, one on
-	   top of another, which made "one at a time" a promise kept by a stylesheet
-	   rule per pair of lines — and the pairs nobody wrote printed two sentences
-	   through each other. Side by side there is nothing to referee, and the
-	   reader keeps both: why the field is dead, and that somebody is answering.
+	/* A row, read left to right: what is standing, then what is passing. Side by
+	   side there is nothing to referee, and the reader keeps both: why the field
+	   is dead, and that somebody is answering (composer/status.tsx says why the
+	   lines never take turns).
 	   The row's own height is what the composer reserves, so laying its contents
 	   out in flow still never moves the field. */
 	display: flex;
@@ -220,11 +218,9 @@
 	border-radius: var(--radius-well);
 	padding: 8px;
 	background: var(--paper-raised);
-	/* A card resting on the column, which it can be now that the fade behind it
-	   is what ends the conversation. It used to carry two pixels of paper as a
-	   ring, because it was the only opaque thing in the band and its four corner
-	   arcs let messages through. With paper already behind it, the ring was
-	   filling notches that are no longer there. It rests rather than floats:
+	/* A card resting on the column. The fade behind it is what ends the
+	   conversation, so paper already fills its corner arcs and it needs no ring
+	   of its own. It rests rather than floats:
 	   --lift, not the menu's --shadow. */
 	box-shadow: var(--lift);
 }

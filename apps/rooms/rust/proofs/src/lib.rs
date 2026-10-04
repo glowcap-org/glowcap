@@ -18,6 +18,12 @@ mod binding;
 mod bridge_client;
 mod checkpoint;
 mod command_admission;
+#[cfg(any(
+	all(test, not(target_arch = "wasm32")),
+	all(target_arch = "wasm32", feature = "async-host")
+))]
+mod content_policy;
+mod content_session;
 mod controller_commands;
 mod conversation;
 mod direct_client;
@@ -87,6 +93,7 @@ pub extern "C" fn rooms_contract_proof() -> u32 {
 	checkpoint::run();
 	workspace::run();
 	command_admission::run();
+	content_session::run();
 	controller_commands::run();
 	reconciliation::run();
 	session_commands::run();
@@ -110,5 +117,6 @@ pub extern "C" fn rooms_contract_proof() -> u32 {
 
 #[test]
 fn shared_application_and_static_host() {
+	content_policy::run();
 	assert_eq!(rooms_contract_proof(), 1);
 }

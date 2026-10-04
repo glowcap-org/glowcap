@@ -28,7 +28,6 @@ const collectBulletSpans = util.collectBulletSpans;
 // forcing both hosts to the identical string would check the wrong invariant.
 const expected_cursor_format_hook_command = "bash .agents/hooks/format-edited-file.sh";
 const expected_claude_format_hook_command = "bash \"${CLAUDE_PROJECT_DIR}/.agents/hooks/format-edited-file.sh\"";
-const expected_claude_before_commit_hook_command = "bash \"${CLAUDE_PROJECT_DIR}/.agents/hooks/before-commit.sh\"";
 
 pub fn expectSymlink(
     io: std.Io,
@@ -286,7 +285,6 @@ fn expectClaudeHook(
         return;
     };
     try expectClaudeHookEntry(gpa, violations, hooks, "PostToolUse", expected_claude_format_hook_command);
-    try expectClaudeHookEntry(gpa, violations, hooks, "PreToolUse", expected_claude_before_commit_hook_command);
 }
 
 fn expectClaudeHookEntry(

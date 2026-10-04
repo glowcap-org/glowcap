@@ -18,7 +18,7 @@ pub const Editor = Image.Editor;
 // This layout must match the one in Image
 width: usize = 0,
 height: usize = 0,
-pixels: color.PixelStorage = .{ .invalid = void{} },
+pixels: color.PixelStorage = .{ .invalid = {} },
 animation: Animation = .{},
 allocator: std.mem.Allocator = undefined, // Allocator needs to be last in order to be able to ptrCast to Image
 
@@ -87,6 +87,18 @@ pub fn create(allocator: std.mem.Allocator, width: usize, height: usize, pixel_f
     };
 
     return result;
+}
+
+pub fn dupe(self: Managed) !Managed {
+    const unmanaged_image = try self.toUnmanaged().dupe(self.allocator);
+
+    return .{
+        .animation = unmanaged_image.animation,
+        .allocator = self.allocator,
+        .height = unmanaged_image.height,
+        .pixels = unmanaged_image.pixels,
+        .width = unmanaged_image.width,
+    };
 }
 
 /// Return the pixel format of the image

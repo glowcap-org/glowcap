@@ -29,13 +29,24 @@ const SharedRuntime = @import("shared_runtime.zig").SharedRuntime;
 pub const Server = struct {
     runtime: *host_runtime.HostRuntime,
     shared: *SharedRuntime,
-    listener: net.netlayer.Listener,
+    /// The runtime owns the listener under this stable tag. Observer callbacks
+    /// borrow this heap-stable Server until close joins physical retirement.
+    listener_tag: u64 = 1,
+    listener_active: bool = false,
+    admission_sealed: bool = false,
+    /// Fixed at construction: finished sessions and handshake reservations
+    /// share one bound. The ring moves pointers only, never wire payloads.
+    accepted: []*Session,
+    accepted_head: usize = 0,
+    accepted_count: usize = 0,
+    reserved: usize = 0,
+    accept_failure: ?driver.OperationFailure = null,
     allocator: std.mem.Allocator,
     closed: bool = false,
     close_failure: ?driver.OperationFailure = null,
 
     fn ensureOpen(self: *const Server) error{ServerClosed}!void {
-        if (self.closed) return error.ServerClosed;
+        if (self.closed or self.admission_sealed) return error.ServerClosed;
     }
 
     /// Write the bound dialable designator (with the kernel-chosen port when
@@ -60,9 +71,14 @@ pub const Server = struct {
         try self.ensureOpen();
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
-        if (!std.mem.eql(u8, locator.transport, self.listener.transportName()))
-            return error.TransportMismatch;
-        try self.runtime.core.setAdvertisedLocator(locator);
+        var prepared = switch (self.runtime.prepareOwnedListenerAdvertisementOutcome(self.listener_tag, locator)) {
+            .ready => |value| value,
+            .failed => |failure| return failure.cause,
+        };
+        var owns_prepared = true;
+        defer if (owns_prepared) prepared.deinit(self.allocator);
+        try self.runtime.commitOwnedListenerAdvertisement(self.listener_tag, &prepared);
+        owns_prepared = false;
     }
 
     /// Borrow the currently advertised locator. The view remains valid until
@@ -71,7 +87,7 @@ pub const Server = struct {
         try self.ensureOpen();
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
-        return self.runtime.core.advertisedLocator(self.listener.transportName()).?;
+        return self.runtime.ownedListenerLocator(self.listener_tag) orelse return error.ServerClosed;
     }
 
     /// Query or copy opaque transport-owned state that restores this
@@ -84,12 +100,13 @@ pub const Server = struct {
         try self.ensureOpen();
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
-        return try self.listener.restorationState(out);
+        return switch (self.runtime.ownedListenerRestorationStateOutcome(self.listener_tag, out)) {
+            .unsupported => null,
+            .size => |size| size,
+            .failed => return error.ProviderFailure,
+        };
     }
 
-    /// Accept one partner into its own `*Session` view of the shared host.
-    /// The responder keyed handshake completes inside, under the handshake
-    /// budget. Freed by `Session.deinit` (which leaves the siblings serving).
     /// Publish one Host-Vat actor under `name`. Any accepted Port can discover
     /// it lazily; exact gifts retain that actor independently of later name
     /// changes.
@@ -145,49 +162,152 @@ pub const Server = struct {
         return self.runtime.core.removeDurable(swiss);
     }
 
+    /// Accept one partner into its own `*Session` view of the shared host.
+    /// The responder keyed handshake completes inside, under the handshake
+    /// budget. Freed by `Session.deinit` (which leaves the siblings serving).
+    /// Inbound delivery waits for Session receive-driving operations or an
+    /// explicit `Session.attend` after root setup when another pump serves it.
     pub fn accept(self: *Server) !*Session {
         try self.ensureOpen();
-        const hs = try self.runtime.acceptWire(self.listener, self.listener.transportName());
-        // `acceptWire` returned this Runtime's fresh, unclaimed session. If
-        // wrapper allocation refuses, retirement has no surviving direct
-        // recipient, so retain its exact failure at the Runtime barrier.
-        errdefer self.runtime.releaseWire(hs) catch |err| self.runtime.noteTerminalFailure(err);
-        return Session.adoptRetained(self.runtime, hs, self.shared, self.allocator);
+        _ = try self.waitAcceptable(-1);
+        if (self.popAccepted()) |session| return session;
+        if (self.accept_failure) |failure| {
+            self.accept_failure = null;
+            return failure.cause;
+        }
+        return error.ServerClosed;
     }
 
-    /// Wait until `accept` would make progress, up to `timeout_ms`. The
-    /// stop-friendly twin of blocking accept: poll, check a latch, then
-    /// `accept`.
+    fn popAccepted(self: *Server) ?*Session {
+        if (self.accepted_count == 0) return null;
+        const session = self.accepted[self.accepted_head];
+        self.accepted_head = (self.accepted_head + 1) % self.accepted.len;
+        self.accepted_count -= 1;
+        return session;
+    }
+
+    fn ready(ctx: *const anyopaque) bool {
+        const self: *const Server = @ptrCast(@alignCast(ctx));
+        return self.accepted_count != 0 or self.accept_failure != null or !self.listener_active;
+    }
+
+    /// Drive the shared runtime until a completed accept or refusal is ready.
+    /// Accepted sessions stay unattended until the caller has published roots
+    /// and starts a Session receive-driving operation.
     pub fn waitAcceptable(self: *Server, timeout_ms: i32) !bool {
         try self.ensureOpen();
-        return self.listener.waitAcceptable(timeout_ms);
+        try self.runtime.refuseReentry();
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        const deadline = if (timeout_ms < 0) null else net.clock.nowMs(self.runtime.io) + @as(i64, timeout_ms);
+        while (!ready(self)) {
+            const remaining: i32 = if (deadline) |end| @intCast(@max(0, end - net.clock.nowMs(self.runtime.io))) else -1;
+            _ = try self.runtime.stepAnyToward(remaining, .{ .condition = .{ .ctx = self, .reached_fn = ready } });
+            if (deadline) |end| if (net.clock.nowMs(self.runtime.io) >= end) break;
+        }
+        return ready(self);
     }
 
-    /// Stop accepting and release the Server's runtime lease. Sessions already
-    /// yielded by `accept` retain the runtime and remain usable until their own
-    /// close/deinit barrier. No pending-work policy belongs here: listener
-    /// close is admission-only.
+    /// Stop admission, join listener retirement and discard unclaimed accepts.
+    /// Yielded Sessions retain independent runtime leases. A callback or wrong
+    /// thread refusal preserves Server ownership so the caller can retry.
     pub fn close(self: *Server) ?driver.OperationFailure {
         if (self.closed) return self.close_failure;
-        self.closed = true;
-        if (self.listener.close()) |failure| {
-            self.close_failure = .fromChain(failure);
-            self.runtime.noteTerminalOperationFailure(self.close_failure.?);
+        self.runtime.refuseReentry() catch |err| return .fromError(err);
+        self.runtime.enterDriver();
+        var owns_guard = true;
+        defer if (owns_guard) self.runtime.leaveDriver();
+        self.admission_sealed = true;
+        self.claimAcceptFailure();
+        while (self.runtime.ownedListenerLocator(self.listener_tag) != null) {
+            const outcome = self.runtime.stopOwnedListener(self.listener_tag);
+            if (outcome.failure) |failure| self.noteCloseFailure(failure);
+            if (!outcome.pending) break;
+            _ = self.runtime.stepAnyToward(-1, .{ .listener_stop = self.listener_tag }) catch |err| return .fromError(err);
         }
-        if (self.shared.releaseOutcome()) |failure| self.close_failure = failure;
+        // A pending stop can fail through the observer while the join runs.
+        self.claimAcceptFailure();
+        while (self.popAccepted()) |session| session.deinit();
+        std.debug.assert(self.reserved == 0);
+        self.closed = true;
+        self.runtime.leaveDriver();
+        owns_guard = false;
+        if (self.shared.releaseOutcome()) |failure| self.noteCloseFailure(failure);
         return self.close_failure;
     }
 
-    /// Stop admission if needed, then release the owning Server handle.
-    pub fn deinit(self: *Server) void {
-        const allocator = self.allocator;
-        if (!self.closed) {
-            self.closed = true;
-            if (self.listener.close()) |failure|
-                self.runtime.noteTerminalOperationFailure(.fromChain(failure));
-            _ = self.shared.releaseImplicit();
+    fn noteCloseFailure(self: *Server, failure: driver.OperationFailure) void {
+        if (self.close_failure) |*first| first.noteFailure(failure) else self.close_failure = failure;
+    }
+
+    fn claimAcceptFailure(self: *Server) void {
+        if (self.accept_failure) |failure| {
+            self.accept_failure = null;
+            self.noteCloseFailure(failure);
         }
-        allocator.destroy(self);
+    }
+
+    /// Join admission retirement before freeing callback storage. If close
+    /// refuses before its barrier, ownership remains with the caller.
+    pub fn deinit(self: *Server) void {
+        const was_closed = self.closed;
+        const failure_observer = if (was_closed) null else self.runtime.opts.unhandled_failure;
+        if (self.close()) |failure| {
+            if (!self.closed) {
+                self.runtime.reportUnhandledFailure(failure);
+                return;
+            }
+            if (!was_closed) {
+                if (failure_observer) |recipient| recipient.report(recipient.ctx, failure);
+            }
+        }
+        self.allocator.free(self.accepted);
+        self.allocator.destroy(self);
+    }
+
+    fn from(ctx: *anyopaque) *Server {
+        return @ptrCast(@alignCast(ctx));
+    }
+    fn canAccept(ctx: *anyopaque) bool {
+        const self = from(ctx);
+        return !self.admission_sealed and self.accepted_count + self.reserved < self.accepted.len;
+    }
+    fn reserve(ctx: *anyopaque, _: u64) !void {
+        const self = from(ctx);
+        // Activation reserves a listener seat; arrivals reserve queue slots.
+        if (!self.listener_active) return;
+        std.debug.assert(canAccept(ctx));
+        self.reserved += 1;
+    }
+    fn releaseReservation(ctx: *anyopaque, _: u64) void {
+        const self = from(ctx);
+        if (!self.listener_active) return;
+        std.debug.assert(self.reserved != 0);
+        self.reserved -= 1;
+    }
+    fn opened(ctx: *anyopaque, _: u64, hs: *driver_core.HostSession) !void {
+        const self = from(ctx);
+        defer self.reserved -= 1;
+        const session = try Session.adoptRetained(self.runtime, hs, self.shared, self.allocator);
+        self.runtime.markSessionUnattended(hs);
+        const tail = (self.accepted_head + self.accepted_count) % self.accepted.len;
+        self.accepted[tail] = session;
+        self.accepted_count += 1;
+    }
+    fn retired(ctx: *anyopaque, _: u64) void {
+        from(ctx).listener_active = false;
+    }
+    fn arrivalFailed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
+        const self = from(ctx);
+        if (!self.admission_sealed and self.accept_failure == null) self.accept_failure = failure;
+    }
+    fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
+        const self = from(ctx);
+        if (self.accept_failure == null) self.accept_failure = failure;
+        if (self.runtime.ownedListenerLocator(self.listener_tag) == null) self.listener_active = false;
+    }
+    fn observer(self: *Server) host_runtime.HostRuntime.SessionAcceptObserver {
+        return .{ .ctx = self, .can_accept = canAccept, .reserve = reserve, .release = releaseReservation, .abandoned = releaseReservation, .opened = opened, .retired = retired, .failed = failed, .arrival_failed = arrivalFailed };
     }
 };
 
@@ -222,48 +342,66 @@ pub fn listen(
     );
     errdefer shared.runtime.deinit();
 
-    var listen_config = config;
-    listen_config.identity = switch (identity) {
-        .ephemeral => null,
-        .keyed => |secret| secret.publicKey(),
-    };
-    if (netlayer.designatorScheme() == .key and listen_config.identity == null)
-        return Error.EphemeralIdentityOnKeyedTransport;
-    var transport_listener = try shared.runtime.bindListener(
-        netlayer.transportName(),
-        listen_config.designator,
-        listen_config.options,
-    );
-    var owns_transport_listener = true;
-    errdefer if (owns_transport_listener) {
-        if (shared.runtime.closeListener(&transport_listener)) |failure|
-            shared.runtime.noteTerminalOperationFailure(failure);
-    };
-    var listener = shared.runtime.takeStreamListener(&transport_listener) orelse return Error.TransportNotPollable;
-    owns_transport_listener = false;
-    errdefer if (listener.close()) |failure|
-        shared.runtime.noteTerminalOperationFailure(.fromChain(failure));
+    return finishListen(shared, netlayer.transportName(), config, identity);
+}
 
-    const bound_locator = try listener.localLocator(allocator);
-    defer model.freePeerLocator(allocator, bound_locator);
-    if (!std.mem.eql(u8, bound_locator.transport, listener.transportName()))
-        return error.ProviderContract;
-    if (listen_config.identity) |expected| {
-        if (listener.designatorScheme() == .key) {
-            const expected_designator = expected.toDesignator();
-            if (!std.mem.eql(u8, bound_locator.designator, &expected_designator))
-                return Error.UnheldIdentity;
-        }
+/// Bind through borrowed stream or multiplexed providers. Provider contexts
+/// outlive the Server and every Session it yields, including after close.
+pub fn listenProviders(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    providers: []const host_runtime.HostRuntime.ProviderRegistration,
+    transport: []const u8,
+    config: net.netlayer.ListenConfig,
+    identity: driver.AcceptIdentity,
+    opts: SessionOptions,
+) !*Server {
+    const shared = try allocator.create(SharedRuntime);
+    errdefer allocator.destroy(shared);
+    shared.* = SharedRuntime.init(allocator, try host_runtime.HostRuntime.initProviders(allocator, io, providers, acceptToIdentity(identity), opts));
+    errdefer shared.runtime.deinit();
+    return finishListen(shared, transport, config, identity);
+}
+
+fn finishListen(shared: *SharedRuntime, transport: []const u8, config: net.netlayer.ListenConfig, identity: driver.AcceptIdentity) !*Server {
+    shared.runtime.enterDriver();
+    defer shared.runtime.leaveDriver();
+    const allocator = shared.allocator;
+    var transport_listener = try shared.runtime.bindListener(transport, config.designator, config.options);
+    var owns_listener = true;
+    errdefer if (owns_listener) {
+        if (shared.runtime.closeListener(&transport_listener)) |failure| shared.runtime.noteTerminalOperationFailure(failure);
+    };
+    var prepared = switch (shared.runtime.prepareListenerLocatorOutcome(&transport_listener)) {
+        .ready => |value| value,
+        .failed => |failure| return failure.cause,
+    };
+    var owns_prepared = true;
+    defer if (owns_prepared) prepared.deinit(allocator);
+    if (transport_listener.designatorScheme() == .key) {
+        const secret = switch (identity) {
+            .ephemeral => return Error.EphemeralIdentityOnKeyedTransport,
+            .keyed => |secret| secret,
+        };
+        const expected = secret.publicKey().toDesignator();
+        if (!std.mem.eql(u8, prepared.value.designator, &expected)) return Error.UnheldIdentity;
     }
-    try shared.runtime.core.setAdvertisedLocator(bound_locator);
-
     const server = try allocator.create(Server);
-    server.* = .{
-        .runtime = &shared.runtime,
-        .shared = shared,
-        .listener = listener,
-        .allocator = allocator,
-    };
+    errdefer allocator.destroy(server);
+    // One setup allocation bounds both queued wrappers and in-flight arrivals;
+    // acceptance itself adds no queue allocation or payload copy.
+    const accepted = try allocator.alloc(*Session, shared.runtime.opts.max_pending_opens);
+    errdefer allocator.free(accepted);
+    server.* = .{ .runtime = &shared.runtime, .shared = shared, .allocator = allocator, .accepted = accepted };
+    try shared.runtime.activateOwnedListener(&transport_listener, &prepared, server.listener_tag, server.observer());
+    owns_listener = false;
+    owns_prepared = false;
+    server.listener_active = true;
+    // This fresh runtime has no application callbacks, sessions or close
+    // request. Activation already admitted the constructor's owner, so route
+    // selection cannot refuse and must find the locator just committed.
+    const selected = shared.runtime.selectOwnedListener(server.listener_tag) catch unreachable;
+    std.debug.assert(selected);
     return server;
 }
 

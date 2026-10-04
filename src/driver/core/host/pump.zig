@@ -26,10 +26,10 @@ pub const UniqueSessionActionTag = pump_schedule.UniqueSessionActionTag;
 const queueUniqueSessionAction = pump_schedule.queueUniqueSessionAction;
 
 /// The tail of every top-level verb: encode and pump until quiescent. A
-/// nested verb (the latch is held) returns immediately — the enclosing
-/// verb's own tail picks up what it enqueued.
+/// nested verb returns immediately. A Host callback or native Vat execution
+/// owns that boundary; the next top-level Host tail picks up queued effects.
 pub fn finishVerb(self: *Host) !void {
-    if (self.in_callback) return;
+    if (self.withinCallback()) return;
     self.in_callback = true;
     defer self.in_callback = false;
     if (self.lifecyclePhase() == .terminating) {
@@ -108,6 +108,8 @@ fn drainWork(self: *Host) !void {
                             return error.OutboundBackpressure;
                         },
                         error.LocalTurnLimitExceeded => {
+                            // Latch the cause so the embedder's CLOSE carries why.
+                            session.served.port.peer.recordFailure(err);
                             try condemn(self, session, .resource_exhausted, "local turn budget exceeded");
                             continue :work;
                         },

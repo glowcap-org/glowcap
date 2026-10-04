@@ -169,6 +169,7 @@ pub const OperationFailure = struct {
             => .invalid_argument,
 
             error.PendingOpenLimitReached,
+            error.WouldBlock,
             error.SessionOperationLimitReached,
             => .would_block,
 

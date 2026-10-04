@@ -8,7 +8,6 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     } };
     const netlayers = [_]glowcap.net.netlayer.Netlayer{onion_resident.netlayer()};
     const partner = glowcap.net.onion.locator("<56-character onion service id>");
-    // From here, the CapTP workflow is transport-independent.
     const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
@@ -16,6 +15,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
     );
+    // From here, the CapTP workflow is transport-independent.
     defer session.deinit();
 
     const greeter = try session.fetch("greeter"); // a capability this peer published

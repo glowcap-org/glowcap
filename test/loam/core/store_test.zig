@@ -4,6 +4,70 @@ const std = @import("std");
 const f = @import("fixture.zig");
 const core = f.core;
 
+test "loam resident views reject corrupt input and borrow without allocation" {
+    const a = std.testing.allocator;
+    var allocator = std.testing.FailingAllocator.init(a, .{});
+    var fixture = try f.Fixture.init(allocator.allocator());
+    defer fixture.deinit();
+    const store = &fixture.store;
+    // Checked envelope metadata belongs to the existing fixed slot inventory.
+    try std.testing.expect(@sizeOf(@TypeOf(store.cache.slots[0])) <= 192);
+    try store.begin();
+    const id = try store.allocateId();
+    var record = f.record(id, "checked");
+    record.edges = &.{.{ .target = id }};
+    try store.putCopying(record, null);
+    try f.commit(store, &fixture.backend);
+    const request = (try store.acquire(id)).read;
+    const result = fixture.backend.read(request);
+    request.buffer[0] ^= 1;
+    try std.testing.expectError(error.Corrupt, store.completeRead(request.ticket, result));
+    try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
+    const lease = try f.load(store, &fixture.backend, id);
+    defer store.release(lease) catch unreachable;
+    const payload = (try store.currentView(lease)).payload;
+    allocator.fail_index = allocator.alloc_index;
+    for (0..64) |_| {
+        const view = try store.currentView(lease);
+        try std.testing.expectEqualStrings("checked", view.payload);
+        try std.testing.expect(view.payload.ptr == payload.ptr);
+        var edges = view.edges();
+        try std.testing.expect(edges.next().?.target.eql(id));
+        try std.testing.expect(edges.next() == null);
+    }
+    try std.testing.expect(!allocator.has_induced_failure);
+}
+
+test "loam re-proposals compose at full mutation capacity without admitting another record" {
+    const a = std.testing.allocator;
+    var backend = try @import("glowcap").loam.Volatile.init(a, f.id, 1024 * 1024);
+    defer backend.deinit();
+    var limits = f.limits;
+    limits.max_changes = 1;
+    var store = try core.Store.init(a, try backend.open(), &f.schemas, limits);
+    defer store.deinit() catch unreachable;
+    try store.begin();
+    defer if (store.phase == .staging) store.abort() catch unreachable;
+    const id = try store.allocateId();
+    try store.putCopying(f.record(id, "initial"), null);
+    const bytes = store.staged_bytes;
+    try store.putCopying(f.record(id, "updated"), null);
+    try std.testing.expectEqual(@as(usize, 1), store.count);
+    try std.testing.expectEqual(bytes, store.staged_bytes);
+    try std.testing.expectError(error.DuplicateMutation, store.putCopying(f.record(id, "conflict"), 1));
+    const other = try store.allocateId();
+    try std.testing.expectError(error.ChangeCapacity, store.putCopying(f.record(other, "refused"), null));
+    try std.testing.expectEqualStrings("updated", (try store.proposed(id)).?.view.payload);
+    try f.commit(&store, &backend);
+    try store.begin();
+    try store.putCopying(f.record(id, "pending"), 1);
+    try store.putCopying(f.record(id, "settled"), 1);
+    try f.commit(&store, &backend);
+    const lease = try f.load(&store, &backend, id);
+    defer store.release(lease) catch unreachable;
+    try std.testing.expectEqualStrings("settled", (try store.view(lease)).payload);
+}
+
 test "loam graph commits a rooted cycle without recursively loading targets" {
     var fixture = try f.Fixture.init(std.testing.allocator);
     defer fixture.deinit();
@@ -254,7 +318,7 @@ test "loam committed residency transfers prepared ownership without allocation o
             defer store.release(lease) catch unreachable;
             try std.testing.expectEqualStrings("new-a", (try store.view(lease)).payload);
             var transferred = false;
-            for (store.cache.slots) |slot| if (slot.bytes) |bytes| {
+            for (store.cache.slots) |slot| if (slot.bytes()) |bytes| {
                 if (bytes.ptr == allocation) transferred = true;
             };
             try std.testing.expect(transferred);

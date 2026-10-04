@@ -2,6 +2,7 @@
 // durable Rooms session rather than a local directory peer.
 
 import * as store from "../store.ts";
+import { cannotJoinReadOnly } from "../../../lib/text/conversation.ts";
 import type { RoomsBrowserController } from "../controller/browser.ts";
 import type { RoomsSessionController } from "../controller/session.ts";
 import type { AttachedRoomsController } from "./attached.ts";
@@ -321,7 +322,7 @@ export function createAttachedRoomsSession(
 				openExisting(existing);
 				return;
 			}
-			failure(new Error("This session capability is read only and cannot join another room."));
+			failure(new Error(cannotJoinReadOnly));
 		},
 		openConv: async (key) => {
 			const conversation = store.getConv(projection, key);

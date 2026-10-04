@@ -20,51 +20,71 @@ The default endpoint follows Libera's `#ocapn` over TLS and serves the resulting
 listener port and the room name; join them with any Rooms client. IRC members
 appear as `irc/<nick>`, which keeps their origin visible on every front.
 
-Libera requires a bot to identify itself and a reachable administrator through
-either a bot cloak or its public real-name field. The bridge requires
-`--irc-realname` and sends that value as IRC GECOS, including when the account
-already has a cloak. Use text that clearly says this is a bot and names an
-administrator who is directly reachable on Libera. The bridge also enables the
-IRCv3 bot user mode when a server advertises its mode letter. See Libera's
-[bot policy](https://libera.chat/policies/#bots) before connecting: an
-administrator must obtain channel-operator permission for every configured
-channel, including permission for the bridge's Rooms-visible history, and a
-bridge administrator must be connected directly to Libera. The Operations join
-form records the operator's attestation before it admits a channel, but the
-bridge cannot obtain or verify that out-of-band permission. Channel operators
-must notify IRC users before making history publicly available and provide the
-unlogged-comment and removal paths Libera's public-logging policy asks them to
-consider.
-Libera does not permit using its network as bot-to-bot or non-human
-communications infrastructure without explicit staff permission. Interactive
-bots should be voiced where possible. Neither the identity field nor bot mode
-establishes either permission.
+### Identifying the bot
 
-Do not connect an LLM-enabled Rooms client to a Libera-backed room unless the
-channel has explicitly opted in to that processing, its topic or entry message
-discloses the LLM presence, and a consenting responsible human directly
-accompanies it in the channel. Libera treats any LLM processing of channel
-content as public logging and requires generated content sent back to IRC to be
-marked as such. These are deployment facts the bridge cannot infer or enforce.
+Libera requires a bot to identify itself and a reachable administrator, either
+through a bot cloak or through its public real-name field. The bridge requires
+`--irc-realname` and always sends that value as the IRC real name (GECOS), even
+when the account already has a cloak. Write text that clearly says this is a
+bot and names an administrator who can be reached directly on Libera. The
+bridge also turns on the IRCv3 bot user mode when the server advertises it.
+
+### Before connecting to Libera
+
+Read Libera's [bot policy](https://libera.chat/policies/#bots) first. The
+bridge cannot check any of the following for you:
+
+- An administrator must get channel-operator permission for every configured
+  channel, including permission for the history the bridge makes visible in
+  Rooms. The Operations join form records the operator's statement that
+  permission was given before it admits a channel, but the bridge cannot get
+  or verify that permission itself.
+- A bridge administrator must be connected directly to Libera.
+- Channel operators must tell IRC users before making history public, and
+  should offer the unlogged-comment and removal options that Libera's
+  public-logging policy describes.
+- Libera does not allow its network to be used for bot-to-bot or other
+  non-human communication without explicit staff permission. Interactive bots
+  should be voiced where possible. Neither the real-name field nor bot mode
+  grants either permission.
+
+### LLM clients
+
+Do not connect an LLM-enabled Rooms client to a Libera-backed room unless all
+of these hold:
+
+- the channel has explicitly opted in to that processing;
+- its topic or entry message discloses that an LLM is present;
+- a responsible human who consents is in the channel with it.
+
+Libera treats any LLM processing of channel content as public logging, and
+requires generated content sent back to IRC to be labeled as such. The bridge
+cannot detect or enforce any of this.
+
+### The shared feed and personal connections
 
 The shared feed is the deployment's automated bot and uses the configured bot
-identity. A participant who elects to speak on IRC opens a separate,
-user-controlled client session under that participant's nick and optional
-account; it is not another incarnation of the shared feed identity. Operators
-remain responsible for confirming that this use and each account comply with
-the network's rules.
+identity. A participant who chooses to speak on IRC opens a separate client
+connection under their own nick and, optionally, their own account. That
+connection is theirs, not another copy of the shared bot. Operators are still
+responsible for confirming that this use, and each account, follows the
+network's rules.
 
-The default is read-only, and the room says so in the terms every Rooms client
-already understands. A read-only bridge seats each reader as an observer, so
-the browser's composer says the room is read-only before anything is typed
-rather than refusing a line after. Whichever way the bridge runs, the room
-hands out no files facet, because IRC has no way to carry a file, and it
-states that it keeps no link previews and relays no typing. The page draws
-from those: the attach control is absent, a pasted or dropped file is told why
-in the log, no preview is offered, and the About tab of the room's card says
-what messages there can carry. A registered bridge nick can carry Rooms
-messages back to IRC when its SASL password is available in
-`GLOWCAP_ROOMS_IRC_SASL_PASSWORD`:
+### Read-only and two-way modes
+
+The bridge is read-only by default, and the room says so in terms every Rooms
+client already understands. A read-only bridge seats each reader as an
+observer, so the browser's composer shows the room is read-only before
+anything is typed, rather than refusing a line afterwards.
+
+In either mode, the room offers no file upload, because IRC cannot carry
+files, and it says it keeps no link previews and relays no typing. The page
+follows those statements: the attach control is hidden, a pasted or dropped
+file gets an explanation in the log, no preview is offered, and the About tab
+of the room's card says what messages there can carry.
+
+A registered bridge nick can send Rooms messages back to IRC when its SASL
+password is in `GLOWCAP_ROOMS_IRC_SASL_PASSWORD`:
 
 ```sh
 zig build rooms-irc-bridge -- \
@@ -83,11 +103,13 @@ network with no channels owns no socket. Each channel publication has a
 source-owned durable entry and a separately issued Rooms moderator capability
 the Rooms directory cannot forge; parting retires both live publications, and
 recreating the channel receives a fresh generation. Bridge moderation removes
-Rooms memberships and carries no IRC operator privilege. Options after `--`
-choose another network, channel, nick, IRC endpoint, or Rooms port
-(`--network --channel --irc-host --irc-port --irc-nick --irc-realname --mode --sasl-account
---bind --announce-host --port --tls`); use `--tls=false` only against a
-private read-only test server.
+Rooms memberships and carries no IRC operator privilege.
+
+Options after `--` choose another network, channel, nick, IRC endpoint, or
+Rooms port. They are `--network`, `--channel`, `--irc-host`, `--irc-port`,
+`--irc-nick`, `--irc-realname`, `--mode`, and `--sasl-account`, plus `--bind`,
+`--announce-host`, `--port`, and `--tls`. Use `--tls=false` only against a private, read-only
+test server.
 
 ## The front: an IRC client on Rooms
 
@@ -131,11 +153,11 @@ zig build rooms-irc-front -- \
   --dm-bind=0.0.0.0 --dm-announce-host=rooms.example
 ```
 
-`--dm-transport=iroh` instead advertises an encrypted,
-endpoint-authenticated iroh locator, the deployment posture a Goblins vat can
-cold-dial through this repository's Goblins iroh netlayer. `--dm-transport=tcp`
-is the Goblins-compatible local conformance posture and is structurally
-restricted to loopback.
+`--dm-transport=iroh` advertises an encrypted, endpoint-authenticated iroh
+locator instead. That is the setup to deploy when a Goblins vat should be able
+to dial in cold, through this repository's Goblins iroh netlayer.
+`--dm-transport=tcp` is for local Goblins conformance testing, and it can only
+bind to loopback.
 
 ## Bounds
 
@@ -171,7 +193,7 @@ vocabulary they share stays between them.
   `../rust/services/src/irc/` owns sockets, TLS and serialized writes.
 - `../rust/services/src/irc_front/`: the IRC listener, each client's
   capability ownership, room pumps and direct-message receipts. Portable
-  spelling and rendering policy lives in `../rust/application/src/server/irc/front/`.
+  naming and rendering policy lives in `../rust/application/src/server/irc/front/`.
 - `protocol.ts`: the TypeScript test consumer's line parsing and encoding.
   Rust owns nickname and SASL admission plus the bounded write queue.
 

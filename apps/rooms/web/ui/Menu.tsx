@@ -64,8 +64,8 @@ export function useMenu(): {
 /** The layer a menu opens into, so nothing above it can cut it off.
  *
  * A menu hangs below the control that opened it and is routinely taller than
- * the card holding that control, which used to mean every such card had to
- * promise never to clip. That is backwards: it makes a card's overflow depend
+ * the card holding that control. Drawn in place, every such card would have
+ * to promise never to clip. That is backwards: it makes a card's overflow depend
  * on what somebody put inside it. `popover` promotes an element to the browser's
  * top layer, above every ancestor's clipping and above an open dialog, and it
  * does so without moving the element in the document — so a press inside the
@@ -107,15 +107,14 @@ export function MenuLayer(
 		 * in it was cut to the width of "Your rooms". */
 		anchor?: { current: HTMLElement | null };
 		layer: { current: HTMLDivElement | null };
-		/** What this menu is, for the rules that place it. A menu used to be
-		 * reached through whatever it sat inside — a message from somebody else,
-		 * the rail's foot — and drawn elsewhere it is inside none of them, so
-		 * what it is has to travel with it rather than be read off its
+		/** What this menu is, for the rules that place it. Drawn in the top
+		 * layer, a menu sits inside none of the things that opened it (a message
+		 * from somebody else, the rail's foot), so what it is has to travel with it rather than be read off its
 		 * surroundings. */
 		className?: string;
 		/** The id of the panel this menu belongs to, for a surface that decides
 		 * what to dismiss by asking which elements a press passed through. Drawn
-		 * elsewhere, this menu is no longer on that path, so it says whose it is
+		 * in the top layer, this menu is off that path, so it says whose it is
 		 * and the panel can name it. Named rather than blanket, because two
 		 * things can be open at once and a press in one menu is not a press
 		 * inside every panel. */

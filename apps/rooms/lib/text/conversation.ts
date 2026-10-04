@@ -45,7 +45,7 @@ export const conversationPublicRoom = "Anyone who knows the name can join. Your 
  * carries the bytes through it encrypted. What holds either way is that the
  * server does not read them, so that is what this says. */
 export const conversationLiveDirect =
-	"The server never reads these. They go straight to the other person, or through the relay encrypted. The conversation follows the person, not the name.";
+	"The server never reads these. They go straight to the other person, or encrypted through the server's relay. The conversation follows the person, not the name.";
 
 export const conversationPendingDirect =
 	"Not open yet. Your first message asks the server to introduce you. If the name changed hands since, it won't go through.";
@@ -210,7 +210,8 @@ export function rowJoinRoomOn(name: string): string {
 
 /** Why the field under a conversation cannot send right now. */
 export const cannotSendPaused = "You cannot send while your access is paused.";
-export const cannotSendReadOnly = "This session capability is read only.";
+export const cannotSendReadOnly = "Your session link is read only, so you can't send here.";
+export const cannotJoinReadOnly = "Your session link is read only, so you can't join another room.";
 export const cannotSendDmClosed = "This direct conversation is closed.";
 export const cannotSendRegistrationEnded =
 	"This nickname registration ended. Start a new conversation with its current holder.";

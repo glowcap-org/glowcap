@@ -16,15 +16,15 @@ and is answerable for what lands.
 [PROVENANCE.md](https://github.com/jimisaacs/glowcap/blob/main/PROVENANCE.md)
 records how.
 
-If capabilities are new, [Why OCapN]($link.page('why')) holds them against the
-bearer tokens and login tables you already run.
+If capabilities are new to you, [Why OCapN]($link.page('why')) compares them
+with the bearer tokens and login tables you already use.
 
 [Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
 
-The [rooms chat]($link.page('rooms')) is that conversation between people:
-open a room, pick a member, and press Message. Native peers meet over
-[iroh]($link.page('transports/iroh')), encrypted QUIC with the node id as the
-identity.
+[Rooms]($link.page('rooms')) is a chat app built on this idea, where the
+peers are people: open a room, pick a member, and press Message. Native peers
+connect over [iroh]($link.page('transports/iroh')), which is encrypted QUIC
+that uses the node id as the peer's identity.
 
 A native Zig fetch-and-call over sealed TCP:
 
@@ -52,8 +52,8 @@ defer arena.deinit();
 const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 ```
 
-That is the conversation: dial, fetch a capability this peer published, call
-it. [Start building]($link.page('start')) fills in the other languages and
+That is the whole exchange: dial the peer, fetch a capability it published,
+and call it. [Start building]($link.page('start')) fills in the other languages and
 transports.
 
 Pin a commit, and expect the API to move.
@@ -69,12 +69,17 @@ in your program where you can see them. Peers can meet over encrypted discovery
 ([onion]($link.page('transports/onion'))), among other paths.
 [Choosing a transport]($link.page('transports/choosing')) is the decision table.
 
-Hold the library as a Zig package, a plain C ABI, or a native binding (Rust,
+Objects can also outlive their process. [Loam]($link.page('loam')), the
+storage layer, keeps objects and the capabilities they hold on disk. An actor
+nobody is calling can sleep there, and a peer's sturdyref still reaches it
+after a restart. Loam's full API is in Zig; C and Rust get a narrower
+profile, and Rust's also runs in the browser on IndexedDB.
+
+Use the library as a Zig package, a plain C ABI, or a native binding (Rust,
 TypeScript, Python, Racket). The TypeScript binding also compiles to
 WebAssembly, so the same session runs in the browser. The [CapTP
 CLI]($link.page('cli')) exposes the same operations from a shell; `zig build`
 puts the `glowcap` binary in `zig-out/bin`. [Choose an
 API]($link.page('surfaces')) compares all of these entry points.
 
-If the ideas are new, start at [Why OCapN]($link.page('why')). If you are ready
-to dial, go to [Start building]($link.page('start')).
+Ready to dial a peer? Go to [Start building]($link.page('start')).

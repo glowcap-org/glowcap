@@ -166,7 +166,9 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
             return behavior.handle(turn, msg);
         }
         fn drop(box: *StateBox, allocator: std.mem.Allocator) void {
-            const block: *Block = @fieldParentPtr("box", box);
+            // The header came from an allocator-created Block. Its erased
+            // type can have weaker alignment than the behavior beside it.
+            const block: *Block = @alignCast(@fieldParentPtr("box", box));
             if (@hasDecl(Behavior, "deinit")) block.state.deinit(allocator);
             allocator.destroy(block);
         }

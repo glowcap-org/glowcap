@@ -99,7 +99,10 @@ browser code owns your session, what is saved, and WebRTC. TypeScript draws
 the screen and turns what you do into requests.
 
 To reach the room server, your browser talks through the web server's byte
-relay. That relay does not read the protocol and holds nothing of yours. For
+relay. The relay forwards bytes without parsing them and holds nothing of
+yours. It could still read those bytes, and on an iroh route it checks the
+room server's key on your behalf, so you are trusting the web server that
+gave you the page. For
 a direct message between two people, WebRTC puts their two peers on one
 channel, and the server only passes along the connection details.
 

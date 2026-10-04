@@ -6,9 +6,13 @@ const syrup = @import("syrup");
 const syntax = syrup.RecordSyntax;
 const fields = @import("fields.zig");
 const terms = @import("terms.zig");
+const Stamp = @import("change_stamp.zig").ChangeStamp;
 
 pub const GrantRecord = struct {
     grant: core.GrantView.Record,
+    authority: Stamp = .{},
+    inventory: Stamp = .{},
+    lifecycle: Stamp = .{},
 
     pub const format_version: u64 = 1;
     /// Two 256-member selections, fixed identities, and 32 optional bounds.
@@ -47,6 +51,9 @@ pub const GrantRecord = struct {
 
     fn validate(self: GrantRecord) Error!void {
         const g = self.grant;
+        try self.authority.validate(@backingInt(g.revision));
+        try self.inventory.validate(@backingInt(g.revision));
+        try self.lifecycle.validate(@backingInt(g.revision));
         if (g.id.generation == 0) return error.InvalidRecord;
         if (g.parent) |parent| {
             if (parent.owner != g.id.owner or parent.generation == 0 or parent.eql(g.id)) return error.InvalidRecord;
@@ -69,6 +76,9 @@ pub const GrantRecord = struct {
         try syntax.writeSymbol(sink, @tagName(g.status));
         try syntax.writePositiveInt(sink, g.delegation_depth);
         try syntax.writePositiveInt(sink, g.child_count);
+        try self.authority.write(sink);
+        try self.inventory.write(sink);
+        try self.lifecycle.write(sink);
         try syntax.endRecord(sink);
     }
 
@@ -87,9 +97,12 @@ pub const GrantRecord = struct {
         const status = try fields.readStatus(bytes, &cursor);
         const depth = std.math.cast(u16, try syntax.readPositiveInt(bytes, &cursor)) orelse return error.InvalidRecord;
         const children = std.math.cast(u32, try syntax.readPositiveInt(bytes, &cursor)) orelse return error.InvalidRecord;
+        const authority = try Stamp.read(bytes, &cursor);
+        const inventory = try Stamp.read(bytes, &cursor);
+        const lifecycle = try Stamp.read(bytes, &cursor);
         try syntax.readByte(bytes, &cursor, '>');
         try syntax.expectEnd(bytes, cursor);
-        const value: GrantRecord = .{ .grant = .{ .id = id, .revision = revision, .parent = parent, .ceiling = ceiling, .configured = configured, .status = status, .delegation_depth = depth, .child_count = children } };
+        const value: GrantRecord = .{ .authority = authority, .inventory = inventory, .lifecycle = lifecycle, .grant = .{ .id = id, .revision = revision, .parent = parent, .ceiling = ceiling, .configured = configured, .status = status, .delegation_depth = depth, .child_count = children } };
         try value.validate();
         return .{ .value = value };
     }

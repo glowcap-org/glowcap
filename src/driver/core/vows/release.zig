@@ -47,6 +47,21 @@ fn cancelPendingTerminal(self: *Host, row: *VowRow, session: *HostSession) void 
     settlement.markRowSettled(self, row);
 }
 
+/// Retire an exact owned observer using its admission-reserved answer release.
+/// No callback survives this boundary and cancellation requires no allocation.
+/// The caller must possess the installed listener, not merely a public vow ID.
+pub fn cancelObserved(self: *Host, vow_id: u64, listener: actors.Listener) void {
+    self.assertOwner();
+    const row = self.vows.get(vow_id) orelse unreachable;
+    std.debug.assert(!row.settled and row.inner != null);
+    std.debug.assert(row.inner.?.ctx == listener.ctx and row.inner.?.func == listener.func);
+    const session = self.sessions.get(row.peer_handle.?) orelse unreachable;
+    cancelPendingTerminal(self, row, session);
+    settlement.settleObservedAnswer(self, row, session);
+    std.debug.assert(self.vows.remove(vow_id));
+    self.allocator.destroy(row);
+}
+
 /// Release one public Host vow. A peer-visible answer emits `op:gc-answer`; a
 /// local listen answer retires directly in Session; a local actor vow owns no
 /// answer. Every fallible no-answer cancellation completes before another

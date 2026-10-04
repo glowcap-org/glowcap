@@ -127,9 +127,9 @@
 }
 
 /* The logotype lockup: "glowcap" and an optional small-caps product name, one
-   drawn unit. Every metric here is a fixed pixel, on purpose — the lockup
-   used to borrow the global type ramp, and each ramp tweak silently knocked
-   the caps off glowcap's lowercase body. A logotype is not typography; it is
+   drawn unit. Every metric here is a fixed pixel, on purpose. Borrowing
+   the global type ramp would let each ramp tweak silently knock the caps off
+   glowcap's lowercase body. A logotype is not typography; it is
    a drawing whose parts may never move relative to each other. Colours stay
    tokens so the lockup themes; sizes, gaps, and the optical lift do not.
    The caps size is tuned against the title's x-height band by eye and pinned

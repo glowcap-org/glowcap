@@ -281,35 +281,23 @@ fn identityValue(_: void, value: core.Value) !core.Value {
     return value;
 }
 
-test "completion projection preserves vow identity and exact failure classes" {
+test "completion projection preserves owned data after source closure and reports refusal" {
     var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x66)), .{});
     defer host.deinit();
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const missing = host.projectCompletion(
-        .{ .settled = .{ .peer_handle = engine.PeerHandle.from(999), .vow_id = 41, .value = .{ .void = {} } } },
-        arena.allocator(),
-        {},
-        identityValue,
-    );
-    try std.testing.expect(missing == .failed);
-    try std.testing.expectEqual(@as(u64, 41), missing.failed.vow_id);
-    try std.testing.expectEqual(core.VowFailure.closed, missing.failed.failure);
-    try std.testing.expectEqualStrings("resolution session closed before value projection", missing.failed.message);
-
-    const session = try host_pair.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9767", &.{});
-    var receive: model.Handoff = .{ .receive = receiveHandoff() };
-    const malformed = host.projectCompletion(
-        .{ .settled = .{ .peer_handle = session.peer_handle, .vow_id = 42, .value = .{ .handoff = &receive } } },
-        arena.allocator(),
-        {},
-        identityValue,
-    );
-    try std.testing.expect(malformed == .failed);
-    try std.testing.expectEqual(@as(u64, 42), malformed.failed.vow_id);
-    try std.testing.expectEqual(core.VowFailure.broken, malformed.failed.failure);
-    try std.testing.expectEqualStrings("resolution value could not be projected", malformed.failed.message);
+    const action: core.HostAction = .{ .settled = .{ .peer_handle = engine.PeerHandle.from(999), .vow_id = 41, .value = .{ .void = {} } } };
+    const completed = host.projectCompletion(action, {}, identityValue);
+    try std.testing.expect(completed == .settled);
+    try std.testing.expectEqual(@as(u64, 41), completed.settled.vow_id);
+    const Refuse = struct {
+        fn project(_: void, _: core.Value) !core.Value {
+            return error.Refused;
+        }
+    };
+    const refused = host.projectCompletion(action, {}, Refuse.project);
+    try std.testing.expect(refused == .failed);
+    try std.testing.expectEqual(@as(u64, 41), refused.failed.vow_id);
+    try std.testing.expectEqual(core.VowFailure.broken, refused.failed.failure);
+    try std.testing.expectEqualStrings("resolution value could not be projected", refused.failed.message);
 }
 
 test "unresolved-promise clone rejects overdepth without retain or queue mutation" {

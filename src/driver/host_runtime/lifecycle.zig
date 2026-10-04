@@ -40,7 +40,7 @@ pub const TransportListener = struct {
         return self.designator_scheme;
     }
 
-    /// Consume a stream-backed listener for the native blocking Server face.
+    /// Transfer a stream-backed listener into the caller's ownership.
     pub fn takeStream(self: *TransportListener) ?net.netlayer.Listener {
         return switch (self.source) {
             .stream => |stream| blk: {
@@ -136,6 +136,11 @@ pub const SessionOpenObserver = struct {
 /// handshake abandonment is distinct from terminal listener retirement.
 pub const SessionAcceptObserver = struct {
     ctx: *anyopaque,
+    /// Ordinary queue pressure refuses this arrival without failing the host.
+    can_accept: *const fn (ctx: *anyopaque) bool = canAcceptAlways,
+    /// An arrival failed after admission. Reservation release remains with
+    /// abandoned; blocking consumers may additionally report its exact cause.
+    arrival_failed: ?*const fn (ctx: *anyopaque, tag: u64, failure: OperationFailure) void = null,
     reserve: *const fn (ctx: *anyopaque, tag: u64) anyerror!void = reserveNoop,
     release: *const fn (ctx: *anyopaque, tag: u64) void = releaseNoop,
     abandoned: *const fn (ctx: *anyopaque, tag: u64) void = releaseNoop,
@@ -163,12 +168,19 @@ pub const StepGoal = union(enum) {
     none,
     host_close,
     session_close: *const driver_core.HostSession,
+    listener_stop: u64,
+    condition: struct {
+        ctx: *const anyopaque,
+        reached_fn: *const fn (*const anyopaque) bool,
+    },
 
     pub fn reached(self: StepGoal, runtime: anytype) bool {
         return switch (self) {
             .none => false,
             .host_close => runtime.closeOutcome() != .pending,
             .session_close => |session| runtime.sessionCloseOutcome(session) != .pending,
+            .listener_stop => |tag| runtime.ownedListenerLocator(tag) == null,
+            .condition => |probe| probe.reached_fn(probe.ctx),
         };
     }
 };
@@ -184,6 +196,9 @@ pub const SessionAcceptObservation = struct {
 };
 
 fn reserveNothing(_: *anyopaque) anyerror!void {}
+fn canAcceptAlways(_: *anyopaque) bool {
+    return true;
+}
 fn releaseNothing(_: *anyopaque) void {}
 fn reserveNoop(_: *anyopaque, _: u64) anyerror!void {}
 fn releaseNoop(_: *anyopaque, _: u64) void {}

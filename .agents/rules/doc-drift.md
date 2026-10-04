@@ -1,152 +1,43 @@
 ---
 description: "Doc-drift discipline for Zig glowcap: living-state claims must describe current code or be removed."
-globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h, build.zig, .cursor/*.json, .claude/*.json, .codex/*.md, .mcp.json, .serena/*.yml
+globs: **/*.md, site/content/**, .cursor/*.json, .claude/*.json, .mcp.json, .serena/*.yml
+paths:
+  - "**/*.md"
+  - "site/content/**"
+  - ".cursor/*.json"
+  - ".claude/*.json"
+  - ".mcp.json"
+  - ".serena/*.yml"
 ---
 
-# glowcap — Doc Drift Prevention
+# glowcap — Doc Drift
 
-This rule keeps doc claims _true_. Its sibling, [doc-voice](doc-voice.md), keeps
-human-facing prose _readable_ (speech for a person; agent instruction stays
-under `.agents/**`). Run the two together whenever you touch a doc.
+This rule keeps doc claims true; [doc-voice](doc-voice.md) keeps them readable.
+Apply both whenever you touch a doc.
 
-Every doc surface that makes a state claim must satisfy one of:
+A state claim either matches current code, or the claim or the doc is removed.
+Living-state surfaces change in the same diff as the state they describe. The
+registry is `tools/check/source_check/docs/living_state.zig`; a new top-level
+`docs/*.md`, a `docs/` subdirectory page saying "Living-state surface", or a
+planning doc with `Status: living-state` must be added there. Planning docs
+declare `Status: active plan`, `historical`, or `living-state`, and an active
+plan is linked from `docs/roadmap.md` or `docs/upstream-watch.md`.
+`docs/vision.md` may argue a destination, but its present-tense claims are
+held like any other.
 
-1. the claim matches current code;
-2. the doc is removed;
-3. the state claim is removed.
-
-## Living-State Surfaces
-
-These describe the repository as it is now and must be updated in the same
-change as the state they describe:
-
-- `README.md`
-- `CONTRIBUTING.md`
-- `SECURITY.md`
-- `PROVENANCE.md`
-- `docs/vision.md`
-- `docs/architecture.md`
-- `docs/loam.md`
-- `docs/build-steps.md`
-- `docs/ladder.md`
-- `docs/roadmap.md`
-- `docs/upstream-watch.md`
-- `docs/capabilities.md`
-- `docs/consuming-from-c.md`
-- `docs/cli.md`
-- `docs/shipped.md`
-- `docs/stability.md`
-- `docs/boundaries.md`
-- `docs/community-review.md`
-- `docs/decisions/README.md`
-- `docs/protocol-diagrams/**`
-- `site/content/**`
-- `bindings/README.md`
-- `bindings/DEVELOPING.md`
-- `bindings/PACKAGING.md`
-- `bindings/rust/README.md`
-- `bindings/ts/README.md`
-- `bindings/python/README.md`
-- `bindings/racket/README.md`
-- `bindings/proofs/README.md`
-- `examples/README.md`
-- `apps/README.md`
-- `apps/ocapnviz/README.md`
-- `apps/rooms/README.md`
-- `apps/rooms/irc/README.md`
-- `apps/rooms/developing.md`
-- `apps/rooms/goblins-vat.md`
-- `apps/rooms/operating.md`
-- `apps/rooms/host.md`
-- `apps/rooms/web/deploy/README.md`
-- `apps/rooms/web/ui/README.md`
-- `apps/rooms/rust/README.md`
-- `apps/rooms/rust/archive.md`
-- `apps/rooms/rust/runtime/README.md`
-- `apps/rooms/rust/browser/README.md`
-- `apps/rooms/rust/proofs/fixtures/README.md`
-- `apps/tasks/README.md`
-- `apps/tools/README.md`
-- `apps/accountability-on-glowcap/README.md`
-- `apps/accountability-on-glowcap/design.md`
-- `apps/accountability-on-glowcap/http-comparison.md`
-- `bench/langs/README.md`
-- `bench/langs/methodology.md`
-- `bench/langs/contract.md`
-- `tools/README.md`
-- `ui/README.md`
-- `bench/goblins/README.md`
-- `bench/goblins/METHODOLOGY.md`
-- `conformance/ocapn-findings/README.md`
-- `.devcontainer/README.md`
-- `.devcontainer/docs/networking.md`
-- `.devcontainer/docs/host-configuration.md`
-- `AGENTS.md`
-- `.agents/**`
-- `.cursor/README.md`, `.cursor/*.json`, and `.cursor/rules/*.mdc`
-- `.claude/README.md`, `.claude/*.json`, and `.claude/rules`
-- `.codex/README.md`
-- `.mcp.json` and `.serena/project.yml`
-- test names that encode API contracts
-
-`zig build source-check` holds this registry honest in both directions: every
-top-level `docs/*.md`, every planning doc that declares itself living-state, and
-every doc under a `docs/` subdirectory that declares itself a living-state
-surface must be listed here (a covering glob like `docs/protocol-diagrams/**`
-counts), and every non-glob path listed here must exist.
-
-`docs/vision.md` is the one surface that argues a destination: its aspirational
-prose is not drift, but its present-tense claims (what is implemented versus
-not, build-step and API names) are gated like any other and move with the code.
-
-Other `README.md` files are not automatically living-state surfaces. Classify
-them by role:
-
-- living-state when they are a first-read project/subsystem contract;
-- historical-snapshot when they record a moment and say so;
-- operational notes when they describe local workflow without project-state
-  claims.
-
-`checkPlanningDocRoles` holds `docs/planning/**` roles: active plan, historical
-snapshot, or living-state surface. Every active plan needs a direct link from
-the roadmap or upstream watch; an app README alone does not make work visible.
-
-## Discipline
-
-- Prefer present-tense contracts over project-history narration.
-- Do not write "future X" once X has landed; name what exists and what does not.
-- Do not leave stale status markers in living-state docs.
-- Do not hardcode a count the code can outgrow ("all fifteen arms"); describe
-  the set, or cite the gate that holds the number.
-- If a line — or a whole historical-snapshot file — only explains how the
-  current shape came to be, the record belongs in git history: prune it once the
-  work it captured has shipped and its lessons live in the code, ADRs, or
-  living-state docs. A snapshot is a transition, not a permanent home.
-- A comment that explains a technique names the condition under which the
-  technique is _available_, not only the motivation for it. Rationale without
-  its precondition reads as a portable pattern, and the next reader ports it to
-  a site where the precondition does not hold. This is the costliest prose
-  defect in the tree, worse than a stale claim: a stale claim misleads, an
-  unqualified rationale actively recruits. When two functions solve
-  similar-looking problems differently, the one that looks over-careful says
-  why the cheaper one is not open to it.
-- When an API name changes, sweep docs, tests, examples, and agent rules in the
-  same change. A rename that updates its target file and leaves the referrers
-  behind is the commonest drift here, and the compiler will not catch it in
-  prose: grep the old name across the tree before calling the rename done. A
-  *moved file* is the same defect with no prose to read, because a path written
-  as a string is invisible to every typechecker;
-  `tools/check/source_check/runtime_paths.zig` holds the
-  `new URL("…", import.meta.url)` form for the trees it names, and the rest is
-  still yours to grep.
-- Write source comments in the indicative only for mechanisms that have a real
-  caller. Name the implementing symbol so a reader can verify it and a rename
-  can break the claim. Intended behavior belongs in an ADR's explicit scope;
-  a public function reached only by its own tests says that plainly until the
-  production path exists.
-- A Zig doc comment naming `Type.method` is a claim `zig build source-check`
-  checks (`checkZigDocSymbolClaims`): the method must be declared under `src/`.
-  The memory rule's ledger is held the same way and a little wider
-  (`checkMemoryLedgerSymbolClaims`), because each entry there points at the
-  declaration that owns a cost instead of restating its derivation. Fix the name
-  or delete the claim; do not weaken either check.
+- Write present-tense contracts. No "future X" once X lands, no stale status
+  markers, no "formerly" or transition narration; history lives in git or an
+  ADR that still owns a decision.
+- Do not hardcode a count the code can outgrow; describe the set or cite the
+  check that holds the number.
+- A comment explaining a technique names the condition under which it is
+  available, not only its motive. Rationale without its precondition gets
+  ported to sites where it does not hold. When two similar functions differ,
+  the more careful one says why the cheaper path is closed to it.
+- A rename or file move sweeps docs, tests, examples, and agent rules in the
+  same change. Grep the old name and path across the tree; a path written as a
+  string is invisible to every typechecker.
+- Source comments use the indicative only for mechanisms with a real caller,
+  and name the implementing symbol. A Zig doc comment naming `Type.method` is
+  checked against `src/` (`checkZigDocSymbolClaims`); fix the name or delete
+  the claim.

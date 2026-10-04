@@ -70,6 +70,13 @@ pub fn register(ctx: Context) void {
     host_proof.step.dependOn(rooms_build);
     const host_test = b.step("glowcap-host-test", "Prove verified host installation and Docker deployment commands without a daemon");
     host_test.dependOn(&host_proof.step);
+    // The deliberately exhausted 15-second product query budget needs its
+    // own calibrated process deadline, separate from installation/deployment.
+    const deadline_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
+    deadline_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "product" } }, .{ .make_absolute = true });
+    deadline_proof.addArg("--deadline");
+    deadline_proof.step.dependOn(rooms_build);
+    host_test.dependOn(&deadline_proof.step);
     ctx.runtime_gate.add(host_test);
 
     // The room transport is one option because the native and development

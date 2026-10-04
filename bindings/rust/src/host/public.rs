@@ -53,8 +53,10 @@ pub struct HostOptions {
 	pub captp_version: crate::CaptpVersion,
 	/// Optional CapTP features this Host advertises.
 	pub features: crate::FeatureSet,
-	/// `0` = unbounded (default); nonzero caps local-turn amplification per drive
-	/// (ADR-0076).
+	/// Caps local-turn amplification per session (ADR-0076). `0` applies the
+	/// Host's finite default, `u32::MAX` (the C ABI's
+	/// `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED`) turns the cap off, and any other
+	/// value is the cap.
 	pub local_turn_budget: u32,
 }
 
@@ -476,7 +478,7 @@ impl Host {
 /// A successful settle consumes its native authority; a refused conversion or
 /// native call leaves the resolver retryable. `fulfill` carries plain data;
 /// `fulfill_value` projects owning-thread capabilities in the original caller
-/// session. Cross-session handoffs use ordinary send/forward machinery. Dropping an unsettled resolver
+/// session. Owning values use ordinary handoff staging. Dropping an unsettled resolver
 /// schedules a broken answer through the Host, including drops inside callbacks.
 pub struct Resolver {
 	shared: Rc<HostShared>,
@@ -507,7 +509,7 @@ impl Resolver {
 	}
 
 	/// Fulfill on the Host owner thread with data and capabilities reachable in
-	/// the original caller session. Cross-session handoffs are refused; failed
+	/// the original caller session and ordinary handoff staging. Failed
 	/// preparation leaves this resolver available for retry or explicit break.
 	pub fn fulfill_value(&mut self, value: &Argument) -> Result<()> {
 		let id = self.live_id()?;

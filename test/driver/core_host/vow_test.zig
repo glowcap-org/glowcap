@@ -441,7 +441,7 @@ test "core host: an unlistened settle rides the action queue owned, valid until 
     try std.testing.expectEqual(@as(usize, 1), fail_count);
 }
 
-test "core host: an unlistened fetch completion carries the node-enrolled token" {
+test "core host: an unlistened fetch completion owns a routable Host capability" {
     const allocator = std.testing.allocator;
     var client = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
@@ -453,24 +453,26 @@ test "core host: an unlistened fetch completion carries the node-enrolled token"
     _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
 
     // No listener: the enrollment mapping still runs before the completion is
-    // queued, so the drained value is the routable token, never a raw import.
+    // queued, so the drained value owns the canonical Host capability.
     const fetch_vow = try client.fetch(pair.a, "widget");
     _ = try shuttleAll(&.{pair});
     _ = try shuttleAll(&.{pair});
-    var token: ?model.Reference = null;
+    var observed = false;
     while (try client.nextAction()) |action| {
         switch (action) {
             .flush => {},
             .settled => |s| {
                 try std.testing.expectEqual(fetch_vow, s.vow_id);
-                try std.testing.expect(s.value == .reference);
-                token = s.value.reference;
+                try std.testing.expect(s.value == .capability);
+                const target = client.capabilities.resolve(s.value.capability).?;
+                try std.testing.expect(target == .remote);
+                try std.testing.expectEqual(pair.a.peer_handle, target.remote.peer_handle);
+                observed = true;
             },
             else => return error.UnexpectedAction,
         }
     }
-    const reference = token orelse return error.FetchDidNotSettle;
-    try std.testing.expect(reference == .routed);
+    try std.testing.expect(observed);
 }
 
 test "core host: transport loss retires session authority and refuses later work" {

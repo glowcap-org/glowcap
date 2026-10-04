@@ -58,6 +58,33 @@ transaction. Managed access is a transaction participant, not a second database.
 decides the authority conditions for its changes; Loam supplies their common
 atomic persistence and recovery mechanism.
 
+## Design acceptance
+
+Loam's design balances performance and comprehension for long-lived capability
+applications. A reader should be able to trace each record, capability hold,
+transaction and recovery effect to one owner. An application should use that
+same contract for ordinary storage and advanced composition without building a
+second reference database, scheduler or authority ledger.
+
+Prefer a shape whose correct path also removes avoidable work. Validate
+immutable bytes when their owner admits them; check current authority when they
+are used. Propagate a changed reference through an index; updating a target in
+place does not change its parent's reference. A cost improvement earns added
+structure only when it improves the whole ownership and failure model enough
+to justify the explanation it requires.
+
+Review the owner and every affected consumer together: admission, ordinary
+use, cancellation, stale data, uncertain outcomes, recovery and retirement.
+Move a responsibility to the layer that can enforce its invariant once. A
+faster path that weakens a refusal or exports bookkeeping to its callers fails
+this acceptance criterion; a simpler interface that conceals repeated work
+does too.
+
+Behavioral checks establish the promised contract. Workload measurements decide
+between credible cost and layout alternatives; neither alone establishes that
+no better design exists. The [completion queue](completion.md#execution-order)
+owns concrete remaining work found by reviewing that balance.
+
 ## Modules and distribution
 
 The public namespace is `glowcap.loam`, including `glowcap.loam.access`.
@@ -81,15 +108,16 @@ src/loam/
     storage/              Bounded loading, opaque capabilities, and shared-transaction staging
     hosting/              Guarded behaviors and management interfaces
 src/c_abi/loam/            Foreign projection of the same implementation
-bindings/rust/src/loam/    Typed binding, including its access module
+bindings/rust/src/loam/    Typed fixed-resource lifecycle binding
 ```
 
-The planned C companion archive is libglowcap_loam. Its resource operations use
-the glowcap_loam_access_ symbol family within that archive. There is no separate
-access archive or required access feature switch. A Rust `loam` feature exposes both
-surfaces; database dependencies remain explicitly selected. The archive
-and foreign APIs are unimplemented and must enter the existing archive and
-header generators together.
+The implemented `libglowcap_loam` companion uses the `glowcap_loam_` symbol
+family for shared storage and fixed-resource lifecycle operations. The optional
+`libglowcap_loam_lmdb` companion owns blocking LMDB execution. Rust enables the
+`loam` feature; the [C/Rust guide](../../loam/c-and-rust.md) owns the projected
+lifecycle and its bounds. The [browser guide](../../loam/browser.md) owns
+IndexedDB execution of the same portable companion. General owner and graph
+editing remain wider projection work; they are not a separate authority engine.
 
 The facade can export both concerns while their cores remain independent:
 
@@ -230,15 +258,19 @@ and writes before deletion. Reclamation cannot reuse a live identity.
 
 The implemented collector uses bounded writer transactions and a persisted
 mark queue. It scans durable roots and traces strong local edges, current live
-custody, leases, and retained versions. Each batch captures live retention and
-freezes new claims until completion. A content commit records new strong edges
+custody, leases, and retained versions. Initial custody is captured once per
+cycle; new custody reserves marking obligations before publication under
+[ADR-0189](../../decisions/adr/ADR-0189-loam-collection-custody-admission.md).
+Each batch freezes new claims until completion. A content commit records new strong edges
 atomically for tracing, including additions to already-marked records. Sweep
 drains those obligations before reclaiming another candidate. New or changed
 records survive the active trace. Deletion and reclamation totals commit
 together. Reopen starts a fresh trace rather than trusting an incomplete sweep.
 The [cleanup contract](../../loam.md#collecting-unreachable-records) owns the
-shipped APIs and costs. Foreign references remain outside this profile; adding
-them requires local custody leaves, never permission to collect another peer's heap.
+shipped APIs and costs. Typed foreign recipes retain local URI records; their
+remote publication owners retain remote targets. Local tracing cannot collect
+another peer's heap. [Reference preparation](../../loam/references.md) retains
+recipes before loading or waiting for another owner.
 
 Keep containment, capability dependency, retention, and UI placement distinct.
 Shared and cyclic graphs cannot obtain reachable sizes by simply adding child
@@ -265,25 +297,37 @@ Complete the Zig API and storage contracts before adding Loam C exports or Rust 
 The [completion queue](completion.md) records source-verified
 remaining tasks, dependencies, and the evidence required to remove each item.
 It distinguishes existing mechanisms from missing integration and measurements.
+The implementation and Linux checkpoint is ready. Remaining macOS acceptance
+is maintainer-owned and does not block C/Rust projection; it is still required
+before claiming the completed LMDB profile on macOS.
 Remove that temporary queue when complete; keep the resulting contracts here
 and their implementation standing in the shipped inventory.
 
 Readiness covers scoped use and management, exact returned/stored capability
 authority, atomic resource operations, authorized observation and retries,
 retirement and LMDB maintenance, failure/lifetime evidence, and representative
-cost. Durable publication lookup must preserve bounded cold-start residency and
-own the transition between storage commit and Host admission.
+cost. Durable publication lookup now preserves bounded cold-start residency;
+the attachment owns the transition between storage commit and Host admission.
 Passing the existing test aggregate alone cannot close an unimplemented contract.
 Each contract requires implementation in Zig and its storage adapters,
 lifetime/cost documentation, and evidence for its failure cases.
 
 The [access storage contract](access/storage.md) and [actor contract](actors.md)
-own the detailed acceptance cases. Browser storage and an alternative physical
-backend are separate platform work; they do not substitute for closing these
-Zig API and LMDB obligations. After this checkpoint closes, expose the C ABI
-and Rust projection of those tested mechanisms without adding another authority engine.
+own the detailed acceptance cases. The
+[browser profile](../../loam/browser.md) proves fixed-resource consumer integration;
+an alternative physical backend is measurement-dependent work. Neither
+substitutes for closing these Zig API and LMDB obligations. After the
+implementation and Linux checkpoint, expose the C ABI and Rust projection of
+those tested mechanisms without adding another authority engine.
 
 ### Implementation sequence
+
+These are layer stages, not a queue of unimplemented tasks. The
+[completion queue's execution order](completion.md#execution-order) owns the
+priority of the remaining Zig work and its prerequisites. Extend the
+implemented stages through that queue; do not rebuild an earlier stage or
+start bindings from missing Zig mechanisms. Failure and measurement
+evidence accompany each feature rather than wait for a final stage.
 
 The [persistence reuse review](research/native-reuse.md) recommends building this
 integration over a mature engine. Measure the LMDB implementation with
@@ -296,12 +340,15 @@ layout, retained readers, or execution integration.
 1. Extend the implemented record/edge and transaction core as the integration
    requires. The [implemented storage profile](../../loam.md) covers local records, roots,
    cycles, bounded leases, and exact completion with volatile and LMDB backends.
-   Local tracing reclamation shares the record transaction path. Foreign
-   schema-driven capability fields remain to implement.
+   Local tracing reclamation and checked local/foreign capability recipes share
+   the record transaction path. Their ownership and preparation contract is in
+   the [reference guide](../../loam/references.md).
 2. Broaden LMDB durability evidence beyond the implemented reopen, map-full,
    process-kill, and interrupted-reclamation tests. LMDB map growth and
-   physical-size inspection are implemented. Add compaction and replacement,
-   and establish supported power-loss assumptions before claiming those guarantees.
+   physical-size inspection and offline compaction/replacement are implemented.
+   The final foreign-role preservation fixtures pass on Linux. The maintainer
+   owns execution of the replacement proofs on macOS. Establish supported power-loss assumptions before claiming
+   those guarantees.
 3. Connect ordinary actor portraits and publications to the existing Host/Vat.
    Include sleepy activation, startup without eager behavior reconstruction,
    shutdown barriers, and current-authority restoration in this first integration.
