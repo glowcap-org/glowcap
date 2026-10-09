@@ -96,6 +96,7 @@ pub const OPEN: &str = "open";
 pub const ENTER: &str = "enter";
 pub const LIST_PUBLICATIONS: &str = "listPublications";
 pub const WATCH_PUBLICATIONS: &str = "watchPublications";
+pub const UNWATCH_PUBLICATIONS: &str = "unwatchPublications";
 pub const REGISTER: &str = "register";
 pub const INTRODUCE: &str = "introduce";
 pub const MEMBER_REGISTRATION: &str = "memberRegistration";

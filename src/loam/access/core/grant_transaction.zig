@@ -151,6 +151,7 @@ fn commit(self: *Ledger, pending: *Pending) types.Change {
             self.entries[plan.grant.slot].configured = replacement;
         },
         .status => |status| self.entries[plan.grant.slot].status = status,
+        .label => |label| self.entries[plan.grant.slot].label = label,
     }
     self.entries[plan.grant.slot].revision = next;
     self.current_revision = next;

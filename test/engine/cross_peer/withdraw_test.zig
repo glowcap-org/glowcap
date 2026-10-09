@@ -194,8 +194,8 @@ const Projection = struct {
     seen_target: ?u64 = null,
     fail: bool = false,
 
-    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, request: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
-        return if (request.session_fallback) |position| .{ .found = position } else .missing;
+    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
+        return .missing;
     }
 
     fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {
@@ -354,8 +354,8 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
         position: model.ExportPosition,
         rollbacks: usize = 0,
 
-        fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, request: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
-            return if (request.session_fallback) |position| .{ .found = position } else .missing;
+        fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
+            return .missing;
         }
         fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {
             return null;

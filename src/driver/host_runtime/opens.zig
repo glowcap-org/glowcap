@@ -15,7 +15,6 @@ const driver_core = @import("driver_core");
 const lifecycle = @import("lifecycle.zig");
 const pending = @import("pending.zig");
 const host_runtime = @import("../host_runtime.zig");
-const stream_wire = @import("stream_wire.zig");
 const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 
 const HostRuntime = host_runtime.HostRuntime;
@@ -59,11 +58,9 @@ pub fn connectLocator(
 /// dialed session, start its transport connect, and return. The
 /// handshake advances through whichever pump runs next; `observer` hears
 /// `opened` with `tag` when the session opens, or
-/// `failed` when the wire closes or the handshake budget expires.
-/// Provider-backed stream starts are nonblocking; a native Zig netlayer
-/// without staged dial support retains the blocking fallback. In either
-/// case, the handshake advances through later pumps, which lets a dial
-/// complete against a partner stepped by the same thread.
+/// `failed` when the wire closes or the handshake budget expires. The
+/// transport connect and the handshake both advance through later pumps,
+/// which lets a dial complete against a partner stepped by the same thread.
 pub fn startDial(
     self: *HostRuntime,
     locator: model.PeerLocator,
@@ -98,10 +95,7 @@ pub fn startAdoptExternal(
     var admission = try Internal.acquireOpenAdmission(self, .application);
     errdefer admission.release();
     const provider = Internal.providerFor(self, transport) orelse return Error.UnknownTransport;
-    const resident_index = switch (provider.source) {
-        .stream => return Error.UnknownTransport,
-        .resident => |index| index,
-    };
+    const resident_index = provider.resident;
     const runtime = self.residents.items[resident_index].resident;
     const claimer = runtime.externalClaimer() orelse return Error.UnknownTransport;
     try observer.reserve(observer.ctx, tag);
@@ -209,103 +203,42 @@ pub fn stageDial(
     const deadline_ms = handshakeDeadline(self);
     const provider = pending_provider orelse
         Internal.providerFor(self, locator.transport) orelse return Error.UnknownTransport;
-    switch (provider.source) {
-        .resident => |resident_index| {
-            const runtime = &self.residents.items[resident_index];
-            const resident = runtime.resident;
-            const dialer = resident.dialer() orelse return Error.UnknownTransport;
-            const request_id = try Internal.mintRuntimeId(&runtime.next_request);
-            var attempt = switch (dialer.startDial(
-                request_id,
-                locator,
-                options,
-            )) {
-                .admitted => |attempt| attempt,
-                .failed => |failure| {
-                    row.* = .{
-                        .admission = admission,
-                        .session = session,
-                        .stage = .handshake,
-                        .deadline_ms = deadline_ms,
-                        .outcome = outcome,
-                    };
-                    self.pending_opens.appendAssumeCapacity(row);
-                    removePendingRow(self, row);
-                    try failPendingOpenFailure(self, row, .fromDialFailure(failure));
-                    return;
-                },
-            };
-            defer if (attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
+    const resident_index = provider.resident;
+    const runtime = &self.residents.items[resident_index];
+    const resident = runtime.resident;
+    const dialer = resident.dialer() orelse return Error.UnknownTransport;
+    const request_id = try Internal.mintRuntimeId(&runtime.next_request);
+    var attempt = switch (dialer.startDial(
+        request_id,
+        locator,
+        options,
+    )) {
+        .admitted => |attempt| attempt,
+        .failed => |failure| {
             row.* = .{
                 .admission = admission,
                 .session = session,
-                .stage = .{ .resident_dial = .{
-                    .resident = resident_index,
-                    .attempt = attempt.take(),
-                } },
+                .stage = .handshake,
                 .deadline_ms = deadline_ms,
                 .outcome = outcome,
             };
+            self.pending_opens.appendAssumeCapacity(row);
+            removePendingRow(self, row);
+            try failPendingOpenFailure(self, row, .fromDialFailure(failure));
+            return;
         },
-        .stream => |nl| {
-            if (!nl.supportsDial()) return Error.UnknownTransport;
-            if (nl.supportsStagedDial()) {
-                var attempt = switch (nl.startDial(locator, options)) {
-                    .admitted => |attempt| attempt,
-                    .failed => |failure| {
-                        row.* = .{
-                            .admission = admission,
-                            .session = session,
-                            .stage = .handshake,
-                            .deadline_ms = deadline_ms,
-                            .outcome = outcome,
-                        };
-                        self.pending_opens.appendAssumeCapacity(row);
-                        removePendingRow(self, row);
-                        try failPendingOpenFailure(self, row, .fromDialFailure(failure));
-                        return;
-                    },
-                };
-                errdefer if (attempt.deinit()) |cleanup| Internal.noteTerminalFailureChain(self, cleanup);
-                const fd = attempt.readinessFd();
-                if (fd < 0) return Error.TransportNotPollable;
-                if (Internal.descriptorInUse(self, fd)) return error.ReadinessDescriptorConflict;
-                switch (self.drive) {
-                    .blocking => {},
-                    .stepped => |*stepped| try stepped.ready_set.add(fd),
-                }
-                errdefer Internal.removeReadyFd(self, fd);
-                row.* = .{
-                    .admission = admission,
-                    .session = session,
-                    .stage = .{ .stream_dial = attempt.take() },
-                    .deadline_ms = deadline_ms,
-                    .outcome = outcome,
-                };
-            } else {
-                if (try Internal.bindStreamWireOutcome(self, session, locator, nl, options)) |failure| {
-                    row.* = .{
-                        .admission = admission,
-                        .session = session,
-                        .stage = .handshake,
-                        .deadline_ms = deadline_ms,
-                        .outcome = outcome,
-                    };
-                    self.pending_opens.appendAssumeCapacity(row);
-                    removePendingRow(self, row);
-                    try failPendingOpenFailure(self, row, .fromDialFailure(failure));
-                    return;
-                }
-                row.* = .{
-                    .admission = admission,
-                    .session = session,
-                    .stage = .handshake,
-                    .deadline_ms = deadline_ms,
-                    .outcome = outcome,
-                };
-            }
-        },
-    }
+    };
+    defer if (attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
+    row.* = .{
+        .admission = admission,
+        .session = session,
+        .stage = .{ .resident_dial = .{
+            .resident = resident_index,
+            .attempt = attempt.take(),
+        } },
+        .deadline_ms = deadline_ms,
+        .outcome = outcome,
+    };
     self.pending_opens.appendAssumeCapacity(row);
 }
 
@@ -314,54 +247,6 @@ pub fn handshakeDeadline(self: *const HostRuntime) ?i64 {
         .unbounded => null,
         .ms => |v| net.clock.nowMs(self.io) + v,
     };
-}
-
-/// Accept one ready connection from `listener` without pumping its
-/// handshake (ADR-0112): mint the accepted half, bind the wire, and park
-/// a staged row beside the dials. The accept observer hears `opened` with
-/// `tag` only when the partner's hello completes the handshake. A wire
-/// close or budget expiry is retired as listener hygiene, so one silent
-/// connector cannot park the step or become an application operation
-/// failure. Call after the listener reported acceptable, so the accept
-/// syscall itself does not block.
-pub fn startAcceptWire(
-    self: *HostRuntime,
-    listener: net.netlayer.Listener,
-    transport: []const u8,
-    tag: u64,
-    observer: SessionAcceptObserver,
-) !void {
-    self.enterDriver();
-    defer self.leaveDriver();
-    var admission = try Internal.acquireOpenAdmission(self, .application);
-    errdefer admission.release();
-    try observer.reserve(observer.ctx, tag);
-    errdefer observer.release(observer.ctx, tag);
-    const session = try self.core.openAcceptedAdvertised(transport);
-    errdefer {
-        Internal.dropWire(self, session.peer_handle);
-        if (Internal.releaseCoreSession(self, session)) |failure| Internal.noteTerminalFailureChain(self, failure);
-    }
-    const row = try self.allocator.create(PendingOpen);
-    errdefer self.allocator.destroy(row);
-    try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
-    if (try Internal.bindAcceptedWireOutcome(self, session, listener)) |accept_failure| {
-        var failure = OperationFailure.fromAcceptFailure(accept_failure);
-        self.allocator.destroy(row);
-        if (Internal.releaseCoreSession(self, session)) |cleanup| failure.noteChain(cleanup);
-        admission.release();
-        observer.release(observer.ctx, tag);
-        Internal.failActiveListener(self, tag, failure);
-        return;
-    }
-    row.* = .{
-        .admission = admission,
-        .session = session,
-        .stage = .handshake,
-        .deadline_ms = handshakeDeadline(self),
-        .outcome = .{ .listener_accept = .{ .observer = observer, .tag = tag } },
-    };
-    self.pending_opens.appendAssumeCapacity(row);
 }
 
 /// Cancel every accepted connection still handshaking for `tag`. A
@@ -514,10 +399,6 @@ pub fn discardPendingOpen(self: *HostRuntime, row: *PendingOpen) DiscardedOpen {
     const admission = row.admission;
     var cleanup: ?foundation.FailureChain = null;
     switch (row.stage) {
-        .stream_dial => |*attempt| {
-            Internal.removeReadyFd(self, attempt.readinessFd());
-            cleanup = attempt.deinit();
-        },
         .resident_dial => cleanup = row.stage.resident_dial.attempt.deinit(),
         .handshake => {},
     }
@@ -533,7 +414,6 @@ pub fn discardPendingOpen(self: *HostRuntime, row: *PendingOpen) DiscardedOpen {
 
 pub fn pendingOpenByRequest(self: *HostRuntime, resident_index: usize, request_id: usize) ?*PendingOpen {
     for (self.pending_opens.items) |row| switch (row.stage) {
-        .stream_dial => {},
         .resident_dial => |dial| if (dial.resident == resident_index and dial.attempt.id() == request_id) return row,
         .handshake => {},
     };
@@ -590,36 +470,6 @@ pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: 
     };
     // The hello's flush action drained to a no-op while the wire did not
     // exist yet; push the queued frame now that it does.
-    const wire = self.wires.get(row.session.peer_handle).?;
-    Internal.writeOutbound(self, wire) catch |err| Internal.closeWire(self, wire, err);
-}
-
-/// Claim a ready per-stream connect, transfer it into an ordinary wire,
-/// and advance the row to the shared CapTP handshake stage.
-pub fn adoptPendingStreamDial(self: *HostRuntime, row: *PendingOpen) !void {
-    std.debug.assert(row.stage == .stream_dial);
-    Internal.removeReadyFd(self, row.stage.stream_dial.readinessFd());
-    var buffers = stream_wire.Buffers.init(self.allocator, self.opts.wire_buffer_bytes) catch |err| {
-        removePendingRow(self, row);
-        return failPendingOpen(self, row, err);
-    };
-    defer buffers.deinit();
-    const conn = switch (row.stage.stream_dial.finish(row.session.served.port.peer, buffers.view())) {
-        .connected => |conn| conn,
-        .failed => |failure| {
-            row.stage = .handshake;
-            removePendingRow(self, row);
-            return failPendingOpenFailure(self, row, .fromDialFailure(failure));
-        },
-    };
-    var prepared = buffers.attach(conn);
-    defer prepared.deinit();
-    row.stage = .handshake;
-    Internal.adoptConn(self, row.session, &prepared) catch |err| {
-        removePendingRow(self, row);
-        return failPendingOpen(self, row, err);
-    };
-    // The hello flush drained before the wire existed. Push it now.
     const wire = self.wires.get(row.session.peer_handle).?;
     Internal.writeOutbound(self, wire) catch |err| Internal.closeWire(self, wire, err);
 }

@@ -1,4 +1,4 @@
-//! Actors behind the byte-fed Host: a replaced giftable answers at its
+//! Actors behind the byte-fed Host: a replaced Host publication answers at its
 //! granted position, deposits keep the exact actor across alias replacement,
 //! unpublish removes discovery without revoking issued capabilities, and
 //! become history is one history across Ports.
@@ -48,8 +48,8 @@ const Tagged = harness.Tagged;
 const keyedDesignator = harness.keyedDesignator;
 const TraceLog = harness.TraceLog;
 
-test "core host: a replaced giftable keeps answering at the position it already granted" {
-    // `publishGiftable` replacement changes discovery, not a live capability. The
+test "core host: a replaced Host publication keeps answering at the position it already granted" {
+    // `publish` replacement changes discovery, not a live capability. The
     // displaced actor remains exported at its existing position and still
     // reads the state it was spawned with. Hence: hold a capability to the
     // first registration, replace the name, and call the capability.
@@ -67,7 +67,7 @@ test "core host: a replaced giftable keeps answering at the position it already 
         defer dials.deinit(allocator);
 
         const pair = try openPair(allocator, &client, &server, "127.0.0.1:7061", &dials);
-        _ = try server.publishGiftable("inbox", Tagged, .{ .row = &first });
+        _ = try server.publish("inbox", Tagged, .{ .row = &first });
         const first_position = (try server.publishedPosition(pair.b, "inbox")).?;
 
         // The client takes a routable capability to the first registration while
@@ -78,7 +78,7 @@ test "core host: a replaced giftable keeps answering at the position it already 
         try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
         const first_cap = try held.require();
 
-        _ = try server.publishGiftable("inbox", Tagged, .{ .row = &second });
+        _ = try server.publish("inbox", Tagged, .{ .row = &second });
         const second_position = (try server.publishedPosition(pair.b, "inbox")).?;
         try std.testing.expect(first_position != second_position);
         try std.testing.expect(!first_freed);
@@ -129,7 +129,7 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
     var replacement_freed = false;
     var original = TaggedRow{ .tag = "original", .freed = &original_freed };
     var replacement = TaggedRow{ .tag = "replacement", .freed = &replacement_freed };
-    _ = try exporter.publishGiftable("widget", Tagged, .{ .row = &original });
+    _ = try exporter.publish("widget", Tagged, .{ .row = &original });
 
     // Gifter dials the exporter and fetches the widget: the node records the
     // capability's foreign home, the home the give will name. Fetch lazily
@@ -172,7 +172,7 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
     // The deposit has crossed the gifter-facing exporter Port and captured the
     // original actor. Move the public alias before the recipient opens its own
     // exporter Port. A withdraw-time name lookup would now redirect the gift.
-    _ = try exporter.publishGiftable("widget", Tagged, .{ .row = &replacement });
+    _ = try exporter.publish("widget", Tagged, .{ .row = &replacement });
 
     // The test is the dial executor: open the recipient's own connection to
     // the exporter, drive it open, and report it back. The withdraw, its
@@ -242,7 +242,7 @@ test "core host: unpublish removes discovery on every session while issued capab
 
     var widget_freed = false;
     var widget_row = TaggedRow{ .tag = "original", .freed = &widget_freed };
-    _ = try exporter.publishGiftable("widget", Tagged, .{ .row = &widget_row });
+    _ = try exporter.publish("widget", Tagged, .{ .row = &widget_row });
 
     // Gifter dials the exporter, fetches the widget (issuing a capability and
     // projecting the actor on this Port), and mutates it.
@@ -327,7 +327,7 @@ test "core host: unpublish removes discovery on every session while issued capab
     // it (ADR-0101), observed at the next Vat turn boundary.
     var unfetched_freed = false;
     var unfetched_row = TaggedRow{ .tag = "unfetched", .freed = &unfetched_freed };
-    _ = try exporter.publishGiftable("unfetched", Tagged, .{ .row = &unfetched_row });
+    _ = try exporter.publish("unfetched", Tagged, .{ .row = &unfetched_row });
     try exporter.unpublish("unfetched");
     var boundary_freed = false;
     var boundary_row = TaggedRow{ .tag = "boundary", .freed = &boundary_freed };
@@ -378,7 +378,7 @@ test "core host: an unnamed local target deposits and withdraws as the exact mut
 
     var widget_freed = false;
     var widget_row = TaggedRow{ .tag = "original", .freed = &widget_freed };
-    _ = try exporter.publishGiftable("maker", UnnamedMaker, .{ .row = &widget_row });
+    _ = try exporter.publish("maker", UnnamedMaker, .{ .row = &widget_row });
 
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7031", &dials);
     var maker = CapturedRef{};
@@ -465,7 +465,7 @@ test "core host: one actor's become history is observed across two Ports" {
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
-    _ = try server.publishGiftable("counter", Becomer, .{ .n = 0 });
+    _ = try server.publish("counter", Becomer, .{ .n = 0 });
     const a = try openPair(allocator, &alice, &server, "127.0.0.1:7041", &dials);
     const b = try openPair(allocator, &bob, &server, "127.0.0.1:7042", &dials);
     var a_cap = CapturedRef{};
@@ -525,7 +525,7 @@ test "core host: a target reached directly and through handoff lifts to one Host
 
     var widget_freed = false;
     var widget_row = TaggedRow{ .tag = "original", .freed = &widget_freed };
-    _ = try exporter.publishGiftable("widget", Tagged, .{ .row = &widget_row });
+    _ = try exporter.publish("widget", Tagged, .{ .row = &widget_row });
 
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7051", &dials);
     var widget = CapturedRef{};
@@ -588,7 +588,7 @@ test "core host: restore under two live sessions breaks only the missing target'
 
     var stable_freed = false;
     var stable_row = TaggedRow{ .tag = "stable", .freed = &stable_freed };
-    _ = try server.publishGiftable("stable", Tagged, .{ .row = &stable_row });
+    _ = try server.publish("stable", Tagged, .{ .row = &stable_row });
 
     const a = try openPair(allocator, &alice, &server, "127.0.0.1:7043", &dials);
     const b = try openPair(allocator, &bob, &server, "127.0.0.1:7044", &dials);
@@ -602,7 +602,7 @@ test "core host: restore under two live sessions breaks only the missing target'
     // Spawned after the snapshot and projected on Bob's Port.
     var late_freed = false;
     var late_row = TaggedRow{ .tag = "late", .freed = &late_freed };
-    _ = try server.publishGiftable("late", Tagged, .{ .row = &late_row });
+    _ = try server.publish("late", Tagged, .{ .row = &late_row });
     var late_cap = CapturedRef{};
     try bob.vowOn(try bob.fetch(b.a, "late"), .{ .ctx = &late_cap, .func = CapturedRef.record });
     try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);

@@ -4,7 +4,7 @@ mod hex;
 use crate::text::DocumentText;
 use alloc::{boxed::Box, vec::Vec};
 use core::fmt;
-pub(crate) use hex::Hex;
+pub use hex::Hex;
 pub use hex::lower_hex;
 use serde::{
 	Deserialize, Deserializer, Serialize,
@@ -26,6 +26,11 @@ impl<'de, const N: usize, const NONEMPTY: bool> Deserialize<'de> for Text<N, NON
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct List<T, const N: usize>(pub(crate) Vec<T>);
+impl<T, const N: usize> Default for List<T, N> {
+	fn default() -> Self {
+		Self(Vec::new())
+	}
+}
 impl<'de, T: Deserialize<'de>, const N: usize> Deserialize<'de> for List<T, N> {
 	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
 		struct Read<T, const N: usize>(core::marker::PhantomData<T>);
@@ -209,6 +214,9 @@ impl<const N: usize, const NONEMPTY: bool> Text<N, NONEMPTY> {
 	}
 }
 impl<T, const N: usize> List<T, N> {
+	pub fn is_empty(&self) -> bool {
+		self.0.is_empty()
+	}
 	pub fn try_push(&mut self, value: T) -> Result<(), T> {
 		if self.0.len() >= N {
 			return Err(value);
@@ -221,6 +229,18 @@ impl<T, const N: usize> List<T, N> {
 	}
 	pub fn as_slice(&self) -> &[T] {
 		&self.0
+	}
+	/// Backing capacity for owners that account for their retained scalar spines.
+	pub fn capacity(&self) -> usize {
+		self.0.capacity()
+	}
+	/// Mutate existing elements without changing the admitted population.
+	pub fn as_mut_slice(&mut self) -> &mut [T] {
+		&mut self.0
+	}
+	/// Take one element out. A smaller population is always admitted.
+	pub fn remove(&mut self, at: usize) -> T {
+		self.0.remove(at)
 	}
 }
 

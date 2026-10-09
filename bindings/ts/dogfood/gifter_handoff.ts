@@ -1,7 +1,7 @@
 // Glowcap-only three-party handoff (TCP): the gifter half, end to end, with
 // glowcap as all three parties — no Goblins, no manual export bookkeeping.
 //
-//   Exporter  (Bob)    publishes a host-giftable "dm" inbox and listens.
+//   Exporter  (Bob)    publishes a Host-published "dm" inbox and listens.
 //   Gifter    (Broker) holds Bob's dm and exposes an "introducer".
 //   Recipient (Carol)  asks the broker to introduce her, transparently redeems
 //                      the give, and DMs Bob *directly*.
@@ -22,10 +22,10 @@ function fail(message: string): never {
 }
 
 async function main(): Promise<void> {
-	// ── Exporter (Bob): publishes a host-giftable inbox, listens for dials ───────
+	// ── Exporter (Bob): publishes a Host-published inbox, listens for dials ───────
 	const inbox: string[] = [];
 	const bob = await listen("127.0.0.1", 0);
-	bob.host.publishGiftable("dm", (verb, args) => {
+	bob.host.publish("dm", (verb, args) => {
 		if (verb === "tell") inbox.push(String(args[0]));
 		return null;
 	});
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
 	})();
 
 	// The broker dials Bob as a member would — keyed with the broker node's own
-	// identity — and fetches Bob's giftable dm. The fetched ref's home is this
+	// identity — and fetches Bob's Host publication dm. The fetched ref's home is this
 	// broker-to-Bob connection, so the broker can re-gift it.
 	const brokerToBob = await brokerRuntime.connect(locator("127.0.0.1", bobPort));
 	brokerToBob.serve().catch(() => {});
@@ -56,14 +56,14 @@ async function main(): Promise<void> {
 	// retain the exact inbox the broker holds, not whatever the name resolves
 	// to at withdrawal (ADR-0096's exact-object identity, on the binding path).
 	const decoyInbox: string[] = [];
-	bob.host.publishGiftable("dm", (verb, args) => {
+	bob.host.publish("dm", (verb, args) => {
 		if (verb === "tell") decoyInbox.push(String(args[0]));
 		return null;
 	});
 
 	// Returning Bob's dm to a *different* connection (Carol's) trips the
 	// transparent gifter, which originates the three-party handoff.
-	broker.host.publishGiftable(
+	broker.host.publish(
 		"introducer",
 		(verb) => (verb === "introduce" ? bobDm : null),
 	);

@@ -86,11 +86,13 @@ mod lifecycle;
 #[cfg(feature = "async")]
 mod trace;
 #[cfg(feature = "async")]
-pub use host::{Host, HostOptions, ListenerIdentity, Resolver, SessionLimitOptions};
+pub use host::{Host, HostOptions, HostPromise, ListenerIdentity, Resolver, SessionLimitOptions};
 #[cfg(feature = "async")]
 pub use lifecycle::PendingWork;
 #[cfg(feature = "async")]
-pub use trace::{PayloadSummary, SessionMeta, TraceEvent, TraceKind, TraceSink, annotate_session, enable_trace};
+pub use trace::{
+	PayloadSummary, SessionMeta, TraceEvent, TraceKind, TraceSink, annotate_session, enable_trace, set_trace_label,
+};
 #[cfg(feature = "async")]
 mod trampoline;
 // Byte-fed embedder pump: feed / flush / serve-loop / feed-refusal (crate-private).
@@ -209,7 +211,7 @@ pub(crate) use runtime_failure::{FAILURE_PAYLOAD_CAP, RUNTIME_FAILURE_CAP, Runti
 /// An actor behavior: handle a `(verb, args)` call, returning a reply or an
 /// error message (which becomes a broken answer carrying those words). This is
 /// what [`Session::spawn`]/[`Session::publish`] host and what a
-/// [`Host::publish_giftable`] factory mints.
+/// [`Host::publish`] factory mints.
 pub type Behavior = Box<dyn FnMut(&str, &[Argument]) -> std::result::Result<Argument, String>>;
 
 mod failure;

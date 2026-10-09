@@ -28,19 +28,19 @@ export async function run(managed: Runtime): Promise<void> {
 		// Host-wide publications hand their JS callback ownership to the native
 		// Vat. Unpublish retires the actor; the next outermost turn is the borrowed
 		// reply boundary that drops its box and invokes the shared free callback.
-		probeHost.publishGiftable("retired", () => null);
-		const publishedCtx = probeHost.giftableCtx("retired");
+		probeHost.publish("retired", () => null);
+		const publishedCtx = probeHost.publicationCtx("retired");
 		assert(
 			publishedCtx !== undefined,
-			"published giftable exposes its native callback context",
+			"Host publication exposes its native callback context",
 		);
 		const retiredCtx: bigint = publishedCtx;
 		assert(
 			entryFor(retiredCtx) !== undefined,
-			"published giftable owns its JS behavior",
+			"Host publication owns its JS behavior",
 		);
-		assert(probeHost.unpublishGiftable("retired"), "the live giftable alias should unpublish");
-		probeHost.publishGiftable("svc", () => new Sym("alive"));
+		assert(probeHost.unpublish("retired"), "the live Host publication should unpublish");
+		probeHost.publish("svc", () => new Sym("alive"));
 		const server = await tcp.listen("127.0.0.1", 0, { host: probeHost });
 		const port = server.port;
 
@@ -66,14 +66,14 @@ export async function run(managed: Runtime): Promise<void> {
 			);
 			assert(
 				entryFor(retiredCtx) === undefined,
-				"the next native turn should release a retired giftable's JS behavior",
+				"the next native turn should release a retired publication's JS behavior",
 			);
 			await session.close();
 		}
 		// Join both owners: the serve loop must survive the probe and the real client
 		// must complete before this scenario can release their loops.
 		await Promise.all([client(), served]);
-		ok("unpublish reclaims a TypeScript giftable behavior at the next turn boundary");
+		ok("unpublish reclaims a TypeScript Host publication behavior at the next turn boundary");
 		ok("a rude probe cannot close the listener");
 	}
 

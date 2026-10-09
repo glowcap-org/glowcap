@@ -3,8 +3,6 @@ const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // Key designator, cleartext CapTP. Reuse a seed across restarts to keep the same key.
-    var keyed_resident = glowcap.net.tcp.keyed.Resident{ .io = io };
-    const netlayers = [_]glowcap.net.netlayer.Netlayer{keyed_resident.netlayer()};
     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
     const peer_key = "<64 lowercase hex characters from the server>";
     const partner = glowcap.net.tcp.keyed.locator(
@@ -15,7 +13,8 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 
     const session = try glowcap.driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.keyed_tcp} },
         partner,
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },

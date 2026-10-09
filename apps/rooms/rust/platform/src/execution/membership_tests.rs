@@ -60,7 +60,7 @@ async fn membership_scenario() {
 		.unwrap();
 	let locator = server.locator().unwrap();
 	let (client, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let accepted = Rc::new(accepted.unwrap().with_gc());
+	let accepted = Rc::new(accepted.unwrap());
 	let serving_session = accepted.clone();
 	let serving = tokio::task::spawn_local(async move { serving_session.serve().await });
 	let client = Client::new(client.unwrap(), HostPlatform);

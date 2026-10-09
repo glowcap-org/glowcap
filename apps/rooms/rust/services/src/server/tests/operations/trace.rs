@@ -104,8 +104,7 @@ impl Viewer {
 						None,
 					)
 					.await
-					.map_err(|e| e.to_string())?
-					.with_gc();
+					.map_err(|e| e.to_string())?;
 					let trace = session.enliven(&sturdyref).await.map_err(|e| e.to_string())?;
 					let inbox = session
 						.spawn_owned(move |verb, args| {
@@ -216,7 +215,11 @@ async fn trace() {
 		let mut answer = String::new();
 		plain.read_to_string(&mut answer).await.unwrap();
 		assert!(answer.starts_with("HTTP/1.1 400"), "{answer}");
-		assert!(answer.contains("presenting the trace capability"), "{answer}");
+		assert!(answer.contains("OCapN byte channel at /captp"), "{answer}");
+		assert!(
+			answer.contains("/ and /publish require the trace capability as ?cap=<swiss>"),
+			"{answer}"
+		);
 	}
 	// A socket without the capability is refused before anything is parsed,
 	// with the wrong swiss as with none.
@@ -279,8 +282,7 @@ async fn trace() {
 			ConnectOptions::default(),
 		)
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	member.fetch("directory").await.unwrap();
 	let own = viewer.heard("\"session\":\"p0/", patience).await;
 	assert!(own.contains("ocapn.session-opened"), "{own}");

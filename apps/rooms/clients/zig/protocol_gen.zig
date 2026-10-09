@@ -78,6 +78,7 @@ pub const open = "open";
 pub const enter = "enter";
 pub const list_publications = "listPublications";
 pub const watch_publications = "watchPublications";
+pub const unwatch_publications = "unwatchPublications";
 pub const register = "register";
 pub const introduce = "introduce";
 pub const member_registration = "memberRegistration";

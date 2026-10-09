@@ -76,6 +76,17 @@ package lease until all copied callbacks, listeners, and connections retire.
 Nothing relies on load order, global transport registration, or a binding-owned
 mirror of the provider set.
 
+Archives that share opaque Host and actor owners are built together from the
+same compilation inputs. Private layout compatibility across different builds
+is not supported; matching public ABI fingerprints alone do not establish it.
+Within that composition, callbacks cannot use a function-table address as a
+protocol identity or exchange unqualified Zig error ordinals. Opaque local
+delivery uses a stable adapter protocol token and checks its actual Vat owner.
+Handlers catch errors in their producing compilation and carry immutable
+diagnostic text. A private error-domain identity permits typed near-call errors
+only within that compilation. Foreign failures preserve their text for queued
+and served answers; clone callbacks express their sole failure as null.
+
 ## Consequences
 
 - A new transport adds one package and one provider entry set without changing

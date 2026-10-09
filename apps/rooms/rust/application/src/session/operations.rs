@@ -1,5 +1,6 @@
 //! Attached-session operations views. Each requested capability selects one
 //! bounded document shape; the platform does not inspect an untyped JSON tree.
+pub mod mutation;
 pub mod wire;
 use crate::{
 	bridge::gateway::Description,
@@ -84,7 +85,7 @@ pub struct Diagnostic {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Visualization {
-	pub url: Name,
+	pub url: Field,
 	pub connected: bool,
 	pub refusal: Nullable<Name>,
 }

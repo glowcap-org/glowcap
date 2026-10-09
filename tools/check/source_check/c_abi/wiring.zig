@@ -193,18 +193,9 @@ pub fn checkUnwiredHostPluginApis(
     if (try fileContains(io, gpa, root, "src/ocapn/engine/bootstrap.zig", "cloneMessage")) {
         try appendViolation(gpa, violations, "src/ocapn/engine/bootstrap.zig: cloneMessage must stay deleted — prepared withdraw owns one resolution clone", .{});
     }
-    // Enliven: session owns swissnum; Host bridge keys on answer only.
-    for ([_][]const u8{
-        "mintEnlivenVow(session, swissnum,",
-        "mintEnlivenVow(self, session, swissnum,",
-        ".swissnum = owned",
-        "swissnum: []const u8,\n    vow_id",
-        "swissnum: []u8,\n    vow_id",
-    }) |needle| {
-        if (try fileContains(io, gpa, root, "src/driver/core/enliven.zig", needle)) {
-            try appendViolation(gpa, violations, "src/driver/core/enliven.zig: EnlivenListener/mintEnlivenVow must not own swissnum — session pending row owns it", .{});
-            break;
-        }
+    // Enliven: session owns Swiss bytes; the Host group keys on the answer.
+    if (try fileContains(io, gpa, root, "src/driver/core/enliven/group.zig", "swissnum:")) {
+        try appendViolation(gpa, violations, "src/driver/core/enliven/group.zig: the group must not own Swiss bytes; the session pending row owns them", .{});
     }
     // Cap'n Proto set encode-once: deleted 2N helpers must not return.
     for ([_][]const u8{ "canonicalSetOrder", "encodeArgumentKey" }) |needle| {
@@ -219,7 +210,7 @@ pub fn checkUnwiredHostPluginApis(
         "isProxyHomeListener",
         "claimProxyListenerFire",
     });
-    try expectFileContains(io, gpa, root, violations, "src/driver/core/enliven.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/driver/core/enliven/group.zig", &.{
         "pendingEnlivenSwissnum",
     });
     try expectFileContains(io, gpa, root, violations, "test/engine/relay_resolution_test.zig", &.{
@@ -276,35 +267,9 @@ pub fn checkUnwiredHostPluginApis(
             try appendViolation(gpa, violations, "include/glowcap_host.h: `{s}` must stay deleted — use glowcap_host_pending_dial", .{needle});
         }
     }
-    // Redeem dial must not re-parse the pending URI on Host/Bridge.
+    // Redeem dial must not re-parse the pending URI on the Host.
     if (try fileContains(io, gpa, root, "src/driver/core/host/pump.zig", "dialDesignatorForReuse")) {
         try appendViolation(gpa, violations, "src/driver/core/host/pump.zig: dialDesignatorForReuse must stay deleted — pendingDial owns the designator", .{});
-    }
-    if (try fileContains(io, gpa, root, "src/driver/bridge.zig", "parsePeer(bridge.allocator")) {
-        try appendViolation(gpa, violations, "src/driver/bridge.zig: Exec.dial must not parsePeer — use pendingDial", .{});
-    }
-    try expectFileContains(io, gpa, root, violations, "src/driver/bridge.zig", &.{
-        "OutboundConnect",
-        "pending_connects",
-        "connectOutbound",
-        ".{ .redeem = .{ .ticket = d.ticket, .route_index = d.route_index } }",
-    });
-    try expectFileContains(io, gpa, root, violations, "src/driver/bridge_connect.zig", &.{
-        "pub const RedeemAttempt = struct",
-        "ticket: engine.Node.PendingId",
-        "route_index: usize",
-        "redeem: RedeemAttempt",
-        "app_dial: model.PeerLocator",
-        "model.clonePeerLocator(allocator, locator)",
-        "model.freePeerLocator(allocator, locator)",
-    });
-    if (try fileContains(io, gpa, root, "src/driver/bridge.zig", "const PendingDial = struct")) {
-        try appendViolation(gpa, violations, "src/driver/bridge.zig: PendingDial must stay deleted — use OutboundConnect", .{});
-    }
-    for ([_][]const u8{ "DialKind", "submitPendingDial", "submitRedeemDial", "pending_dials:", "pending dial parts missing" }) |needle| {
-        if (try fileContains(io, gpa, root, "src/driver/bridge.zig", needle)) {
-            try appendViolation(gpa, violations, "src/driver/bridge.zig: `{s}` must stay deleted — OutboundConnect + acceptGive own the invariant", .{needle});
-        }
     }
     if (try fileContains(io, gpa, root, "tools/gen/header/host.zig", "Empty transport/designator means")) {
         try appendViolation(gpa, violations, "tools/gen/header/host.zig: empty-parts-as-unparseable prose must stay deleted — acceptGive fails unparseable closed", .{});

@@ -32,7 +32,6 @@ pub const Open = struct {
     close_cause: ?OperationFailure = null,
 
     pub const Stage = union(enum) {
-        stream_dial: net.netlayer.DialAttempt,
         resident_dial: struct {
             resident: usize,
             attempt: net.multiplexed_resident.DialAttempt,
@@ -56,13 +55,8 @@ pub const ListenerObservation = struct {
 };
 
 pub const Listener = struct {
-    stage: union(enum) {
-        stream: net.netlayer.ListenAttempt,
-        resident: struct {
-            attempt: net.MultiplexedResident.ListenAttempt,
-            resident: usize,
-        },
-    },
+    attempt: net.MultiplexedResident.ListenAttempt,
+    resident: usize,
     transport: []const u8,
     designator_scheme: net.netlayer.DesignatorScheme,
     deadline_ms: ?i64,

@@ -12,7 +12,7 @@ impl<D: Deadline> Archive<D> {
 		}
 		let args = wire::share_issue(spec)?;
 		let reply = self
-			.client
+			.caller
 			.call(
 				&self.reference,
 				share_protocol::ISSUE,
@@ -20,14 +20,14 @@ impl<D: Deadline> Archive<D> {
 				"the archive did not answer share",
 			)
 			.await?;
-		link(&reply.0)
+		link(&reply)
 	}
 	pub async fn revoke_share(&self, id: &str) -> Result<bool, Error> {
 		if id.len() > 128 {
 			return Err(shares::Error::Invalid.into());
 		}
 		let reply = self
-			.client
+			.caller
 			.call(
 				&self.reference,
 				share_protocol::REVOKE,
@@ -35,14 +35,14 @@ impl<D: Deadline> Archive<D> {
 				"the archive did not answer revokeShare",
 			)
 			.await?;
-		match reply.0 {
+		match reply {
 			Argument::Boolean(v) => Ok(v),
 			_ => Err(shares::Error::Invalid.into()),
 		}
 	}
 	pub async fn shares(&self) -> Result<Vec<ShareView>, Error> {
 		let reply = self
-			.client
+			.caller
 			.call(
 				&self.reference,
 				share_protocol::LIST,
@@ -50,7 +50,7 @@ impl<D: Deadline> Archive<D> {
 				"the archive did not answer shares",
 			)
 			.await?;
-		read_share_views(reply.0)
+		read_share_views(reply)
 	}
 }
 pub(crate) fn read_share_views(reply: Argument) -> Result<Vec<ShareView>, Error> {

@@ -265,16 +265,16 @@ pub fn register(ctx: Context) Registered {
         },
         .{
             .step_name = "webrtc-loop",
-            .description = "Live WebRTC scale: many concurrent DataChannels served from one loop thread through the generic Host completion adapter (ADR-0089; needs cargo)",
+            .description = "Live WebRTC scale: many concurrent DataChannels served from one HostRuntime thread through the WebRTC completion resident (ADR-0089, ADR-0202; needs cargo)",
             .exe_name = "glowcap-webrtc-loop",
             .root_source = "interop/webrtc_loop/driver.zig",
-            .imports = .{ .webrtc_common = true, .interop_harness = true },
+            .imports = .{ .webrtc_common = true },
         },
         .{
-            .step_name = "webrtc-bridge-redeem",
-            .description = "Live native three-party handoff over WebRTC: recipient loop redeems a bare webrtc give through configured signaling authority (ADR-0089; needs cargo)",
-            .exe_name = "glowcap-webrtc-bridge-redeem",
-            .root_source = "interop/webrtc_bridge_redeem/driver.zig",
+            .step_name = "webrtc-redeem",
+            .description = "Live native three-party handoff over WebRTC: a recipient Session redeems a bare webrtc give through configured signaling authority (ADR-0089; needs cargo)",
+            .exe_name = "glowcap-webrtc-redeem",
+            .root_source = "interop/webrtc_redeem/driver.zig",
             .imports = .{ .interop_harness = true },
         },
         .{

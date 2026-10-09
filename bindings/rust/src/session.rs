@@ -127,7 +127,7 @@ impl Session {
 	/// The session's shared [`Host`], its retained identity and handoff router.
 	/// Shared by every session of one Host, so the gifter half of a handoff
 	/// can reach a sibling session's session keys. An application reads it to
-	/// publish Host-giftables ([`Host::publish_giftable`]), share one identity
+	/// publish Host-publications ([`Host::publish`]), share one identity
 	/// across dials, or set the redeem posture.
 	pub fn host(&self) -> Host {
 		Host::from_shared(Rc::clone(&self.shared.host))
@@ -158,23 +158,11 @@ impl Session {
 		Ok(())
 	}
 
-	/// Opt this session into distributed GC (ADR-0063), off by default. Once
-	/// on, every capability occurrence projected by this session through
-	/// [`fetch`](Session::fetch), a fulfilled operation, or a recursively
-	/// nested delivered argument releases its Host retain when the last clone of
-	/// that `Ref` drops. The Host routes any required `op:gc-exports` to the
-	/// import's actual home. Fresh and cached `enliven` results each own a retain.
-	/// Returns `self` for chaining after `connect`.
-	pub fn with_gc(self) -> Session {
-		self.shared.gc.set(true);
-		self
-	}
-
 	/// A [`Ref`] for the object published under `name` on this session, or `None`
 	/// when nothing is published there.
 	///
 	/// [`Session::publish`] returns its own `Ref`, so this is for the other
-	/// publisher: [`Host::publish_giftable`](crate::Host::publish_giftable) hosts
+	/// publisher: [`Host::publish`](crate::Host::publish) hosts
 	/// one actor under a Host-wide alias and returns nothing. This lazily projects
 	/// the actor onto the session and returns its Host identity; no enrollment
 	/// step exists.
@@ -199,9 +187,10 @@ impl Session {
 	///
 	/// Releases one application retain. For a remote capability the Host emits
 	/// any required `op:gc-exports`; a local capability needs no wire message.
-	/// [`with_gc`](Session::with_gc) does this best-effort for every capability
-	/// occurrence projected by an opted-in session; this verb is deterministic
-	/// and also works for a handle outside that automatic seam.
+	/// Dropping the last clone does this for every far capability a Host
+	/// projects while [`Host::set_release_on_drop`](crate::Host::set_release_on_drop)
+	/// is on (the default); this verb also works for a handle outside that
+	/// automatic seam.
 	///
 	/// `cap` is taken by value, so the handle you released is gone. A clone
 	/// made earlier reads [`Ref::released`] as true and is a caller error to

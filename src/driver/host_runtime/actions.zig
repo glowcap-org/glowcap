@@ -15,38 +15,24 @@ const Error = driver_core.Error;
 const ExternalEffectMode = lifecycle.ExternalEffectMode;
 const Wire = HostRuntime.Wire;
 
-/// Write every transport-ready stream vector the core queued for `wire`. The
-/// core owns whether the prefix is present, so this I/O tier never interprets
-/// transport names or channel state.
-pub fn writeOutbound(self: *HostRuntime, wire: *Wire) !void {
-    switch (wire.link) {
-        .stream => |*stream| {
-            while (try wire.session.takeStreamOutbound()) |value| {
-                var outbound = value;
-                defer outbound.payload.deinit();
-                try stream.conn.w.writeAll(outbound.prefixBytes());
-                try stream.conn.w.writeAll(outbound.payload.bytes());
-            }
-            try stream.conn.w.flush();
-        },
-        .resident => try writeResidentOutbound(self, wire),
-    }
-}
-
-/// The resident spelling of the outbound drain: the retained frame first,
+/// Write what the core queued for `wire`: the retained frame first,
 /// then the core's queue, each through `try_write` until the window refuses. A
 /// partial frame is retained with its offset — the window announces writable
 /// readiness and the drain resumes exactly there, so bytes are never resent or
 /// reordered.
-fn writeResidentOutbound(self: *HostRuntime, wire: *Wire) !void {
-    const rl = &wire.link.resident;
+/// The core owns whether the prefix is present, so this I/O tier never
+/// interprets transport names or channel state.
+pub fn writeOutbound(self: *HostRuntime, wire: *Wire) !void {
+    const rl = &wire.link;
     const resident = self.residents.items[rl.index].resident;
+    // One batch per drain: the resident sends what this drain staged at once.
+    defer resident.flushWrites(rl.conn);
     if (rl.pending != null) {
         if (!try pushPendingResident(resident, rl)) return;
     }
     while (try wire.session.takeTransportOutbound()) |value| {
         var outbound = value;
-        var pending = Wire.ResidentLink.PendingOut{
+        var pending = Wire.Link.PendingOut{
             .frame = outbound.payload,
             .prefix = undefined,
             .prefix_len = outbound.prefix_len,
@@ -59,7 +45,7 @@ fn writeResidentOutbound(self: *HostRuntime, wire: *Wire) !void {
 }
 
 /// Push a retained frame as far as the resident window allows.
-fn pushPendingResident(resident: net.MultiplexedResident, rl: *Wire.ResidentLink) !bool {
+fn pushPendingResident(resident: net.MultiplexedResident, rl: *Wire.Link) !bool {
     const pending = &rl.pending.?;
     const body = pending.frame.bytes();
     const total = pending.prefix_len + body.len;
@@ -122,7 +108,6 @@ const Exec = struct {
             .settled, .failed => {},
             else => return,
         }
-        if (Internal.wouldClaimCompletion(self.runtime, action)) return;
         switch (self.runtime.drive) {
             .blocking => {},
             .stepped => |*stepped| try stepped.completion_sink.reserve(stepped.completion_sink.ctx),
@@ -157,7 +142,6 @@ const Exec = struct {
     }
 
     pub fn complete(self: Exec, action: driver_core.HostAction) !void {
-        if (Internal.claimCompletion(self.runtime, action)) return;
         switch (self.runtime.drive) {
             .blocking => {},
             .stepped => |*stepped| {

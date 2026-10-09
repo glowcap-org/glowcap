@@ -20,7 +20,7 @@ pub fn encode(arena: std.mem.Allocator, snapshot: storage.Operation.Description)
     return .{ .tagged = .{ .tag = "access:description", .value = fields } };
 }
 
-fn policy(arena: std.mem.Allocator, schema: *const core.Policy, value: core.Policy.Value) !driver.Value {
+pub fn policy(arena: std.mem.Allocator, schema: *const core.Policy, value: core.Policy.Value) !driver.Value {
     try schema.validate(value);
     const permissions = try arena.alloc(driver.Value, @popCount(value.permissions));
     var n: usize = 0;
@@ -50,7 +50,7 @@ fn policy(arena: std.mem.Allocator, schema: *const core.Policy, value: core.Poli
     return .{ .tagged = .{ .tag = "access:policy", .value = parts } };
 }
 
-fn unsigned(arena: std.mem.Allocator, value: u128) !driver.Value {
+pub fn unsigned(arena: std.mem.Allocator, value: u128) !driver.Value {
     if (std.math.cast(i64, value)) |n| return .{ .integer = n };
     return .{ .big_integer = .{ .negative = false, .digits = try std.fmt.allocPrint(arena, "{d}", .{value}) } };
 }
@@ -65,13 +65,17 @@ pub fn control(arena: std.mem.Allocator, snapshot: storage.Operation.ControlDesc
         .pause = snapshot.powers.pause,
         .resume_access = snapshot.powers.resume_access,
         .revoke = snapshot.powers.revoke,
+        .inspect = snapshot.powers.inspect,
+        .issue_ceiling = if (snapshot.powers.issue_ceiling) |ceiling| ceiling.policy else null,
+        .delegate_control = snapshot.powers.delegate_control,
+        .revision = snapshot.revision,
         .ceiling = if (snapshot.powers.policy_ceiling) |ceiling| ceiling.policy else null,
         .subtree = if (snapshot.powers.policy_ceiling) |ceiling| ceiling.scope == .owned_subtree else false,
     });
 }
 
 pub fn controlSnapshot(arena: std.mem.Allocator, snapshot: storage.Observation.Control) !driver.Value {
-    const parts = try arena.alloc(driver.Value, if (snapshot.available) 6 else 1);
+    const parts = try arena.alloc(driver.Value, if (snapshot.available) 10 else 1);
     parts[0] = .{ .symbol = if (!snapshot.available) "unavailable" else @tagName(snapshot.grant_status) };
     if (snapshot.available) {
         parts[1] = .{ .boolean = snapshot.pause };
@@ -79,6 +83,10 @@ pub fn controlSnapshot(arena: std.mem.Allocator, snapshot: storage.Observation.C
         parts[3] = .{ .boolean = snapshot.revoke };
         parts[4] = if (snapshot.ceiling) |value| try policy(arena, &snapshot.policy, value) else .{ .boolean = false };
         parts[5] = .{ .boolean = snapshot.subtree };
+        parts[6] = .{ .boolean = snapshot.inspect };
+        parts[7] = if (snapshot.issue_ceiling) |value| try policy(arena, &snapshot.policy, value) else .{ .boolean = false };
+        parts[8] = .{ .boolean = snapshot.delegate_control };
+        parts[9] = try unsigned(arena, @backingInt(snapshot.revision));
     }
     return .{ .tagged = .{ .tag = "access:control", .value = parts } };
 }

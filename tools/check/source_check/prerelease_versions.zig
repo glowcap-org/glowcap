@@ -39,11 +39,11 @@ const browser_database_versions = [_]struct {
 }{
     .{
         .path = "apps/rooms/rust/browser/src/storage/database.rs",
-        .needle = "open_with_u32(\"rooms-history\", 1)",
+        .needle = "open_with_u32(\"rooms-history\", schema::VERSION)",
     },
     .{
         .path = "apps/rooms/rust/browser/src/storage/database/schema.rs",
-        .needle = "database.version() != 1.0",
+        .needle = "const VERSION: u32 = 1;",
     },
 };
 
@@ -152,5 +152,31 @@ pub fn check(
         if (std.mem.indexOf(u8, body, expected.needle) == null) {
             try appendViolation(gpa, violations, "{s}: the Rooms browser database must keep its unsupported prerelease schema at version 1", .{expected.path});
         }
+    }
+}
+
+test "browser database version checks both declaration and opening call" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "bindings/ts");
+    try tmp.dir.createDirPath(std.testing.io, "apps/rooms/rust/browser/src/storage/database");
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |message| gpa.free(message);
+        violations.deinit(gpa);
+    }
+    for ([_]struct { opening: []const u8, declaration: []const u8, count: usize }{
+        .{ .opening = "open_with_u32(\"rooms-history\", schema::VERSION)", .declaration = "pub const VERSION: u32 = 1;", .count = 0 },
+        .{ .opening = "open_with_u32(\"rooms-history\", 2)", .declaration = "pub const VERSION: u32 = 1;", .count = 1 },
+        .{ .opening = "open_with_u32(\"rooms-history\", schema::VERSION)", .declaration = "pub const VERSION: u32 = 2;", .count = 1 },
+    }) |fixture| {
+        for (violations.items) |message| gpa.free(message);
+        violations.clearRetainingCapacity();
+        try tmp.dir.writeFile(std.testing.io, .{ .sub_path = browser_database_versions[0].path, .data = fixture.opening });
+        try tmp.dir.writeFile(std.testing.io, .{ .sub_path = browser_database_versions[1].path, .data = fixture.declaration });
+        try check(std.testing.io, gpa, tmp.dir, &violations);
+        try std.testing.expectEqual(fixture.count, violations.items.len);
+        for (violations.items) |message| try std.testing.expect(std.mem.indexOf(u8, message, "schema at version 1") != null);
     }
 }

@@ -2,7 +2,7 @@
 //! (plus its ctx-free sibling). Every hosted object — a
 //! [`Session::spawn`](crate::Session::spawn) /
 //! [`publish`](crate::Session::publish) actor, a caretaker or attenuator
-//! proxy, a host-wide giftable — shares a single process-lifetime
+//! proxy, a Host publication — shares a single process-lifetime
 //! `GlowcapHostBehavior` whose ctx is a [`Box<ActorCell>`] raw pointer;
 //! `GlowcapHostCtxFree` re-boxes and drops it exactly once when the Host tears
 //! the retired object down, so there is no callback index and
@@ -107,11 +107,15 @@ pub(crate) fn attenuate_proxy(shared: &Rc<SessionShared>, target: &Ref, verbs: &
 }
 
 /// One hosted object's behavior. Its identity and lifetime live
-/// on the Host; the Port delivering a wire turn is supplied by the feed bracket.
+/// on the registered Host; native turn metadata identifies the delivering Port.
 /// Owned by the Host row: `ctx = Box::into_raw`, freed exactly once by
 /// [`ctx_free`] when the Host tears the object down.
 pub(crate) struct ActorCell {
 	pub(crate) behavior: RefCell<InternalBehavior>,
+	// Native settlement and release can pump a callback outside the adapter's
+	// usual progress bracket. Registration supplies its exact Host without a
+	// strong cycle from the Host's native actor back to the Rust Host owner.
+	pub(crate) host: Weak<crate::host::HostShared>,
 	pub(crate) context: Rc<crate::ContextInner>,
 	pub(crate) diagnostic_id: u64,
 	// One pointer, no additional allocation. Non-null only during the
@@ -332,6 +336,10 @@ unsafe fn trampoline_body(
 	// and `ctx_free` is the only thing that reclaims it — the host does not
 	// deliver to an object it has freed.
 	let cell = unsafe { &*(ctx as *const ActorCell) };
+	let Some(host) = cell.host.upgrade() else {
+		return turn_break(turn, "hosted object owner is closed");
+	};
+	let _host = DeliverGuard::enter_host(&host);
 	// A zero-length verb is the positional call (the Goblins methodless shape).
 	// The verb bytes outlive this callback, so valid UTF-8 is borrowed as is
 	// and only a malformed verb pays an owned repair.
@@ -360,6 +368,13 @@ unsafe fn trampoline_body(
 	let _arrival = session.as_ref().map(DeliverGuard::enter);
 	if let Some(session) = session.as_ref() {
 		crate::gc::track_arguments(session, &mut args);
+	} else {
+		// Local C delivery transfers independent observation retains too.
+		// Queue keepers retire after reply preparation; these guards let a
+		// behavior hold its occurrences and consume each one on final drop.
+		for argument in &mut args {
+			crate::gc::track_owned_argument(&host, argument);
+		}
 	}
 	let host_key = active_deliver_host_key();
 	let _guard = TurnGuard::enter(turn, host_key);

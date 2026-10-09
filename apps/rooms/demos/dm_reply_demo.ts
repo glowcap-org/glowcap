@@ -1,16 +1,16 @@
-// A host-wide giftable replies to its live caller over the arriving connection,
+// A Host publication replies to its live caller over the arriving connection,
 // with no dial-back — the receiver half of a fully bidirectional browser peer.
 //
-// A `Host.publishGiftable` object is bound to no single session: the same object
+// A `Host.publish` object is bound to no single session: the same object
 // answers calls on every connection, so it cannot close over one the way a
-// `Session.spawn` actor does. `currentSession()` gives a giftable the connection
+// `Session.spawn` actor does. `currentSession()` gives a Host publication the connection
 // its current call arrived on, so it can send to a reply capability the caller
 // handed it — the caller never has to be dialable.
 //
-//   Bob    publishes a giftable `dm(text, reply)` and listens (TCP).
+//   Bob    publishes a Host publication `dm(text, reply)` and listens (TCP).
 //   Alice  dials Bob, fetches `dm`, hands it a reply inbox she hosts on this
 //          same connection, and sends one message.
-//   Bob    reads `currentSession()` inside the giftable, and answers Alice by
+//   Bob    reads `currentSession()` inside the Host publication, and answers Alice by
 //          sending to her reply inbox over that connection.
 //
 // The reply reaches Alice though Alice never listens: it rides the connection
@@ -41,7 +41,7 @@ function fail(message: string): never {
 const bobInbox: string[] = [];
 let bobAccepts = 0;
 
-// Bob's giftable: record the message, then reply to the caller on the connection
+// Bob's Host publication: record the message, then reply to the caller on the connection
 // this call arrived on. The reply is a fresh eventual-send on a later turn (the
 // host refuses a driving verb inside the callback frame), and `currentSession()`
 // is captured synchronously because it is null once the turn returns — all owned
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
 	const services = new DemoSessions();
 	const until = (ready: () => boolean, what: string) => waitUntil(ready, 10_000, what, () => services.check());
 	const bobHost = roomsHost();
-	bobHost.publishGiftable("dm", dmBehavior);
+	bobHost.publish("dm", dmBehavior);
 	const bob = await roomsListen("127.0.0.1", 0, bobHost);
 	const bobLocator = loopbackTcpDesignator(bob.port);
 	(async () => {
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
 	}
 
 	console.log("rooms-dm-reply demo OK:");
-	console.log("  • a host-wide giftable read its caller's connection via currentSession()");
+	console.log("  • a Host publication read its caller's connection via currentSession()");
 	console.log(
 		"  • it replied over that connection — Alice received it though she never listened",
 	);

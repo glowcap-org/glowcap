@@ -59,7 +59,6 @@ export function blocksOf(history: readonly Item[], rule: number | null, ignored:
 	let open: Group | null = null;
 	let openAt = 0;
 	let span: Span | null = null;
-
 	const breakRow = () => {
 		open = null;
 		openAt = 0;

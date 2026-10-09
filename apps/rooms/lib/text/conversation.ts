@@ -21,7 +21,7 @@ export function conversationBeginning(earlier: EarlierHistory): string {
 		case "loading":
 			return "You're seeing messages from when you joined. Checking for earlier ones. ";
 		case "shown":
-			return "Anything above this line was saved before you joined. ";
+			return "This conversation includes messages saved before you joined. ";
 		case "empty":
 			return "Nothing was saved before you joined. ";
 		case "unavailable":
@@ -38,6 +38,8 @@ export const conversationPrivateRoom =
 
 export const conversationPublicRoom = "Anyone who knows the name can join. Your name here is just a display name.";
 
+export const conversationJoiningRoom = "Joining this room. Its access policy and messages will appear when you arrive.";
+
 /** A direct conversation.
  *
  * "Not through the server" would be the obvious thing to say and it is not
@@ -51,8 +53,15 @@ export const conversationPendingDirect =
 	"Not open yet. Your first message asks the server to introduce you. If the name changed hands since, it won't go through.";
 
 export function conversationClosedDirect(nick: string): string {
-	return `This conversation is closed. ${nick} left. Start a new one with that name and it goes to whoever holds it now, which may not be them.`;
+	return `The connection to ${nick} ended. Saved messages and your draft remain here. Reconnect checks that the name still belongs to the same registration.`;
 }
+
+export const directReconnect = "Reconnect";
+export const directReconnecting = "Reconnecting…";
+export const directPeerUnavailable =
+	"The same person is not currently registered here. You can still read saved messages.";
+export const directNoRegistration = "This conversation has no directory registration to reconnect to.";
+export const directDirectoryUnavailable = "The directory for this conversation is no longer held.";
 
 /** What the address above a conversation reaches, which is not always the
  * conversation. */
@@ -264,6 +273,7 @@ export const directoryLeaveKeep = "Stay";
 export const directoryLeaveCommit = "Leave";
 export const directoryRetrying = "Retrying…";
 export const directoryRetry = "Retry connection";
+export const directoryRetryStop = "Stop retrying";
 export const directoryLeaveDoor = "Leave this directory…";
 export const directoryNoNameYet = "Not yet: no name granted here";
 export const directoryReachable = "Others can reach you here";

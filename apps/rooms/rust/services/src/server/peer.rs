@@ -329,8 +329,16 @@ async fn assemble(
 		return Ok(None);
 	}
 	if let Some(trace) = minted.iter().find(|held| held.capability.id == "trace") {
-		owners.trace =
-			Some(operations::trace::Trace::start(config.trace_port, trace.swiss.clone(), report.clone()).await?);
+		owners.trace = Some(
+			operations::trace::Trace::start(
+				config.trace_port,
+				trace.swiss.clone(),
+				config.trace_publish.clone(),
+				config.trace_connect.clone(),
+				report.clone(),
+			)
+			.await?,
+		);
 	}
 	let host = Host::from_seed_with_options(*server.authority.identity_seed(), rooms_glowcap::host_options())?;
 	owners.host = Some(host.clone());
@@ -385,7 +393,7 @@ async fn assemble(
 	// swiss never has a window answering `unknown swissnum`.
 	operations::publish(&state, &minted)?;
 	let host = state.borrow().host.clone();
-	host.publish_giftable(DIRECTORY, || Box::new(behavior::root(state.clone())))?;
+	host.publish(DIRECTORY, || Box::new(behavior::root(state.clone())))?;
 	let (listener, locator) = Listener::open(&config.transport, &host, &mut listener_keys).await?;
 	let listener = Rc::new(listener);
 	owners.listener = Some(listener.clone());
@@ -419,7 +427,7 @@ async fn assemble(
 /// Serve one accepted partner to its end. Admission shares the owner a first
 /// turn may already have created; the end withdraws everything it held.
 pub(super) async fn served(state: Rc<RefCell<State>>, session: Session, report: Report) {
-	let session = session.with_gc();
+	let session = session;
 	let connection = state.borrow_mut().admit(session.borrowed());
 	let ended = serve_partner(session).await;
 	state.borrow_mut().closed(connection);

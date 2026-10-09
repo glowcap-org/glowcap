@@ -41,7 +41,8 @@ pub const StateBox = struct {
     ptr: *anyopaque,
     /// Live references: the vat's own cell plus one per snapshot that shares it.
     refs: usize,
-    handle: *const fn (state: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument,
+    handle: *const fn (state: *anyopaque, turn: *Turn, msg: Message) HostedActor.Result,
+    handleOpaque: ?*const fn (state: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?[]const u8 = null,
     /// Free the whole `Boxed` block this box heads, running the state's
     /// `deinit` first. The box and its state are one allocation, so there is
     /// no separate state free.
@@ -49,7 +50,7 @@ pub const StateBox = struct {
     /// Deep-copy this box's state into a fresh `Boxed` block, for copy-on-write.
     /// Null when the actor opted out of cloning; such a box is snapshottable only
     /// if it is `persistent`.
-    clone: ?*const fn (box: *const StateBox, allocator: std.mem.Allocator) std.mem.Allocator.Error!*StateBox,
+    clone: ?*const fn (box: *const StateBox, allocator: std.mem.Allocator) ?*StateBox,
     /// Set at spawn for a persistent actor: its state is never mutated in place,
     /// so copy-on-write is skipped and a snapshot shares it directly.
     persistent: bool,
@@ -76,9 +77,14 @@ const HostedBlock = struct {
     box: StateBox,
     actor: HostedActor,
 
-    fn handle(state: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+    fn handle(state: *anyopaque, turn: *Turn, msg: Message) HostedActor.Result {
         const self: *HostedBlock = @ptrCast(@alignCast(state));
         return self.actor.handle(self.actor.ctx, turn, msg);
+    }
+
+    fn handleOpaque(state: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?[]const u8 {
+        const self: *HostedBlock = @ptrCast(@alignCast(state));
+        return self.actor.handleOpaque.?(self.actor.ctx, turn, msg);
     }
 
     fn drop(box: *StateBox, allocator: std.mem.Allocator) void {
@@ -150,7 +156,7 @@ pub const Snapshot = struct {
 pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*StateBox {
     const Block = Boxed(Behavior);
     const Glue = struct {
-        fn handle(erased: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+        fn handle(erased: *anyopaque, turn: *Turn, msg: Message) HostedActor.Result {
             // A persistent actor never mutates `self` (that is why a snapshot
             // may share its state with no copy-on-write), so it is dispatched
             // through a `*const` receiver: the ordinary `self.field = x` then
@@ -160,10 +166,20 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
             // pointer it owns, which `*const self` cannot reach.
             if (comptime behaviorIsPersistent(Behavior)) {
                 const behavior: *const Behavior = @ptrCast(@alignCast(erased));
-                return behavior.handle(turn, msg);
+                return HostedActor.Result.fromResult(behavior.handle(turn, msg));
             }
             const behavior: *Behavior = @ptrCast(@alignCast(erased));
-            return behavior.handle(turn, msg);
+            return HostedActor.Result.fromResult(behavior.handle(turn, msg));
+        }
+        fn handleOpaque(erased: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?[]const u8 {
+            if (comptime behaviorIsPersistent(Behavior)) {
+                const behavior: *const Behavior = @ptrCast(@alignCast(erased));
+                behavior.handleOpaque(turn, msg) catch |err| return @errorName(err);
+                return null;
+            }
+            const behavior: *Behavior = @ptrCast(@alignCast(erased));
+            behavior.handleOpaque(turn, msg) catch |err| return @errorName(err);
+            return null;
         }
         fn drop(box: *StateBox, allocator: std.mem.Allocator) void {
             // The header came from an allocator-created Block. Its erased
@@ -172,22 +188,26 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
             if (@hasDecl(Behavior, "deinit")) block.state.deinit(allocator);
             allocator.destroy(block);
         }
-        fn clone(box: *const StateBox, allocator: std.mem.Allocator) std.mem.Allocator.Error!*StateBox {
+        fn clone(box: *const StateBox, allocator: std.mem.Allocator) ?*StateBox {
             // Reached only when `clone` was wired below, i.e. the actor
             // defines it; the guard keeps the body compilable for actors
             // that do not.
             if (@hasDecl(Behavior, "clone")) {
                 const behavior: *const Behavior = @ptrCast(@alignCast(box.ptr));
-                const fresh = try allocator.create(Block);
-                errdefer allocator.destroy(fresh);
+                const fresh = allocator.create(Block) catch return null;
                 // The by-value clone contract: the state's `clone` builds
                 // the next value, and the vat moves it into the fresh
                 // block, so the clone path is also one allocation.
-                fresh.state = try behavior.clone(allocator);
+                const next: std.mem.Allocator.Error!Behavior = behavior.clone(allocator);
+                fresh.state = next catch {
+                    allocator.destroy(fresh);
+                    return null;
+                };
                 fresh.box = .{
                     .ptr = @ptrCast(&fresh.state),
                     .refs = 1,
                     .handle = box.handle,
+                    .handleOpaque = box.handleOpaque,
                     .drop = box.drop,
                     .clone = box.clone,
                     .persistent = box.persistent,
@@ -211,6 +231,7 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
         .ptr = @ptrCast(&block.state),
         .refs = 1,
         .handle = Glue.handle,
+        .handleOpaque = if (@hasDecl(Behavior, "handleOpaque")) Glue.handleOpaque else null,
         .drop = Glue.drop,
         .clone = if (@hasDecl(Behavior, "clone")) Glue.clone else null,
         .persistent = behaviorIsPersistent(Behavior),
@@ -231,6 +252,7 @@ pub fn makeHostedBox(self: *Vat, hosted: HostedActor) Error!*StateBox {
         .ptr = @ptrCast(block),
         .refs = 1,
         .handle = HostedBlock.handle,
+        .handleOpaque = if (hosted.handleOpaque != null) HostedBlock.handleOpaque else null,
         .drop = HostedBlock.drop,
         .clone = null,
         .persistent = false,
@@ -255,7 +277,7 @@ pub fn ensureUnshared(self: *Vat, cell: *Cell) Error!void {
     const clone_fn = box.clone orelse unreachable;
     // The wired `clone` builds the whole fresh `Boxed` block (state cloned
     // by value into it), so the copy costs one block allocation.
-    const new_box = try clone_fn(box, self.allocator);
+    const new_box = clone_fn(box, self.allocator) orelse return error.OutOfMemory;
     // Drop this cell's reference to the shared box (the snapshot keeps it
     // alive, so this never frees it) and point the cell at the private copy.
     box.refs -= 1;
@@ -291,18 +313,20 @@ pub fn stageBecome(self: *Vat, turn: *Turn, comptime Behavior: type, next: Behav
 /// wins across the frames of one reentrant run: an earlier promoted box that
 /// never installed is released here.
 pub fn promoteBecome(self: *Vat, pending: PendingBecome) void {
-    // A running actor is never removed — the same invariant `callLocal`'s
-    // reload already banks on, held loud in all three places it matters.
+    // The running frame keeps the actor row alive.
     const cell = self.actors.getPtr(pending.id).?;
-    if (cell.pending_become) |prev| releaseBox(self.allocator, prev);
+    const previous = cell.pending_become;
     cell.pending_become = pending.box;
+    // Destructors can grow the actor table or reenter this actor. Publish the
+    // replacement first and never use the borrowed cell after that callback.
+    if (previous) |prev| releaseBox(self.allocator, prev);
 }
 
 /// Whether the vat is idle: no turn or drive in flight and no queued sends.
 /// `snapshot` and `restore` require it, so time-travel never captures or
 /// rewinds a half-mutated heap.
 fn quiescent(self: *const Vat) bool {
-    return self.turn_depth == 0 and self.drive_depth == 0 and self.runnable_head == null;
+    return !self.tearing_down and !self.queue_copy_active and self.turn_depth == 0 and self.drive_depth == 0 and self.runnable_head == null;
 }
 
 /// Capture the local actor heap: share every actor's `StateBox` (refcount up,
@@ -349,12 +373,13 @@ pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
         try rebuilt.put(self.allocator, entry.key_ptr.*, .{ .box = entry.value_ptr.*, .roots = current.roots });
         entry.value_ptr.*.refs += 1;
     }
-    // Commit: the rebuilt table is fully built and ref-counted, so releasing
-    // the live boxes and swapping cannot fail.
-    var lit = self.actors.valueIterator();
-    while (lit.next()) |cell| releaseBox(self.allocator, cell.box);
-    self.actors.deinit(self.allocator);
+    // Publish before cleanup: destructors can call into the restored actors or
+    // grow their table. Iterate only the detached table while releasing it.
+    var previous = self.actors;
     self.actors = rebuilt;
+    var lit = previous.valueIterator();
+    while (lit.next()) |cell| releaseBox(self.allocator, cell.box);
+    previous.deinit(self.allocator);
     // `next_actor` is deliberately *not* rewound. An actor id is what the
     // export table maps a wire position to, and that table is not part of a
     // snapshot: rewinding it would rewind authority a partner already holds,

@@ -25,10 +25,6 @@ pub fn check(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    root.access(io, "src/driver/bridge.zig", .{}) catch {
-        try appendViolation(gpa, violations, "src/driver/bridge.zig: file must exist — `driver.Bridge` lives here (not `loop_bridge.zig`)", .{});
-    };
-
     // Every completion Backend must declare the total dial contract.
     // Transport-bound DialResolvers interpret OCapN locators; platform Backends are connect-only.
     const backend_paths = [_][]const u8{
@@ -224,7 +220,7 @@ pub fn check(
     const ghosts = [_]struct { needle: []const u8, reason: []const u8 }{
         .{
             .needle = "host_three_party_test",
-            .reason = "byte-fed three-party is `test/driver/core_host/`; loop-fed is `test/driver/bridge_test.zig`",
+            .reason = "byte-fed three-party is `test/driver/core_host/`; resident-fed is `test/driver/host_runtime_multiplexed/`",
         },
         .{
             .needle = "three real residents",

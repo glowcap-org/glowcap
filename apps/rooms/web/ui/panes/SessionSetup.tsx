@@ -55,19 +55,19 @@ export function SessionSetup(
 	const browser = useRoomsBrowser();
 	const errorDetail = useRoomsState((state) => state.errorDetail);
 	const [capability, setCapability] = useState(initialCapability);
-	const [busy, setBusy] = useState<"local" | "attach" | "delete" | null>(null);
+	const [busy, setBusy] = useState<"local" | "attach" | "reset" | "delete" | null>(null);
 	// Two homes for a refusal: the attach field's own, and the card's.
 	const [attachError, setAttachError] = useState(initialError);
 	const [error, setError] = useState("");
 	const [confirmAction, setConfirmAction] = useState<"reset" | "delete" | null>(null);
-	const running = useRef<"local" | "attach" | "delete" | null>(null);
-	const useLocal = () => {
+	const running = useRef<"local" | "attach" | "reset" | "delete" | null>(null);
+	const useLocal = async () => {
 		if (running.current !== null) return;
 		running.current = "local";
 		setError("");
 		setBusy("local");
 		try {
-			const why = browser.useLocalRoomsSession();
+			const why = await browser.useLocalRoomsSession();
 			if (why !== "") setError(why);
 		} catch (error) {
 			setError(refusalText(error));
@@ -97,12 +97,20 @@ export function SessionSetup(
 			setBusy(null);
 		}
 	};
-	const forgetWorkspace = () => {
+	const forgetWorkspace = async () => {
+		if (running.current !== null) return;
+		running.current = "reset";
 		setError("");
-		const why = browser.resetBrowserWorkspace();
-		if (why !== "") {
-			setError(why);
-			setConfirmAction(null);
+		setBusy("reset");
+		try {
+			const why = await actionRefusal(() => browser.resetBrowserWorkspace());
+			if (why !== "") {
+				setError(why);
+				setConfirmAction(null);
+			}
+		} finally {
+			running.current = null;
+			setBusy(null);
 		}
 	};
 	const deleteBrowserData = async () => {
@@ -223,7 +231,7 @@ export function SessionSetup(
 					</section>
 				</div>
 				{error !== "" && <Said kind="failure">{error}</Said>}
-				<details className="session-setup-advanced">
+				<details className="disclosure session-setup-advanced" data-align="center">
 					<summary>{sessionAdvanced}</summary>
 					{confirmAction != null
 						? (
@@ -232,19 +240,26 @@ export function SessionSetup(
 								say={confirmAction === "reset" ? sessionResetSay : sessionDeleteSay}
 								keep={sessionConfirmKeep}
 								commit={confirmAction === "reset" ? sessionResetCommit : sessionDeleteCommit}
-								busy={busy === "delete"}
+								busy={busy === confirmAction}
 								onKeep={() => setConfirmAction(null)}
-								onCommit={confirmAction === "reset" ? forgetWorkspace : () => void deleteBrowserData()}
+								onCommit={() =>
+									void (confirmAction === "reset" ? forgetWorkspace() : deleteBrowserData())}
 							/>
 						)
 						: (
 							<div className="actions">
-								<Button id="sessionResetAsk" variant="quiet" onClick={() => setConfirmAction("reset")}>
+								<Button
+									id="sessionResetAsk"
+									variant="quiet"
+									disabled={busy != null}
+									onClick={() => setConfirmAction("reset")}
+								>
 									{sessionResetAsk}
 								</Button>
 								<Button
 									id="sessionDeleteAsk"
 									variant="quiet"
+									disabled={busy != null}
 									onClick={() => setConfirmAction("delete")}
 								>
 									{sessionDeleteAsk}

@@ -197,6 +197,16 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		));
 	}
 
+	/** Configure queue bounds before any session or eventual send. Byte bounds
+	 * include message spines and queue rows. No payload storage is allocated. */
+	setIngressLimits(options: { maxPendingTurns: number; maxPendingBytes: number; maxChunkBytes: number }): void {
+		const values = [options.maxPendingTurns, options.maxPendingBytes, options.maxChunkBytes];
+		if (values.some((value) => !Number.isInteger(value) || value <= 0 || value > 0xffff_ffff)) {
+			throw new GlowcapError(INVALID_ARGUMENT, "ingress limits must be positive uint32 integers");
+		}
+		checkHost(hostS.glowcap_host_set_ingress_limits(this._raw, values[0], values[1], values[2]));
+	}
+
 	/** The canonical key designator (64 lowercase hex digits) for this host's
 	 * identity seed — what a keyed-tcp locator names as its designator
 	 * (ADR-0075). */
@@ -215,8 +225,8 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	 * projects the actor onto a session; a deposited gift keeps that exact actor
 	 * when a recipient withdraws over its own exporter session (ADR-0009).
 	 * Returns nothing; the gift's `Ref` is what the gifter passes on. */
-	publishGiftable(name: string, behavior: Behavior): void {
-		// A giftable is bound to no single session: its forwards always go
+	publish(name: string, behavior: Behavior): void {
+		// A Host publication is bound to no single session: its forwards always go
 		// through the host, and a turn it runs belongs to whichever session
 		// the deliver arrived on.
 		const ctx = this.registerHostedBehavior({ run: behavior, resolveLocal: null }, true);
@@ -238,7 +248,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		}
 		// Replacement moves discovery only. Existing capabilities and deposited
 		// gifts can still call the old actor.
-		this._giftables.set(name, ctx);
+		this._publications.set(name, ctx);
 		this.scheduleKick();
 	}
 
@@ -278,7 +288,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 			throw err;
 		}
 		const name = utf8Decoder.decode(swiss.subarray(0, written));
-		this._giftables.set(name, ctx);
+		this._publications.set(name, ctx);
 		this.scheduleKick();
 		return name;
 	}
@@ -296,8 +306,8 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	nativeBehaviorReleased(ctx: bigint): void {
 		this._behaviorEntries.delete(ctx);
 		this._finalizerState.behaviorIds.delete(ctx);
-		for (const [name, held] of this._giftables) {
-			if (held === ctx) this._giftables.delete(name);
+		for (const [name, held] of this._publications) {
+			if (held === ctx) this._publications.delete(name);
 		}
 	}
 
@@ -308,6 +318,28 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		unregisterBehavior(ctx);
 	}
 
+	/** Publish exact held authority. The name owns its own root until removal;
+	 * after removal, the same entropy restores the name; live collisions refuse. */
+	publishReference(reference: Ref, entropy?: Uint8Array): string {
+		const seed = entropy ?? crypto.getRandomValues(new Uint8Array(HOST_DURABLE_ENTROPY_LEN));
+		if (seed.length !== HOST_DURABLE_ENTROPY_LEN) {
+			throw new GlowcapError(INVALID_ARGUMENT, "invalid durable entropy length");
+		}
+		const out = new Uint8Array(HOST_DURABLE_SWISS_LEN);
+		const written = hostS.glowcap_host_publish_reference(
+			this._raw,
+			ab(refStruct(reference)),
+			ab(seed),
+			BigInt(seed.length),
+			ab(out),
+			BigInt(out.length),
+		);
+		if (written <= 0) checkHost(written);
+		if (written !== out.length) throw new Error("publication returned an invalid name length");
+		this.scheduleKick();
+		return utf8Decoder.decode(out);
+	}
+
 	/** Remove a minted durable publication (ADR-0098): the old sturdyref
 	 * misses from now on, while issued `Ref`s and deposited gifts keep the
 	 * exact actor. Returns false when no such durable name exists. */
@@ -316,7 +348,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		const rc = hostS.glowcap_host_remove_durable(this._raw, ab(bytes), BigInt(bytes.length));
 		if (rc === NOT_FOUND) return false;
 		checkHost(rc);
-		this._giftables.delete(swiss);
+		this._publications.delete(swiss);
 		this.scheduleKick();
 		return true;
 	}
@@ -325,22 +357,22 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	 * every session, while issued `Ref`s and deposited gifts keep the exact
 	 * actor. Its JS behavior is released with that actor's final native root.
 	 * Returns false when no such alias exists. */
-	unpublishGiftable(name: string): boolean {
+	unpublish(name: string): boolean {
 		const bytes = utf8Encoder.encode(name);
 		const rc = hostS.glowcap_host_unpublish(this._raw, ab(bytes), BigInt(bytes.length));
 		if (rc === NOT_FOUND) return false;
 		checkHost(rc);
-		this._giftables.delete(name);
+		this._publications.delete(name);
 		this.scheduleKick();
 		return true;
 	}
 
-	/** The trampoline ctx of the giftable published under `name`, or undefined
+	/** The trampoline ctx of the Host publication published under `name`, or undefined
 	 * when this host published none. Binding-internal: `Session.publishedRef`
-	 * uses it to record the Host identity a session surfaced for the giftable,
+	 * uses it to record the Host identity a session surfaced for the Host publication,
 	 * so a local send to that identity composes in process. */
-	giftableCtx(name: string): bigint | undefined {
-		return this._giftables.get(name);
+	publicationCtx(name: string): bigint | undefined {
+		return this._publications.get(name);
 	}
 
 	/** Track a live session by its session address. Binding-internal: the

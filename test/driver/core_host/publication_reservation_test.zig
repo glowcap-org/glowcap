@@ -19,16 +19,16 @@ fn exercise(allocator: std.mem.Allocator, commit: bool) !void {
     const roots = host.vat.actors.get(actor.local).?.roots;
     var reservation = try host.reserveDurableCapability(@splat(0x73), ref);
     defer reservation.cancel();
-    try std.testing.expect(!host.giftables.get(reservation.swiss.slice()).?.active);
+    try std.testing.expect(!host.publications.get(reservation.swiss.slice()).?.active);
     try std.testing.expectError(error.PublicationPending, host.reserveDurableCapability(@splat(0x73), ref));
     try std.testing.expectError(error.UnknownPublication, host.removeDurable(reservation.swiss.slice()));
     if (commit) {
         reservation.commit();
-        try std.testing.expect(host.giftables.get(reservation.swiss.slice()).?.active);
+        try std.testing.expect(host.publications.get(reservation.swiss.slice()).?.active);
         var replay = try host.reserveDurableCapability(@splat(0x73), ref);
         replay.cancel(); // Existing exact publication is never withdrawn.
         try host.removeDurable(reservation.swiss.slice());
     } else reservation.cancel();
-    try std.testing.expectEqual(@as(u32, 0), host.giftables.count());
+    try std.testing.expectEqual(@as(u32, 0), host.publications.count());
     try std.testing.expectEqual(roots, host.vat.actors.get(actor.local).?.roots);
 }

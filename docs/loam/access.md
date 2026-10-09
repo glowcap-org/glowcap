@@ -50,6 +50,23 @@ call `deinit(allocator)` on that result. None retains the encoded input. The
 [record contract](../decisions/adr/ADR-0166-access-grant-records-and-plans.md) defines
 limits and borrowed view lifetimes.
 
+## Policy and interface support
+
+A policy keeps one complete permission vocabulary. `Policy.Descriptor.kinds`
+declares exact-object and future-subtree support by resource kind; an empty
+table explicitly makes the policy kind-independent. A nonempty table refuses
+unknown kinds. `Terms.validate` checks support for the selected scope, and
+`GrantView.require` checks each effect's exact target. Mixed selections use the
+union of their interfaces; subtree support comes from the root declaration,
+without scanning descendants.
+
+Pass the owner's immutable policy to `Graph.create` and `Graph.reparent`, as
+you do for grant operations. Stored creation and moves use the current owner
+header. Both enforce that a child's future support fits its parent's. The
+[scope decision](../decisions/adr/ADR-0197-scope-aware-permission-applicability.md)
+records bounds and alternatives. `Policy.valueForKind` prepares exact-interface
+terms; its result supplies data, not admission for a later effect.
+
 ## Durable owner operations
 
 `access.storage` connects these views to a Store. Register
@@ -189,7 +206,8 @@ against the state already staged by its predecessors.
 `storage.Capabilities` borrows one Store and enforces live-reference and operation
 quotas. The trusted embedding stages use or control descriptors through
 `stageUse` and `stageControl` with a current owner Read. Control powers use
-`core.Control.Powers`: a policy ceiling and independent lifecycle permissions.
+`core.Control.Powers`: independent Inspect, Issue, Edit and DelegateControl
+powers beside lifecycle permissions. Issue and Edit each have a copied ceiling.
 After confirmed commit, `restoreUse` or `restoreControl` checks a borrowed
 descriptor lease to create an opaque Zig reference. Release the lease;
 the reference retains the descriptor through Loam's live roots without pinning it.
@@ -273,8 +291,13 @@ revision restarts; old contexts and returned borrows remain valid through settle
 configuration remains stable while calls are pending.
 
 The pure `requirement` callback declares permissions and all relevant committed
-facts. The inline descriptor and entropy-source snapshots charge existing
-bounded call bytes; they allocate no callback context or payload copy. Existing
+facts. `ContentInvocation` pairs the selected content with canonical resource identity,
+kind, object and owner resource revision. Local dependent calls describe the
+selected target; forwarding describes only its mediating source. One inline
+snapshot survives storage waits and is rebuilt on Store revision restart
+([callback context](../decisions/adr/ADR-0198-trusted-content-callback-context.md)).
+These snapshots charge existing bounded call bytes without a new allocation,
+lease or payload copy. Declaration can load the admission row even when it refuses. Existing
 per-call quotas admit these bytes or refuse preparation normally. Only after the
 bound grant admits that requirement does `invoke` run on the existing Vat.
 `ContentCall.replace` proposes a new content payload while preserving its edges.
@@ -296,7 +319,10 @@ code with no external effects; this API is not a machine-code sandbox.
 
 Control endpoints accept `pause`, `resume`, and `revoke` with no arguments.
 Replies are Boolean: true for a committed change and false for an unchanged
-request. An optional `decode_control` callback maps application methods to
+request. A revoke writes one descriptor, and every later use checks it, so it
+takes effect at once and costs the same however far the grant was shared.
+Publications in the revoked branch keep resolving, and calls through them fail
+as revoked, until [bounded owner cleanup](#bounded-owner-cleanup) retires them. An optional `decode_control` callback maps application methods to
 `core.Control.Edit`, including policy edits. It only decodes requests; the
 stored control powers and shared model rules decide whether they are permitted.
 The decoder runs after control reads and receives loaded `Control.Powers`.
@@ -424,69 +450,8 @@ a separate limit; this is no throughput measurement.
 
 ## Observing held access
 
-Call `mutate(sequence, "observe")` on a managed use or control endpoint to
-register observation of its exact descriptor. The two-item result contains a
-receiver and an independent canceller. Registration shares the endpoint's eight
-mutation receipts: retrying the exact request recovers the same fronts without
-creating another context. Set `Service.entropy.fill` before registration.
-Runtime dependent facets do not accept this fixed-descriptor method.
-
-The receiver accepts `poll()` or `receive()`, optionally with the last cursor as
-one bytes argument. `poll` returns the current result; `receive` waits when that
-cursor is unchanged. The tagged `access:observation` reply contains, in order:
-a 56-byte cursor, the existing scoped use or control description, a
-resynchronization Boolean, a changed Boolean, and a list of notice symbols.
-The notice categories are `access`, `target`, `inventory`, and `management`.
-They describe retained changes; delivery can coalesce several committed batches
-with the current authorized snapshot. A snapshot does not authorize a later call.
-
-The cursor binds one context and carries no authority by itself. Keep the
-receiver's durable name and cursor to resume after disconnect or restart.
-Hidden sibling commits preserve the cursor, including when requesting a fresh
-snapshot without an input cursor. Expired visible history sets resynchronization
-and supplies the current snapshot. Paused use discloses status alone; policy or
-content edits while paused do not perturb its cursor. Revoked use and unavailable
-controls likewise disclose status alone. Delivery rechecks current authority
-through the same evaluator and Store revision fence as ordinary calls.
-
-Call `cancel()` on the canceller to close the context. It atomically removes the
-owner's retention edge, clears the context's source edges and sealing key, and
-retires both durable names. A held canceller returns false after closure; an
-exact registration retry refuses instead of reminting the closed context.
-Cancellation can run while its receiver waits. Abort preserves the context and
-names; uncertain writes use the ordinary recovery and retirement fences.
-
-Each owner admits at most 32 contexts. Cancellation frees that quota. Each
-context retains its exact descriptor and optional fixed resource identity, with
-a 32-byte unpredictable sealing key and an immutable registration boundary.
-Grant and resource dependency stamps pair their revision with the corresponding
-committed batch position. The cursor seals only the relevant scoped position
-and digest using Zig's AES-128-SIV implementation, with the context identity as
-associated data. Neither raw revisions nor owner counters appear on the wire.
-[ADR-0179](../decisions/adr/ADR-0179-scoped-change-retention-and-observation.md)
-owns retention, privacy and replay.
-
-Zig consumers use opaque `storage.ObservationRegistration`,
-`storage.Observation`, and `storage.ObservationCancellation` operations.
-Registration borrows an unprepared source `Operation`, takes a target for use
-or null for control and an embedding-supplied key, and stages into the caller's
-Store transaction. Drive missing source reads before retrying construction,
-then drive the registration's reads. Its child custody prevents the source from
-closing early. Polling starts from a committed context lease and returns owned
-bounded values. Cancellation also starts from a context lease and stages in the
-caller's transaction. Published contexts require the hosting retirement bridge;
-a Zig caller cannot silently leave their names active. Cancel submitted reads
-and join their exact completions before releasing operations.
-
-Record-binding, cache, lease, retention, call-arena, ingress and transport limits
-remain independent. Parked hosted receivers release managed operations and model
-leases. Ready replies release them after copying their snapshots; Attachment
-rechecks the revision before delivery. The maximum-fanout test admits 32 cold
-receivers with eight model bindings per call, 296 leases, 80 cache slots, a 5 MiB
-resident budget, 168 retention slots, 4 MiB ingress capacity and a 128 KiB
-outbound waterline at a 4 KiB frame cap. Smaller budgets refuse explicitly;
-32 context slots alone do not promise 32 simultaneous cold calls. Deep paths
-need larger binding budgets within the same bounded operations.
+The [observation guide](access-observation.md) owns registration, scoped cursors,
+receiver/canceller custody, restart and the independent runtime budgets.
 
 ## Deriving and recovering a shared facet
 

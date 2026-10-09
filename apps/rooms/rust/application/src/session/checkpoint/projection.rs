@@ -41,7 +41,6 @@ struct View<'a> {
 	keep_history: bool,
 	join: &'a Join,
 	dm_mode: DmMode,
-	trace_override: &'a Field,
 	capabilities: Capabilities,
 	peering: &'a [Peering],
 }
@@ -106,7 +105,6 @@ pub(super) fn redacted(s: &State) -> impl Serialize + '_ {
 		keep_history: s.keep_history,
 		join: &s.join,
 		dm_mode: s.dm_mode,
-		trace_override: &s.trace_override,
 		capabilities: Capabilities {
 			operations: List(alloc::vec::Vec::new()),
 			archive_peer: Nullable::Null,

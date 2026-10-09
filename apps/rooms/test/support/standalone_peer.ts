@@ -1,24 +1,3 @@
-import { startSessionPeer } from "./session_peer.ts";
-
-export function startRoomsSessionPeer(
-	directory: string,
-	port: number,
-	checkpoint?: string,
-	readinessFile?: string,
-): Deno.ChildProcess {
-	return startSessionPeer(
-		directory,
-		[
-			...(checkpoint == null ? [] : [`--checkpoint=${checkpoint}`]),
-			...(readinessFile == null ? [] : [`--readiness-file=${readinessFile}`]),
-			"--transport=tcp",
-			`--port=${port}`,
-		],
-		{},
-		"piped",
-	);
-}
-
 export async function announcedSturdyref(
 	process: Deno.ChildProcess,
 	token: string,

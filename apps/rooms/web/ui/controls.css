@@ -456,3 +456,66 @@ summary:focus-visible,
 		transition-duration: 150ms !important;
 	}
 }
+
+/* A fold: one word that opens choices most readers never need, with the
+   system's chevron rather than the platform's triangle, turned down while it
+   is open. A softer aside after the word says what is inside. */
+.disclosure > summary {
+	display: flex;
+	align-items: baseline;
+	gap: var(--gap-row);
+	width: fit-content;
+	padding: 6px 10px;
+	border-radius: var(--radius-chip);
+	list-style: none;
+	cursor: pointer;
+	color: var(--ink-soft);
+	font-size: var(--type-ui);
+	font-weight: 600;
+	transition: color .12s ease, background-color .12s ease;
+}
+.disclosure > summary::-webkit-details-marker {
+	display: none;
+}
+.disclosure > summary::after {
+	content: "";
+	align-self: center;
+	width: 7px;
+	height: 7px;
+	margin-top: -3px;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	border-radius: 1px;
+	transform: rotate(45deg);
+	transition: transform .16s ease-out;
+}
+.disclosure[open] > summary::after {
+	margin-top: 3px;
+	transform: rotate(225deg);
+}
+.disclosure-said {
+	font-weight: 400;
+}
+@media (hover: hover) {
+	.disclosure > summary:hover {
+		color: var(--ink);
+		background: var(--hover);
+	}
+}
+.disclosure[open] {
+	display: grid;
+	gap: var(--gap-row);
+}
+/* Inside a card the word lines up with the edge the wells and titles share. */
+.card-plane .disclosure:not([data-align="center"]) > summary {
+	margin-inline-start: -10px;
+}
+/* A centred fold puts the word on the centre line and lets the chevron hang off
+   its end, so the start padding carries the chevron's width and gap. */
+.disclosure[data-align="center"] > summary {
+	margin-inline: auto;
+	padding-inline-start: 25px;
+}
+.disclosure[data-align="center"][open] {
+	justify-items: center;
+}

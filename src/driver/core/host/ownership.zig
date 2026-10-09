@@ -83,6 +83,7 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     while (break_it.next()) |session| {
         session.*.served.port.breakFarVows(session.*.served.closeReason("host released"));
         _ = self.capabilities.invalidatePeer(session.*.peer_handle);
+        @import("../vows/release.zig").dropSessionRows(self, session.*, session.*.served.closeReason("host released"));
     }
     var free_it = self.sessions.valueIterator();
     while (free_it.next()) |session| {
@@ -103,9 +104,10 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     self.node.deinit();
     self.vat.deinit();
     self.sessions.deinit(self.allocator);
-    var giftables = self.giftables.valueIterator();
-    while (giftables.next()) |row| self.allocator.free(@constCast(row.name));
-    self.giftables.deinit(self.allocator);
+    var publications = self.publications.valueIterator();
+    while (publications.next()) |row| self.allocator.free(@constCast(row.name));
+    self.publications.deinit(self.allocator);
+    self.turn_receipts.deinit(self.allocator);
     self.hellos.deinit(self.allocator);
     self.partner_by_side.deinit(self.allocator);
     self.peer_by_durable.deinit(self.allocator);
@@ -122,7 +124,11 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     // Far rows retired through the break above; only never-fired local rows
     // remain after the Vats are gone.
     var vow_it = self.vows.valueIterator();
-    while (vow_it.next()) |row| self.allocator.destroy(row.*);
+    while (vow_it.next()) |row| {
+        if (row.*.owner == .owning) row.*.owner.owning.release();
+        if (row.*.forwarded == .owning) row.*.forwarded.owning.producer.release();
+        self.allocator.destroy(row.*);
+    }
     self.vows.deinit(self.allocator);
     self.resolver_index.deinit(self.allocator);
     enliven.deinitParkedEnlivens(self);

@@ -36,7 +36,7 @@ async def main() -> None:
                 raise TypeError("bad invocation")
             return f"Hello, {args[0]}"
 
-        server.host.publish_giftable("greeter", greet)
+        server.host.publish("greeter", greet)
         print(f"RELAY-LISTENER-READY {server.uri}", flush=True)
 
         accepted = await server.__anext__()

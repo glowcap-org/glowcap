@@ -3,6 +3,7 @@
 //! root without enumerating children; delivery is not the enforcement mechanism.
 //! A suppressed policy event was injected and caught by this suite.
 
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");
 const core = f.core;
@@ -11,7 +12,7 @@ const Ledger = core.GrantLedger;
 test "access grant events follow committed revisions and identify branch changes" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer ledger.deinit() catch unreachable;
     const full = try f.terms(.{ .object = resource }, &.{ f.read, f.post }, null);
@@ -57,7 +58,7 @@ test "access grant events follow committed revisions and identify branch changes
 test "access failed and unchanged grant mutations produce no change event" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer ledger.deinit() catch unreachable;
     const terms = try f.terms(.{ .objects = &.{resource} }, &.{f.read}, null);

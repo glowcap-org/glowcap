@@ -65,7 +65,7 @@ export function YourRooms(
 		/** Rooms handed to this tab and not answered yet. */
 		invites: readonly Invitation[];
 		onTake: (id: string) => Promise<void>;
-		onDrop: (id: string) => void;
+		onDrop: (id: string) => void | Promise<void>;
 		/** Directories held with nothing open on them, listed under the rooms so a
 		 * connection nobody can see is not a connection nobody can end. */
 		empty: DirView[];
@@ -73,10 +73,10 @@ export function YourRooms(
 		 * rail is asked the same way. */
 		shows: (row: RailRow) => boolean;
 		onPick: (conv: RoomConv) => void;
-		onLeave: (key: string) => void;
+		onLeave: (key: string) => void | Promise<void>;
 		onAbout: (dir: DirId) => void;
 		onJoinOn: (dir: DirId) => void;
-		onLeaveDir: (dir: DirId) => void;
+		onLeaveDir: (dir: DirId) => void | Promise<void>;
 	},
 ) {
 	const rooms = [...convs.values()].filter((conv): conv is RoomConv => conv.type === "room");

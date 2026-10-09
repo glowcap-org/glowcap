@@ -12,8 +12,62 @@ const ev_readable = sidecar.ev_readable;
 const ev_writable = sidecar.ev_writable;
 const ev_closed = sidecar.ev_closed;
 
+/// A foreign descriptor a host asked the backend to report once, such as a
+/// resident's wake channel.
+pub const ForeignPoll = struct { user_data: u64, fd: i32, interest: completion.Interest };
+
 pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connections: type) type {
     return struct {
+        /// One descriptor that reads ready whenever `poll` has work.
+        pub fn readinessFd(self: *const Self) i32 {
+            return self.ready_set.descriptor();
+        }
+
+        /// Every operation reaches the sidecar or the inbox when submitted.
+        pub fn flush(_: *Self) !void {}
+
+        /// Nothing here waits on a timer.
+        pub fn waitBoundMs(_: *const Self, requested_ms: i32) i32 {
+            return requested_ms;
+        }
+
+        /// Report `fd` once through `poll`, consuming nothing. One foreign
+        /// poll is armed at a time.
+        pub fn submitPoll(self: *Self, user_data: u64, fd: i32, interest: completion.Interest) !void {
+            if (self.foreign_poll != null) return error.AlreadyPolling;
+            try self.ready.ensureUnusedCapacity(self.allocator, 1);
+            try self.ready_set.add(fd);
+            // tolerant: unwinding this call's own membership; a refused
+            // removal leaves one idle member that `deinit` releases.
+            errdefer self.ready_set.remove(fd) catch {};
+            if (interest == .writable) try self.ready_set.setInterest(fd, .write);
+            self.foreign_poll = .{ .user_data = user_data, .fd = fd, .interest = interest };
+        }
+
+        /// Retire an armed foreign poll; false when `target` names another.
+        pub fn cancelForeignPoll(self: *Self, cancel_user_data: u64, target_user_data: u64, fd: i32) !bool {
+            const armed = self.foreign_poll orelse return false;
+            if (armed.user_data != target_user_data or armed.fd != fd) return false;
+            try self.ready.ensureUnusedCapacity(self.allocator, 2);
+            try self.ready_set.remove(fd);
+            self.foreign_poll = null;
+            self.ready.appendAssumeCapacity(.{ .user_data = target_user_data, .result = -1 });
+            self.ready.appendAssumeCapacity(.{ .user_data = cancel_user_data, .result = 0 });
+            return true;
+        }
+
+        fn harvestForeignPoll(self: *Self) !void {
+            const armed = self.foreign_poll orelse return;
+            const events: i16 = if (armed.interest == .readable) std.posix.POLL.IN else std.posix.POLL.OUT;
+            var pfd = [_]std.posix.pollfd{.{ .fd = armed.fd, .events = events, .revents = 0 }};
+            _ = try net.poll.wait(&pfd, 0);
+            if (pfd[0].revents == 0) return;
+            try self.ready.ensureUnusedCapacity(self.allocator, 1);
+            try self.ready_set.remove(armed.fd);
+            self.foreign_poll = null;
+            self.ready.appendAssumeCapacity(.{ .user_data = armed.user_data, .result = 0 });
+        }
+
         fn dispatchReady(self: *Self, ev: ReadyEvent) !void {
             const fd = self.by_id.get(ev.subject) orelse return;
             if (self.pending_dials.getPtr(fd)) |row| {
@@ -62,6 +116,7 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
         /// this round), then drain resident readiness records.
         fn harvestReadiness(self: *Self) !bool {
             try self.signal_wake_failure.check();
+            try harvestForeignPoll(self);
             var pfds = [_]std.posix.pollfd{
                 .{ .fd = self.signal_wake.read, .events = std.posix.POLL.IN, .revents = 0 },
                 .{ .fd = self.readiness_fd, .events = std.posix.POLL.IN, .revents = 0 },
@@ -107,8 +162,7 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
             if (pre_wake) return 0;
 
             var pfds = [_]std.posix.pollfd{
-                .{ .fd = self.signal_wake.read, .events = std.posix.POLL.IN, .revents = 0 },
-                .{ .fd = self.readiness_fd, .events = std.posix.POLL.IN, .revents = 0 },
+                .{ .fd = self.ready_set.descriptor(), .events = std.posix.POLL.IN, .revents = 0 },
             };
             _ = net.poll.wait(&pfds, timeout_ms) catch |err| return err;
 

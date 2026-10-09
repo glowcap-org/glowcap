@@ -88,7 +88,7 @@ Deno.test("the viewer steps through conversation images in message order", () =>
 		store.attachmentView(projection, { name: "gone.png", mime: "image/png", size: 1 }),
 	]);
 	store.deliver(projection, room.key, gone);
-	store.nameLine(projection, room.key, gone.id, 77);
+	store.updateItem(projection, room.key, gone.id, { lineId: 77 });
 	store.applyLineChange(projection, room.key, 77, { withdrawn: true });
 
 	store.openViewer(projection, room.key, second.id);
@@ -128,7 +128,7 @@ Deno.test("an authoritative withdrawal settles only the matching edit intent", (
 	store.switchTo(projection, room.key);
 	const mine = store.chatItem(projection, "me", "file caption", true);
 	store.deliver(projection, room.key, mine);
-	store.nameLine(projection, room.key, mine.id, 91);
+	store.updateItem(projection, room.key, mine.id, { lineId: 91 });
 
 	store.startRefile(projection, mine.id, "file caption", []);
 	store.setDraft(projection, "");
@@ -140,7 +140,7 @@ Deno.test("an authoritative withdrawal settles only the matching edit intent", (
 
 	const another = store.chatItem(projection, "me", "older line", true);
 	store.deliver(projection, room.key, another);
-	store.nameLine(projection, room.key, another.id, 92);
+	store.updateItem(projection, room.key, another.id, { lineId: 92 });
 	store.startChange(projection, another.id, "new message after the race");
 	store.applyLineChange(projection, room.key, 92, { withdrawn: true });
 	assert(store.activeDraft(projection).changing === undefined, "a withdrawn target stayed attached to newer input");
@@ -180,8 +180,8 @@ Deno.test("a connection ending takes what its lines could be told, not what they
 	store.switchTo(projection, room.key);
 	const mine = store.chatItem(projection, "alice", "said on a connection", true, undefined);
 	store.deliver(projection, room.key, mine);
-	store.nameLine(projection, room.key, mine.id, 7);
-	store.holdLine(projection, room.key, mine.id);
+	store.updateItem(projection, room.key, mine.id, { lineId: 7 });
+	store.updateItem(projection, room.key, mine.id, { held: true });
 	const held = () => {
 		const line = store.historyOf(projection, room.key).find((item) => item.id === mine.id);
 		return line?.kind === "chat" ? line.held : undefined;
@@ -523,13 +523,10 @@ Deno.test("only a confirmed optimistic line reaches the history recorder", () =>
 	}
 });
 
-Deno.test("local rooms enter by name; foreign and bridge rooms retain exact publication identity", () => {
+Deno.test("room listings preserve exact local, foreign and bridge publication identity", () => {
 	const dir = dirId("test-dir-entered-pub");
 	store.openDir(projection, dir, "test-dir-entered-pub-route");
-	// The directory lists a local room and a peered one. A local room is
-	// always reachable by name, so entering it must key by name whether or
-	// not the listing has arrived — keying it by its listing entry made one
-	// room two conversations when the listing landed after the first entry.
+	// Presentation preserves the directory's exact publication for every kind.
 	store.setLiveRoom(projection, dir, {
 		id: "gen-1",
 		name: "lobby",
@@ -558,21 +555,20 @@ Deno.test("local rooms enter by name; foreign and bridge rooms retain exact publ
 		offers: "participant",
 	});
 	assert(
-		store.enteredPublication(projection, dir, "lobby") === null,
-		"a local listing entry was offered as the way in",
+		store.liveRoom(projection, dir, "lobby")?.id === "gen-1",
+		"a local listing lost its publication identity",
 	);
 	assert(
-		store.enteredPublication(projection, dir, "unlisted") === null,
+		store.liveRoom(projection, dir, "unlisted") === null,
 		"an unlisted name was offered a publication",
 	);
-	// Non-local rooms are the opposite: their directory publication is the
-	// stable correlation identity, including for bridge presentation.
+	// Bridge presentation follows the exact publication, independently of entry.
 	assert(
-		store.enteredPublication(projection, dir, "annex")?.id === "gen-2",
+		store.liveRoom(projection, dir, "annex")?.id === "gen-2",
 		"a foreign room did not enter by its publication",
 	);
 	assert(
-		store.enteredPublication(projection, dir, "network-channel")?.id === "gen-3",
+		store.liveRoom(projection, dir, "network-channel")?.id === "gen-3",
 		"a bridge room did not enter by its publication",
 	);
 	assert(

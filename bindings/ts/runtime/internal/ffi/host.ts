@@ -55,6 +55,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_set_advertised_locator: { parameters: [P, P], result: I },
 	glowcap_host_remove_advertised_locator: { parameters: [P, B, U], result: I, outBuffers: [] },
 	glowcap_host_set_session_limits: { parameters: [P, B], result: I, outBuffers: [] },
+	glowcap_host_set_ingress_limits: { parameters: [P, "u32", "u32", "u32"], result: I },
 	glowcap_host_session_open_dialed_locator: { parameters: [P, P, B], result: I, outBuffers: [2] },
 	glowcap_host_session_open_accepted: { parameters: [P, B, U, "u32", B, U, B, U, B], result: I, outBuffers: [8] },
 	glowcap_host_pending_dial: { parameters: [P, U64, U, B, U, B, B], result: I, outBuffers: [3, 5, 6] },
@@ -87,6 +88,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_publish: { parameters: [P, B, U, P, P, P], result: I, outBuffers: [] },
 	glowcap_host_unpublish: { parameters: [P, B, U], result: I, outBuffers: [] },
 	glowcap_host_publish_durable: { parameters: [P, B, U, P, P, P, B, U], result: I, outBuffers: [6] },
+	glowcap_host_publish_reference: { parameters: [P, B, B, U, B, U], result: I, outBuffers: [4] },
 	glowcap_host_remove_durable: { parameters: [P, B, U], result: I, outBuffers: [] },
 	// Fetch and enliven — each mints a host vow (out param).
 	glowcap_host_session_fetch: { parameters: [P, B, U, B], result: I, outBuffers: [3] },

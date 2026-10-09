@@ -63,7 +63,7 @@ async fn scenario() {
 		.unwrap();
 	let locator = server.locator().unwrap();
 	let (client, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let accepted = Rc::new(accepted.unwrap().with_gc());
+	let accepted = Rc::new(accepted.unwrap());
 	let service = accepted.clone();
 	let serving = tokio::task::spawn_local(async move { service.serve().await });
 	let deadlines = ObservedDeadline::default();
@@ -128,7 +128,7 @@ async fn scenario() {
 		.spawn_owned(move |verb, args| {
 			seat_record(verb, args);
 			match verb {
-				"post" => Ok(line_ref.clone().into()),
+				"post" => Ok(Argument::List(vec![1.into(), line_ref.clone().into()])),
 				"postFiles" | "leave" => Ok(Argument::Void),
 				"history" => {
 					assert!(args.is_empty());

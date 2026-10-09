@@ -4,6 +4,7 @@ import { Button } from "../Button.tsx";
 import {
 	capabilitySetEditSwiss,
 	capabilitySetInclude,
+	capabilitySetIncomplete,
 	capabilitySetPlaceholder,
 	capabilitySetRetry,
 	capabilitySetSave,
@@ -30,7 +31,7 @@ export function CapabilitySetForm() {
 		try {
 			const parsed = parseOpsBundleDraft(text);
 			if (parsed.size > 0 && !opsBundleReady(parsed)) {
-				throw new Error("Supply a swiss number for every enabled capability.");
+				throw new Error(capabilitySetIncomplete);
 			}
 			model.setDraft(parsed);
 			model.setError("");
@@ -43,7 +44,7 @@ export function CapabilitySetForm() {
 		try {
 			const wanted = mode === "controls" ? model.draft : parseOpsBundleDraft(text);
 			if (wanted.size > 0 && !opsBundleReady(wanted)) {
-				throw new Error("Supply a swiss number for every enabled capability.");
+				throw new Error(capabilitySetIncomplete);
 			}
 			void model.commit(wanted);
 		} catch (cause) {
@@ -156,7 +157,7 @@ export function CapabilitySetForm() {
 						busy={model.busy}
 						disabled={!actionable || model.busy}
 					>
-						{!dirty && model.retryPending ? capabilitySetRetry : capabilitySetSave}
+						{model.retryPending ? capabilitySetRetry : capabilitySetSave}
 					</Button>
 				</div>
 				{model.notice !== "" && <Said id="opsCapabilitySetSaved" kind="success">{model.notice}</Said>}

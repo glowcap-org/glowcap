@@ -70,6 +70,12 @@ pub const AdmissionPlatform = struct {
     }
 
     pub fn deinit(_: *AdmissionPlatform) void {}
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
+    }
+
     pub fn openListener(_: *AdmissionPlatform, _: u16) !Fd {
         return 40;
     }

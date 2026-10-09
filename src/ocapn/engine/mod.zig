@@ -55,6 +55,7 @@ const peer_queue = @import("peer/queue.zig");
 const peer_identity = @import("peer/identity.zig");
 const peer_lifecycle = @import("peer/lifecycle.zig");
 const peer_outbound = @import("peer/outbound.zig");
+const peer_provisional = @import("peer/provisional.zig");
 const peer_drive = @import("peer/drive.zig");
 const peer_failures = @import("peer/failures.zig");
 const peer_handoffs = @import("peer/handoffs.zig");
@@ -251,6 +252,8 @@ pub const Peer = struct {
     /// never handshakes), and the stub-key in-process fixtures opt out through
     /// `NegotiatingOptions` because their handshakes carry no real signature.
     verify_partner_handshake: bool = false,
+    /// A Vat turn's far sends are being held retractable (ADR-0194).
+    provisional: bool = false,
     /// Stored relayed settlements whose listener carriers could not be
     /// prepared at the terminal commit. Nonzero makes `step` retry one row;
     /// the imported-promise table itself is the authority, so row teardown can
@@ -319,6 +322,16 @@ pub const Peer = struct {
     pub const transferPendingChargeToAnswerStore = peer_outbound.transferPendingChargeToAnswerStore;
     pub const takePending = peer_outbound.takePending;
     pub const popPendingBack = peer_outbound.popPendingBack;
+    pub const reserveStagedRow = peer_outbound.reserveStagedRow;
+    pub const canObserveAnswer = peer_outbound.canObserveAnswer;
+    pub const fillStagedRow = peer_outbound.fillStagedRow;
+    pub const removeStagedRow = peer_outbound.removeStagedRow;
+    pub const blockedOnStaging = peer_outbound.blockedOnStaging;
+    pub const stagedRowProvisional = peer_outbound.stagedRowProvisional;
+    pub const withdrawQueuedListen = peer_outbound.withdrawQueuedListen;
+    pub const openProvisional = peer_provisional.open;
+    pub const commitProvisional = peer_provisional.commit;
+    pub const retractProvisional = peer_provisional.retract;
     pub const checkOutboundWaterline = peer_outbound.checkOutboundWaterline;
     pub const ensureOutboundCapacity = peer_outbound.ensureOutboundCapacity;
     pub const queuedOutboundBytes = peer_outbound.queuedOutboundBytes;

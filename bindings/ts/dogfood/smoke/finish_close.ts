@@ -17,7 +17,7 @@ export async function runFinishClosePolicy(): Promise<void> {
 		const callEntered = new Promise<void>((resolve) => enteredCall = resolve);
 		let releaseAnswer!: () => void;
 		const answerGate = new Promise<void>((resolve) => releaseAnswer = resolve);
-		serverHost.publishGiftable("svc", () => {
+		serverHost.publish("svc", () => {
 			enteredCall();
 			return answerGate.then(() => new Sym("done"));
 		});

@@ -3,6 +3,7 @@
 use crate::{Error, archive::Backend, platform::Platform};
 use glowcap::Runtime;
 use rooms_application::archive::{Filter, Record, index::Page};
+use rooms_application::text::DocumentText;
 use rooms_glowcap::client::files::File;
 use std::{
 	cell::{Cell, RefCell},
@@ -11,10 +12,13 @@ use std::{
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 mod blobs;
+mod destination;
+pub use destination::{Destination, Restore};
 mod capture;
 pub use capture::MAX_STREAMS;
 mod issuer;
 mod share;
+mod shared_blobs;
 mod sources;
 use sources::Sources;
 mod targets;
@@ -113,6 +117,8 @@ enum Command<P: Platform> {
 		Answer<glowcap::Ref>,
 	),
 	SharedPage(Work<P>, Filter, u64, usize, glowcap::Resolver),
+	SharedReader(shared_blobs::Request<P>),
+	SharedRead(Work<P>, Rc<shared_blobs::Reader<P>>, u64, usize, glowcap::Resolver),
 	BlobReader(String, Answer<rooms_application::archive::blobs::Reader>),
 	ReadBlob(rooms_application::archive::blobs::Reader, u64, usize, Answer<Vec<u8>>),
 	Share(rooms_application::archive::shares::Share, Answer<String>),
@@ -123,6 +129,7 @@ enum Command<P: Platform> {
 	Prepare(String, Answer<()>),
 	Put(Record, Vec<File<P>>, Answer<u64>),
 	Record(
+		Option<Destination>,
 		Record,
 		String,
 		Option<capture::Capture>,
@@ -130,6 +137,7 @@ enum Command<P: Platform> {
 		Answer<Recorded>,
 	),
 	Clear(Answer<()>),
+	ClearSource(DocumentText, Answer<()>),
 	Read(Filter, Answer<Vec<KeptRecord<P>>>),
 	ReadView(Filter, Answer<HistoryView<P>>),
 	Page(Filter, u64, usize, Answer<Page>),
@@ -226,7 +234,16 @@ impl<P: Platform> SessionArchive<P> {
 		message: &rooms_application::archive::recording::Message<'_>,
 		sources: Vec<File<P>>,
 	) -> Result<Option<Recording>, Error> {
-		self.record_sources(source, message, Sources::Live(sources))
+		self.record_sources(None, source, message, Sources::Live(sources))
+	}
+	pub fn record_message_to(
+		&self,
+		destination: Destination,
+		source: &DocumentText,
+		message: &rooms_application::archive::recording::Message<'_>,
+		sources: Vec<File<P>>,
+	) -> Result<Option<Recording>, Error> {
+		self.record_sources(Some(destination), source, message, Sources::Live(sources))
 	}
 	pub fn record_files(
 		&self,
@@ -234,10 +251,11 @@ impl<P: Platform> SessionArchive<P> {
 		message: &rooms_application::archive::recording::Message<'_>,
 		sources: Vec<crate::files::media_files::FileView>,
 	) -> Result<Option<Recording>, Error> {
-		self.record_sources(source, message, Sources::Views(sources))
+		self.record_sources(None, source, message, Sources::Views(sources))
 	}
 	fn record_sources(
 		&self,
+		destination: Option<Destination>,
 		source: &rooms_application::text::DocumentText,
 		message: &rooms_application::archive::recording::Message<'_>,
 		mut sources: Sources<P>,
@@ -262,7 +280,12 @@ impl<P: Platform> SessionArchive<P> {
 		};
 		let metadata = if sources.is_empty() {
 			None
-		} else if !(self.0.peer_selected.get() || self.0.local_blobs) {
+		} else if !(match &destination {
+			Some(Destination::Device) => false,
+			Some(Destination::Held(_) | Destination::Restoring(_)) => true,
+			None => self.0.peer_selected.get(),
+		} || self.0.local_blobs)
+		{
 			Some(MetadataReason::BackendUnsupported)
 		} else if files > MAX_FILE_BYTES.saturating_sub(self.0.usage.get().files) {
 			Some(MetadataReason::PendingBytes)
@@ -285,7 +308,9 @@ impl<P: Platform> SessionArchive<P> {
 			String::new()
 		};
 		let completion = self.0.admit_with_custody(
-			bytes.saturating_add(nick.capacity()),
+			bytes
+				.saturating_add(nick.capacity())
+				.saturating_add(destination.as_ref().map_or(0, Destination::retained_bytes)),
 			files,
 			!sources.is_empty(),
 			None,
@@ -299,7 +324,7 @@ impl<P: Platform> SessionArchive<P> {
 						self.0.captures.clone(),
 					))
 				};
-				Command::Record(record, nick, capture, retention, answer)
+				Command::Record(destination, record, nick, capture, retention, answer)
 			},
 		)?;
 		Ok(Some(Recording {
@@ -329,6 +354,26 @@ impl<P: Platform> SessionArchive<P> {
 
 	pub fn clear_local(&self) -> Result<Reply<()>, Error> {
 		self.0.admit(0, 0, Command::Clear)
+	}
+	/// The managed owner fences its producers before this FIFO barrier. Queue
+	/// pressure waits for bounded admission; cancellation leaves erasure owned by
+	/// the worker, including retirement of this source's in-flight captures.
+	pub async fn clear_source_when_ready(&self, source: &DocumentText) -> Result<(), Error> {
+		let mut stop = self.0.stop.subscribe();
+		if *stop.borrow() {
+			return Err(Error::closed("session archive is closed"));
+		}
+		let count = tokio::select! {
+			permit = self.0.capacity.clone().acquire_owned() => permit.map_err(|_| Error::closed("session archive capacity is closed"))?,
+			_ = stop.changed() => return Err(Error::closed("session archive is closed")),
+			_ = self.0.requests.closed() => return Err(Error::closed("session archive worker retired")),
+		};
+		self.0
+			.admit_with_custody(source.heap_bytes(), 0, false, Some(count), |answer, _| {
+				Command::ClearSource(source.clone(), answer)
+			})?
+			.wait()
+			.await
 	}
 	pub fn read(&self, filter: Filter) -> Result<Reply<Vec<KeptRecord<P>>>, Error> {
 		filter.validate().map_err(Error::invalid_by)?;
@@ -477,7 +522,7 @@ fn input_budget<P: Platform>(record: &Record, sources: &Vec<File<P>>) -> Result<
 		record
 			.retained_bytes()
 			.saturating_add(sources.capacity().saturating_mul(core::mem::size_of::<File<P>>())),
-		|bytes, source| bytes.saturating_add(source.attachment().description.retained_bytes()),
+		|bytes, source| bytes.saturating_add(source.retained_heap_bytes()),
 	);
 	Ok((bytes, files))
 }

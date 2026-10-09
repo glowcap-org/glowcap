@@ -12,10 +12,6 @@ pub mod wall_clock;
 pub use error::{Error, Worker};
 
 pub mod archive;
-pub mod direct;
-pub mod directories;
 pub mod files;
-pub mod grants;
-pub mod rooms;
-pub mod service;
 pub mod session;
+pub mod trace;

@@ -41,12 +41,27 @@ const Retains = struct {
     }
 };
 
-fn projectOwned(self: *Host, value: value_mod.Value, context: anytype, comptime project: anytype) !projectedValueType(project) {
+pub fn projectOwnedValue(self: *Host, value: value_mod.Value, context: anytype, comptime project: anytype) !projectedValueType(project) {
     self.assertOwner();
     var retained = Retains{ .host = self };
     errdefer value.forEachCapability(&retained, Retains.rollback) catch unreachable;
     try value.forEachCapability(&retained, Retains.acquire);
     return try project(context, value);
+}
+
+/// Acquire independent occurrences without retaining a parallel receipt array.
+/// The stable Value tree holds the exact rollback inventory until return.
+pub fn retainValue(self: *Host, value: value_mod.Value) !void {
+    _ = projectOwnedValue(self, value, {}, keepValue) catch |err| return switch (err) {
+        // Reply preparation uses the same stale-identity refusal as lowering.
+        // Consumer projection separately classifies a retired home as closed.
+        error.CapabilityClosed => error.UnknownCapability,
+        else => err,
+    };
+}
+
+fn keepValue(_: void, value: value_mod.Value) !value_mod.Value {
+    return value;
 }
 
 /// The callback projects representation only. Its successful result owns one
@@ -60,7 +75,7 @@ pub fn projectCompletion(
 ) ProjectedCompletion(projectedValueType(project)) {
     return switch (action) {
         .settled => |settled| blk: {
-            const projected = projectOwned(self, settled.value, context, project) catch |err| {
+            const projected = projectOwnedValue(self, settled.value, context, project) catch |err| {
                 break :blk .{ .failed = .{
                     .vow_id = settled.vow_id,
                     .failure = if (err == error.CapabilityClosed) .closed else .broken,

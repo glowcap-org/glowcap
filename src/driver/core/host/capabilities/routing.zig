@@ -21,6 +21,38 @@ const HostError = host_mod.HostError;
 
 pub const RoutedSend = struct { session: *HostSession, target: actors.Ref };
 
+pub const ApplicationTarget = struct { ref: capability.Ref, session: ?*HostSession };
+
+/// Application delivery needs no caller-selected session. A pending give
+/// queues on its introducing session, which owns redemption authority. Once
+/// fulfilled, follow the retained target to its actual local or foreign home.
+/// These are borrowed identities; admission uses the existing promise queue.
+pub fn applicationTarget(self: *Host, ref: capability.Ref) !ApplicationTarget {
+    self.assertOwner();
+    var current = ref;
+    while (true) {
+        const target = self.capabilities.resolve(current) orelse return error.UnknownCapability;
+        switch (target) {
+            .local => return .{ .ref = current, .session = null },
+            .remote => |remote| return .{
+                .ref = current,
+                .session = self.sessions.get(remote.peer_handle) orelse return error.UnknownCapability,
+            },
+            .deferred => |id| {
+                const promise = self.capability_promises.get(id) orelse return error.UnknownCapability;
+                switch (promise.state) {
+                    .pending, .settling => return .{
+                        .ref = current,
+                        .session = self.sessions.get(promise.introducing_peer) orelse return error.UnknownCapability,
+                    },
+                    .fulfilled => |settled| current = settled,
+                    .broken => return error.PromiseBroken,
+                }
+            },
+        }
+    }
+}
+
 const RouteScope = enum { host, session };
 
 /// Resolve a send's target to the session and vat reference it rides: a near

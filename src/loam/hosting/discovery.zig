@@ -83,13 +83,20 @@ pub const Discovery = struct {
         return .accepted;
     }
 
-    fn cancel(context: *anyopaque, peer: @FieldType(driver.Host.PublicationFetch, "peer")) void {
+    fn cancel(context: *anyopaque, cancellation: driver.Host.PublicationLookup.Cancellation) void {
         const self: *Discovery = @ptrCast(@alignCast(context));
         for (self.waiters) |*slot| if (slot.*) |*waiter| {
-            if (waiter.fetch.peer == peer) {
-                waiter.fetch.abandon();
-                slot.* = null;
+            switch (cancellation) {
+                .origin => |origin| {
+                    if (!std.meta.eql(waiter.fetch.origin(), origin)) continue;
+                    waiter.fetch.abandon();
+                },
+                .local_shutdown => |reason| {
+                    if (waiter.fetch.destination != .local) continue;
+                    waiter.fetch.closeLocal(reason);
+                },
             }
+            slot.* = null;
         };
     }
 

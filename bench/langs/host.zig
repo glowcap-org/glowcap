@@ -13,7 +13,7 @@
 //!
 //! With no port (or port 0) it binds an ephemeral loopback port and announces
 //! the chosen one. It prints one NDJSON readiness line and then serves every
-//! accepted connection, each on its own concurrent fiber, until it is killed:
+//! accepted connection from one `driver.Server` thread until it is killed:
 //!
 //!   {"v":1,"event":"ready","listen":"127.0.0.1:<port>"}
 
@@ -21,14 +21,15 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
-const actors = glowcap.actors;
 const driver = glowcap.driver;
-const net = glowcap.net;
-const tcp = net.tcp;
 
 const host_addr = "127.0.0.1";
-const frame_cap: usize = 1 << 16;
-const TcpBridge = driver.Bridge(net.TcpLoop);
+
+const opts: driver.SessionOptions = .{
+    .frame_cap = 1 << 16,
+    .handshake = .{ .ms = 30_000 },
+    .settle = .{ .ms = 30_000 },
+};
 
 /// One task: capability minted by `create`, driven through assign, complete,
 /// and status. State is a single `done` flag held in the behavior, so `status`
@@ -36,35 +37,28 @@ const TcpBridge = driver.Bridge(net.TcpLoop);
 const Task = struct {
     done: bool = false,
 
-    pub fn handle(self: *Task, turn: *actors.Turn, message: actors.Message) !model.Argument {
-        _ = turn;
-        if (std.mem.eql(u8, message.verb, "assign")) return .{ .bytes = "assigned" };
-        if (std.mem.eql(u8, message.verb, "complete")) {
+    pub fn handle(self: *Task, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+        if (std.mem.eql(u8, verb, "assign")) return .{ .bytes = "assigned" };
+        if (std.mem.eql(u8, verb, "complete")) {
             self.done = true;
             return .{ .bytes = "done" };
         }
-        if (std.mem.eql(u8, message.verb, "status")) {
+        if (std.mem.eql(u8, verb, "status")) {
             return .{ .bytes = if (self.done) "done" else "open" };
         }
         return error.NoSuchMethod;
     }
 };
 
-/// The board root: `create` spawns a task at a fresh export position and returns
-/// the capability, so the client invokes the returned task several times over
-/// the wire, the capability-passing the bench measures.
+/// The board root: `create` spawns a task and returns the capability, so the
+/// client invokes the returned task several times over the wire, the
+/// capability-passing the bench measures.
 const Board = struct {
-    pub fn handle(self: *Board, turn: *actors.Turn, message: actors.Message) !model.Argument {
-        _ = self;
-        if (!std.mem.eql(u8, message.verb, "create")) return error.NoSuchMethod;
-        return (try driver.spawnAt(turn, Task, .{})).arg();
+    pub fn handle(_: *Board, ht: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+        if (!std.mem.eql(u8, verb, "create")) return error.NoSuchMethod;
+        return .{ .capability = try ht.spawn(Task, .{}) };
     }
 };
-
-fn publishBoard(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
-    _ = ctx;
-    _ = try served.publish(vat, "root", Board, .{});
-}
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -74,40 +68,34 @@ pub fn main(init: std.process.Init) !void {
     _ = args_iter.next();
     const port: u16 = if (args_iter.next()) |p| try std.fmt.parseInt(u16, p, 10) else 0;
 
-    var identity_seed: [32]u8 = undefined;
-    defer std.crypto.secureZero(u8, &identity_seed);
-    try io.randomSecure(&identity_seed);
-    var session_root: [32]u8 = undefined;
-    defer std.crypto.secureZero(u8, &session_root);
-    try io.randomSecure(&session_root);
+    var bind_buf: [32]u8 = undefined;
+    const bind = try std.fmt.bufPrint(&bind_buf, "{s}:{d}", .{ host_addr, port });
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = bind }, .ephemeral, opts);
+    defer server.deinit();
+    try server.publish("root", Board, .{});
 
-    var host = try driver.core.Host.init(allocator, identity_seed, session_root, driver.core.Host.Options.withFrameCap(frame_cap));
-    defer host.deinit();
-
-    var loop: net.TcpLoop = undefined;
-    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{ .publish = publishBoard });
-    defer bridge.deinit();
-    loop = try net.TcpLoop.initWithBackendOptions(
-        allocator,
-        .{ .read_buffer_bytes = frame_cap },
-        TcpBridge.makePeer,
-        @ptrCast(&bridge),
-        TcpBridge.hookOptions(.{
-            .max_conns = driver.default_max_pending_opens,
-            .listen = port,
-        }),
-    );
-    defer loop.deinit();
-
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bound_addr = try tcp.parseHostPort(host_addr, loop.port().?);
-    const local = tcp.locatorFromAddress(&designator_buf, bound_addr).designator;
-    try bridge.attach(model.transport.Known.tcp.metadata(), local, &.{});
-
+    var designator_buf: [64]u8 = undefined;
     var stdout_buf: [256]u8 = undefined;
     var stdout = std.Io.File.stdout().writer(io, &stdout_buf);
-    try stdout.interface.print("{{\"v\":1,\"event\":\"ready\",\"listen\":\"{s}\"}}\n", .{local});
+    try stdout.interface.print("{{\"v\":1,\"event\":\"ready\",\"listen\":\"{s}\"}}\n", .{try server.localDesignator(&designator_buf)});
     try stdout.interface.flush();
 
-    try loop.run(.forever);
+    var sessions: std.ArrayListUnmanaged(*driver.Session) = .empty;
+    defer {
+        for (sessions.items) |session| session.deinit();
+        sessions.deinit(allocator);
+    }
+    while (true) {
+        if (try server.waitAcceptable(0)) {
+            const session = try server.accept();
+            sessions.append(allocator, session) catch |err| {
+                session.deinit();
+                return err;
+            };
+            // An accepted session dispatches nothing until its owner attends.
+            try session.attend();
+            continue;
+        }
+        _ = try server.runtime.stepAny(-1);
+    }
 }

@@ -2,6 +2,7 @@
 //! failure cannot change grant identities, revisions, policies, or child counts.
 //! Exact scopes, reads, and lifecycle changes allocate nothing after init.
 
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");
 const core = f.core;
@@ -10,8 +11,8 @@ const Ledger = core.GrantLedger;
 test "access grants own selections and safely edit from borrowed records" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const a = try graph.create(graph.revision(), f.kind, null);
-    const b = try graph.create(graph.revision(), f.kind, null);
+    const a = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const b = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer ledger.deinit() catch unreachable;
     var selection = [_]core.ResourceId{ a, b };
@@ -38,8 +39,8 @@ test "access grants own selections and safely edit from borrowed records" {
 fn allocationFailures(allocator: std.mem.Allocator) !void {
     var graph = try f.graphInit(allocator);
     defer graph.deinit() catch unreachable;
-    const a = try graph.create(graph.revision(), f.kind, null);
-    const b = try graph.create(graph.revision(), f.kind, null);
+    const a = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const b = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer ledger.deinit() catch unreachable;
     const terms = try f.terms(.{ .objects = &.{ a, b } }, &.{f.read}, null);
@@ -79,7 +80,7 @@ test "access exact grants and lifecycle perform no post-init allocation" {
     const allocator = failing.allocator();
     var graph = try f.graphInit(allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer ledger.deinit() catch unreachable;
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);

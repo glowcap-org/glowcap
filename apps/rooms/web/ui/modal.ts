@@ -203,6 +203,7 @@ export function useModalDialog(
 		}
 		const restore = () => {
 			const opener = openerRef.current;
+			openerRef.current = null;
 			if (!opener?.isConnected) return;
 			opener.focus();
 			if (document.activeElement !== opener) coordinator.deferredFocus.current = opener;
@@ -217,7 +218,6 @@ export function useModalDialog(
 			layer.inert = true;
 			coordinator.drop(layer);
 			restore();
-			openerRef.current = null;
 			exitedRef.current();
 			return;
 		}
@@ -235,14 +235,15 @@ export function useModalDialog(
 			layer.removeEventListener("transitionend", finish);
 			if (layer.open) layer.close();
 			coordinator.drop(layer);
-			restore();
-			openerRef.current = null;
 			exitedRef.current();
 		};
 		layer.addEventListener("transitionend", finish);
 		layer.inert = true;
 		layer.close();
 		coordinator.drop(layer);
+		// Return focus as modality ends. Transition cleanup can run after the
+		// reader has started typing elsewhere and must never take it back.
+		restore();
 		const failsafe = setTimeout(() => finish(), 280);
 		return () => {
 			clearTimeout(failsafe);
@@ -250,8 +251,6 @@ export function useModalDialog(
 			if (!finished) {
 				if (layer.open) layer.close();
 				coordinator.drop(layer);
-				restore();
-				openerRef.current = null;
 				exitedRef.current();
 			}
 		};

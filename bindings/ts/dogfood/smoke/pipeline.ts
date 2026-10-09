@@ -328,7 +328,7 @@ export async function run(managed: Runtime): Promise<void> {
 				event.op === "pipeline-sentinel"
 			) pipelineSentResolve();
 		});
-		serverHost.publishGiftable("root", (verb, args) => {
+		serverHost.publish("root", (verb, args) => {
 			if (verb === "release") {
 				assert(makePending && releaseMake !== undefined, "release arrived before make deferred");
 				releaseMake();
@@ -414,7 +414,7 @@ export async function run(managed: Runtime): Promise<void> {
 		globalThis.addEventListener("unhandledrejection", onUnhandled);
 
 		await using anchorHost = new Host();
-		anchorHost.publishGiftable("root", (verb) => {
+		anchorHost.publish("root", (verb) => {
 			if (verb === "ping") return "pong";
 			markBoomSeen();
 			throw new Error(`boom: ${verb}`);

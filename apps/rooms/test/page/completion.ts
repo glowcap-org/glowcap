@@ -205,7 +205,19 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		await tab.fill("#line", "/edit first post");
 		await tab.press("#line", "Enter");
 		await second.waitForSelector('.bubble:has-text("first post")', { timeout: 30_000 })
-			.catch(() => fail("an edit never reached the other peer"));
+			.catch(async () => {
+				console.error(
+					"EDIT-COMPOSER",
+					await tab.evaluate(() => ({
+						draft: (document.getElementById("line") as HTMLTextAreaElement | null)?.value,
+						completion: document.getElementById("completePop")?.innerText,
+						issues: document.getElementById("issues")?.innerText,
+					})),
+				);
+				console.error("EDIT-SOURCE", await tab.locator("body").innerText());
+				console.error("EDIT-RECIPIENT", await second.locator("body").innerText());
+				fail("an edit never reached the other peer");
+			});
 		// The old words are gone rather than sitting beside the new ones.
 		if (await second.locator(`.bubble:has-text("${said}")`).count() > 0) {
 			fail("the line still reads as what it used to say");

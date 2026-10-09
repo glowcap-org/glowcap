@@ -22,7 +22,7 @@ pub fn glowcap_loam_lmdb_open(path: ?[*]const u8, path_len: usize, store_id: ?[*
     store_slot.* = null;
     const id = store_id orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const bounds = limits orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (create > 1) return bridge.code(error.InvalidArgument);
+    const mode = std.enums.fromInt(loam.OpenMode, create) orelse return bridge.code(error.InvalidArgument);
     const path_slice = shared.sliceFromC(path, path_len) catch |err| return bridge.code(err);
     if (std.mem.indexOfScalar(u8, path_slice, 0) != null) return bridge.code(error.InvalidArgument);
     const declarations = bridge.slice(c.GlowcapLoamSchema, schemas, schema_count) catch |err| return bridge.code(err);
@@ -31,7 +31,12 @@ pub fn glowcap_loam_lmdb_open(path: ?[*]const u8, path_len: usize, store_id: ?[*
     defer allocator.free(owned_path);
     const owner = allocator.create(Storage) catch |err| return bridge.code(err);
     const identity: loam.StoreId = @fromBackingInt(std.mem.readInt(u128, id[0..16], .big));
-    var backend = Lmdb.open(owned_path, .{ .mode = if (create == 1) .{ .create = identity } else .{ .open = identity }, .map_bytes = map_bytes }) catch |err| {
+    const opening: Lmdb.Options = .{ .mode = switch (mode) {
+        .open => .{ .open = identity },
+        .create => .{ .create = identity },
+        .bootstrap => .{ .bootstrap = identity },
+    }, .map_bytes = map_bytes };
+    var backend = Lmdb.open(owned_path, opening) catch |err| {
         allocator.destroy(owner);
         return bridge.code(err);
     };

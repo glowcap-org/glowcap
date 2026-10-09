@@ -9,6 +9,38 @@
 
 const std = @import("std");
 
+/// Observe positive request demand with in-place growth unavailable. Bound is
+/// the owner's checked demand accumulator; no private growth formula is copied.
+pub fn AllocationTraffic(comptime Bound: type) type {
+    return struct {
+        backing: std.mem.Allocator,
+        demand: Bound = .{},
+        const Self = @This();
+        pub fn allocator(self: *Self) std.mem.Allocator {
+            return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
+        }
+        fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, address: usize) ?[*]u8 {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            const pointer = self.backing.rawAlloc(len, alignment, address) orelse return null;
+            self.demand.include(len, alignment.toByteUnits(), 1) catch {
+                self.backing.rawFree(pointer[0..len], alignment, address);
+                return null;
+            };
+            return pointer;
+        }
+        fn resize(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) bool {
+            return false;
+        }
+        fn remap(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) ?[*]u8 {
+            return null;
+        }
+        fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, address: usize) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.backing.rawFree(memory, alignment, address);
+        }
+    };
+}
+
 /// Counts every backing allocation — a fresh `alloc`, plus a `remap`/`resize`
 /// that grows an existing block — so a measurement reflects real heap traffic,
 /// not just same-size churn. Reset `allocs` to zero to start a measurement

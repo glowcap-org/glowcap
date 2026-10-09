@@ -34,6 +34,63 @@ pub(super) fn clear(database: &Database) -> Result<Operation<Put>, Error> {
 		metadata::clear,
 	)
 }
+/// One committed transaction removes this source's rows and blob addresses
+/// with exact shared byte accounting. The bounded cursor borrows each row only
+/// for its delete; unrelated source metadata and revision remain untouched.
+pub(super) fn clear_source(database: &Database, source: DocumentText) -> Result<Operation<Put>, Error> {
+	Operation::start(
+		database,
+		&[RECORDS, BLOBS, META],
+		IdbTransactionMode::Readwrite,
+		Put::empty(),
+		move |steps| {
+			let mut source = Some(source);
+			steps.request(steps.store(META)?.get(&"blob-bytes".into())?, move |steps, row| {
+				let source = source
+					.take()
+					.ok_or(Error::Invalid("duplicate archive erasure preparation"))?;
+				let bytes = codec::meta(row, "blob-bytes", MAX_BLOB_BYTES as u64)?;
+				steps.data(|put| {
+					put.bytes = bytes;
+					Ok(())
+				})?;
+				let mut seen = 0;
+				steps.request(steps.store(RECORDS)?.open_cursor()?, move |steps, row| {
+					if row.is_null() {
+						return commit_bytes(steps);
+					}
+					seen += 1;
+					if seen > MAX_RECORDS {
+						return Err(Error::Invalid("archive storage exceeds its record ceiling"));
+					}
+					let cursor = row
+						.dyn_into::<IdbCursorWithValue>()
+						.map_err(|_| Error::Invalid("invalid archive cursor"))?;
+					let entry = codec::decode(cursor.value()?)?;
+					if entry.record.coordinates().source == source {
+						steps.data(|put| {
+							put.bytes = put
+								.bytes
+								.checked_sub(self::bytes(&entry.record))
+								.ok_or(Error::Invalid("inconsistent archive byte count"))?;
+							for (i, attachment) in blobs::files(&entry.record).unwrap_or(&[]).iter().enumerate() {
+								if attachment.blob().is_some() {
+									steps
+										.store(BLOBS)?
+										.delete(&codec::address_key(&Address::of(&entry.record, i)?))?;
+								}
+							}
+							Ok(())
+						})?;
+						cursor.delete()?;
+					}
+					cursor.continue_()?;
+					Ok(())
+				})
+			})
+		},
+	)
+}
 pub(super) fn put(
 	database: &Database,
 	record: Record,

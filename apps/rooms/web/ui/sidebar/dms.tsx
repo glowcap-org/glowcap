@@ -71,7 +71,7 @@ function DmRow(
 		here: boolean;
 		canInteract: boolean;
 		onOpen: (key: string) => void;
-		onClose: (conv: DmConv) => void;
+		onClose: (conv: DmConv) => void | Promise<void>;
 		onAbout: (dir: DirId) => void;
 	},
 ) {
@@ -205,7 +205,7 @@ function DmRows(
 		 * rooms list is asked, so one answer covers the whole rail. */
 		shows: (row: RailRow) => boolean;
 		onOpen: (key: string) => void;
-		onClose: (conv: DmConv) => void;
+		onClose: (conv: DmConv) => void | Promise<void>;
 		onAbout: (dir: DirId) => void;
 	},
 ) {
@@ -310,7 +310,7 @@ export function DirectMessages(
 		onSubmit: (name: string) => void;
 		onError: (text: string) => void;
 		onSelect: (key: string) => void;
-		onClose: (conv: DmConv) => void;
+		onClose: (conv: DmConv) => void | Promise<void>;
 		onAbout: (dir: DirId) => void;
 	},
 ) {

@@ -12,14 +12,9 @@ use std::{
 
 const ID: &str = "11111111-1111-4111-8111-111111111111";
 #[derive(Clone, Default)]
-struct Platform {
-	expire_ack: Rc<Cell<bool>>,
-}
+struct Platform;
 impl rooms_glowcap::client::Deadline for Platform {
 	async fn within<T>(&self, milliseconds: u64, work: impl core::future::Future<Output = T>) -> Option<T> {
-		if milliseconds == policy::ACK_MS && self.expire_ack.replace(false) {
-			return None;
-		}
 		HostPlatform.within(milliseconds, work).await
 	}
 }
@@ -37,14 +32,17 @@ fn project(arg: &Argument) -> Value {
 		_ => panic!("unexpected registration argument"),
 	}
 }
+fn granted(nick: &str, name: &glowcap::Ref) -> Argument {
+	Argument::List(vec![nick.into(), ID.into(), name.clone().into()])
+}
 fn ack() -> [Argument; 3] {
 	["registered".into(), "alice".into(), ID.into()]
 }
-fn event() -> [Argument; 3] {
-	["introducible".into(), "bob".into(), ID.into()]
+fn event() -> [Argument; 4] {
+	["introducible".into(), "bob".into(), ID.into(), "opening".into()]
 }
 #[tokio::test]
-async fn registration_keeps_actual_name_across_ack_failure_and_cancelled_observation() {
+async fn registration_binds_identity_to_custody_and_retains_cancelled_observation() {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			tokio::time::timeout(Duration::from_secs(10), scenario())
@@ -72,10 +70,10 @@ async fn scenario() {
 		.unwrap();
 	let locator = server.locator().unwrap();
 	let (connected, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let accepted = Rc::new(accepted.unwrap().with_gc());
+	let accepted = Rc::new(accepted.unwrap());
 	let service = accepted.clone();
 	let serving = tokio::task::spawn_local(async move { service.serve().await });
-	let platform = Platform::default();
+	let platform = Platform;
 	let client = Client::new(connected.unwrap(), platform.clone());
 	let calls = Rc::new(RefCell::new(Vec::<Value>::new()));
 	let voucher = Rc::new(RefCell::new(Argument::Bytes(vec![1, 2, 3])));
@@ -95,17 +93,19 @@ async fn scenario() {
 			Ok(Argument::Bytes(vec![9]))
 		})
 		.unwrap();
-	let name_reply = Rc::new(RefCell::new(Ok(Argument::Reference(first_name.clone()))));
+	let name_reply = Rc::new(RefCell::new(Ok(granted("alice", &first_name))));
+	let pending_reply = Rc::new(RefCell::new(None::<(glowcap::Resolver, Result<Argument, String>)>));
 	let notify = Rc::new(RefCell::new(None::<glowcap::Ref>));
-	let held_ack = Rc::new(Cell::new(false));
+	let held_reply = Rc::new(Cell::new(false));
 	let (tx, mut arrived) = tokio::sync::mpsc::channel(16);
 	let (service, observer, held, answer, recorded) = (
 		accepted.clone(),
 		notify.clone(),
-		held_ack.clone(),
+		held_reply.clone(),
 		name_reply.clone(),
 		calls.clone(),
 	);
+	let pending = pending_reply.clone();
 	let root = accepted
 		.publish("directory", move |verb, args| {
 			recorded
@@ -117,16 +117,19 @@ async fn scenario() {
 						panic!("registration needs an inbox")
 					};
 					*observer.borrow_mut() = Some(inbox.clone());
+					let reply = if held.get() {
+						*pending.borrow_mut() = Some((service.host().defer_turn().unwrap(), answer.borrow().clone()));
+						Ok(Argument::Void)
+					} else {
+						answer.borrow().clone()
+					};
 					tx.try_send(()).unwrap();
-					if !held.get() {
-						service.tell(inbox, "notify", &ack()).unwrap();
-					}
-					answer.borrow().clone()
+					reply
 				}
 				"memberRegistration" => Ok(ID.into()),
 				"requestDirect" => Ok(Argument::Void),
 				"offerInbox" => {
-					assert!(matches!(args[2], Argument::Reference(_)));
+					assert!(matches!(args[3], Argument::Reference(_)));
 					Ok(Argument::Void)
 				}
 				_ => Err("unknown directory verb".into()),
@@ -148,39 +151,25 @@ async fn scenario() {
 	let id = directory.member_registration("bob").await.unwrap();
 	directory.request_direct("bob", &id).await.unwrap();
 	let inbox = client.session().spawn_owned(|_, _| Ok(Argument::Void)).unwrap();
-	directory.offer_inbox("bob", &id, &inbox).await.unwrap();
+	directory.offer_inbox("bob", &id, "opening", &inbox).await.unwrap();
 	assert_eq!(registration.name_voucher().await.unwrap(), Some(vec![1, 2, 3]));
 	assert_eq!(json!(*calls.borrow()), fixture["calls"]);
 
-	// Exact and automatic intents reconcile against the granted-name notice,
-	// not merely the returned capability.
-	held_ack.set(true);
-	let mut mismatched = Box::pin(registration.register("alice", "ocapn://alice.id", None));
-	tokio::select! { r=arrived.recv()=>r.unwrap(), _=&mut mismatched=>panic!("early exact acknowledgement") };
-	let target = notify.borrow().clone().unwrap();
-	accepted
-		.send(&target, "notify", &["registered".into(), "alice-2".into(), ID.into()])
-		.await
-		.unwrap_err();
+	// A granted nickname is checked in the same reply as its exact capability.
+	*name_reply.borrow_mut() = Ok(granted("alice-2", &first_name));
 	assert!(matches!(
-		mismatched.await,
+		registration.register("alice", "ocapn://alice.id", None).await,
 		Err(Error::Registration(policy::Error::Grant))
 	));
-	let mut automatic = Box::pin(registration.register_with_allocation(
-		"guest",
-		NicknameAllocation::Automatic,
-		"ocapn://alice.id",
-		None,
-	));
-	tokio::select! { r=arrived.recv()=>r.unwrap(), _=&mut automatic=>panic!("early automatic acknowledgement") };
-	let target = notify.borrow().clone().unwrap();
-	accepted
-		.send(&target, "notify", &["registered".into(), "guest-2".into(), ID.into()])
+	arrived.recv().await.unwrap();
+	assert_eq!(registration.name_voucher().await.unwrap(), Some(vec![1, 2, 3]));
+	*name_reply.borrow_mut() = Ok(granted("guest-2", &first_name));
+	let grant = registration
+		.register_with_allocation("guest", NicknameAllocation::Automatic, "ocapn://alice.id", None)
 		.await
 		.unwrap();
-	let grant = automatic.await.unwrap();
+	arrived.recv().await.unwrap();
 	assert_eq!(grant.nick.text().as_str(), Some("guest-2"));
-	held_ack.set(false);
 	let first_target = notify.borrow().clone().unwrap();
 	accepted.send(&first_target, "notify", &event()).await.unwrap();
 	let e = registration.next().await.unwrap().unwrap();
@@ -199,10 +188,10 @@ async fn scenario() {
 	);
 
 	// A dropped observer leaves one recoverable attempt, never a silent retry.
-	held_ack.set(true);
-	*name_reply.borrow_mut() = Ok(second_name.clone().into());
+	held_reply.set(true);
+	*name_reply.borrow_mut() = Ok(granted("alice", &second_name));
 	let mut pending = Box::pin(registration.register("alice", "ocapn://alice.id", None));
-	tokio::select! { r=arrived.recv()=>r.unwrap(), _=&mut pending=>panic!("registration finished without its acknowledgement") };
+	tokio::select! { r=arrived.recv()=>r.unwrap(), _=&mut pending=>panic!("registration finished without its reply") };
 	drop(pending);
 	assert!(matches!(
 		registration.name_voucher().await,
@@ -213,13 +202,14 @@ async fn scenario() {
 		Err(Error::Registration(policy::Error::Busy))
 	));
 	let second_target = notify.borrow().clone().unwrap();
-	accepted.send(&second_target, "notify", &ack()).await.unwrap();
+	let (mut answer, result) = pending_reply.borrow_mut().take().unwrap();
+	answer.fulfill_value(&result.unwrap()).unwrap();
 	assert_eq!(registration.finish_pending().await.unwrap().as_str(), ID);
 	assert_eq!(registration.name_voucher().await.unwrap(), Some(vec![9]));
 	assert!(accepted.send(&first_target, "notify", &event()).await.is_err());
 
 	// A refused or malformed capability reply cannot replace the accepted name.
-	held_ack.set(false);
+	held_reply.set(false);
 	for reply in [Err("registration refused".into()), Ok(Argument::Void)] {
 		*name_reply.borrow_mut() = reply;
 		assert!(registration.register("alice", "ocapn://alice.id", None).await.is_err());
@@ -228,15 +218,9 @@ async fn scenario() {
 		let rejected = notify.borrow().clone().unwrap();
 		assert!(accepted.send(&rejected, "notify", &event()).await.is_err());
 	}
-	// A successful capability reply still commits when its acknowledgement
-	// deadline expires. A timeout must not expose the predecessor's voucher.
-	held_ack.set(true);
-	platform.expire_ack.set(true);
-	*name_reply.borrow_mut() = Ok(first_name.clone().into());
-	assert!(matches!(
-		registration.register("alice", "ocapn://alice.id", None).await,
-		Err(Error::Timeout(_))
-	));
+	// Registration completes even when no discovery acknowledgement arrives.
+	*name_reply.borrow_mut() = Ok(granted("alice", &first_name));
+	registration.register("alice", "ocapn://alice.id", None).await.unwrap();
 	arrived.recv().await.unwrap();
 	assert_eq!(registration.name_voucher().await.unwrap(), Some(vec![1, 2, 3]));
 	*voucher.borrow_mut() = Argument::Void;
@@ -259,7 +243,7 @@ async fn scenario() {
 		Err(Error::Registration(policy::Error::Overflow))
 	));
 
-	held_ack.set(false);
+	held_reply.set(false);
 	registration.register("alice", "ocapn://alice.id", None).await.unwrap();
 	arrived.recv().await.unwrap();
 	let retired = notify.borrow().clone().unwrap();
@@ -274,10 +258,10 @@ async fn scenario() {
 	arrived.recv().await.unwrap();
 	// Dropping the owner cancels the attempt and retires its callback even
 	// though the remote actor still holds the observer occurrence.
-	held_ack.set(true);
+	held_reply.set(true);
 	let mut abandoned_owner = directory.registration();
 	let mut pending = Box::pin(abandoned_owner.register("alice", "ocapn://alice.id", None));
-	tokio::select! { r=arrived.recv()=>r.unwrap(), _=&mut pending=>panic!("early acknowledgement") };
+	tokio::select! { r=arrived.recv()=>r.unwrap(), _=&mut pending=>panic!("early registration reply") };
 	drop(pending);
 	let abandoned_target = notify.borrow().clone().unwrap();
 	drop(abandoned_owner);
@@ -315,16 +299,13 @@ async fn scenario() {
 		target,
 		retired,
 	));
-	drop((notify, name_reply, first_name, second_name));
-	let server_close = accepted.close(PendingWork::Cancel).await.unwrap_err();
-	assert!(
-		server_close.to_string().contains("WriteFailed"),
-		"the peer closure must retain the server's queued-write outcome: {server_close}"
-	);
+	drop((notify, name_reply, first_name, second_name, pending_reply));
+	// No late writes remain after callback retirement. The resident can finish
+	// the peer's clean close without a transport failure.
+	accepted.close(PendingWork::Cancel).await.unwrap();
 	runtime.close(PendingWork::Cancel).await.unwrap();
 	server.close().await.unwrap();
 	host.close(PendingWork::Cancel).await.unwrap();
-	let serve_error = serving.await.unwrap().unwrap_err();
-	assert!(serve_error.to_string().contains("WriteFailed"));
+	serving.await.unwrap().unwrap();
 	assert_eq!(id, Id::parse(ID).unwrap());
 }

@@ -1,4 +1,4 @@
-//! Publication for the byte-fed host core: the giftable and durable name
+//! Publication for the byte-fed host core: the Host and durable name
 //! registries, the swiss minting behind a durable name, and the resolver the
 //! node consults when a fetch names one.
 //!
@@ -25,11 +25,13 @@ const crypto = foundation.crypto;
 
 /// One host-wide publication: a swiss name discovers one Host-Vat actor. The
 /// actor is the identity; a Port projection is minted only when that Port
-/// fetches the name (or an embedder explicitly asks for its position). The
-/// registry is the one discovery authority: a fetch never leaves a per-session
-/// copy of the alias behind, so replacing or removing the name changes every
-/// later fetch on every session, while the Port's reverse row keeps a repeated
-/// fetch on one session reusing its existing export.
+/// fetches the name (or an embedder explicitly asks for its position). A fetch
+/// never leaves a per-session copy of the alias behind, so replacing or
+/// removing the name changes every later fetch on every session, while the
+/// Port's reverse row keeps a repeated fetch on one session reusing its
+/// existing export. A session also has its own bootstrap table, which answers
+/// only its partner; `publication_lookup.resolveFetch` consults this registry
+/// first.
 pub const Publication = struct {
     name: []const u8,
     actor: actors.Ref,
@@ -40,7 +42,7 @@ pub const Publication = struct {
 pub fn resolvePublishedTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, swissnum: []const u8) !?model.ExportPosition {
     const host: *Host = @ptrCast(@alignCast(ctx.?));
     const session = host.sessions.get(scope) orelse return null;
-    const row = host.giftables.get(swissnum) orelse return null;
+    const row = host.publications.get(swissnum) orelse return null;
     if (!row.active) return null;
     return (try session.served.port.projectActor(&host.vat, row.actor)).export_position;
 }
@@ -64,7 +66,7 @@ pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
     self.assertOwner();
     try self.admitApplicationOperation();
     if (engine.isDurableSwiss(name)) return error.ReservedDurableNamespace;
-    if (self.giftables.getPtr(name)) |existing| {
+    if (self.publications.getPtr(name)) |existing| {
         const displaced = existing.actor;
         existing.actor = actor;
         self.vat.releaseActor(localActorId(displaced) catch unreachable);
@@ -72,13 +74,13 @@ pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
     }
     const owned = try self.allocator.dupe(u8, name);
     errdefer self.allocator.free(owned);
-    try self.giftables.putNoClobber(self.allocator, owned, .{ .name = owned, .actor = actor });
+    try self.publications.putNoClobber(self.allocator, owned, .{ .name = owned, .actor = actor });
 }
 
 /// Spawn `initial` in this Host's Vat and bind `name` as a Host-wide alias.
 /// Replacement changes discovery only; existing capabilities keep reaching
 /// the displaced actor until Host teardown.
-pub fn publishGiftable(self: *Host, name: []const u8, comptime Behavior: type, initial: Behavior) !actors.Ref {
+pub fn publish(self: *Host, name: []const u8, comptime Behavior: type, initial: Behavior) !actors.Ref {
     try self.refuseReentry();
     try self.admitApplicationOperation();
     const actor = try self.vat.spawn(Behavior, initial);
@@ -87,9 +89,9 @@ pub fn publishGiftable(self: *Host, name: []const u8, comptime Behavior: type, i
     return actor;
 }
 
-/// Foreign-callback twin of `publishGiftable`. `hosted` transfers into the
+/// Foreign-callback twin of `publish`. `hosted` transfers into the
 /// Vat on every outcome, preserving one owner for its context.
-pub fn publishHostedGiftable(self: *Host, name: []const u8, hosted: actors.HostedActor) !actors.Ref {
+pub fn publishHosted(self: *Host, name: []const u8, hosted: actors.HostedActor) !actors.Ref {
     var hosted_pending = true;
     defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
 
@@ -118,7 +120,7 @@ pub fn unpublish(
     // name is removed only through `removeDurable`, so the two authority
     // surfaces stay distinct (ADR-0098).
     if (engine.isDurableSwiss(name)) return error.ReservedDurableNamespace;
-    const removed = self.giftables.fetchRemove(name) orelse return error.UnknownPublication;
+    const removed = self.publications.fetchRemove(name) orelse return error.UnknownPublication;
     // Key and row name are one allocation (`bindPublication`); free once.
     self.allocator.free(@constCast(removed.value.name));
     // Release the alias root the row adopted (ADR-0101): with no other
@@ -167,7 +169,8 @@ pub fn mintDurableSwiss(entropy: [engine.durable_swiss_entropy_len]u8) DurableSw
 }
 
 /// Publish `initial` under a freshly minted durable swiss name
-/// (ADR-0098): unpredictable, never reassigned, removable only through
+/// (ADR-0098): unpredictable, never minted twice by the Host (an embedder that
+/// republishes removed entropy rebinds the name on purpose), removable only through
 /// `removeDurable`, and structurally disjoint from every mutable alias.
 /// The active table is still checked before insertion, so even an
 /// entropy-collision fails loud instead of retargeting. The row adopts
@@ -209,10 +212,10 @@ pub fn publishHostedDurable(
 pub fn bindDurable(self: *Host, entropy: [engine.durable_swiss_entropy_len]u8, actor: actors.Ref) !DurableSwiss {
     self.assertOwner();
     const minted = mintDurableSwiss(entropy);
-    if (self.giftables.contains(minted.slice())) return error.DurableNameCollision;
+    if (self.publications.contains(minted.slice())) return error.DurableNameCollision;
     const owned = try self.allocator.dupe(u8, minted.slice());
     errdefer self.allocator.free(owned);
-    try self.giftables.putNoClobber(self.allocator, owned, .{ .name = owned, .actor = actor });
+    try self.publications.putNoClobber(self.allocator, owned, .{ .name = owned, .actor = actor });
     return minted;
 }
 
@@ -237,7 +240,7 @@ pub const DurableReservation = struct {
     pub fn commit(self: *DurableReservation) void {
         const host = self.host orelse return;
         host.assertOwner();
-        host.giftables.getPtr(self.swiss.slice()).?.active = true;
+        host.publications.getPtr(self.swiss.slice()).?.active = true;
         self.host = null;
         self.lifetime.complete();
     }
@@ -245,7 +248,7 @@ pub const DurableReservation = struct {
     pub fn cancel(self: *DurableReservation) void {
         const host = self.host orelse return;
         host.assertOwner();
-        const removed = host.giftables.fetchRemove(self.swiss.slice()).?;
+        const removed = host.publications.fetchRemove(self.swiss.slice()).?;
         std.debug.assert(!removed.value.active);
         host.allocator.free(@constCast(removed.value.name));
         host.vat.releaseActor(removed.value.actor.local);
@@ -261,7 +264,7 @@ pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref:
     try self.admitApplicationOperation();
     const actor = self.localActorFor(ref) orelse return error.NotLocal;
     const minted = mintDurableSwiss(entropy);
-    if (self.giftables.get(minted.slice())) |row| {
+    if (self.publications.get(minted.slice())) |row| {
         if (!std.meta.eql(row.actor, actor)) return error.DurableNameCollision;
         if (!row.active) return error.PublicationPending;
         return .{ .host = null, .swiss = minted, .lifetime = .{ .host = null } };
@@ -271,7 +274,7 @@ pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref:
     self.vat.retainActor(actor.local);
     errdefer self.vat.releaseActor(actor.local);
     const swiss = try bindDurable(self, entropy, actor);
-    self.giftables.getPtr(swiss.slice()).?.active = false;
+    self.publications.getPtr(swiss.slice()).?.active = false;
     return .{ .host = self, .swiss = swiss, .lifetime = lifetime };
 }
 
@@ -289,8 +292,8 @@ pub fn removeDurable(
     try self.refuseReentry();
     try self.admitApplicationOperation();
     if (!engine.isDurableSwiss(swiss)) return error.NotDurableName;
-    if (self.giftables.get(swiss)) |row| if (!row.active) return error.UnknownPublication;
-    const removed = self.giftables.fetchRemove(swiss) orelse return error.UnknownPublication;
+    if (self.publications.get(swiss)) |row| if (!row.active) return error.UnknownPublication;
+    const removed = self.publications.fetchRemove(swiss) orelse return error.UnknownPublication;
     self.allocator.free(@constCast(removed.value.name));
     self.vat.releaseActor(localActorId(removed.value.actor) catch unreachable);
 }
@@ -329,7 +332,7 @@ pub fn publishedCapability(self: *Host, session: *HostSession, name: []const u8)
     try self.checkSession(session);
     const actor = if (session.served.port.peer.session_state.bootstrapLookup(name)) |position|
         session.served.refForExport(position.int()) orelse return actors.Error.NoSuchActor
-    else if (self.giftables.get(name)) |row|
+    else if (self.publications.get(name)) |row|
         if (row.active) row.actor else return null
     else
         return null;

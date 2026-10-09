@@ -269,7 +269,7 @@ function Bubble(
 			{isUnsent(item.state) && (
 				<div className="delivery-failure" role="status">
 					<span>{item.state === "unconfirmed" ? messageNotConfirmed : messageNotSent}</span>
-					{sendControls.retry && canRetry(item.state) && (
+					{sendControls.retry && item.retryable !== false && canRetry(item.state) && (
 						<IconButton
 							icon="retry"
 							label={messageRetry}

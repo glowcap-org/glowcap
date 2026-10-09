@@ -21,6 +21,11 @@ const wait = @import("../../support/wait.zig");
 const frame_cap = c_abi_loopback.frame_cap;
 
 const harness = @import("harness.zig");
+const provider_table = @import("provider_table.zig");
+const providerReadAll = provider_table.providerReadAll;
+const providerWriteAll = provider_table.providerWriteAll;
+const providerConnect = provider_table.providerConnect;
+const providerListen = provider_table.providerListen;
 const releaseOnionListener = harness.releaseOnionListener;
 const releaseOnionNetlayer = harness.releaseOnionNetlayer;
 const Transport = harness.Transport;
@@ -131,72 +136,6 @@ const ProviderDialPeer = struct {
     }
 };
 
-fn providerReadAll(
-    table: *const cdrv.GlowcapStreamTransport,
-    conn: *anyopaque,
-    out: []u8,
-) !void {
-    var offset: usize = 0;
-    while (offset < out.len) {
-        const got = table.read.?(table.ctx, conn, out[offset..].ptr, out.len - offset);
-        try std.testing.expect(got > 0);
-        offset += @intCast(got);
-    }
-}
-
-fn providerConnect(
-    table: *const cdrv.GlowcapStreamTransport,
-    locator: *const cdrv.GlowcapLocatorView,
-    out_conn: *?*anyopaque,
-    out_readiness_fd: *i32,
-) !i32 {
-    var attempt: ?*anyopaque = null;
-    var attempt_fd: i32 = -1;
-    const start = table.start_connect.?(table.ctx, locator, null, &attempt, &attempt_fd, null);
-    if (start != c.GLOWCAP_OK) return start;
-    errdefer _ = table.cancel_connect.?(attempt.?, null);
-    var fds = [_]std.posix.pollfd{.{
-        .fd = attempt_fd,
-        .events = std.posix.POLL.IN,
-        .revents = 0,
-    }};
-    try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&fds, 10_000));
-    return table.finish_connect.?(attempt.?, out_conn, out_readiness_fd, null);
-}
-
-fn providerListen(
-    table: *const cdrv.GlowcapStreamTransport,
-    requested_designator: []const u8,
-    out_listener: *?*anyopaque,
-) !i32 {
-    var result: cdrv.GlowcapListenResult = undefined;
-    const start = table.listen.?(
-        table.ctx,
-        requested_designator.ptr,
-        requested_designator.len,
-        null,
-        0,
-        null,
-        &result,
-        null,
-    );
-    if (start != c.GLOWCAP_OK) return start;
-    if (result.state == cdrv.GLOWCAP_LISTEN_READY) {
-        out_listener.* = result.listener;
-        return c.GLOWCAP_OK;
-    }
-    try std.testing.expectEqual(cdrv.GLOWCAP_LISTEN_PENDING, result.state);
-    const attempt = result.attempt orelse return error.MissingListenAttempt;
-    errdefer _ = table.cancel_listen.?(attempt, null);
-    var fds = [_]std.posix.pollfd{.{
-        .fd = result.readiness_fd,
-        .events = std.posix.POLL.IN,
-        .revents = 0,
-    }};
-    try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&fds, 10_000));
-    return table.finish_listen.?(attempt, out_listener, null);
-}
-
 test "c-abi onion provider owns one profile and fixed, hintless locators" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -285,7 +224,7 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
     try std.testing.expect(readiness_fd >= 0);
     try std.testing.expectEqual(
         c.GLOWCAP_OK,
-        table.write_all.?(table.ctx, dial_conn.?, "ping".ptr, "ping".len),
+        providerWriteAll(table, dial_conn.?, "ping"),
     );
     var dial_reply: [4]u8 = undefined;
     try providerReadAll(table, dial_conn.?, &dial_reply);
@@ -360,7 +299,7 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
     try std.testing.expectEqualStrings("from-client", &accepted_request);
     try std.testing.expectEqual(
         c.GLOWCAP_OK,
-        table.write_all.?(table.ctx, accepted_conn.?, "from-provider".ptr, "from-provider".len),
+        providerWriteAll(table, accepted_conn.?, "from-provider"),
     );
     var accepted_reply: ["from-provider".len]u8 = undefined;
     try client_reader.interface.readSliceAll(&accepted_reply);
@@ -430,7 +369,7 @@ test "c-abi onion provider transfers its runtime lease through listener and acce
     var request: [4]u8 = undefined;
     try providerReadAll(table, conn.?, &request);
     try std.testing.expectEqualStrings("ping", &request);
-    try std.testing.expectEqual(c.GLOWCAP_OK, table.write_all.?(table.ctx, conn.?, "pong".ptr, "pong".len));
+    try std.testing.expectEqual(c.GLOWCAP_OK, providerWriteAll(table, conn.?, "pong"));
     var reply: [4]u8 = undefined;
     try client_reader.interface.readSliceAll(&reply);
     try std.testing.expectEqualStrings("pong", &reply);
@@ -616,7 +555,7 @@ test "c-abi onion dialed provider connection owns its runtime lease" {
     try std.testing.expectEqual(c.GLOWCAP_OK, provider.release.?(provider.lease_ctx, null));
     provider_lease_alive = false;
 
-    try std.testing.expectEqual(c.GLOWCAP_OK, table.write_all.?(table.ctx, conn.?, "ping".ptr, "ping".len));
+    try std.testing.expectEqual(c.GLOWCAP_OK, providerWriteAll(table, conn.?, "ping"));
     var reply: [4]u8 = undefined;
     try providerReadAll(table, conn.?, &reply);
     try std.testing.expectEqualStrings("pong", &reply);

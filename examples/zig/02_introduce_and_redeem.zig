@@ -66,7 +66,7 @@ const Directory = struct {
 /// the gifter-facing Port; deposit retains that exact actor, and redemption
 /// projects it on the recipient-facing Port without another name lookup.
 fn serveWidget(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
-    try server.publishGiftable("widget", Widget, .{});
+    try server.publish("widget", Widget, .{});
 
     var directory_side = try server.accept();
     defer directory_side.deinit();
@@ -87,39 +87,24 @@ fn serveWidget(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!v
 }
 
 /// The directory host: fetch the widget from the widget host, then publish a
-/// directory that hands that capability out. One `driver.HostRuntime` holds both
-/// sessions, so a capability from one can be introduced over the other.
+/// directory that hands that capability out. One `driver.Server` holds both
+/// sessions, so a capability from one can be introduced over the other, and
+/// its gives name the directory's own advertised locator as their gifter.
 fn serveDirectory(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    netlayers: []const net.netlayer.Netlayer,
+    directory: *driver.Server,
     widget_designator: []const u8,
-    listener: net.netlayer.Listener,
     done: *std.atomic.Value(bool),
 ) anyerror!void {
-    const advertised = try listener.localLocator(allocator);
-    defer model.freePeerLocator(allocator, advertised);
-
-    var runtime = try driver.HostRuntime.init(allocator, io, netlayers, .ephemeral, opts);
-    defer runtime.deinit();
-    // The directory is dialable, so its gives can name it as their gifter.
-    try runtime.core.setAdvertisedLocator(.{
-        .transport = advertised.transport,
-        .designator = advertised.designator,
-        .hints = advertised.hints,
-    });
-
     var widget_loc_buf: [tcp.designator_buf_len]u8 = undefined;
-    const to_widget = try runtime.connectLocator(tcp.locatorFromAddress(
+    const to_widget = try directory.runtime.connectLocator(tcp.locatorFromAddress(
         &widget_loc_buf,
         try tcp.parseDesignator(widget_designator),
     ), .inherit);
-    const widget_view = try driver.Session.adopt(&runtime, to_widget);
+    const widget_view = try driver.Session.adopt(directory.runtime, to_widget);
     defer widget_view.deinit();
     const widget = try widget_view.fetch("widget");
 
-    const accepted = try runtime.acceptWire(listener, listener.transportName());
-    const client_view = try driver.Session.adopt(&runtime, accepted);
+    const client_view = try directory.accept();
     defer client_view.deinit();
     _ = try client_view.publish("directory", Directory, .{ .widget = widget });
 
@@ -134,34 +119,22 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var done = std.atomic.Value(bool).init(false);
 
-    var widget_host = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var widget_host = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
     defer widget_host.deinit();
     var widget_addr_buf: [64]u8 = undefined;
     const widget_designator = try allocator.dupe(u8, try widget_host.localDesignator(&widget_addr_buf));
     defer allocator.free(widget_designator);
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-
-    var directory_listen = switch (tcp_resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" })) {
-        .admitted => |result| result,
-        .failed => |failure| return failure.cause,
-    };
-    var directory_listener = switch (directory_listen.requireReady()) {
-        .ready => |listener| listener,
-        .failed => |failure| return failure.cause,
-    };
-    var directory_listener_closed = false;
-    defer if (!directory_listener_closed) {
-        _ = directory_listener.close();
-    };
-    const directory_locator = try directory_listener.localLocator(allocator);
-    defer model.freePeerLocator(allocator, directory_locator);
+    var directory_host = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    defer directory_host.deinit();
+    var directory_addr_buf: [64]u8 = undefined;
+    const directory_designator = try allocator.dupe(u8, try directory_host.localDesignator(&directory_addr_buf));
+    defer allocator.free(directory_designator);
 
     var widget_future = try io.concurrent(serveWidget, .{ widget_host, &done });
-    var directory_future = try io.concurrent(serveDirectory, .{ allocator, io, &netlayers, widget_designator, directory_listener, &done });
+    var directory_future = try io.concurrent(serveDirectory, .{ directory_host, widget_designator, &done });
     var hosts_joined = false;
     defer if (!hosts_joined) {
         done.store(true, .release);
@@ -175,8 +148,9 @@ pub fn main(init: std.process.Init) !void {
     var dir_loc_buf: [tcp.designator_buf_len]u8 = undefined;
     const session = try driver.connect(
         allocator,
-        &netlayers,
-        tcp.locatorFromAddress(&dir_loc_buf, try tcp.parseDesignator(directory_locator.designator)),
+        io,
+        .{ .symbols = &.{.tcp} },
+        tcp.locatorFromAddress(&dir_loc_buf, try tcp.parseDesignator(directory_designator)),
         .ephemeral,
         opts,
     );
@@ -205,9 +179,7 @@ pub fn main(init: std.process.Init) !void {
     try directory_future.await(io);
     try widget_future.await(io);
     hosts_joined = true;
-    const listener_close = directory_listener.close();
-    directory_listener_closed = true;
-    if (listener_close) |failure| return failure.cause;
+    if (directory_host.close()) |failure| return failure.cause;
     if (widget_host.close()) |failure| return failure.cause;
 
     std.debug.print("02: introduced to a capability on another peer, redeemed inside the call\n", .{});

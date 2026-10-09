@@ -11,6 +11,7 @@ const Port = vat_mod.Port;
 const Ref = vat_mod.Ref;
 const Vow = vat_mod.Vow;
 const Message = vat_mod.Message;
+const Delivery = @import("behavior.zig").Delivery;
 const Resolution = vat_mod.Resolution;
 const Error = vat_mod.Error;
 const IngressCancellationError = vat_mod.IngressCancellationError;
@@ -38,7 +39,7 @@ pub const QueueLimits = struct {
 
 const Queued = struct {
     target: u64,
-    msg: Message,
+    msg: Delivery,
     vow: u64,
     charged_bytes: u32,
     answered: bool,
@@ -80,9 +81,34 @@ pub const IngressState = struct {
     runnable: bool = false,
 };
 
+/// Local sends a running outermost turn made on one ingress (ADR-0191). They
+/// hold admission in `turns`/`bytes` but sit outside the queue, so no drive
+/// sees them until the turn commits. The Vat keeps these, not the ingress: a
+/// turn's sends go to its own causal ingress, so the list is almost always one
+/// entry, and no session pays for staging it is not doing.
+pub const StagedIngress = struct {
+    state: *IngressState,
+    first: ?*QueueChunk = null,
+    last: ?*QueueChunk = null,
+    turns: u32 = 0,
+    bytes: u32 = 0,
+};
+
+fn findStaged(self: *Vat, state: *const IngressState) ?*StagedIngress {
+    for (self.staged.items) |*entry| {
+        if (entry.state == state) return entry;
+    }
+    return null;
+}
+
 pub fn ingressState(self: *Vat, ingress: IngressId) Error!*IngressState {
     if (ingress == .local) return &self.local_ingress;
     return self.ingresses.get(ingress) orelse Error.UnknownIngress;
+}
+
+/// Retained preparations must observe cancellation even when no turn is ready.
+pub fn hasIngress(self: *const Vat, ingress: IngressId) bool {
+    return ingress == .local or self.ingresses.contains(ingress);
 }
 
 fn acquireQueueChunk(self: *Vat) std.mem.Allocator.Error!*QueueChunk {
@@ -112,16 +138,53 @@ fn releaseQueueChunk(self: *Vat, chunk: *QueueChunk) void {
 }
 
 pub fn freeIngressQueue(self: *Vat, state: *IngressState) void {
-    var maybe_chunk = state.first;
-    while (maybe_chunk) |chunk| {
-        maybe_chunk = chunk.next;
-        chunk.arena.deinit();
-        self.allocator.destroy(chunk);
-    }
+    freeChunks(self, state.first, "vat released");
     state.first = null;
     state.last = null;
     state.pending_turns = 0;
     state.pending_bytes = 0;
+}
+
+fn freeChunks(self: *Vat, head: ?*QueueChunk, reason: []const u8) void {
+    var maybe_chunk = head;
+    while (maybe_chunk) |chunk| {
+        maybe_chunk = chunk.next;
+        for (chunk.items[chunk.head..chunk.len]) |*queued|
+            queued.msg.retire(reason);
+        chunk.arena.deinit();
+        self.allocator.destroy(chunk);
+    }
+}
+
+/// Move one ingress's staged sends onto its queue. Admission already ran, so
+/// this cannot fail.
+pub fn commitStaged(self: *Vat, entry: StagedIngress) void {
+    const state = entry.state;
+    const first = entry.first orelse return;
+    if (state.last) |last| last.next = first else state.first = first;
+    state.last = entry.last;
+    state.pending_turns += entry.turns;
+    state.pending_bytes += entry.bytes;
+    makeRunnable(self, state);
+}
+
+/// Discard one ingress's staged sends and break their vows with `reason`.
+pub fn dropStaged(self: *Vat, entry: StagedIngress, reason: []const u8) void {
+    var maybe_chunk = entry.first;
+    while (maybe_chunk) |chunk| {
+        maybe_chunk = chunk.next;
+        chunk.next = null;
+        for (chunk.items[chunk.head..chunk.len]) |*queued| {
+            queued.msg.retire(reason);
+            vows_mod.settleLocalPrepared(self, queued.vow, .{ .broken = reason });
+        }
+        releaseQueueChunk(self, chunk);
+    }
+}
+
+/// Free staged sends without settling them, for a Vat torn down mid-turn.
+pub fn discardStaged(self: *Vat, entry: StagedIngress) void {
+    freeChunks(self, entry.first, "vat released");
 }
 
 fn makeRunnable(self: *Vat, state: *IngressState) void {
@@ -163,6 +226,7 @@ fn finishQueueTurn(self: *Vat, chunk: *QueueChunk) void {
 /// Mint a non-local ingress row. Each Host Port owns one such id; a pure-local
 /// caller may use several to isolate admission and scheduling.
 pub fn openIngress(self: *Vat) Error!IngressId {
+    try self.admitMutation();
     if (self.next_ingress == std.math.maxInt(u32)) return Error.ResourceExhausted;
     const id: IngressId = @fromBackingInt(@intCast(self.next_ingress));
     const state = try self.allocator.create(IngressState);
@@ -176,6 +240,7 @@ pub fn openIngress(self: *Vat) Error!IngressId {
 /// Release an empty, inactive non-local ingress. Pending or running work is
 /// authority: closing it early would erase accounting and reorder turns.
 pub fn closeIngress(self: *Vat, ingress: IngressId) Error!void {
+    try self.admitMutation();
     if (ingress == .local) return Error.IngressBusy;
     const state = self.ingresses.get(ingress) orelse return Error.UnknownIngress;
     if (state.pending_turns != 0 or state.active_turns != 0 or state.runnable) return Error.IngressBusy;
@@ -190,6 +255,7 @@ pub fn closeIngress(self: *Vat, ingress: IngressId) Error!void {
 /// still owns the fresh row exclusively, so absence or queued work is an
 /// internal transaction bug rather than a runtime failure to reinterpret.
 pub fn discardFreshIngress(self: *Vat, ingress: IngressId) void {
+    std.debug.assert(!self.queue_copy_active);
     std.debug.assert(ingress != .local);
     const removed = self.ingresses.fetchRemove(ingress) orelse unreachable;
     const state = removed.value;
@@ -206,24 +272,49 @@ pub fn discardFreshIngress(self: *Vat, ingress: IngressId) void {
 /// cannot enqueue fresh work onto the closing Port. Every queued local vow
 /// settles broken; unobserved turns are discarded with their chunk.
 pub fn cancelIngress(self: *Vat, ingress: IngressId, reason: []const u8) IngressCancellationError!void {
+    try self.admitMutation();
     if (ingress == .local) return error.IngressBusy;
     const state = self.ingresses.get(ingress) orelse return error.UnknownIngress;
-    if (state.active_turns != 0) return error.IngressBusy;
+    // A running turn's staged sends still point at this ingress.
+    if (state.active_turns != 0 or findStaged(self, state) != null) return error.IngressBusy;
     std.debug.assert(self.ingresses.remove(ingress));
 
     _ = takeSpecificRunnable(self, state);
 
-    var maybe_chunk = state.first;
+    cancelQueued(self, state, reason);
+    self.allocator.destroy(state);
+}
+
+/// Terminal cleanup of trusted local work. Session cancellation has the same
+/// queue owner but additionally removes its ingress row and runnable entry.
+pub fn cancelLocalIngress(self: *Vat, reason: []const u8) IngressCancellationError!void {
+    try self.admitMutation();
+    const state = &self.local_ingress;
+    if (state.active_turns != 0 or findStaged(self, state) != null) return error.IngressBusy;
+    _ = takeSpecificRunnable(self, state);
+    cancelQueued(self, state, reason);
+}
+
+fn cancelQueued(self: *Vat, state: *IngressState, reason: []const u8) void {
+    // Detach custody before callbacks. The trusted local ingress remains
+    // addressable, so callback-created work must own a separate queue even
+    // when its listener immediately opens a nested drive.
+    const cancelled = state.first;
+    state.first = null;
+    state.last = null;
+    state.pending_turns = 0;
+    state.pending_bytes = 0;
+    var maybe_chunk = cancelled;
     while (maybe_chunk) |chunk| : (maybe_chunk = chunk.next) {
         std.debug.assert(chunk.active_turns == 0);
-        for (chunk.items[chunk.head..chunk.len]) |queued| {
+        for (chunk.items[chunk.head..chunk.len]) |*queued| {
+            queued.msg.retire(reason);
             std.debug.assert(self.pending_local_vows.remove(.{ .id = queued.vow }));
             if (self.listeners.fetchRemove(queued.vow)) |entry|
                 entry.value.func(entry.value.ctx, .{ .broken = reason });
         }
     }
-    freeIngressQueue(self, state);
-    self.allocator.destroy(state);
+    freeChunks(self, cancelled, reason);
 }
 
 /// Local eventual send (`<-`). A local target queues a turn for `drive`;
@@ -276,20 +367,66 @@ pub fn tellFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message
 /// the whole logical ownership charge before cloning; every mutation after
 /// a successful clone is infallible, so refusal never partially enqueues.
 pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Message, answered: bool) Error!u64 {
+    return enqueue(self, ingress, port, id, .{ .message = msg }, answered);
+}
+
+/// Admit an adapter-owned local message and its listener on the same queue as
+/// ordinary sends. Observer lifetime and payload custody are separate.
+pub fn sendOpaqueFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: vat_mod.OpaqueMessage, listener: vat_mod.Listener) Error!Vow {
+    const id = switch (target) {
+        .local => |id| id,
+        .far => return Error.NotConnected,
+    };
+    try vows_mod.reserveLocalListener(self);
+    const vow = try enqueueOpaque(self, ingress, id, msg, true);
+    vows_mod.onReservedLocal(self, vow, listener);
+    return .{ .local = vow };
+}
+
+/// An unanswered adapter delivery owns its queue payload, without a listener
+/// or reply owner. Rollback and retirement follow the same ingress transaction.
+pub fn tellOpaqueFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: vat_mod.OpaqueMessage) Error!void {
+    const id = switch (target) {
+        .local => |id| id,
+        .far => return Error.NotConnected,
+    };
+    _ = try enqueueOpaque(self, ingress, id, msg, false);
+}
+
+/// Queue custody is independent of whether a caller observes an answer.
+pub fn enqueueOpaque(self: *Vat, ingress: IngressId, id: u64, msg: vat_mod.OpaqueMessage, answered: bool) Error!u64 {
+    return enqueue(self, ingress, null, id, .{ .owned = msg }, answered);
+}
+
+fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Delivery, answered: bool) Error!u64 {
+    try self.admitMutation();
     const state = try ingressState(self, ingress);
     try vat_mod.ensureFreshId(self.next_vow);
-    const args_bytes = model.measureArgumentSliceOwnedBytes(msg.args) catch return Error.MalformedView;
-    var charge = std.math.add(usize, @sizeOf(Queued), msg.verb.len) catch return Error.ResourceExhausted;
-    charge = std.math.add(usize, charge, args_bytes) catch return Error.ResourceExhausted;
+    const payload_bytes = switch (msg) {
+        .message => |message| bytes: {
+            const args = model.measureArgumentSliceOwnedBytes(message.args) catch return Error.MalformedView;
+            break :bytes std.math.add(usize, message.verb.len, args) catch return Error.ResourceExhausted;
+        },
+        .owned => |body| body.owned_bytes,
+    };
+    const charge = std.math.add(usize, @sizeOf(Queued), payload_bytes) catch return Error.ResourceExhausted;
     const limits = self.queue_limits;
     if (charge > limits.max_chunk_bytes or charge > std.math.maxInt(u32)) return Error.ResourceExhausted;
     const charge32: u32 = @intCast(charge);
-    if (state.pending_turns >= limits.max_pending_turns) return Error.ResourceExhausted;
-    if (state.pending_bytes > limits.max_pending_bytes or charge32 > limits.max_pending_bytes - state.pending_bytes)
+    // Inside a turn the send waits for the turn to commit (ADR-0191). Staged
+    // sends count against the same limits, so committing them can never
+    // overrun the queue.
+    const staging = self.turn_depth != 0;
+    var slot: ?*StagedIngress = if (staging) findStaged(self, state) else null;
+    const held_turns = state.pending_turns + if (slot) |entry| entry.turns else 0;
+    const held_bytes = state.pending_bytes + if (slot) |entry| entry.bytes else 0;
+    if (held_turns >= limits.max_pending_turns) return Error.ResourceExhausted;
+    if (held_bytes > limits.max_pending_bytes or charge32 > limits.max_pending_bytes - held_bytes)
         return Error.ResourceExhausted;
     try self.pending_local_vows.ensureUnusedCapacity(self.allocator, 1);
+    if (staging and slot == null) try self.staged.ensureUnusedCapacity(self.allocator, 1);
 
-    var chunk = state.last;
+    var chunk = if (staging) (if (slot) |entry| entry.last else null) else state.last;
     var acquired = false;
     if (chunk == null or chunk.?.len == queue_chunk_turns or
         chunk.?.owned_bytes > limits.max_chunk_bytes - charge32)
@@ -302,17 +439,32 @@ pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: 
         return err;
     };
     const vow = self.next_vow;
+    if (staging and slot == null) {
+        self.staged.appendAssumeCapacity(.{ .state = state });
+        slot = &self.staged.items[self.staged.items.len - 1];
+    }
     if (acquired) {
-        if (state.last) |last| last.next = chunk else state.first = chunk;
-        state.last = chunk;
+        if (staging) {
+            const entry = slot.?;
+            if (entry.last) |last| last.next = chunk else entry.first = chunk;
+            entry.last = chunk;
+        } else {
+            if (state.last) |last| last.next = chunk else state.first = chunk;
+            state.last = chunk;
+        }
     }
     chunk.?.items[chunk.?.len] = .{ .target = id, .msg = owned, .vow = vow, .charged_bytes = charge32, .answered = answered, .port = port };
     chunk.?.len += 1;
     chunk.?.owned_bytes += charge32;
-    state.pending_turns += 1;
-    state.pending_bytes += charge32;
+    if (staging) {
+        slot.?.turns += 1;
+        slot.?.bytes += charge32;
+    } else {
+        state.pending_turns += 1;
+        state.pending_bytes += charge32;
+    }
     self.pending_local_vows.putAssumeCapacity(.{ .id = vow }, {});
-    makeRunnable(self, state);
+    if (!staging) makeRunnable(self, state);
     self.next_vow += 1;
     return vow;
 }
@@ -324,12 +476,20 @@ pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: 
 /// the documented handler pattern builds outgoing args in — so the queue
 /// owns its bytes. Its chunk is reclaimed immediately after that chunk's
 /// last turn, independent of every other ingress.
-fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Message) Error!Message {
-    _ = self;
+fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Delivery) Error!Delivery {
+    std.debug.assert(!self.queue_copy_active);
+    self.queue_copy_active = true;
+    defer self.queue_copy_active = false;
     const arena = chunk.arena.allocator();
-    return .{
-        .verb = try arena.dupe(u8, msg.verb),
-        .args = try model.cloneArgumentSlice(arena, msg.args),
+    return switch (msg) {
+        .message => |message| .{ .message = .{
+            .verb = try arena.dupe(u8, message.verb),
+            .args = try model.cloneArgumentSlice(arena, message.args),
+        } },
+        .owned => |body| switch (body.vtable.copy(body.ctx, arena)) {
+            .copied => |copy| .{ .owned = copy },
+            .refused => |failure| failure.toError(),
+        },
     };
 }
 
@@ -365,6 +525,7 @@ pub fn drive(self: *Vat) Error!void {
 /// not re-entrantly: a nested full `drive` a listener opens runs to
 /// quiescence by its own contract, draining past this budget.
 pub fn driveBudgeted(self: *Vat, max_turns: usize) Error!DriveProgress {
+    try self.admitMutation();
     // A *finite* budget must not nest (the documented contract above): a
     // nested full `drive` (a listener's) is legal and runs unbudgeted.
     std.debug.assert(max_turns == std.math.maxInt(usize) or self.drive_depth == 0);
@@ -383,6 +544,7 @@ pub fn driveBudgeted(self: *Vat, max_turns: usize) Error!DriveProgress {
 /// boundary so work enqueued onto a sibling remains attributed to that
 /// sibling's own budget and close policy.
 pub fn driveIngressBudgeted(self: *Vat, ingress: IngressId, max_turns: usize) Error!DriveProgress {
+    try self.admitMutation();
     std.debug.assert(max_turns == std.math.maxInt(usize) or self.drive_depth == 0);
     const state = try ingressState(self, ingress);
     self.drive_depth += 1;
@@ -396,7 +558,7 @@ pub fn driveIngressBudgeted(self: *Vat, ingress: IngressId, max_turns: usize) Er
 fn runQueuedTurn(self: *Vat, state: *IngressState) Error!void {
     const chunk = state.first orelse unreachable;
     std.debug.assert(chunk.head < chunk.len);
-    const queued = chunk.items[chunk.head];
+    var queued = chunk.items[chunk.head];
     chunk.head += 1;
     state.pending_turns -= 1;
     state.pending_bytes -= queued.charged_bytes;
@@ -411,13 +573,16 @@ fn runQueuedTurn(self: *Vat, state: *IngressState) Error!void {
     makeRunnable(self, state);
     state.active_turns += 1;
     chunk.active_turns += 1;
-    if (turn_mod.callQueued(self, queued.port, state.id, queued.target, queued.msg, if (queued.answered) queued.vow else null)) |resolution| {
-        vows_mod.settleLocal(self, queued.vow, resolution) catch |err| {
+    const resolution = turn_mod.callQueued(self, queued.port, state.id, queued.target, queued.msg, if (queued.answered) queued.vow else null);
+    if (resolution) |settled| {
+        const retirement = if (queued.msg == .owned) &queued.msg else null;
+        vows_mod.settleLocalWithRetirement(self, queued.vow, settled, retirement) catch |err| {
             state.active_turns -= 1;
             finishQueueTurn(self, chunk);
             return err;
         };
     }
+    queued.msg.retire(null);
     state.active_turns -= 1;
     finishQueueTurn(self, chunk);
 }

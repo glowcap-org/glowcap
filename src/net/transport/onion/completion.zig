@@ -25,6 +25,7 @@ const submission_debt = @import("../../completion/submission_debt.zig");
 const carrier_failure = @import("../../carrier_failure.zig");
 const model = @import("model");
 const completion_control = @import("completion/control.zig");
+const completion_listener = @import("completion/listener.zig");
 const completion_state = @import("completion/state.zig");
 const socks5 = @import("socks5.zig");
 
@@ -48,7 +49,6 @@ pub fn InnerBackend(comptime Inner: type) type {
         pub const ConfigType = Types.ConfigType;
         pub const Target = Types.Target;
         pub const ConnectTarget = Types.ConnectTarget;
-        pub const ListenerAddress = Types.ListenerAddress;
 
         const ConnId = Types.ConnId;
         const InternalOp = Types.InternalOp;
@@ -56,6 +56,9 @@ pub fn InnerBackend(comptime Inner: type) type {
         const Conn = Types.Conn;
         const RetryState = submission_debt.State(Types);
         const ControlTransaction = completion_control.Transaction(Self, Inner, Namespace, Types, Self.dispatchInternal);
+        const Listener = completion_listener.Machine(Self, Inner, ControlTransaction);
+        pub const ListenTarget = Listener.Target;
+        pub const ListenerAddress = Listener.Address;
 
         pub const connection_state_bytes = @sizeOf(Conn);
 
@@ -136,9 +139,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         conns: ConnMap = .{},
         next_id: ConnId = 1,
         config: ?ConfigType,
-        listener_fd: ?Fd = null,
-        listener_service_id: [socks5.service_id_len]u8 = undefined,
-        listener_published: bool = false,
+        listener: Listener.State = .{},
         control_fd: ?Inner.Fd = null,
         retries: RetryState = .{},
 
@@ -156,7 +157,8 @@ pub fn InnerBackend(comptime Inner: type) type {
             };
         }
 
-        pub fn initOnion(allocator: std.mem.Allocator, inner: Inner, config: ConfigType) Self {
+        /// A null `config` refuses onion dials and listens.
+        pub fn initOnion(allocator: std.mem.Allocator, inner: Inner, config: ?ConfigType) Self {
             return .{ .allocator = allocator, .inner = inner, .ready = .{}, .config = config };
         }
 
@@ -174,28 +176,44 @@ pub fn InnerBackend(comptime Inner: type) type {
             return self.inner.tcpBackendStatus();
         }
 
-        pub fn openListener(self: *Self, port: u16) !Fd {
-            if (self.listener_fd != null) return error.ListenerAlreadyOpen;
-            const fd = try self.inner.openListener(port);
-            errdefer self.inner.closeFd(fd);
-            const inner_address = try self.inner.listenerAddress(fd);
-            const bound = Inner.listenerPort(inner_address) orelse return error.ListenerNotForwardable;
-            const config = self.config orelse return error.OnionControlNotConfigured;
-            const control_target = config.control orelse return error.OnionControlNotConfigured;
-            const service = try ControlTransaction.publish(self, control_target, bound, config);
-            self.listener_fd = fd;
-            self.listener_service_id = service;
-            self.listener_published = true;
-            return fd;
+        pub fn readinessFd(self: *const Self) Fd {
+            return self.inner.readinessFd();
+        }
+
+        pub fn flush(self: *Self) !void {
+            return self.inner.flush();
+        }
+
+        pub fn submitPoll(self: *Self, user_data: u64, fd: Fd, interest: completion.Interest) !void {
+            return self.inner.submitPoll(user_data, fd, interest);
+        }
+
+        /// An owed inner submission retries on `submission_retry_ms`.
+        pub fn waitBoundMs(self: *const Self, requested_ms: i32) i32 {
+            const inner_ms = self.inner.waitBoundMs(requested_ms);
+            if (self.retries.submissionRetryCount() == 0) return inner_ms;
+            return if (inner_ms < 0) submission_retry_ms else @min(inner_ms, submission_retry_ms);
+        }
+
+        /// The loop's one listener is its published service.
+        pub fn loopListenTarget(port: u16) ListenTarget {
+            return .{ .onion = Inner.loopListenTarget(port) };
+        }
+
+        pub fn openListener(self: *Self, target: ListenTarget) !Fd {
+            return Listener.open(self, target);
         }
 
         pub fn listenerAddress(self: *Self, fd: Fd) !ListenerAddress {
-            if (self.listener_fd != fd or !self.listener_published) return error.InvalidListener;
-            return self.listener_service_id;
+            return Listener.address(self, fd);
         }
 
-        pub fn listenerPort(_: ListenerAddress) ?u16 {
-            return null;
+        pub fn listenerPort(address: ListenerAddress) ?u16 {
+            return Listener.port(address);
+        }
+
+        pub fn listenerServiceKey(self: *const Self, fd: Fd) ?[]const u8 {
+            return Listener.serviceKey(self, fd);
         }
 
         pub fn submitAccept(self: *Self, user_data: u64, fd: Fd) !void {
@@ -272,8 +290,7 @@ pub fn InnerBackend(comptime Inner: type) type {
             c.pending.arm(.send);
         }
 
-        /// Cancellation is answered here, as the relay and sealing legs answer
-        /// it: the caller's seat is released and the inner receive stays
+        /// Cancellation is answered here, as the relay leg answers it: the caller's seat is released and the inner receive stays
         /// armed. Bytes it later delivers are retained in `held_recv` for the
         /// next seat, so nothing is asked of the inner backend and nothing is
         /// lost.
@@ -302,15 +319,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
 
         pub fn submitClose(self: *Self, user_data: u64, fd: Fd) !void {
-            if (self.listener_fd == fd) {
-                try self.inner.submitClose(user_data, fd);
-                if (self.control_fd) |control_fd| {
-                    self.inner.closeFd(control_fd);
-                    self.control_fd = null;
-                }
-                self.listener_fd = null;
-                return;
-            }
+            if (Listener.owns(self, fd)) return Listener.submitClose(self, user_data, fd);
             if (Identity.idFromFd(fd)) |id| {
                 const c = self.conns.get(id) orelse {
                     try self.ready.ensureUnusedCapacity(self.allocator, 1);
@@ -323,13 +332,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
 
         pub fn closeFd(self: *Self, fd: Fd) void {
-            if (self.listener_fd == fd) {
-                if (self.control_fd) |control_fd| self.inner.closeFd(control_fd);
-                self.control_fd = null;
-                self.listener_fd = null;
-                self.inner.closeFd(fd);
-                return;
-            }
+            if (Listener.owns(self, fd)) return Listener.close(self, fd);
             if (Identity.idFromFd(fd)) |id| {
                 // A synthetic handle whose row already retired names nothing
                 // the inner backend owns; forwarding it would hand the inner
@@ -635,3 +638,6 @@ pub fn InnerBackend(comptime Inner: type) type {
 }
 
 pub const CompletionBackend = InnerBackend;
+
+/// The resident policy that adds `onion` to an inner one.
+pub const ResidentPolicy = @import("completion/resident_policy.zig").ResidentPolicy;

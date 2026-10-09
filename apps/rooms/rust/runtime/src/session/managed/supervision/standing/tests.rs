@@ -1,0 +1,149 @@
+//! A standing inspection consumes its supplied snapshot without another read or command.
+use super::*;
+use crate::session::managed::inbox;
+use std::{num::NonZeroUsize, pin::Pin};
+
+#[derive(Clone)]
+struct Platform;
+impl Tasks for Platform {
+	type Task = Pin<Box<dyn Future<Output = ()>>>;
+	fn spawn(&self, work: impl Future<Output = ()> + 'static) -> Self::Task {
+		// Retain background owners without polling them. Only the explicit
+		// reconciliation below can read this fixture's workspace.
+		Box::pin(work)
+	}
+}
+impl Deadline for Platform {
+	async fn within<T>(&self, ms: u64, work: impl Future<Output = T>) -> Option<T> {
+		tokio::time::timeout(std::time::Duration::from_millis(ms), work)
+			.await
+			.ok()
+	}
+}
+fn key<K>() -> custody::FieldKey<K> {
+	custody::FieldKey::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(1).unwrap())
+}
+fn intent() -> workspace::Intent {
+	let mut intent = workspace::Intent::empty();
+	intent.directories = serde_json::from_value(serde_json::json!([{
+		"id": "directory", "access": key::<custody::DirectoryAccess>(), "home": true,
+		"nick": "peer", "nickAllocation": "exact", "standing": null
+	}]))
+	.unwrap();
+	intent.conversations = serde_json::from_str(
+		&serde_json::json!([{
+			"kind": "room", "id": "conversation", "directory": "directory", "name": "room",
+			"source": key::<custody::SessionAccess>(), "inbox": key::<custody::RoomInbox>(),
+			"seat": key::<custody::RoomSeat>(), "reconnect": "manual", "standing": "away", "draft": ""
+		}])
+		.to_string(),
+	)
+	.unwrap();
+	intent
+}
+
+#[tokio::test]
+async fn unchanged_standing_consumes_the_wake_snapshot_without_reading_or_dispatching() {
+	tokio::task::LocalSet::new().run_until(inspect()).await;
+}
+async fn inspect() {
+	let host = glowcap::Host::from_seed([221; 32]).unwrap();
+	let reads = Rc::new(Cell::new(0));
+	let source = host
+		.spawn({
+			let reads = reads.clone();
+			move |verb, _| {
+				assert_eq!(verb, "snapshot", "unchanged standing cannot dispatch a command");
+				reads.set(reads.get() + 1);
+				Ok(Argument::List(vec![
+					1.into(),
+					serde_json::to_string(&intent()).unwrap().into(),
+				]))
+			}
+		})
+		.unwrap();
+	let owner = Session::new(host.clone(), Platform, NonZeroUsize::new(8192).unwrap());
+	owner.bind(source.clone(), source.clone()).unwrap();
+	let intent = intent();
+	let workspace::Conversation::Room(room) = &intent.conversations.as_slice()[0] else {
+		unreachable!()
+	};
+	let selected = workspace::InboxSelection::Room {
+		id: room.id.clone(),
+		directory: room.directory.clone(),
+		nickname: workspace::RoomNickname::select(&intent, &room.directory).unwrap(),
+		access: room.access,
+		accepted: room.accepted,
+		public_entry: room.public_entry.clone(),
+		publication: room.publication.clone(),
+		source: room.source.unwrap(),
+		inbox: room.inbox.unwrap(),
+	};
+	let workspace = Workspace::local(host.clone(), Platform, source.clone());
+	let inbox = inbox::open(
+		&host,
+		Platform,
+		workspace.clone(),
+		selected.clone(),
+		owner.state.inboxes.clone(),
+		|_, _, _, _| panic!("no incoming calls in a standing inspection"),
+	)
+	.unwrap();
+	let (_stop, stopping) = watch::channel(false);
+	let (_retry, retrying) = watch::channel(0);
+	let mut worker = Worker {
+		writer: owner.state.writer.clone(),
+		budget: Rc::downgrade(&owner.state.memberships),
+		lease: Some(Lease::Room(key())),
+		inbox,
+		selected,
+		ready: watch::channel(None).0,
+		finished: watch::channel(None).0,
+		stopping,
+		retrying,
+		workspace,
+		changes: owner.changes().unwrap(),
+		installed: true,
+		live: true,
+		platform: Platform,
+		retirement: None,
+		recovery: owner.state.discovery_refresh.clone(),
+		submission: None,
+		standing: Standing {
+			applied: "away".into(),
+			..Default::default()
+		},
+	};
+	assert!(
+		worker
+			.apply_standing(
+				"inspection",
+				Some(Snapshot {
+					revision: 1,
+					intent: intent.clone()
+				})
+			)
+			.await
+			.unwrap()
+	);
+	assert_eq!(reads.get(), 0, "the caller already read the snapshot");
+	assert!(worker.apply_standing("inspection", None).await.unwrap());
+	assert_eq!(reads.get(), 1, "startup without a snapshot reads once");
+	let mut retired = intent;
+	retired.conversations = Default::default();
+	assert!(
+		!worker
+			.apply_standing(
+				"inspection",
+				Some(Snapshot {
+					revision: 2,
+					intent: retired
+				})
+			)
+			.await
+			.unwrap()
+	);
+	assert_eq!(reads.get(), 1, "an obsolete selection cannot reacquire newer intent");
+	drop((worker, owner, source));
+	host.close(glowcap::PendingWork::Cancel).await.unwrap();
+}

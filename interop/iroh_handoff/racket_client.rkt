@@ -10,7 +10,7 @@
 ;; Topology — three iroh endpoints (separate identities) in one process, the
 ;; relay-less DIRECT posture on loopback, so the gate is deterministic and
 ;; flake-free (no discovery service, no network):
-;;   Exporter  binds an iroh endpoint and publishes a node-giftable `greeter`.
+;;   Exporter  binds an iroh endpoint and publishes a Host-published `greeter`.
 ;;   Gifter    binds its own endpoint, dials the exporter (sharing one node
 ;;             identity), fetches the greeter, records the exporter's dialable URI
 ;;             as the give's exporter location, and publishes an `introducer` that
@@ -62,9 +62,9 @@
          (set-box! serves-box (cons (thread (lambda () (session-serve session))) (unbox serves-box)))
          (loop))))))
 
-;; ── Exporter: a node-giftable greeter on its own endpoint ─────────────────────
+;; ── Exporter: a Host-published greeter on its own endpoint ─────────────────────
 (define exporter (listen-iroh (make-iroh-config IROH-REACH-DIRECT)))
-(host-publish-giftable (iroh-server-host exporter) "greeter"
+(host-publish (iroh-server-host exporter) "greeter"
                           (methods [(greet who) (format "hello ~a over iroh handoff" who)]))
 (define-values (exporter-id exporter-addrs) (dialable exporter))
 (define exporter-serves (box '()))
@@ -89,7 +89,7 @@
 (session-set-exporter-locator!
  to-exporter
  (locator "iroh" exporter-id (hash HINT-DIRECT-ADDRESSES exporter-addrs) 'map))
-(host-publish-giftable (iroh-server-host gifter) "introducer"
+(host-publish (iroh-server-host gifter) "introducer"
                           (methods [(get-greeter) greeter-ref]))
 (define gifter-serves (box '()))
 (define gifter-accept (start-accept-loop gifter gifter-serves))

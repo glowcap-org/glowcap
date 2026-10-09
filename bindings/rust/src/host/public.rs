@@ -160,6 +160,33 @@ impl Host {
 	pub fn set_session_limits(&self, options: SessionLimitOptions) -> Result<()> {
 		self.shared.set_session_limits(options)
 	}
+	/// Set per-ingress queue bounds before any session or eventual send. Byte
+	/// limits include message spines and queue rows, and allocate no eager payload.
+	pub fn set_ingress_limits(
+		&self,
+		max_pending_turns: u32,
+		max_pending_bytes: u32,
+		max_chunk_bytes: u32,
+	) -> Result<()> {
+		self.shared.guard_handle()?;
+		check_host(unsafe {
+			ffi::glowcap_host_set_ingress_limits(
+				self.shared.raw(),
+				max_pending_turns,
+				max_pending_bytes,
+				max_chunk_bytes,
+			)
+		})
+	}
+
+	/// Choose whether far capabilities this Host hands the application release
+	/// their Host retain when the last `Ref` clone drops (ADR-0063). On by
+	/// default: the partner learns through `op:gc-exports` that the import is
+	/// gone. Turn it off only to release every capability explicitly. The
+	/// setting applies to outcomes minted after the call, on every session.
+	pub fn set_release_on_drop(&self, enabled: bool) {
+		self.shared.release_on_drop.set(enabled);
+	}
 
 	/// Claim every callerless failure retained by this Host's allocation
 	/// context. This is the same queue a caller-supplied [`Context`] exposes;
@@ -286,9 +313,7 @@ impl Host {
 		drop(owned);
 		self.shared.owned_vow_minted(vow);
 		let _release = crate::gc::VowGuard::new(&self.shared, vow);
-		let settled = self.shared.await_vow(vow);
-		self.shared.kick_actions().await?;
-		match settled.await? {
+		match self.shared.observe_vow(vow).await? {
 			Argument::Reference(reference) => Ok(reference),
 			_ => Err(Error::broken(format!(
 				"publication {name:?} did not resolve to a capability"
@@ -318,9 +343,7 @@ impl Host {
 		// completed replies whose observer is subsequently cancelled.
 		self.shared.owned_vow_minted(vow);
 		let _release = crate::gc::VowGuard::new(&self.shared, vow);
-		let settled = self.shared.await_vow(vow);
-		self.shared.kick_actions().await?;
-		match settled.await? {
+		match self.shared.observe_vow(vow).await? {
 			Argument::Reference(reference) => Ok(reference),
 			_ => Err(Error::broken(format!("{sturdyref:?} did not resolve to a capability"))),
 		}
@@ -344,14 +367,31 @@ impl Host {
 		})
 	}
 
+	/// Defer a call that has an answer. Tells return None and mint no resolver;
+	/// both paths use the current Host turn's actual delivery provenance.
+	pub fn defer_turn_if_answer(&self) -> Result<Option<Resolver>> {
+		let turn = current_turn_for(Rc::as_ptr(&self.shared) as usize).ok_or_else(|| {
+			Error::with_transport_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				Some("defer_turn_if_answer requires a behavior turn of this host".into()),
+			)
+		})?;
+		let mut id = 0;
+		check_host(unsafe { ffi::glowcap_host_turn_defer_if_answer(turn, &mut id) })?;
+		Ok((id != 0).then(|| Resolver {
+			shared: self.shared.clone(),
+			id: Some(id),
+		}))
+	}
+
 	/// Host `make`'s behavior once and bind `name` as a Host-wide alias. Fetch
 	/// lazily projects the actor onto a session, and a deposited gift keeps that
 	/// exact actor when a recipient withdraws over its own exporter session
 	/// (ADR-0009). `make` preserves the factory-shaped API for a `!Clone` `FnMut`;
 	/// the Host invokes it once.
-	pub fn publish_giftable(&self, name: &str, make: impl FnOnce() -> Behavior) -> Result<()> {
+	pub fn publish(&self, name: &str, make: impl FnOnce() -> Behavior) -> Result<()> {
 		self.shared.guard_handle()?;
-		// A giftable is bound to no single session: its forwards always go
+		// A Host publication is bound to no single session: its forwards always go
 		// through the host, and a turn it runs belongs to whichever session
 		// the deliver arrived on.
 		let mut behavior = make();
@@ -440,6 +480,39 @@ impl Host {
 		Ok(name)
 	}
 
+	/// Publish the exact held local actor without creating a forwarding actor.
+	/// The publication owns a separate root until `remove_durable`; the input
+	/// occurrence remains owned by its caller on every outcome.
+	pub fn publish_reference_with_entropy(
+		&self,
+		reference: &Ref,
+		entropy: [u8; Self::DURABLE_ENTROPY_BYTES],
+	) -> Result<String> {
+		self.shared.guard_handle()?;
+		self.shared.exporter_for(reference)?;
+		let reference = reference.to_sys()?;
+		let mut swiss = [0u8; crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN];
+		let written = unsafe {
+			ffi::glowcap_host_publish_reference(
+				self.shared.raw.get(),
+				&reference,
+				entropy.as_ptr(),
+				entropy.len(),
+				swiss.as_mut_ptr(),
+				swiss.len(),
+			)
+		};
+		if written != swiss.len() as i32 {
+			check_host(written)?;
+			return Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				"publication returned an invalid name length".into(),
+			));
+		}
+		String::from_utf8(swiss.to_vec())
+			.map_err(|_| Error::with_detail(sys::ERR_INTERNAL, "publication returned an invalid name".into()))
+	}
+
 	/// Remove a minted durable publication (ADR-0098): the old sturdyref
 	/// misses from now on, while capabilities already issued and deposited
 	/// gifts keep the exact actor. Returns `false` when no such durable name
@@ -459,7 +532,7 @@ impl Host {
 	/// gifts keep the exact actor, whose behavior stays hosted for the Host's
 	/// life. Returns `false` when no such alias exists; every other refusal is
 	/// returned with its native diagnostic.
-	pub fn unpublish_giftable(&self, name: &str) -> Result<bool> {
+	pub fn unpublish(&self, name: &str) -> Result<bool> {
 		self.shared.guard_handle()?;
 		let rc = unsafe { ffi::glowcap_host_unpublish(self.shared.raw.get(), name.as_ptr(), name.len()) };
 		if rc == sys::ERR_NOT_FOUND {

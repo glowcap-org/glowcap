@@ -17,8 +17,8 @@ const DrivenGiftSeams = struct {
 
     const target: u64 = 1;
 
-    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, request: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
-        return if (request.session_fallback) |position| .{ .found = position } else .missing;
+    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
+        return .missing;
     }
 
     fn capture(ctx: ?*anyopaque, scope: engine.PeerHandle, position: model.ExportPosition) ?u64 {

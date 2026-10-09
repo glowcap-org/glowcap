@@ -57,8 +57,8 @@ pub(super) struct LoopState {
 /// task before releasing the endpoint, so the drain can never touch a freed
 /// endpoint. This is the Rust
 /// sibling of the Deno binding's `IrohLoop` and Zig's
-/// `completion.Loop(iroh.Backend)` + `driver.Bridge` + `driver_core.Host`:
-/// one reactor multiplexes many connections.
+/// `driver.HostRuntime` over `iroh.MultiplexedAdapter`: one reactor
+/// multiplexes many connections.
 pub(crate) struct IrohLoop {
 	netlayer: Arc<NetlayerRaw>,
 	pub(super) state: Mutex<LoopState>,

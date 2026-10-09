@@ -64,6 +64,9 @@ pub fn pendingCharge(item: anytype) !usize {
         },
         .settled_answer => |settled| settled.reservation_charge,
         .listener_fire => @sizeOf(@TypeOf(item)),
+        // The staged carrier's bytes stay charged to its Node staging
+        // reservation until the batch fills this row.
+        .staged => 0,
     };
 }
 

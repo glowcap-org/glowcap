@@ -54,8 +54,8 @@ pub fn Vocabulary(
         /// accept no deadline spell `.unbounded` at construction.
         pub const Options = struct {
             frame_cap: usize = default_frame_cap,
-            /// Bytes retained for each stream read/write buffer and each
-            /// multiplexed resident read-staging buffer.
+            /// The floor of the one read-staging buffer shared by every wire
+            /// whose resident copies rather than lends its received bytes.
             wire_buffer_bytes: usize = default_wire_buffer_bytes,
             /// Shared bound for transport connects and CapTP handshakes that
             /// have been admitted but have not yet opened.
@@ -99,8 +99,6 @@ pub fn Vocabulary(
             ReadinessUnavailable,
             ReadinessUpdateFailed,
         };
-        pub const InitError = ProviderRegistrationError || driver_core.HostInitError;
-        pub const AdoptionInitError = ProviderRegistrationError || driver_core.Host.RuntimeAdoptionError;
         /// Policy selected by the process owner for work already admitted when
         /// an owning close begins.
         pub const PendingWork = driver_core.PendingWork;

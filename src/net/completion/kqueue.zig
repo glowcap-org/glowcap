@@ -37,6 +37,7 @@ const model = @import("model");
 const BufferPool = @import("buffer_pool.zig").BufferPool;
 const socket_tcp = @import("socket_tcp.zig");
 const tcp_keepalive = @import("tcp_keepalive.zig");
+const readiness = @import("kqueue_readiness.zig");
 
 comptime {
     if (!builtin.os.tag.isDarwin()) @compileError("the kqueue completion backend is for Darwin");
@@ -45,30 +46,12 @@ comptime {
 const c = std.c;
 const tcp_os = socket_tcp.Os.darwin;
 
-// close(2) is not re-exported as public from std.c; declare it. Socket open /
-// bind / listen / nonblocking live in `socket_tcp`.
-extern "c" fn close(fd: c_int) c_int;
-
-const EV_ERROR: u16 = 0x4000;
+// Socket open / bind / listen / nonblocking live in `socket_tcp`.
+const close = readiness.close;
 
 const sockaddr_in = socket_tcp.SockaddrIn(tcp_os);
 
-/// What a registered fd is waiting to do, so `poll` can complete it on readiness.
-/// Read and write are tracked separately because one connection can have a recv
-/// and a send outstanding at the same time. Tagged unions carry the op kind so
-/// poll sites cannot misread a recv as an accept or a send as a connect.
-const Pending = struct {
-    read: union(enum) {
-        idle,
-        recv: u64,
-        accept: u64,
-    } = .idle,
-    write: union(enum) {
-        idle,
-        send: struct { ud: u64, bytes: []const u8 },
-        connect: u64,
-    } = .idle,
-};
+const Pending = readiness.Pending;
 
 pub const Backend = struct {
     pub const Fd = c.fd_t;
@@ -188,7 +171,8 @@ pub const Backend = struct {
         std.debug.assert(self.pending.remove(fd));
     }
 
-    fn register(self: *Backend, fd: c.fd_t, filter: i16) !void {
+    /// Arm a one-shot interest; `kqueue_readiness` re-arms a spurious edge.
+    pub fn register(self: *Backend, fd: c.fd_t, filter: i16) !void {
         var change: c.Kevent = .{
             .ident = @intCast(fd),
             .filter = filter,
@@ -233,6 +217,23 @@ pub const Backend = struct {
     // operation only after registration succeeds. This makes both failure halves
     // transactional: allocation failure installs no kernel state, while kevent
     // failure rolls back a newly-created idle row.
+
+    /// Submissions register with kqueue as they are made; nothing waits.
+    pub fn flush(_: *Backend) !void {}
+
+    /// Nothing here waits on a timer: every completion arrives through the
+    /// descriptor.
+    pub fn waitBoundMs(_: *const Backend, requested_ms: i32) i32 {
+        return requested_ms;
+    }
+
+    /// The descriptor that turns readable when `poll` has completions to
+    /// return, once `flush` has run after the last submission. A resident
+    /// that hands the loop's readiness to another waiter polls on it
+    /// (`net.completion_resident`).
+    pub fn readinessFd(self: *const Backend) Fd {
+        return self.kq;
+    }
 
     pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void {
         const reserved = try self.reserveSlot(listen_fd);
@@ -279,6 +280,21 @@ pub const Backend = struct {
         reserved.pending.read = .{ .recv = user_data };
     }
 
+    pub fn submitPoll(self: *Backend, user_data: u64, fd: Fd, interest: completion.Interest) !void {
+        const reserved = try self.reserveSlot(fd);
+        errdefer self.rollbackSlot(fd, reserved);
+        switch (interest) {
+            .readable => {
+                try self.register(fd, c.EVFILT.READ);
+                reserved.pending.read = .{ .poll = user_data };
+            },
+            .writable => {
+                try self.register(fd, c.EVFILT.WRITE);
+                reserved.pending.write = .{ .poll = user_data };
+            },
+        }
+    }
+
     pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         const reserved = try self.reserveSlot(fd);
         errdefer self.rollbackSlot(fd, reserved);
@@ -293,18 +309,28 @@ pub const Backend = struct {
         fd: Fd,
     ) !void {
         const pending = self.pending.getPtr(fd) orelse return error.InvalidCancelTarget;
-        switch (pending.read) {
-            .recv => |ud| if (ud != target_user_data) return error.InvalidCancelTarget,
-            .idle, .accept => return error.InvalidCancelTarget,
-        }
+        const read_target = switch (pending.read) {
+            .recv, .poll => |ud| ud == target_user_data,
+            .idle, .accept => false,
+        };
+        const write_target = switch (pending.write) {
+            .poll => |ud| ud == target_user_data,
+            .idle, .send, .connect => false,
+        };
+        if (!read_target and !write_target) return error.InvalidCancelTarget;
         // Reserve both publications before changing the filter or pending row.
         // Once the delete succeeds, this backend owns retirement of the target.
         try self.ready.ensureUnusedCapacity(self.allocator, 2);
-        try self.unregister(fd, c.EVFILT.READ);
-        pending.read = .idle;
+        if (read_target) {
+            try self.unregister(fd, c.EVFILT.READ);
+            pending.read = .idle;
+        } else {
+            try self.unregister(fd, c.EVFILT.WRITE);
+            pending.write = .idle;
+        }
         self.ready.appendAssumeCapacity(.{ .user_data = target_user_data, .result = -1 });
         self.ready.appendAssumeCapacity(.{ .user_data = cancel_user_data, .result = 0 });
-        if (pending.write == .idle) std.debug.assert(self.pending.remove(fd));
+        if (pending.read == .idle and pending.write == .idle) std.debug.assert(self.pending.remove(fd));
     }
 
     pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
@@ -322,12 +348,12 @@ pub const Backend = struct {
         if (self.pending.getPtr(fd)) |p| {
             switch (p.read) {
                 .idle => {},
-                .recv, .accept => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
+                .recv, .accept, .poll => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
             }
             switch (p.write) {
                 .idle => {},
                 .send => |s| self.ready.appendAssumeCapacity(.{ .user_data = s.ud, .result = -1 }),
-                .connect => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
+                .connect, .poll => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
             }
         }
         // tolerant: an fd with no pending op was never inserted, so the guard
@@ -366,163 +392,22 @@ pub const Backend = struct {
         for (events[0..@intCast(got)]) |ev| {
             const fd: c.fd_t = @intCast(ev.ident);
             const p = self.pending.getPtr(fd) orelse continue;
-
-            if (ev.filter == c.EVFILT.READ) {
-                switch (p.read) {
-                    .idle => continue,
-                    .recv => |ud| {
-                        var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
-                        if (ev.flags & EV_ERROR != 0) {
-                            comp.failure = completion.failureFromErrno(@fromBackingInt(@intCast(@as(c_int, @intCast(ev.data)))));
-                        } else if (self.buffer_pool.acquire()) |idx| {
-                            const buf = self.buffer_pool.buffer(idx);
-                            const r = c.recv(fd, buf.ptr, buf.len, 0);
-                            if (r < 0) switch (std.posix.errno(r)) {
-                                // Readiness is a hint, not a promise, and a
-                                // signal can land between the wakeup and the
-                                // syscall. Neither is a connection failure, but
-                                // both return -1, and the loop reads a negative
-                                // result as fatal. Re-arm and produce nothing:
-                                // the operation is still outstanding, so the
-                                // contract that every submitted op eventually
-                                // yields a completion still holds.
-                                .AGAIN, .INTR => {
-                                    self.buffer_pool.release(idx);
-                                    self.register(fd, c.EVFILT.READ) catch {
-                                        // The re-arm is the only way this op
-                                        // can ever complete, so a failure here
-                                        // does have to end the connection.
-                                        p.read = .idle;
-                                        comp.failure = error.KeventFailed;
-                                        out[produced] = comp;
-                                        produced += 1;
-                                    };
-                                    continue;
-                                },
-                                else => comp.failure = completion.failureFromErrno(std.posix.errno(r)),
-                            };
-                            comp.result = @intCast(r);
-                            if (r > 0) {
-                                comp.borrowed = .recv(buf[0..@intCast(r)], idx);
-                            } else {
-                                // EOF or error: nothing for the loop to consume,
-                                // so the buffer goes straight back to the pool.
-                                self.buffer_pool.release(idx);
-                            }
-                        } else {
-                            // Pool exhausted: surface starvation. The one-shot
-                            // interest is spent; the loop's re-arm registers a
-                            // fresh one once a buffer recycles.
-                            comp.recv_no_buffer = true;
-                        }
-                        p.read = .idle;
-                        out[produced] = comp;
-                        produced += 1;
-                    },
-                    .accept => |ud| {
-                        var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
-                        if (ev.flags & EV_ERROR != 0) {
-                            comp.failure = completion.failureFromErrno(@fromBackingInt(@intCast(@as(c_int, @intCast(ev.data)))));
-                        } else {
-                            const accepted = accept(fd, null, null);
-                            if (accepted < 0) switch (std.posix.errno(accepted)) {
-                                // Readiness can be spent by another kernel event,
-                                // and a signal can interrupt before accept makes
-                                // progress. Preserve the outstanding operation;
-                                // only a failed re-arm is terminal.
-                                .AGAIN, .INTR => {
-                                    self.register(fd, c.EVFILT.READ) catch {
-                                        p.read = .idle;
-                                        comp.failure = error.KeventFailed;
-                                        out[produced] = comp;
-                                        produced += 1;
-                                    };
-                                    continue;
-                                },
-                                else => comp.failure = completion.failureFromErrno(std.posix.errno(accepted)),
-                            };
-                            // Darwin does not inherit nonblocking across
-                            // accept(2), and a blocking send at write-readiness
-                            // would park the whole loop (ADR-0042). The accepted
-                            // fd also needs SO_NOSIGPIPE before any send, so a
-                            // torn-down peer becomes a completion error rather
-                            // than a process signal. If either socket option
-                            // cannot be set, refuse the connection; the loop's
-                            // re-arm recovers.
-                            if (accepted >= 0 and (!socket_tcp.setNonblocking(accepted) or !socket_tcp.setNoSigpipe(accepted) or !socket_tcp.setNodelay(tcp_os, accepted))) {
-                                _ = close(accepted);
-                                comp.result = -1;
-                                comp.failure = error.SocketConfigurationFailed;
-                            } else {
-                                comp.result = accepted;
-                            }
-                        }
-                        p.read = .idle;
-                        out[produced] = comp;
-                        produced += 1;
-                    },
-                }
-            } else if (ev.filter == c.EVFILT.WRITE) {
-                switch (p.write) {
-                    .idle => continue,
-                    .connect => |ud| {
-                        const failure: ?anyerror = if (ev.flags & EV_ERROR != 0)
-                            completion.failureFromErrno(@fromBackingInt(@intCast(@as(c_int, @intCast(ev.data)))))
-                        else
-                            connectFailure(fd);
-                        p.write = .idle;
-                        out[produced] = .{
-                            .user_data = ud,
-                            .result = if (failure == null) 0 else -1,
-                            .failure = failure,
-                        };
-                        produced += 1;
-                    },
-                    .send => |s| {
-                        if (ev.flags & EV_ERROR == 0) {
-                            const sent = c.send(fd, s.bytes.ptr, s.bytes.len, 0);
-                            if (sent < 0) switch (std.posix.errno(sent)) {
-                                // kqueue reports readiness, not completion.
-                                // A stale edge can find the socket not writable
-                                // anymore, and a signal can interrupt before
-                                // progress. Keep the op outstanding and wait
-                                // for the next write edge.
-                                .AGAIN, .INTR => {
-                                    self.register(fd, c.EVFILT.WRITE) catch {
-                                        p.write = .idle;
-                                        out[produced] = .{ .user_data = s.ud, .result = -1, .failure = error.KeventFailed };
-                                        produced += 1;
-                                    };
-                                    continue;
-                                },
-                                else => {
-                                    p.write = .idle;
-                                    out[produced] = .{
-                                        .user_data = s.ud,
-                                        .result = -1,
-                                        .failure = completion.failureFromErrno(std.posix.errno(sent)),
-                                    };
-                                    produced += 1;
-                                    continue;
-                                },
-                            };
-                            p.write = .idle;
-                            out[produced] = .{ .user_data = s.ud, .result = @intCast(sent) };
-                            produced += 1;
-                            continue;
-                        }
-                        p.write = .idle;
-                        out[produced] = .{
-                            .user_data = s.ud,
-                            .result = -1,
-                            .failure = completion.failureFromErrno(@fromBackingInt(@intCast(@as(c_int, @intCast(ev.data))))),
-                        };
-                        produced += 1;
-                    },
-                }
-            }
+            readiness.complete(self, fd, p, ev, out, &produced);
         }
         return produced;
+    }
+
+    /// The interface every listener binds; `openListener` chooses only the
+    /// port.
+    pub fn listenerIp4(self: *const Backend) [4]u8 {
+        return self.listener_ip4;
+    }
+
+    /// The port a listener binds on the construction-time interface.
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
     }
 
     pub fn openListener(self: *Backend, port: u16) !Fd {
@@ -563,6 +448,8 @@ pub const Backend = struct {
 /// Narrow runtime proof for the transactional registration rule above. Kept
 /// test-only so backend bookkeeping does not become public API.
 pub const white_box = if (builtin.is_test) struct {
+    pub const TestBackend = Backend;
+
     pub fn failedRegistrationLeavesNoPending(allocator: std.mem.Allocator) !bool {
         var backend = try Backend.init(allocator, 1, 1, 64);
         defer backend.deinit();
@@ -576,17 +463,3 @@ pub const white_box = if (builtin.is_test) struct {
         return false;
     }
 } else struct {};
-
-// accept(2) is `pub extern` in std.c, but reference it through a thin alias so the
-// call sites read the same as the other socket calls.
-fn accept(sockfd: c.fd_t, addr: ?*c.sockaddr, addrlen: ?*c.socklen_t) i32 {
-    return c.accept(sockfd, addr, addrlen);
-}
-
-fn connectFailure(fd: c.fd_t) ?anyerror {
-    var so_error: c_int = 0;
-    var len: c.socklen_t = @sizeOf(c_int);
-    if (c.getsockopt(fd, c.SOL.SOCKET, c.SO.ERROR, &so_error, &len) < 0)
-        return error.GetsockoptFailed;
-    return if (so_error == 0) null else completion.failureFromErrno(@fromBackingInt(@intCast(so_error)));
-}

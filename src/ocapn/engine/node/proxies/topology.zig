@@ -59,6 +59,10 @@ pub const Proxy = struct {
     listener_export: u64,
     current_wire_pos: u64,
     recipients: std.ArrayListUnmanaged(Recipient) = .empty,
+    /// A send inside an open provisional window created this proxy, and no
+    /// recipient has been kept yet. Its home listen is still queued, so
+    /// retracting the window's last recipient withdraws the whole proxy.
+    provisional: bool = false,
 
     pub fn deinit(self: *Proxy, allocator: std.mem.Allocator) void {
         for (self.recipients.items) |*recipient| recipient.releaseFailure(allocator);

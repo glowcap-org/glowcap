@@ -46,7 +46,7 @@ export function StandingMenu(
 		onSay: (own: string | null) => void;
 		/** Contextual acts that belong to the trigger rather than to standing. The
 		 * rail footer uses these for its directory-scoped identity grants. */
-		actions?: readonly { label: string; onPick(): void }[];
+		actions?: readonly { label: string; disabled?: boolean; onPick(): void }[];
 		/** Draw the standing as a fact without offering mutation. */
 		disabled?: boolean;
 		/** Whether the menu opens upward, for a control near the foot of the
@@ -156,6 +156,7 @@ export function StandingMenu(
 									<MenuRow
 										key={action.label}
 										className="line-menu-row"
+										disabled={action.disabled}
 										onPick={() => {
 											setOpen(false);
 											action.onPick();

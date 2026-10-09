@@ -111,7 +111,7 @@ pub fn run() {
 	let at = Arg::Integer(0);
 	assert!(matches!(
 		facet.admit_blob("attachment", &[&wire, &at]).unwrap(),
-		admission::Request::Attachment(_)
+		admission::Request::Attachment { .. }
 	));
 	assert!(facet.admit_blob("attachment", &[&wire, &Arg::Float(0.0)]).is_err());
 	assert!(facet.admit_blob("attachment", &[&wire, &Arg::Integer(1)]).is_err());

@@ -565,26 +565,16 @@ export function applyLineChange(
  * old id must not survive to name an unrelated line in the next generation. */
 export function retireRoomLineIds(projection: PageProjection, key: string): void {
 	if (getConv(projection, key)?.type !== "room") return;
-	const current = historyOf(projection, key);
-	let history: Item[] | null = null;
-	for (let at = 0; at < current.length; at += 1) {
-		const item = current[at];
-		if (item.kind !== "chat" || item.lineId == null) continue;
-		history ??= current.slice();
-		const { lineId: _lineId, ...retired } = item;
-		history[at] = retired;
-	}
-	if (history !== null) writeHistory(projection, key, history);
-}
-/** Remember what the room calls one of our own lines, once its echo says so. */
-export function nameLine(projection: PageProjection, key: string, id: number, lineId: number): void {
-	updateItem(projection, key, id, { lineId } as Partial<Item>);
+	retireLineIds(projection, key);
 }
 
-/** Record that this tab holds the reference governing one of its own lines.
- * The pencil and close controls beside that message act on this reference. */
-export function holdLine(projection: PageProjection, key: string, id: number): void {
-	updateItem(projection, key, id, { held: true } as Partial<Item>);
+/** Put `merged` where `into` stands and drop `gone`, in one history write. */
+export function foldLine(projection: PageProjection, key: string, into: Item, merged: Item, gone: Item): void {
+	const combined = historyOf(projection, key).filter((item) => item !== gone).map((item) =>
+		item === into ? merged : item
+	);
+	writeHistory(projection, key, combined, repairUnreadAfterDrop(unreadOf(projection, key), combined, [gone]));
+	projection.letLinesGo(key, [into]);
 }
 
 /** Let go of every line held on `dir`, because the connection those references
@@ -595,27 +585,25 @@ export function dropHeldLines(projection: PageProjection, dir: DirId): string[] 
 	const stoppedChanging: string[] = [];
 	for (const conv of [...projection.get().convs.values()]) {
 		if (conv.dir !== dir) continue;
-		const current = historyOf(projection, conv.key);
-		let history: Item[] | null = null;
-		const dropped = new Set<number>();
-		for (let at = 0; at < current.length; at++) {
-			const item = current[at];
-			if (item.kind !== "chat" || (item.held !== true && item.lineId == null)) continue;
-			history ??= current.slice();
-			const { lineId: _lineId, ...withoutLineName } = item;
-			history[at] = { ...withoutLineName, held: false };
-			dropped.add(item.id);
-		}
-		if (history !== null) writeHistory(projection, conv.key, history);
-		// A change the reader is part way through writing is aimed at one of those
-		// lines, and it can no longer land. The words stay, because they are still
-		// theirs to say; what goes is the aim, so pressing Enter says them as a new
-		// message instead of refusing over and over.
-		const draft = projection.get().drafts.get(conv.key);
-		if (
-			draft?.changing !== undefined && dropped.has(draft.changing) &&
-			detachDraftFromLine(projection, conv.key, draft.changing)
-		) stoppedChanging.push(conv.key);
+		if (retireLineIds(projection, conv.key)) stoppedChanging.push(conv.key);
 	}
 	return stoppedChanging;
+}
+
+/** Retire live names and edit authority together, preserving text and drafts. */
+function retireLineIds(projection: PageProjection, key: string): boolean {
+	const current = historyOf(projection, key);
+	let history: Item[] | null = null;
+	const changing = projection.get().drafts.get(key)?.changing;
+	let stoppedChanging = false;
+	for (let at = 0; at < current.length; at++) {
+		const item = current[at];
+		if (item.kind !== "chat" || (item.held !== true && item.lineId == null)) continue;
+		history ??= current.slice();
+		const { lineId: _lineId, ...retired } = item;
+		history[at] = { ...retired, held: false };
+		stoppedChanging ||= item.id === changing;
+	}
+	if (history !== null) writeHistory(projection, key, history);
+	return stoppedChanging && changing != null && detachDraftFromLine(projection, key, changing);
 }

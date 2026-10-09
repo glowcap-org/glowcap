@@ -22,8 +22,8 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
         var workload: m.Managed = undefined;
         try workload.init(allocations.allocator(), &db, count, depth);
         defer workload.deinit();
-        try r.emit(gpa, report, "managed_limits resources={d} ancestry={d} cache_slots={d} resident_limit_bytes={d} record_capacity={d} max_calls=8 pending_limit_bytes=32768\n", .{
-            count, depth, m.cache_slots, workload.store.limits.resident_bytes, m.record_capacity,
+        try r.emit(gpa, report, "managed_limits resources={d} ancestry={d} cache_slots={d} resident_limit_bytes={d} record_capacity={d} max_calls=8 pending_limit_bytes={d}\n", .{
+            count, depth, m.cache_slots, workload.store.limits.resident_bytes, m.record_capacity, workload.attachment.options.pending_bytes,
         });
         try r.emit(gpa, report, "managed_store_limits max_record_bytes={d} max_edges={d} max_leases={d} max_retentions={d} max_collection_roots={d} max_changes={d} staging_limit_bytes={d}\n", .{
             workload.store.limits.records.max_record_bytes, workload.store.limits.records.max_edges, workload.store.limits.max_leases, workload.store.limits.max_retentions, workload.store.limits.max_collection_roots, workload.store.limits.max_changes, workload.store.limits.staging_bytes,

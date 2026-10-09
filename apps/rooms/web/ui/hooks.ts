@@ -1,14 +1,16 @@
+import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
 // React bindings for the page projection and browser media facts.
 
-import { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 import { NO_MEMBERS, type PageProjection, type State } from "./store.ts";
-import { mayObserve } from "../../lib/session/access_view.ts";
-import { useRoomsController } from "./controller/browser.ts";
-import { effectiveRoomsSessionAccess } from "./controller/access.ts";
+import type { RoomsPermission } from "../../lib/session_content_data.ts";
 import type { RoomConv, Standing } from "./types.ts";
 import type { RoomsPageContext } from "./page.ts";
 import { archiveShareBearer, roomBearer, type RoomBearerKind } from "./session/bearer.ts";
+import { useManagedSession } from "./session/managed/context.tsx";
+import { noteTrouble } from "./store.ts";
+import { refusalText } from "../../lib/text/failure.ts";
 
 const RoomsProjectionContext = createContext<PageProjection | null>(null);
 const RoomsPageReactContext = createContext<RoomsPageContext | null>(null);
@@ -41,13 +43,55 @@ export function useRoomsPage(): RoomsPageContext {
  * snapshot as the control draws. The token on the conversation is what moves
  * when the string does, so a control drawing from `conv` reads the current
  * string every time it draws. */
-export function useRoomBearer(conv: RoomConv, kind: RoomBearerKind): string | null {
-	return roomBearer(useRoomsPage(), conv, kind);
+export function useRoomBearer(conv: RoomConv | null, kind: RoomBearerKind): string | null {
+	const session = useManagedSession();
+	const load = useCallback(() => conv == null ? Promise.resolve(null) : roomBearer(session, conv, kind), [
+		session,
+		conv?.persistId,
+		kind,
+	]);
+	const select = () => {
+		const row = session.current?.intent.conversations.find((row) => row.id === conv?.persistId);
+		return row?.kind === "room"
+			? kind === "link" ? row.access : kind === "manager" ? row.control : row.moderator
+			: null;
+	};
+	return useCustodyRecipe(load, select);
 }
 
 /** The link behind a lasting archive share, read the same way. */
 export function useArchiveShareBearer(id: string): string | null {
-	return archiveShareBearer(useRoomsPage(), id);
+	const session = useManagedSession();
+	const load = useCallback(() => archiveShareBearer(session, id), [session, id]);
+	return useCustodyRecipe(load, () => session.current?.intent.archiveShares?.find((row) => row.id === id)?.access);
+}
+function useCustodyRecipe(load: () => Promise<string | null>, select: () => string | null | undefined): string | null {
+	const session = useManagedSession();
+	const projection = useRoomsProjection();
+	// A custody generation identifies an immutable occurrence. Unrelated workspace
+	// edits neither replace it nor invalidate its recipe. Admission changes still
+	// clear the view immediately and require a fresh authorized read.
+	const revision = useSyncExternalStore(
+		session.subscribe,
+		() => JSON.stringify([select(), session.access]),
+		() => "",
+	);
+	const [result, setResult] = useState<{ load: typeof load; revision: string; value: string | null } | null>(null);
+	useEffect(() => {
+		let current = true;
+		void load().then((value) => {
+			if (current) setResult({ load, revision, value });
+		}, (error) => {
+			if (current) {
+				setResult({ load, revision, value: null });
+				noteTrouble(projection, managedText.capabilityExport, refusalText(error));
+			}
+		});
+		return () => {
+			current = false;
+		};
+	}, [load, revision, projection]);
+	return result?.load === load && result.revision === revision ? result.value : null;
 }
 
 /** Subscribe a component to the projection it renders. The selector result is
@@ -70,10 +114,13 @@ export function useRoomsState<T>(selector: (state: Readonly<State>) => T): T {
  * is not paused either. Deciding that here a second time is how the two drift
  * into disagreeing about the same browser. */
 export function useSessionPaused(): boolean {
-	const controller = useRoomsController();
-	const attached = useRoomsState((state) => state.sessionAccess);
-	const access = effectiveRoomsSessionAccess(controller, attached);
-	return access !== null && !mayObserve(access);
+	return useRoomsState((state) => state.managedAccess.status !== "active");
+}
+export function useSessionPermission(permission: RoomsPermission): boolean {
+	return useRoomsState((state) =>
+		state.managedAccess.status === "active" &&
+		state.managedAccess.effective?.permissions.includes(permission) === true
+	);
 }
 
 /** Who is in this room. Subscribes here, not at the page root, so a join or

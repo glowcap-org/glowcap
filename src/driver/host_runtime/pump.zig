@@ -2,8 +2,8 @@
 //!
 //! Every blocking and step-driven face shares this one read-feed-react cycle.
 //! A sibling's protocol failure closes only that sibling, while the caller's
-//! own failure propagates; readiness rotation and resident batch drains retain
-//! the existing bounded scheduling and allocation behavior.
+//! own failure propagates. The wait rotates which resident it reports first,
+//! and each resident drains its ready records in bounded batches.
 
 const std = @import("std");
 
@@ -11,9 +11,7 @@ const net = @import("net");
 const driver_core = @import("driver_core");
 
 const lifecycle = @import("lifecycle.zig");
-const pending_state = @import("pending.zig");
 const resident_pump = @import("resident_pump.zig");
-const runtime_readiness = @import("readiness.zig");
 const host_runtime = @import("../host_runtime.zig");
 const settle_mailbox = @import("../settle_mailbox.zig");
 
@@ -22,7 +20,6 @@ const Internal = host_runtime.Internal;
 const Budget = driver_core.Budget;
 const Error = driver_core.Error;
 const ExternalEffectMode = lifecycle.ExternalEffectMode;
-const ReadySource = runtime_readiness.Source;
 const Wire = HostRuntime.Wire;
 
 /// Pump until `session`'s keyed handshake opens, under `budget`.
@@ -49,23 +46,18 @@ const SessionOpenProbe = struct {
 
 /// Stop dispatching `session`'s inbound until `attendSession`: the event
 /// queue is about to surface it, and the embedder has not run its
-/// post-open setup (publish, spawn). A stream wire's socket leaves the
-/// readiness set so kernel-held bytes cannot spin a parked embedder;
-/// `waitAnySource` already skips unattended wires.
+/// post-open setup (publish, spawn). The resident parks what arrives in the
+/// wire's bounded buffer until then.
 pub fn markSessionUnattended(self: *HostRuntime, session: *driver_core.HostSession) void {
     const wire = self.wires.get(session.peer_handle) orelse return;
     if (wire.closed or !wire.attended) return;
     wire.attended = false;
-    switch (wire.link) {
-        .stream => |*sl| if (sl.conn.socketHandle()) |fd| Internal.removeReadyFd(self, fd),
-        .resident => {},
-    }
 }
 
 /// The embedder announced it is serving `session`: deliver inbound from
-/// here on. Bytes that arrived first replay in order — a resident link's
-/// parked chunks feed now, a paused handshake tail resumes through the
-/// next step's sweep, and a stream socket rejoins the readiness set.
+/// here on. Bytes that arrived first replay in order: the link's parked
+/// chunks feed now, and a paused handshake tail resumes through the next
+/// step's sweep.
 /// Idempotent on a session already delivering; a foreign or unknown
 /// handle refuses, exactly as release does, because silently ignoring
 /// one leaves the real session's inbound held with nothing to say why.
@@ -75,49 +67,37 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
     if (wire.session != session) return Error.SessionNotOwned;
     if (wire.closed or wire.attended) return;
     wire.attended = true;
-    switch (wire.link) {
-        .stream => |*sl| switch (self.drive) {
-            .blocking => {},
-            .stepped => |*stepped| if (sl.conn.socketHandle()) |fd| {
-                stepped.ready_set.add(fd) catch |err| {
-                    wire.attended = false;
-                    return err;
-                };
-            },
-        },
-        .resident => |*rl| {
-            if (rl.parked.items.len > 0) {
-                const parked = rl.parked.items;
-                self.core.feedBytes(wire.session, parked) catch |err| {
-                    const failure = net.classifyApplyError(err);
-                    self.drainActions() catch |drain_err| {
-                        Internal.closeWire(self, wire, failure);
-                        return drain_err;
-                    };
-                    Internal.closeWire(self, wire, failure);
-                    return;
-                };
-                rl.parked.clearAndFree(self.allocator);
-            }
-            while (rl.parked_packets.items.len > 0) {
-                const packet = rl.parked_packets.orderedRemove(0);
-                defer self.allocator.free(packet);
-                rl.parked_packet_bytes -= packet.len;
-                self.core.feedTransportPacket(wire.session, packet) catch |err| {
-                    const failure = net.classifyApplyError(err);
-                    self.drainActions() catch |drain_err| {
-                        Internal.closeWire(self, wire, failure);
-                        return drain_err;
-                    };
-                    Internal.closeWire(self, wire, failure);
-                    return;
-                };
-            }
-            rl.parked_packets.clearAndFree(self.allocator);
-        },
+    const rl = &wire.link;
+    if (rl.parked.items.len > 0) {
+        const parked = rl.parked.items;
+        self.core.feedBytes(wire.session, parked) catch |err| {
+            const failure = net.classifyApplyError(err);
+            self.drainActions() catch |drain_err| {
+                Internal.closeWire(self, wire, failure);
+                return drain_err;
+            };
+            Internal.closeWire(self, wire, failure);
+            return;
+        };
+        rl.parked.clearAndFree(self.allocator);
     }
-    // A parked embedder must re-poll: the rejoined fd or the resumable
-    // tail is progress its current wait set cannot see.
+    while (rl.parked_packets.items.len > 0) {
+        const packet = rl.parked_packets.orderedRemove(0);
+        defer self.allocator.free(packet);
+        rl.parked_packet_bytes -= packet.len;
+        self.core.feedTransportPacket(wire.session, packet) catch |err| {
+            const failure = net.classifyApplyError(err);
+            self.drainActions() catch |drain_err| {
+                Internal.closeWire(self, wire, failure);
+                return drain_err;
+            };
+            Internal.closeWire(self, wire, failure);
+            return;
+        };
+    }
+    rl.parked_packets.clearAndFree(self.allocator);
+    // A parked embedder must re-poll: the resumable tail is progress its
+    // current wait set cannot see.
     switch (self.drive) {
         .blocking => {},
         .stepped => |*stepped| stepped.ready_set.postWake() catch |err| self.noteTerminalFailure(err),
@@ -132,11 +112,13 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
 /// this reason; this is the owning face's spelling of that contract. A
 /// refusal closes that wire like any dispatch refusal.
 ///
-/// `skip` is the session a handshake pump is itself opening: its paused
-/// frames must keep waiting, because the pause exists so the embedder can
-/// finish post-open setup (publish, spawn) before the partner's coalesced
-/// first frames dispatch. Resuming it here would answer a pipelined fetch
-/// before the object it names exists.
+/// The pause exists so the embedder can finish post-open setup (publish,
+/// spawn) before the partner's coalesced first frames dispatch, so a session
+/// whose open has not yet committed keeps waiting: `skip`, the session a
+/// handshake pump is itself opening, and any session a pending open still
+/// owns, such as a listener arrival its accept observer has not yet taken.
+/// Resuming either would answer a pipelined fetch before the object it names
+/// exists.
 pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !void {
     var it = self.wires.valueIterator();
     while (it.next()) |entry| {
@@ -144,6 +126,13 @@ pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !voi
         if (wire.closed) continue;
         if (!wire.attended) continue;
         if (wire.session == skip) continue;
+        const deferred = wire.link.read_deferred;
+        if (!deferred and !wire.session.pausedInboundPending()) continue;
+        if (openPending(self, wire.session)) continue;
+        if (deferred) {
+            wire.link.read_deferred = false;
+            if (try feedReadable(self, wire, null) == .closed) continue;
+        }
         if (wire.session.pausedInboundPending()) {
             wire.session.resumeFeed() catch |err| {
                 const failure = net.classifyApplyError(err);
@@ -156,6 +145,13 @@ pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !voi
             };
         }
     }
+}
+
+/// Bounded by `Options.max_pending_opens`, and reached only for a session
+/// holding deferred or paused input.
+fn openPending(self: *const HostRuntime, session: *const driver_core.HostSession) bool {
+    for (self.pending_opens.items) |row| if (row.session == session) return true;
+    return false;
 }
 
 /// The blocking pump: drain actions, check `probe.done()`, wait for any
@@ -189,31 +185,14 @@ pub fn pumpUntilProbe(self: *HostRuntime, probe: anytype, budget: Budget) !void 
             break :blk std.math.cast(i32, remaining) orelse std.math.maxInt(i32);
         } else -1;
 
-        const source = try waitAnySource(self, timeout, false) orelse continue;
-        switch (source) {
-            .wire => |wire| switch (try serviceReadyWire(self, wire, probeSession(probe))) {
-                .fed => {},
-                .closed => if (wire.session == probeSession(probe)) return Error.ConnectionClosed,
-            },
-            // A probe wire closed in here surfaces at the loop top's
-            // `wireClosed` check.
-            .resident => |index| _ = try resident_pump.serviceResident(self, index, probeSession(probe)),
-            .stream_dial => |row| try Internal.adoptPendingStreamDial(self, row),
-            .stream_listen => |row| Internal.finishPendingListener(self, row),
-            .stream_accept => |listener| _ = try self.acceptReady(listener),
-        }
+        // A probe wire closed in here surfaces at the loop top's
+        // `wireClosed` check.
+        const index = try waitAnySource(self, timeout, false) orelse continue;
+        _ = try resident_pump.serviceResident(self, index, probeSession(probe));
     }
 }
 
 const FeedOutcome = union(enum) { fed: usize, closed };
-
-pub fn serviceReadyWire(self: *HostRuntime, wire: *Wire, own: ?*driver_core.HostSession) !FeedOutcome {
-    if (wire.closed) {
-        Internal.progressWireCarrierClose(self, wire);
-        return .closed;
-    }
-    return feedReadable(self, wire, own);
-}
 
 /// One readable wire's read-feed-react cycle, the one reaction every pump
 /// spelling shares so their closure semantics cannot diverge. EOF and
@@ -224,11 +203,7 @@ pub fn serviceReadyWire(self: *HostRuntime, wire: *Wire, own: ?*driver_core.Host
 /// closure, not a reason to abort an innocent caller's wait. A null `own`
 /// (a pre-wire resident dial wait) treats every wire as a sibling.
 pub fn feedReadable(self: *HostRuntime, wire: *Wire, own: ?*driver_core.HostSession) !FeedOutcome {
-    const read_arm = switch (wire.link) {
-        .stream => readAndFeed(self, wire),
-        .resident => resident_pump.readAndFeed(self, wire),
-    };
-    const fed = read_arm catch |err| switch (err) {
+    const fed = resident_pump.readAndFeed(self, wire) catch |err| switch (err) {
         error.ConnectionLost => {
             Internal.closeWire(self, wire, error.ConnectionLost);
             return .closed;
@@ -304,11 +279,12 @@ pub fn applySettleMailboxWith(self: *HostRuntime, effect_mode: ExternalEffectMod
     }
 }
 
-/// Fill the scratch lists with the live stream wires and every resident's
-/// readiness descriptor, and wait for the first ready source. Null on
-/// timeout, and on the mailbox wake (applying is the loop top's job,
-/// which runs whether or not the poll happened to select that row).
-pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?ReadySource {
+/// Wait for the first resident whose readiness descriptor fires, and return
+/// its index. Null on timeout, and on the mailbox or readiness wake (applying
+/// is the loop top's job, which runs whether or not the poll happened to
+/// select that row). A resident with timed work bounds the wait and is
+/// serviced when the wait ends on its bound.
+pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?usize {
     Internal.progressCarrierCloseDeadlines(self);
     switch (self.drive) {
         .blocking => {},
@@ -317,72 +293,17 @@ pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?Read
             return err;
         },
     }
-    self.conn_scratch.clearRetainingCapacity();
-    var it = self.wires.valueIterator();
-    while (it.next()) |wire| {
-        if (wire.*.link != .stream) continue;
-        if (!wire.*.closed and wire.*.attended) {
-            try self.conn_scratch.append(self.allocator, wire.*);
-        } else if (wire.*.closed and !wire.*.carrierClosed()) switch (wire.*.carrier_close) {
-            .wait_read, .wait_write => try self.conn_scratch.append(self.allocator, wire.*),
-            .open, .wait_resident, .complete => {},
-        };
-    }
-    var retiring = self.retiring_wires;
-    while (retiring) |wire| : (retiring = wire.retiring_next) switch (wire.link) {
-        .stream => switch (wire.carrier_close) {
-            .wait_read, .wait_write => try self.conn_scratch.append(self.allocator, wire),
-            .open, .wait_resident, .complete => {},
-        },
-        .resident => {},
-    };
-    const n = self.conn_scratch.items.len;
     // A blocking verb with no source left has nothing that can ever wake
     // it; `stepAny` passes `empty_ok` because a step-driven host with no
     // session yet is parked on its own budget, not stranded.
-    var staged_stream_dials: usize = 0;
-    for (self.pending_opens.items) |row| if (row.stage == .stream_dial) {
-        staged_stream_dials += 1;
-    };
-    if (n == 0 and self.residents.items.len == 0 and staged_stream_dials == 0 and
-        self.pending_listeners.items.len == 0 and !empty_ok)
+    if (self.residents.items.len == 0 and !empty_ok)
         return Error.ConnectionClosed;
-    const start = if (n > 0) self.wait_cursor % n else 0;
+    const residents = self.residents.items.len;
+    const start = if (residents > 0) self.wait_cursor % residents else 0;
     self.wait_cursor +%= 1;
     self.extra_fd_scratch.clearRetainingCapacity();
-    for (self.residents.items) |runtime| {
-        try self.extra_fd_scratch.append(self.allocator, runtime.readiness_fd);
-    }
-    self.dial_scratch.clearRetainingCapacity();
-    for (self.pending_opens.items) |row| switch (row.stage) {
-        .stream_dial => |attempt| {
-            try self.dial_scratch.append(self.allocator, row);
-            try self.extra_fd_scratch.append(self.allocator, attempt.readinessFd());
-        },
-        .resident_dial, .handshake => {},
-    };
-    self.listen_scratch.clearRetainingCapacity();
-    for (self.pending_listeners.items) |row| switch (row.stage) {
-        .stream => |attempt| {
-            try self.listen_scratch.append(self.allocator, row);
-            try self.extra_fd_scratch.append(self.allocator, attempt.readinessFd());
-        },
-        .resident => {},
-    };
-    self.active_listener_scratch.clearRetainingCapacity();
-    var listener_it = self.active_listeners.valueIterator();
-    while (listener_it.next()) |listener| {
-        if (listener.closing) continue;
-        switch (listener.transport.source) {
-            .stream => |stream| if (stream.handle.readinessFd()) |fd| {
-                if (stream.observation) |observation| {
-                    if (!observation.observer.can_accept(observation.observer.ctx)) continue;
-                }
-                try self.active_listener_scratch.append(self.allocator, &listener.transport);
-                try self.extra_fd_scratch.append(self.allocator, fd);
-            },
-            .resident => {},
-        }
+    for (0..residents) |k| {
+        try self.extra_fd_scratch.append(self.allocator, self.residents.items[(start + k) % residents].readiness_fd);
     }
     if (self.mailbox) |mb| try self.extra_fd_scratch.append(self.allocator, mb.wakeFd());
     // The readiness wake polls as its own row, so a cross-thread
@@ -392,71 +313,18 @@ pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?Read
         .blocking => {},
         .stepped => |*stepped| try self.extra_fd_scratch.append(self.allocator, stepped.ready_set.wakeFd()),
     }
-    try self.poll_scratch.resize(self.allocator, n + self.extra_fd_scratch.items.len);
-    // Borrow the connections for the wait through retained scratch; net
-    // polls, we route by index, and the wait itself allocates nothing
-    // once the lists have grown to the live-wire count.
-    try self.borrow_scratch.resize(self.allocator, n);
-    try self.wait_interest_scratch.resize(self.allocator, n);
-    for (self.conn_scratch.items, 0..) |wire, i| {
-        self.borrow_scratch.items[i] = &wire.link.stream.conn;
-        self.wait_interest_scratch.items[i] = if (!wire.closed or wire.carrier_close == .wait_read)
-            .read
-        else
-            .write;
+    try self.poll_scratch.resize(self.allocator, self.extra_fd_scratch.items.len);
+    var wait_ms = Internal.clampTimeoutToPendingWork(self, timeout_ms);
+    var timed_resident: ?usize = null;
+    for (self.residents.items, 0..) |registered, index| {
+        const bound = registered.resident.waitBoundMs(wait_ms);
+        if (bound >= 0 and (wait_ms < 0 or bound < wait_ms)) {
+            wait_ms = bound;
+            timed_resident = index;
+        }
     }
-    const idx = try net.waitAny(
-        self.borrow_scratch.items,
-        self.wait_interest_scratch.items,
-        self.poll_scratch.items,
-        Internal.clampTimeoutToPendingWork(self, timeout_ms),
-        self.extra_fd_scratch.items,
-        &.{},
-        start,
-    ) orelse return null;
-    if (idx < n) return .{ .wire = self.conn_scratch.items[idx] };
-    const extra = idx - n;
-    if (extra < self.residents.items.len) return .{ .resident = extra };
-    const dial_index = extra - self.residents.items.len;
-    if (dial_index < self.dial_scratch.items.len)
-        return .{ .stream_dial = self.dial_scratch.items[dial_index] };
-    const listen_index = dial_index - self.dial_scratch.items.len;
-    if (listen_index < self.listen_scratch.items.len)
-        return .{ .stream_listen = self.listen_scratch.items[listen_index] };
-    const accept_index = listen_index - self.listen_scratch.items.len;
-    if (accept_index < self.active_listener_scratch.items.len)
-        return .{ .stream_accept = self.active_listener_scratch.items[accept_index] };
+    const idx = try net.waitAnyReadable(&.{}, self.poll_scratch.items, wait_ms, self.extra_fd_scratch.items) orelse
+        return timed_resident;
+    if (idx < residents) return (start + idx) % residents;
     return null;
-}
-
-/// One raw read off `wire`; the core owns outer framing and its tail.
-fn readAndFeed(self: *HostRuntime, wire: *Wire) !usize {
-    const r = wire.link.stream.conn.r;
-    if (r.bufferedLen() == 0) {
-        r.fillMore() catch |err| switch (err) {
-            error.EndOfStream => return if (wire.session.feed_tail.isActive()) error.TruncatedFrame else error.EndOfStream,
-            error.ReadFailed => return error.ConnectionLost,
-        };
-    }
-    const chunk = r.buffered();
-    self.core.feedBytes(wire.session, chunk) catch |err| {
-        // The core projected a typed op:abort for a session-authority
-        // refusal; write it (the flush action is queued) and surface the
-        // pump vocabulary the borrowing tier speaks, so `serve` and the
-        // blocking waits see `ProtocolAbort`, not the raw refusal.
-        r.toss(chunk.len);
-        const failure = net.classifyApplyError(err);
-        self.drainActions() catch |drain_err| {
-            Internal.closeWire(self, wire, failure);
-            return drain_err;
-        };
-        Internal.writeOutbound(self, wire) catch |write_err| {
-            Internal.closeWire(self, wire, write_err);
-            return failure;
-        };
-        Internal.closeWire(self, wire, failure);
-        return failure;
-    };
-    r.toss(chunk.len);
-    return chunk.len;
 }

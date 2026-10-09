@@ -28,16 +28,16 @@ import {
 } from "../../../lib/text/ops.ts";
 import { Link, useNavigate } from "react-router";
 import { useShallow } from "zustand/react/shallow";
-import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
+import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsState } from "../hooks.ts";
 import { Button } from "../Button.tsx";
-import { type OpsHeld, opsHeldOf } from "../types.ts";
+import { type OpsHeld } from "../types.ts";
 import { peeringSourcesOf } from "../text.ts";
 import { operationsTitle } from "../../../lib/text/settings.ts";
 import { loadIrcPane, loadListenersPane, loadOpsPane, loadPeeringPane, loadTracePane, prefetch } from "../chunks.ts";
 import { OPS_CATALOG } from "./catalog.ts";
 import { OPS_PANES, opsAddress, type OpsPaneFace, paneCapsHeld, paneOf } from "./panes.ts";
-import { effectiveRoomsSessionAccess } from "../controller/access.ts";
+import { useSessionPermission } from "../hooks.ts";
 import { DirectoryPane } from "./Directory.tsx";
 import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";
@@ -165,6 +165,7 @@ function OpsNav(
  * `segment` is the address's word for which pane, null on the index. */
 export function OpsMain({ segment }: { segment: string | null }) {
 	const s = useRoomsState(useShallow((state) => ({
+		opsHeld: state.opsHeld,
 		listeners: state.listeners,
 		diagnostics: state.diagnostics,
 		irc: state.irc,
@@ -175,15 +176,13 @@ export function OpsMain({ segment }: { segment: string | null }) {
 		convs: state.convs,
 		homeDir: state.homeDir,
 		dirs: state.dirs,
-		sessionAccess: state.sessionAccess,
 	})));
 	const navigate = useNavigate();
-	const held = opsHeldOf(s.listeners, s.diagnostics, s.irc, s.operator, s.peering, s.trace);
+	const held = s.opsHeld;
 	const pane = segment === null ? null : paneOf(segment);
 	const open = pane !== null && paneCapsHeld(pane, held).length > 0;
 	const heldPanes = OPS_PANES.filter((face) => paneCapsHeld(face, held).length > 0);
-	const controller = useRoomsController();
-	const canEdit = effectiveRoomsSessionAccess(controller, s.sessionAccess) === "admin";
+	const canEdit = useSessionPermission("useOperations");
 
 	return (
 		<section className="ops-main" id="opsPage" aria-label={operationsTitle}>

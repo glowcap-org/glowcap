@@ -6,9 +6,25 @@ const core = @import("loam_core");
 const driver = @import("driver_core");
 const h = @import("attachment.zig");
 const Recipe = @import("reference_recipe.zig").Recipe;
+pub const max_uri_bytes = @import("reference_recipe.zig").schema.max_payload - 1;
+
+pub fn allocationBound(count: usize, uri_bytes: usize) !@import("call_memory.zig").AllocationBound {
+    var bound: @import("call_memory.zig").AllocationBound = .{};
+    try bound.include(@sizeOf(State), @alignOf(State), count);
+    try bound.include(@max(try Save.canonicalUriBytesBound(uri_bytes), @import("reference_scope.zig").Scope.max_name_bytes), 1, count);
+    try bound.include(@sizeOf(driver.Host.Enliven), @alignOf(driver.Host.Enliven), count);
+    return bound;
+}
 
 pub const Save = opaque {
     pub const Result = union(enum) { pending, ready, failed: anyerror };
+
+    /// Accepted input bytes can expand to three-byte percent escapes. The
+    /// recipe limit independently refuses larger canonical output.
+    pub fn canonicalUriBytesBound(supplied_bytes: usize) !usize {
+        if (supplied_bytes > max_uri_bytes) return error.RecordTooLarge;
+        return @min(max_uri_bytes, try std.math.mul(usize, supplied_bytes, 3));
+    }
 
     pub fn result(self: *Save) Result {
         return state(self).result();
@@ -39,7 +55,13 @@ const State = struct {
         if (self.state == .pending) switch (self.enliven.?.result()) {
             .pending => {},
             .failed => self.state = .{ .failed = error.RestorationFailed },
-            .ready => |ready| self.state = if (ready.capability.eql(self.capability)) .ready else .{ .failed = error.DurableReferenceMismatch },
+            .ready => |ready| {
+                const target = self.owner.host.settledCapability(self.capability) catch |err| {
+                    self.state = .{ .failed = err };
+                    return .{ .failed = err };
+                };
+                self.state = if (ready.capability.eql(target)) .ready else .{ .failed = error.DurableReferenceMismatch };
+            },
         };
         return switch (self.state) {
             .pending => .pending,
@@ -64,41 +86,46 @@ const State = struct {
 /// durable recipe. This operation must retire before its attachment closes.
 pub fn begin(owner: *h.Attachment, allocator: std.mem.Allocator, capability: driver.Capability, uri: ?[]const u8) !*Save {
     try owner.topLevel();
-    return beginPrepared(owner, allocator, capability, uri);
+    var scratch = std.heap.ArenaAllocator.init(allocator);
+    defer scratch.deinit();
+    return beginPrepared(owner, allocator, scratch.allocator(), capability, uri, null);
 }
 
 /// Internal preparation at a top-level Host boundary inside Attachment.advance.
-pub fn beginPrepared(owner: *h.Attachment, allocator: std.mem.Allocator, capability: driver.Capability, uri: ?[]const u8) !*Save {
+pub fn beginPrepared(owner: *h.Attachment, allocator: std.mem.Allocator, scratch: std.mem.Allocator, capability: driver.Capability, uri: ?[]const u8, work: ?*const driver.Host.PendingWorkLease) !*Save {
     try owner.host.refuseReentry();
+    if (work) |lease| try lease.checkHost(owner.host);
     if (owner.closing) return error.AttachmentClosed;
+    const target = try owner.host.settledCapability(capability);
     if (owner.reference_saves >= owner.options.max_reference_saves) return error.ReferenceCapacity;
     owner.reference_saves += 1;
     errdefer owner.reference_saves -= 1;
     const self = try allocator.create(State);
     errdefer allocator.destroy(self);
-    var scratch = std.heap.ArenaAllocator.init(allocator);
-    defer scratch.deinit();
-    const retains = try owner.host.retainValueCapabilities(scratch.allocator(), &.{.{ .capability = capability }});
+    const retains = try owner.host.retainValueCapabilities(scratch, &.{.{ .capability = capability }});
     errdefer owner.host.releaseUntransferredCapabilityRetains(retains);
-    if (owner.capture(capability)) |edge| {
+    if (owner.capture(target)) |edge| {
         self.* = .{ .owner = owner, .allocator = allocator, .capability = retains[0].ref, .recipe = .{ .edge = edge }, .state = .ready };
         return @ptrCast(self);
     } else |err| if (err != error.NotDurable) return err;
     if (owner.options.reference_scope) |scope| {
-        if (scope.capture(owner, capability)) |local| {
+        if (scope.capture(owner, target)) |local| {
             const bytes = try allocator.dupe(u8, local.attachment);
             self.* = .{ .owner = owner, .allocator = allocator, .capability = retains[0].ref, .recipe = .{ .recipe = .{ .local = .{ .attachment = bytes, .target = local.target } } }, .bytes = bytes, .state = .ready };
             return @ptrCast(self);
         } else |err| if (err != error.NotDurable) return err;
     }
-    try validateForeignObject(owner.host, capability);
+    try validateForeignObject(owner.host, target);
     const supplied = uri orelse return error.NotDurable;
-    if (supplied.len > 4096) return error.RecordTooLarge;
-    const sturdy = try model.uri.parseSturdyref(scratch.allocator(), supplied);
-    const bytes = try model.uri.writeSturdyref(allocator, sturdy);
+    if (supplied.len > max_uri_bytes) return error.RecordTooLarge;
+    const sturdy = try model.uri.parseSturdyref(scratch, supplied);
+    const length = try model.uri.measureSturdyrefForProfile(.v1_0, sturdy);
+    if (length > max_uri_bytes) return error.RecordTooLarge;
+    const bytes = try allocator.alloc(u8, length);
     errdefer allocator.free(bytes);
-    if (bytes.len > 4096) return error.RecordTooLarge;
-    const enliven = try owner.host.enlivenCapability(allocator, sturdy);
+    const written = try model.uri.writeSturdyrefForProfileBounded(.v1_0, sturdy, bytes);
+    std.debug.assert(written.complete and written.len == length);
+    const enliven = if (work) |lease| try lease.enliven(owner.host, allocator, sturdy) else try owner.host.enlivenCapability(allocator, sturdy);
     self.* = .{ .owner = owner, .allocator = allocator, .capability = retains[0].ref, .recipe = .{ .recipe = .{ .foreign = bytes } }, .bytes = bytes, .enliven = enliven, .state = .pending };
     _ = self.result();
     return @ptrCast(self);

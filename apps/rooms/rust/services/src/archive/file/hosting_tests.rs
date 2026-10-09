@@ -51,7 +51,7 @@ async fn scenario() {
 	let locator = server.locator().unwrap();
 	let (connected, accepted) =
 		tokio::try_join!(runtime.connect(&locator, ConnectOptions::default()), server.accept()).unwrap();
-	let accepted = Rc::new(accepted.with_gc());
+	let accepted = Rc::new(accepted);
 	let service = accepted.clone();
 	let serving = tokio::task::spawn_local(async move { service.serve().await });
 	let root = owner

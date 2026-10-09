@@ -143,7 +143,7 @@ export async function run(tab: Page): Promise<void> {
 	// reader rather than changing them.
 	await tab.fill("#line", "/away making tea");
 	await tab.press("#line", "Enter");
-	await tab.waitForSelector("#standingBtn .avatar-presence.offline, #standingBtn #status", { timeout: 30_000 });
+	await tab.locator("#standingBtn #status").filter({ hasText: /^making tea$/ }).waitFor({ timeout: 30_000 });
 	await tab.locator("#members .member-face").first().click();
 	await tab.waitForSelector("#membercardTitle", { timeout: 10_000 });
 	const stepped = await readCard(tab);

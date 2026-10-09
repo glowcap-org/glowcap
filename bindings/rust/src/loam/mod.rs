@@ -3,9 +3,32 @@
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod browser;
 mod content;
+mod reads;
+pub use reads::{ReadInterface, ReadMethod, ReadScopeBounds};
+mod content_graph;
+mod creation;
+#[cfg(not(target_arch = "wasm32"))]
+mod lmdb;
+pub use creation::StagedResource;
+mod continuation;
+pub use continuation::{Continuation, ContinuationBounds, ContinuationReservation, PendingContinuation};
+mod effect_execution;
 #[cfg(target_arch = "wasm32")]
 pub use browser::StorageStatistics;
+pub use effect_execution::{EffectExecution, EffectExecutionBounds, EffectResult};
+mod descriptions;
+mod observation;
+pub use observation::{
+	ObservationCursor, ObservationDescription, ObservationNotices, ObservedDescription, UseDescription, UseSnapshot,
+};
+mod live;
 mod policy;
+pub use descriptions::{
+	AccessStatus, BoundOperator, ControlDescription, ControlSnapshot, GrantDescription, InventoryPage, PolicyBound,
+	PolicyDescription,
+};
+mod registration;
+pub use live::{LiveIncarnation, LiveMarker};
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
 #[cfg(not(target_arch = "wasm32"))]
@@ -17,8 +40,18 @@ use crate::sys::loam as ffi;
 use crate::{Error, Host, Result};
 #[cfg(target_arch = "wasm32")]
 pub(crate) use browser::work;
-pub use content::{Call, Content, Method, ReferenceRequest, Registration, Retry};
-pub use policy::{ControlPowers, Operator, Policy, PolicyValue, Requirement};
+pub use content::{
+	BoundResource, Call, Content, Delivery, Invocation, Method, ReferenceRequest, Registration, ResourceId, Retry,
+};
+pub use content_graph::{Graph, GraphField, GraphPage, Page, PageSchema, Pages};
+mod invocation_bounds;
+pub use invocation_bounds::{InvocationBounds, ValueBounds};
+mod staging_bounds;
+pub use policy::{
+	ControlPowers, IssuePolicy, KindRule, Operator, Policy, PolicyValue, Requirement, control_revision,
+	parse_control_revision,
+};
+pub use staging_bounds::StagingBounds;
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
@@ -70,6 +103,27 @@ pub struct Schema {
 	pub max_payload: usize,
 	pub max_edges: usize,
 }
+impl Schema {
+	fn raw(self) -> ffi::GlowcapLoamSchema {
+		ffi::GlowcapLoamSchema {
+			id: self.id,
+			version: self.version,
+			max_payload: self.max_payload,
+			max_edges: self.max_edges,
+		}
+	}
+	/// Maximum encoded record bytes, including envelope and checksum. The
+	/// shared writer derives this without allocation or storage access; it does
+	/// not admit the schema or guarantee available backend capacity.
+	pub fn encoded_size_bound(self) -> Result<usize> {
+		let mut bytes = 0;
+		check(
+			unsafe { ffi::glowcap_loam_schema_size_bound(&self.raw(), &mut bytes) },
+			false,
+		)?;
+		Ok(bytes)
+	}
+}
 #[derive(Clone, Copy)]
 pub struct Limits {
 	pub resident_bytes: usize,
@@ -77,8 +131,32 @@ pub struct Limits {
 	pub cache_slots: usize,
 	pub max_leases: usize,
 	pub max_changes: usize,
+	/// Live attachment endpoints, independent of Store retention tokens.
 	pub max_references: usize,
 	pub max_operations: usize,
+	/// One retained call's arena blocks, including graph snapshots,
+	/// block headers, alignment and spare capacity. Backing grows as needed.
+	pub call_bytes: usize,
+	/// Whole-call ceiling reservations for admitted calls in this attachment.
+	pub pending_bytes: usize,
+	/// Whole-call ceiling reservations per attachment and ingress, after dispatch.
+	pub ingress_bytes: usize,
+	/// Pinned managed records per operation, excluding temporary directory and
+	/// descriptor leases. Store max_leases must leave room for both.
+	pub record_capacity: usize,
+	/// Live save proofs, including completed proofs retained through outcome.
+	pub max_reference_saves: usize,
+	/// Maximum encoded physical record, including its envelope and checksum.
+	pub record_bytes: usize,
+	/// Live Store roots, including restored recipes held through settlement.
+	pub max_retentions: usize,
+	/// Live receipt continuations, independent of pending call admission.
+	pub max_continuations: usize,
+	/// Complete immutable intent and exact-target custody per continuation.
+	pub continuation_bytes: usize,
+	pub max_continuation_targets: usize,
+	/// Fixed owning reply allowance for each forwarded target execution.
+	pub forward_reply_bytes: usize,
 }
 impl Default for Limits {
 	fn default() -> Self {
@@ -90,6 +168,17 @@ impl Default for Limits {
 			max_changes: 64,
 			max_references: 128,
 			max_operations: 32,
+			call_bytes: 64 * 1024,
+			pending_bytes: 4 * 1024 * 1024,
+			ingress_bytes: 1024 * 1024,
+			record_capacity: 8,
+			max_reference_saves: 64,
+			record_bytes: 64 * 1024,
+			max_retentions: 128,
+			max_continuations: 64,
+			continuation_bytes: 64 * 1024,
+			max_continuation_targets: 32,
+			forward_reply_bytes: 16 * 1024,
 		}
 	}
 }
@@ -103,6 +192,17 @@ impl Limits {
 			max_changes: self.max_changes,
 			max_references: self.max_references,
 			max_operations: self.max_operations,
+			call_bytes: self.call_bytes,
+			pending_bytes: self.pending_bytes,
+			ingress_bytes: self.ingress_bytes,
+			record_capacity: self.record_capacity,
+			max_reference_saves: self.max_reference_saves,
+			record_bytes: self.record_bytes,
+			max_retentions: self.max_retentions,
+			max_continuations: self.max_continuations,
+			continuation_bytes: self.continuation_bytes,
+			max_continuation_targets: self.max_continuation_targets,
+			forward_reply_bytes: self.forward_reply_bytes,
 		}
 	}
 }
@@ -156,116 +256,6 @@ pub(super) struct StoreInner {
 	pending_creation: RefCell<Option<Resource>>,
 }
 impl Store {
-	/// Open LMDB with an explicit physical map budget (at least 1 MiB). This
-	/// limit is independent of resident and staged record bytes in `Limits`.
-	#[cfg(not(target_arch = "wasm32"))]
-	pub fn open(
-		path: &std::path::Path,
-		identity: [u8; 16],
-		create: bool,
-		map_bytes: usize,
-		schemas: &[Schema],
-		limits: Limits,
-	) -> Result<Self> {
-		if unsafe { ffi::glowcap_loam_archive_fingerprint() } != ffi::LOAM_ARCHIVE_FINGERPRINT
-			|| unsafe { ffi::glowcap_loam_lmdb_archive_fingerprint() } != ffi::LOAM_LMDB_ARCHIVE_FINGERPRINT
-		{
-			return Err(invalid("Loam archive contract mismatch"));
-		}
-		let path = path.to_str().ok_or_else(|| invalid("store path is not UTF-8"))?;
-		let schemas: Vec<_> = schemas
-			.iter()
-			.map(|s| ffi::GlowcapLoamSchema {
-				id: s.id,
-				version: s.version,
-				max_payload: s.max_payload,
-				max_edges: s.max_edges,
-			})
-			.collect();
-		let mut storage = core::ptr::null_mut();
-		let mut store = core::ptr::null_mut();
-		check(
-			unsafe {
-				ffi::glowcap_loam_lmdb_open(
-					path.as_ptr(),
-					path.len(),
-					identity.as_ptr(),
-					u32::from(create),
-					map_bytes,
-					schemas.as_ptr(),
-					schemas.len(),
-					&limits.raw(),
-					&mut storage,
-					&mut store,
-				)
-			},
-			true,
-		)?;
-		Ok(Self {
-			inner: Rc::new(StoreInner {
-				storage: Cell::new(storage),
-				store,
-				pending_creation: RefCell::new(None),
-			}),
-		})
-	}
-	#[cfg(not(target_arch = "wasm32"))]
-	pub fn create_resource(
-		&self,
-		policy: &Policy,
-		schema: Schema,
-		kind: u64,
-		initial: &[u8],
-		delegation_depth: u16,
-	) -> Result<Resource> {
-		self.inner.live()?;
-		let mut identity = [0u8; 16];
-		getrandom::fill(&mut identity).map_err(|error| invalid(&error.to_string()))?;
-		let mut resource = unsafe { core::mem::zeroed() };
-		check(
-			unsafe {
-				ffi::glowcap_loam_resource_stage(
-					self.inner.store,
-					&policy.raw,
-					identity.as_ptr(),
-					kind,
-					schema.id,
-					schema.version,
-					initial.as_ptr(),
-					initial.len(),
-					delegation_depth,
-					&mut resource,
-				)
-			},
-			false,
-		)?;
-		let resource = Resource { raw: resource };
-		*self.inner.pending_creation.borrow_mut() = Some(resource);
-		let rc = unsafe { ffi::glowcap_loam_lmdb_commit(self.inner.storage.get()) };
-		if rc != ffi::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED {
-			self.inner.pending_creation.borrow_mut().take();
-		}
-		check(rc, true)?;
-		Ok(resource)
-	}
-	/// Resolve an indeterminate creation after the synchronous commit returned.
-	/// The output stays retained until the core proves commit or absence.
-	#[cfg(not(target_arch = "wasm32"))]
-	pub fn recover_creation(&self) -> Result<Resource> {
-		let resource = self
-			.inner
-			.pending_creation
-			.borrow()
-			.as_ref()
-			.copied()
-			.ok_or_else(|| invalid("there is no retained creation result"))?;
-		let rc = unsafe { ffi::glowcap_loam_lmdb_recover(self.inner.storage.get()) };
-		if rc == crate::sys::OK || rc == ffi::GLOWCAP_LOAM_ERR_UNCHANGED {
-			self.inner.pending_creation.borrow_mut().take();
-		}
-		check(rc, true)?;
-		Ok(resource)
-	}
 	pub fn attach(&self, host: &Host, registrations: Vec<Registration>) -> Result<Attachment> {
 		self.inner.live()?;
 		let shared = host.shared();
@@ -273,60 +263,15 @@ impl Store {
 		let diagnostics = shared
 			.retained_context()
 			.ok_or_else(|| invalid("Host diagnostic context is closed"))?;
-		let (rows, callbacks): (Vec<_>, Vec<_>) = registrations
-			.into_iter()
-			.map(|registration| {
-				(
-					(registration.schema, registration.version, registration.methods),
-					content::Callback {
-						content: registration.content,
-						diagnostics: Rc::clone(&diagnostics),
-						host_id: shared.diagnostic_id(),
-					},
-				)
-			})
-			.unzip();
-		let method_tables: Vec<Vec<_>> = rows
-			.iter()
-			.map(|row| {
-				row.2
-					.iter()
-					.map(|method| ffi::GlowcapLoamMethod {
-						verb: method.verb.as_ptr(),
-						verb_len: method.verb.len(),
-						retry: match method.retry {
-							Retry::ReadOnly => 0,
-							Retry::Idempotent => 1,
-							Retry::Receipt => 2,
-						},
-					})
-					.collect()
-			})
-			.collect();
-		let declarations: Vec<_> = rows
-			.iter()
-			.zip(&method_tables)
-			.zip(&callbacks)
-			.map(|((row, methods), callback)| ffi::GlowcapLoamContent {
-				schema: row.0,
-				version: row.1,
-				context: (callback as *const content::Callback).cast_mut().cast(),
-				methods: methods.as_ptr(),
-				method_count: methods.len(),
-				requirement: Some(content::requirement),
-				invoke: Some(content::invoke),
-				references: Some(content::references),
-				dependent_requirement: Some(content::dependent_requirement),
-			})
-			.collect();
+		let prepared = registration::Prepared::new(registrations, diagnostics, shared.diagnostic_id());
 		let mut raw = core::ptr::null_mut();
 		check(
 			unsafe {
 				ffi::glowcap_loam_attach(
 					self.inner.store,
 					shared.raw(),
-					declarations.as_ptr(),
-					declarations.len(),
+					prepared.declarations.as_ptr(),
+					prepared.declarations.len(),
 					Some(content::entropy),
 					core::ptr::null_mut(),
 					&mut raw,
@@ -338,17 +283,24 @@ impl Store {
 			raw: Cell::new(raw),
 			store: Rc::clone(&self.inner),
 			host: shared,
-			callbacks: RefCell::new(Some(callbacks)),
+			callbacks: RefCell::new(Some(prepared.callbacks)),
 			driving: Cell::new(false),
+			progress_changed: Default::default(),
+			#[cfg(target_arch = "wasm32")]
+			storage_jobs: Cell::new(0),
 			release_refusal_reported: Cell::new(false),
+			#[cfg(target_arch = "wasm32")]
+			active_restores: Cell::new(0),
+			#[cfg(target_arch = "wasm32")]
+			restores_changed: Default::default(),
 		});
+		if let Some(callbacks) = inner.callbacks.borrow_mut().as_mut() {
+			for callback in callbacks {
+				callback.owner = Rc::downgrade(&inner);
+			}
+		}
 		inner.host.loam.register(&inner);
 		Ok(Attachment { inner: Some(inner) })
-	}
-	/// Refusal preserves the storage owner. The C Store's borrow counts decide
-	/// whether attachments and effects still prevent release.
-	pub fn close(&mut self) -> Result<()> {
-		self.inner.close()
 	}
 }
 impl StoreInner {
@@ -372,13 +324,13 @@ impl StoreInner {
 }
 impl Drop for StoreInner {
 	fn drop(&mut self) {
+		#[cfg(not(target_arch = "wasm32"))]
 		if let Err(error) = self.close() {
 			crate::record_runtime_failure(crate::FailureLayer::Binding, "loam-store.release", error);
-			#[cfg(not(target_arch = "wasm32"))]
 			crate::finalizer::park_loam_store(self.storage.replace(core::ptr::null_mut()));
-			#[cfg(target_arch = "wasm32")]
-			self.backend.retire(self.store);
 		}
+		#[cfg(target_arch = "wasm32")]
+		self.backend.retire(self.store);
 	}
 }
 pub struct Attachment {
@@ -392,7 +344,16 @@ pub(crate) struct AttachmentInner {
 	// Moving its owner preserves those addresses through Busy and workers.
 	callbacks: RefCell<Option<Vec<content::Callback>>>,
 	driving: Cell<bool>,
+	progress_changed: tokio::sync::Notify,
+	// Browser storage survives cancellation of its progress observer. This
+	// count belongs to the retained physical jobs, not the driving future.
+	#[cfg(target_arch = "wasm32")]
+	storage_jobs: Cell<usize>,
 	release_refusal_reported: Cell<bool>,
+	#[cfg(target_arch = "wasm32")]
+	active_restores: Cell<usize>,
+	#[cfg(target_arch = "wasm32")]
+	restores_changed: tokio::sync::Notify,
 }
 impl Attachment {
 	fn inner(&self) -> Result<&Rc<AttachmentInner>> {
@@ -420,7 +381,15 @@ impl Attachment {
 		let Some(owner) = self.inner.as_ref().map(Rc::clone) else {
 			return Ok(());
 		};
+		#[cfg(target_arch = "wasm32")]
+		while owner.active_restores.get() != 0 {
+			owner.restores_changed.notified().await;
+		}
+		// A reply may arrive before the task driving its physical work retires.
+		// Join that owner rather than racing its final portable completion.
+		owner.join_progress().await;
 		owner.host.kick_actions().await?;
+		owner.join_progress().await;
 		owner.try_close()?;
 		self.inner.take();
 		Ok(())
@@ -437,6 +406,21 @@ impl Drop for Attachment {
 	}
 }
 impl AttachmentInner {
+	async fn join_progress(&self) {
+		loop {
+			let changed = self.progress_changed.notified();
+			tokio::pin!(changed);
+			changed.as_mut().enable();
+			#[cfg(target_arch = "wasm32")]
+			let physical = self.storage_jobs.get() != 0;
+			#[cfg(not(target_arch = "wasm32"))]
+			let physical = false;
+			if !self.driving.get() && !physical {
+				return;
+			}
+			changed.await;
+		}
+	}
 	pub(crate) fn close_from_drop(&self) -> bool {
 		match self.try_close() {
 			Ok(()) => true,
@@ -451,6 +435,13 @@ impl AttachmentInner {
 	pub(crate) fn try_close(&self) -> Result<()> {
 		if self.raw.get().is_null() {
 			return Ok(());
+		}
+		#[cfg(target_arch = "wasm32")]
+		if self.active_restores.get() != 0 {
+			return Err(crate::Error::with_detail(
+				crate::sys::WOULD_BLOCK,
+				"Loam restores still own the attachment".into(),
+			));
 		}
 		check(unsafe { ffi::glowcap_loam_attachment_release(self.raw.get()) }, false)?;
 		self.raw.set(core::ptr::null_mut());
@@ -471,7 +462,10 @@ impl AttachmentInner {
 		if self.raw.get().is_null() || self.driving.replace(true) {
 			return Ok(false);
 		}
-		let _driving = Driving(&self.driving);
+		let _driving = Driving {
+			active: &self.driving,
+			changed: &self.progress_changed,
+		};
 		let mut progressed = 0;
 		check(
 			unsafe { ffi::glowcap_loam_advance(self.raw.get(), &mut progressed) },
@@ -488,17 +482,18 @@ impl AttachmentInner {
 				return Ok(progressed != 0);
 			}
 			progressed = 1;
-			let rc = work::execute(Rc::clone(self), raw).await?;
-			if rc != ffi::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED {
-				check(rc, false)?;
-			}
+			work::execute(Rc::clone(self), raw).await?;
 		}
 	}
 }
-struct Driving<'a>(&'a Cell<bool>);
+struct Driving<'a> {
+	active: &'a Cell<bool>,
+	changed: &'a tokio::sync::Notify,
+}
 impl Drop for Driving<'_> {
 	fn drop(&mut self) {
-		self.0.set(false);
+		self.active.set(false);
+		self.changed.notify_waiters();
 	}
 }
 /// Registration changes allocate; progress clones one immutable Rc inventory

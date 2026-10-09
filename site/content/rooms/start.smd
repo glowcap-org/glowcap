@@ -121,8 +121,9 @@ on the first screen, paste the link, and attach.
 
 The phone shows the same rooms, the same direct conversation, and the same
 history settings, and a line posted from either side shows up in both.
-The page that shared it is the one keeping it, so reloading that page ends
-the share. For a session that is always on, run the session service from
+The page that shared it is the one serving it. Its saved workspace and access
+survive reload. Other views can reconnect when that page is serving again.
+For a session that is always on, run the session service from
 [Operate Rooms]($link.page('rooms/operations')) and open it the same way.
 
 # Keep and share history

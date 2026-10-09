@@ -57,7 +57,7 @@ impl<D: Deadline + Entropy + Clone> Publisher<D> {
 			if !inbox.retiring() {
 				continue;
 			}
-			self.host.unpublish_giftable(inbox.alias())?;
+			self.host.unpublish(inbox.alias())?;
 			self.ledger.borrow_mut().removed(inbox)?;
 		}
 		Ok(())
@@ -82,14 +82,14 @@ impl<D: Deadline + Entropy + Clone> Offerer<D> {
 	/// directory acknowledgements; no factory or ledger borrow spans a wait.
 	/// Cancelling an acknowledged or unacknowledged offer retains its published
 	/// alias for re-offer; only forget/close ends that registration's authority.
-	pub async fn offer(&self, directory: &Directory<D>, peer: &str, id: &Id) -> Result<(), Error> {
+	pub async fn offer(&self, directory: &Directory<D>, peer: &str, id: &Id, opening: &str) -> Result<(), Error> {
 		if self.skip.as_ref().is_some_and(|skip| skip(peer)) {
 			return Ok(());
 		}
 		let session = directory.client().session();
 		let inbox = self.publish(session, peer, id).await?;
 		let reference = session.published_ref(inbox.alias())?.ok_or(policy::Error::Phase)?;
-		self.submit(directory, peer, id, &inbox, &reference).await
+		self.submit(directory, peer, id, opening, &inbox, &reference).await
 	}
 	/// Publish on a separate inbox Host and import through an established
 	/// connection to it before offering the capability to the directory.
@@ -104,6 +104,7 @@ impl<D: Deadline + Entropy + Clone> Offerer<D> {
 		importer: &Session,
 		peer: &str,
 		id: &Id,
+		opening: &str,
 	) -> Result<(), Error> {
 		if self.skip.as_ref().is_some_and(|skip| skip(peer)) {
 			return Ok(());
@@ -124,7 +125,7 @@ impl<D: Deadline + Entropy + Clone> Offerer<D> {
 		if !inbox.live() {
 			return Err(policy::Error::Closed.into());
 		}
-		self.submit(directory, peer, id, &inbox, &reference).await
+		self.submit(directory, peer, id, opening, &inbox, &reference).await
 	}
 	async fn publish(&self, session: &Session, peer: &str, id: &Id) -> Result<policy::Inbox, Error> {
 		if !self.publisher.host.same_host(&session.host()) {
@@ -158,7 +159,7 @@ impl<D: Deadline + Entropy + Clone> Offerer<D> {
 				return Err(policy::Error::Collision.into());
 			}
 			let authority = inbox.clone();
-			self.publisher.host.publish_giftable(inbox.alias(), || {
+			self.publisher.host.publish(inbox.alias(), || {
 				Box::new(move |verb, args| {
 					if !authority.live() {
 						return Err(Failure {
@@ -179,10 +180,11 @@ impl<D: Deadline + Entropy + Clone> Offerer<D> {
 		directory: &Directory<D>,
 		peer: &str,
 		id: &Id,
+		opening: &str,
 		inbox: &policy::Inbox,
 		reference: &Ref,
 	) -> Result<(), Error> {
-		let result = directory.offer_inbox(peer, id, reference).await;
+		let result = directory.offer_inbox(peer, id, opening, reference).await;
 		if !inbox.live() {
 			return Err(policy::Error::Closed.into());
 		}

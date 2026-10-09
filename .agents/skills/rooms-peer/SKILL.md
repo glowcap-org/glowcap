@@ -121,11 +121,16 @@ The first JSON line reports the current inbox, even if empty. Later lines
 contain newly delivered events; quiet periods produce no output. Reply and
 dismiss through separate commands while the same listener stays active.
 `remaining` counts all unacknowledged events, including ones already delivered.
-Use `tick --dir <dir> --wait 0` to reread the pending batch if needed.
+Use `tick --dir <dir> --wait 0` to reread a pending page. If `more` is true,
+pass `--after-id <last-event-id>` for its successor. The continuous listener
+drains these pages automatically without acknowledging them.
 
-Read every event in `pending`. Each has an `id`, `channel` (`room` or `dm`),
-`conversation`, `author`, `text`, and room/peer context. Events also include
-edits, withdrawals, presence, and file descriptions. No mention filter runs.
+Read every row in `pending`. Its `id` names the journal entry; `event.target`
+names the conversation with `kind` (`room` or `direct`) and `id`.
+`event.notice.kind` identifies lines, presence, and other domain events. Line
+notices carry `from`, `text`, and `marker` with the line `id` and `change`.
+`files` describes attachments. An unavailable journal row has `unavailable: true`.
+No mention filter runs.
 Answer a DM in its own conversation; keep private content out of room replies.
 
 ```sh

@@ -56,6 +56,12 @@ const DeadPeerBackend = struct {
     pub fn deinit(self: *DeadPeerBackend) void {
         self.* = .{};
     }
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
+    }
+
     pub fn openListener(self: *@This(), port: u16) !Fd {
         _ = self;
         _ = port;

@@ -7,8 +7,8 @@ use std::path::Path;
 #[derive(Default)]
 struct Delivery {
 	after: Option<u64>,
-	// The journal never reuses identifiers and returns its oldest pending page
-	// in ascending order. One watermark replaces a retained set of event IDs.
+	// Independent of the wake cursor: page past delivered events while leaving
+	// them pending for acknowledgment and replay on a later invocation.
 	delivered: u64,
 }
 impl Delivery {
@@ -42,11 +42,15 @@ pub(super) async fn run(state: &Path) -> Result<Value, Failure> {
 	let mut delivery = Delivery::default();
 	loop {
 		let wait = if delivery.after.is_none() { 0 } else { 30 };
-		let mut batch = request(state, json!({"verb":"tick", "wait":wait, "after":delivery.after})).await?;
+		let mut batch = request(
+			state,
+			json!({"verb":"tick", "wait":wait, "after":delivery.after, "after_id":delivery.delivered}),
+		)
+		.await?;
 		if delivery.batch(&mut batch)? {
 			emit(&batch)?;
 		}
-		if !batch["gap"].is_null() {
+		if !batch["gap"].is_null() && batch["more"] != true {
 			return Err(Failure::uncertain(
 				"observation gap; inspect status, then explicitly resume --accept-gap",
 			));

@@ -115,7 +115,7 @@ export class Directory {
 			session,
 			directory,
 			(ref) => this.#releaseLocal(ref),
-			(peer, registrationId) => this.#wakeIntroducible(peer, registrationId),
+			(peer, registrationId, opening) => this.#wakeIntroducible(peer, registrationId, opening),
 		);
 	}
 
@@ -335,7 +335,7 @@ export class Directory {
 	}
 
 	/** Announce a member for DM introduce. `locator` is the listen address redeem
-	 * should dial. Resolves on `notify("registered", …)`.
+	 * should dial. Resolves from the committed registration result.
 	 *
 	 * `onMintInboxFor` fires when the directory needs an inbox for a named peer.
 	 * Supply one to be reachable by direct message at all: without it every
@@ -393,9 +393,10 @@ export class Directory {
 		expectedRegistrationId?: string,
 	): Promise<{ dm: Ref; via: Session | null; registrationId: string }> {
 		const registrationId = expectedRegistrationId ?? await this.memberRegistration(nick);
+		const opening = crypto.randomUUID();
 		parseRegistrationId(registrationId, `introduce("${nick}")`);
 		try {
-			return await this.#introduceOnce(nick, registrationId);
+			return await this.#introduceOnce(nick, registrationId, opening);
 		} catch (err) {
 			if (roomsErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
 		}
@@ -408,9 +409,9 @@ export class Directory {
 		// retry refused again therefore waits for a fresh notify rather than
 		// reporting failure on the strength of an old one.
 		for (let attempt = 0; attempt < 2; attempt += 1) {
-			await this.#awaitIntroducible(nick, registrationId, attempt === 0);
+			await this.#awaitIntroducible(nick, registrationId, opening, attempt === 0);
 			try {
-				return await this.#introduceOnce(nick, registrationId);
+				return await this.#introduceOnce(nick, registrationId, opening);
 			} catch (err) {
 				if (roomsErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
 			}
@@ -424,13 +425,14 @@ export class Directory {
 	async #introduceOnce(
 		nick: string,
 		expectedRegistrationId: string,
+		opening: string,
 	): Promise<{ dm: Ref; via: Session | null; registrationId: string }> {
 		// Named as this directory's redeem: the dial it raises may need signaling,
 		// and only this side knows which directory is vouching for the peer.
 		const redemption = redeemRoutes.run(
 			this,
 			this.#lifetime.signal,
-			() => this.session.sendRedeeming(this.#directory, INTRODUCE, [nick, expectedRegistrationId]),
+			() => this.session.sendRedeeming(this.#directory, INTRODUCE, [nick, expectedRegistrationId, opening]),
 		);
 		const result = await claimRedeemWithin(
 			redemption,
@@ -460,8 +462,8 @@ export class Directory {
 		}
 	}
 
-	#wakeIntroducible(_peer: string, registrationId: string): void {
-		const key = registrationId;
+	#wakeIntroducible(_peer: string, registrationId: string, opening: string): void {
+		const key = JSON.stringify([registrationId, opening]);
 		const waiting = this.#introducible.get(key);
 		this.#introducible.delete(key);
 		// A list every waiter has timed out of is the same as no list: bank the
@@ -481,8 +483,8 @@ export class Directory {
 	/** Wait for `nick` to offer us an inbox. `useBanked` spends a wakeup that
 	 * arrived before this call; the retry pass passes false, so it waits for a
 	 * fresh one. */
-	#awaitIntroducible(nick: string, registrationId: string, useBanked: boolean): Promise<void> {
-		const key = registrationId;
+	#awaitIntroducible(nick: string, registrationId: string, opening: string, useBanked: boolean): Promise<void> {
+		const key = JSON.stringify([registrationId, opening]);
 		if (useBanked && this.#introducibleSeen.delete(key)) return Promise.resolve();
 		return new Promise((resolve, reject) => {
 			if (this.#lifetime.signal.aborted) {
@@ -532,8 +534,8 @@ export class Directory {
 
 	/** Offer the directory an inbox for one named peer, the answer to a
 	 * `mintInboxFor` request. */
-	async offerInbox(forNick: string, forRegistrationId: string, inbox: Ref): Promise<void> {
-		await this.#registration.offerInbox(forNick, forRegistrationId, inbox);
+	async offerInbox(forNick: string, forRegistrationId: string, opening: string, inbox: Ref): Promise<void> {
+		await this.#registration.offerInbox(forNick, forRegistrationId, opening, inbox);
 	}
 
 	/** File this member's WebRTC signaling inbox with the directory. */

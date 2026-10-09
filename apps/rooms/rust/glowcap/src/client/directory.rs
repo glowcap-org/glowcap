@@ -157,16 +157,11 @@ impl<D: Deadline> Directory<D> {
 				"the directory did not answer managed room creation",
 			)
 			.await?;
-		let Argument::List(mut pair) = reply.0 else {
+		let Argument::List(pair) = &reply.0 else {
 			return Err(directory::Error::Bootstrap.into());
 		};
-		if pair.len() != 2 {
-			return Err(directory::Error::Bootstrap.into());
-		}
-		let (Argument::Reference(bootstrap), Argument::Reference(room)) = (pair.pop().unwrap(), pair.pop().unwrap())
-		else {
-			return Err(directory::Error::Bootstrap.into());
-		};
+		let values = crate::values(pair).collect::<Vec<_>>();
+		let creation::Bootstrap { room, bootstrap } = creation::read_bootstrap(&values)?;
 		let reply = self
 			.client
 			.call(
@@ -176,14 +171,10 @@ impl<D: Deadline> Directory<D> {
 				"the room bootstrap did not answer its authorities",
 			)
 			.await?;
-		let Argument::List(mut pair) = reply.0 else {
-			return Err(directory::Error::Authorities.into());
-		};
-		if pair.len() != 2 {
-			return Err(directory::Error::Authorities.into());
-		}
-		let manager_link = link(pair.pop().unwrap())?;
-		let room_link = link(pair.pop().unwrap())?;
+		let value = Value(&reply.0);
+		let [room_link, manager_link] = creation::authorities(&value)?;
+		let room_link = link(room_link.into())?;
+		let manager_link = link(manager_link.into())?;
 		Ok(ManagedRoom {
 			room,
 			room_link,

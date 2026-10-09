@@ -26,6 +26,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 
+const codec = glowcap.ocapn.codec;
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
 const session = glowcap.ocapn.session;
@@ -147,6 +148,44 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(43)), view.deliver.answer);
     try std.testing.expectEqualStrings("ping", (try view.deliver.args.at(0)).bytes);
+}
+
+test "a failed immediate pipeline dispatch keeps its inbound commit and closes" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+
+    try peer.session_state.registerExport(.from(9));
+    try peer.session_state.installInboundAnswer(.from(42));
+    peer.session_state.limits.max_local_deliveries = 0;
+    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+
+    // Record a local target while leaving the resolve queued. The inbound
+    // pipelined deliver therefore dispatches immediately against this value.
+    try peer.sendCopying(.{ .resolve = .{
+        .answer = .from(42),
+        .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
+    } });
+
+    var inbound = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(42) } },
+        .args = &.{.{ .reference = .{ .near = model.NearRef.promise(77) } }},
+        .answer = .from(43),
+    } });
+    defer inbound.deinit();
+
+    try std.testing.expectError(error.LocalDeliveryCapExceeded, peer.recvBorrowed(inbound.view()));
+    try std.testing.expectEqual(session.State.closed, peer.session_state.state);
+    try std.testing.expect(peer.session_state.inboundAnswer(.from(43)) != null);
+    try std.testing.expect(peer.session_state.hasImport(.from(77)));
+    try std.testing.expect(peer.session_state.sourceForShorteningResolver(shortening_resolver) != null);
+
+    var abort_frame = peer.takeOutbound() orelse return error.MissingAbort;
+    defer abort_frame.deinit();
+    const abort = try codec.syrup.decodeBodyForProfile(.next, abort_frame.view());
+    try std.testing.expect(abort == .abort);
+    try std.testing.expectEqual(model.AbortKind.resource_exhausted, abort.abort.kind);
+    try std.testing.expect(peer.takeOutbound() == null);
 }
 
 test "an op:listen arriving while its answer's resolve is queued fires with the real value" {

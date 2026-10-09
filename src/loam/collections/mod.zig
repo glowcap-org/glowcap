@@ -16,7 +16,7 @@
 //!
 //! Scope (ADR-0061): one map keyed by `u64`, values stored by value. It is a
 //! dependency-free leaf under `glowcap.loam.collections`. Actor snapshots can
-//! use it without Loam storage, managed access, or a native database.
+//! use it without Loam storage, managed access, or a persistent database.
 //! Values are POD-shaped, stored and copied by value: leaves are shared across
 //! versions and freed inside the trie's own refcounting with no per-value
 //! hook, so an external owner could never learn when the last copy of a value

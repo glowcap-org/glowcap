@@ -83,7 +83,10 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 			if let Some(trace) = &ready.trace {
 				eprintln!("ROOMS-TRACE-LISTENING {trace}");
 			}
-			eprint!("{}", boot_block(transport, location, keeps, &ready.capabilities));
+			eprint!(
+				"{}",
+				boot_block(transport, location, keeps, &ready.capabilities, ready.trace.as_deref())
+			);
 		},
 		report,
 	)
@@ -95,10 +98,31 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 /// lines print: they are the grep contract of the flags that minted them.
 /// Standalone, this block is the presentation: what is serving where, each
 /// copyable value ending its own aligned line, and one ready line last.
-fn boot_block(transport: &str, location: &str, keeps: bool, capabilities: &[server::Minted]) -> String {
+fn boot_block(
+	transport: &str,
+	location: &str,
+	keeps: bool,
+	capabilities: &[server::Minted],
+	trace: Option<&str>,
+) -> String {
+	let locator = glowcap::parse_locator(location).expect("Ready carries the server's validated locator");
+	let capability_lines = || {
+		capabilities.iter().map(|cap| {
+			if cap.capability.id == "trace" {
+				format!(
+					"{} {}",
+					cap.capability.token,
+					trace.expect("minted timeline owns its advertised recipe")
+				)
+			} else {
+				cap.line(&locator)
+					.expect("bounded boot swiss and validated locator form a sturdy reference")
+			}
+		})
+	};
 	let mut lines: Vec<String> = Vec::new();
 	if std::env::var("GLOWCAP_ROOMS_SUPERVISED").as_deref() == Ok("1") {
-		lines.extend(capabilities.iter().map(server::Minted::line));
+		lines.extend(capability_lines());
 	} else {
 		lines.push("rooms: directory listening".into());
 		lines.push(String::new());
@@ -109,9 +133,9 @@ fn boot_block(transport: &str, location: &str, keeps: bool, capabilities: &[serv
 		}
 		if !capabilities.is_empty() {
 			lines.push(String::new());
-			lines.push("  operator capabilities, fetch each by its swiss:".into());
+			lines.push("  operator capabilities, retain each complete URI:".into());
 			lines.push(String::new());
-			lines.extend(capabilities.iter().map(server::Minted::line));
+			lines.extend(capability_lines());
 		}
 		lines.push(String::new());
 		lines.push("rooms: ready".into());

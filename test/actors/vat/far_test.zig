@@ -64,60 +64,68 @@ test "far tell delivers with no answer and the partner replies nothing" {
     try std.testing.expect(host_peer.takeOutbound() == null);
 }
 
-test "on a far vow whose resolve already arrived is refused AlreadySettled" {
+test "far observation refuses every completed answer beyond a bounded history" {
     const allocator = std.testing.allocator;
-    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
-    defer pair.deinit();
-    const host_peer = &pair.p1;
-    const caller_peer = &pair.p2;
+    inline for (.{ model.CaptpVersion.v1_0, model.CaptpVersion.next }) |profile| {
+        var pair = if (profile == .v1_0)
+            try glowcap.ocapn.engine.pairing.pairedV1_0Syrup(allocator)
+        else
+            try glowcap.ocapn.engine.pairing.paired(allocator);
+        defer pair.deinit();
+        const host_peer = &pair.p1;
+        const caller_peer = &pair.p2;
 
-    var host_vat = actors.Vat.init(allocator);
-    defer host_vat.deinit();
-    var host_port = actors.Port.init(allocator, host_peer);
-    defer host_port.deinit(&host_vat);
-    const counter = try host_vat.spawn(Counter, .{ .n = 0 });
-    try host_port.bindExport(&host_vat, counter, 5);
-    try host_peer.exportObject(5);
+        var host_vat = actors.Vat.init(allocator);
+        defer host_vat.deinit();
+        var host_port = actors.Port.init(allocator, host_peer);
+        defer host_port.deinit(&host_vat);
+        const counter = try host_vat.spawn(Counter, .{ .n = 0 });
+        try host_port.bindExport(&host_vat, counter, 5);
+        try host_peer.exportObject(5);
 
-    try caller_peer.importObject(5);
-    var caller_vat = actors.Vat.init(allocator);
-    defer caller_vat.deinit();
-    var caller_port = actors.Port.init(allocator, caller_peer);
-    defer caller_port.deinit(&caller_vat);
+        try caller_peer.importObject(5);
+        var caller_vat = actors.Vat.init(allocator);
+        defer caller_vat.deinit();
+        var caller_port = actors.Port.init(allocator, caller_peer);
+        defer caller_port.deinit(&caller_vat);
 
-    // A far send the host answers with the new count.
-    const vow = try caller_port.send(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+        // Completed answers must not consume a finite history of refusal markers.
+        for (0..600) |i| {
+            // A far send the host answers with the new count.
+            const vow = try caller_port.send(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
 
-    // The deliver reaches the host, which runs the actor and resolves the answer.
-    try cross_peer.pumpAll(caller_peer, host_peer);
-    while (host_peer.pollEvent()) |ev| {
-        var e = ev;
-        defer e.deinit();
-        _ = host_port.serve(&host_vat, &e) catch {};
+            // The deliver reaches the host, which runs the actor and resolves the answer.
+            try cross_peer.pumpAll(caller_peer, host_peer);
+            while (host_peer.pollEvent()) |ev| {
+                var e = ev;
+                defer e.deinit();
+                _ = host_port.serve(&host_vat, &e) catch {};
+            }
+            // The host's resolve travels back to the caller and is applied.
+            try cross_peer.pumpAll(host_peer, caller_peer);
+            // Receiving a reply does not consume its application notification.
+            var captured = promise_capture.CapturedInt{};
+            const listener = actors.Listener{ .ctx = &captured, .func = promise_capture.CapturedInt.record };
+            if (i % 2 == 1) try caller_port.on(&caller_vat, vow, listener);
+            while (caller_peer.pollEvent()) |ev| {
+                var e = ev;
+                defer e.deinit();
+                _ = caller_port.serve(&caller_vat, &e) catch {};
+            }
+
+            if (i % 2 == 1) try std.testing.expectEqual(@as(i64, @intCast((i + 1) * 5)), captured.value.?);
+            // Both observed and discarded notifications refuse another listener.
+            try std.testing.expectError(
+                actors.Error.AlreadySettled,
+                caller_port.on(&caller_vat, vow, listener),
+            );
+            // Refusal remains stable on retry.
+            try std.testing.expectError(
+                actors.Error.AlreadySettled,
+                caller_port.on(&caller_vat, vow, listener),
+            );
+        }
     }
-    // The host's resolve travels back to the caller and is applied.
-    try cross_peer.pumpAll(host_peer, caller_peer);
-    // The caller pumps the resolve *before* registering `on`: it fires with no
-    // listener and is dropped, and the outbound answer is now settled.
-    while (caller_peer.pollEvent()) |ev| {
-        var e = ev;
-        defer e.deinit();
-        _ = caller_port.serve(&caller_vat, &e) catch {};
-    }
-
-    // A listener registered now would never fire, so it is refused loud —
-    // the wire-side mirror of the local arm's settled guard.
-    var captured = Captured{};
-    try std.testing.expectError(
-        actors.Error.AlreadySettled,
-        caller_port.on(&caller_vat, vow, .{ .ctx = &captured, .func = Captured.record }),
-    );
-    // The refusal is idempotent: a retried `on` hits the same wall instead of
-    // slipping past a consumed marker into a listener that can never fire.
-    try std.testing.expectError(
-        actors.Error.AlreadySettled,
-        caller_port.on(&caller_vat, vow, .{ .ctx = &captured, .func = Captured.record }),
-    );
 }
 
 test "breakFarVows settles outstanding far vows broken" {
@@ -379,6 +387,7 @@ const RegisterOnBreak = struct {
     port: *actors.Port,
     late_broke: *bool,
     registered: bool = false,
+    nested: bool = false,
 
     fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *RegisterOnBreak = @ptrCast(@alignCast(ctx.?));
@@ -390,30 +399,141 @@ const RegisterOnBreak = struct {
             .{ .verb = "late" },
         ) catch return;
         self.port.on(self.vat, late, .{ .ctx = self.late_broke, .func = promise_capture.captureBroken }) catch {};
+        if (self.nested) self.port.breakFarVows("nested break");
     }
 };
 
 test "a far vow registered during breakFarVows also fires broken" {
+    for ([_]bool{ false, true }) |nested| {
+        const allocator = std.testing.allocator;
+        var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
+        defer pair.deinit();
+        const caller_peer = &pair.p2;
+
+        try caller_peer.importObject(5);
+        try caller_peer.importObject(6);
+        var vat = actors.Vat.init(allocator);
+        defer vat.deinit();
+        var port = actors.Port.init(allocator, caller_peer);
+        defer port.deinit(&vat);
+
+        const vow = try port.send(&vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "poke" });
+        var late_broke = false;
+        var reactor = RegisterOnBreak{ .vat = &vat, .port = &port, .late_broke = &late_broke, .nested = nested };
+        try port.on(&vat, vow, .{ .ctx = &reactor, .func = RegisterOnBreak.record });
+
+        // Reentrant registration and a nested drain both use the same owner.
+        port.breakFarVows("connection closed");
+        try std.testing.expect(reactor.registered);
+        try std.testing.expect(late_broke);
+    }
+}
+
+test "far observation cancellation and terminal refusal need no completion allocation" {
     const allocator = std.testing.allocator;
     var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
-    const caller_peer = &pair.p2;
-
-    try caller_peer.importObject(5);
-    try caller_peer.importObject(6);
-    var vat = actors.Vat.init(allocator);
+    try pair.p2.importObject(5);
+    var failing = std.testing.FailingAllocator.init(allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
     defer vat.deinit();
-    var port = actors.Port.init(allocator, caller_peer);
+    var port = actors.Port.init(failing.allocator(), &pair.p2);
     defer port.deinit(&vat);
+    var captured = Captured{};
+    const listener = actors.Listener{ .ctx = &captured, .func = Captured.record };
+    const vow = try port.send(&vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "wait" });
+    try port.on(&vat, vow, listener);
+    try std.testing.expect(port.takeListener(&vat, vow) != null);
+    try port.on(&vat, vow, listener);
+    failing.fail_index = failing.alloc_index;
+    try port.settleFar(&vat, vow.far, .{ .broken = "failed" });
+    try std.testing.expect(captured.broken);
+    try std.testing.expectError(error.AlreadySettled, port.on(&vat, vow, listener));
+    try std.testing.expect(!failing.has_induced_failure);
+    failing.fail_index = std.math.maxInt(usize);
 
-    const vow = try port.send(&vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "poke" });
-    var late_broke = false;
-    var reactor = RegisterOnBreak{ .vat = &vat, .port = &port, .late_broke = &late_broke };
-    try port.on(&vat, vow, .{ .ctx = &reactor, .func = RegisterOnBreak.record });
+    // Breaking current vows also consumes unobserved answers. Fresh sends
+    // remain usable when the caller only breaks vows and keeps the session.
+    const unobserved = try port.send(&vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "wait" });
+    port.breakFarVows("interrupted");
+    try std.testing.expectError(error.AlreadySettled, port.on(&vat, unobserved, listener));
+    const fresh = try port.send(&vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "wait" });
+    try port.on(&vat, fresh, listener);
+    try std.testing.expect(port.takeListener(&vat, fresh) != null);
+    failing.fail_index = failing.alloc_index;
+    try port.settleFar(&vat, fresh.far, .{ .fulfilled = .{ .integer = 7 } });
+    try std.testing.expectError(error.AlreadySettled, port.on(&vat, fresh, listener));
+    try std.testing.expect(!failing.has_induced_failure);
+}
 
-    // The whole listener map is detached before any fire; the mid-break
-    // registration lands in the fresh map and the outer re-check drains it.
-    port.breakFarVows("connection closed");
-    try std.testing.expect(reactor.registered);
-    try std.testing.expect(late_broke);
+test "far observation refuses an unobserved send retracted without allocation" {
+    const Probe = struct {
+        vow: *actors.Vow,
+        allocator: *std.testing.FailingAllocator,
+        pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+            self.vow.* = try turn.send(.{ .far = model.FarRef.object(5) }, .{ .verb = "wait" });
+            self.allocator.fail_index = self.allocator.alloc_index;
+            return error.Refused;
+        }
+    };
+    var pair = try glowcap.ocapn.engine.pairing.paired(std.testing.allocator);
+    defer pair.deinit();
+    try pair.p2.importObject(5);
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
+    defer vat.deinit();
+    var port = actors.Port.init(failing.allocator(), &pair.p2);
+    defer port.deinit(&vat);
+    var vow: actors.Vow = undefined;
+    const actor = try vat.spawn(Probe, .{ .vow = &vow, .allocator = &failing });
+    try std.testing.expectError(error.Refused, vat.nearFromPort(&port, .local, actor, .{ .verb = "fail" }));
+    var captured = Captured{};
+    try std.testing.expectError(error.AlreadySettled, port.on(&vat, vow, .{ .ctx = &captured, .func = Captured.record }));
+    try std.testing.expect(!failing.has_induced_failure);
+}
+
+test "bulk far failure keeps pending listeners cancellable without allocating" {
+    const Probe = struct {
+        vat: *actors.Vat,
+        port: *actors.Port,
+        own: actors.Vow,
+        other: actors.Vow,
+        calls: *usize,
+        cancelled: *usize,
+        refused: *usize,
+        fn record(ctx: ?*anyopaque, _: actors.Resolution) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.calls.* += 1;
+            self.port.on(self.vat, self.own, .{ .ctx = ctx, .func = record }) catch |err| {
+                if (err == error.AlreadySettled) self.refused.* += 1;
+            };
+            if (self.port.takeListener(self.vat, self.other) != null)
+                self.cancelled.* += 1;
+        }
+    };
+    var pair = try glowcap.ocapn.engine.pairing.paired(std.testing.allocator);
+    defer pair.deinit();
+    try pair.p2.importObject(5);
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
+    defer vat.deinit();
+    var port = actors.Port.init(failing.allocator(), &pair.p2);
+    defer port.deinit(&vat);
+    var calls: usize = 0;
+    var cancelled: usize = 0;
+    var refused: usize = 0;
+    var probes: [1024]Probe = undefined;
+    for (&probes) |*probe| {
+        const vow = try port.send(&vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "wait" });
+        probe.* = .{ .vat = &vat, .port = &port, .own = vow, .other = undefined, .calls = &calls, .cancelled = &cancelled, .refused = &refused };
+        try port.on(&vat, vow, .{ .ctx = probe, .func = Probe.record });
+    }
+    for (&probes, 0..) |*probe, i| probe.other = probes[i ^ 1].own;
+    failing.fail_index = failing.alloc_index;
+    port.breakFarVows("closed");
+    try std.testing.expectEqual(@as(usize, probes.len / 2), calls);
+    try std.testing.expectEqual(calls, cancelled);
+    try std.testing.expectEqual(calls, refused);
+    try std.testing.expect(!failing.has_induced_failure);
+    try std.testing.expectEqual(failing.allocated_bytes, failing.freed_bytes);
 }

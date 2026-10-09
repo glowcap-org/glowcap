@@ -1,6 +1,6 @@
 //! The host durable Rooms session peer. Options come from the command line
 //! or `GLOWCAP_ROOMS_SESSION_*`; the one stdout line announces the
-//! administrator sturdyref, and everything else goes to stderr.
+//! workspace use sturdyref, and everything else goes to stderr.
 //!
 //! `--check-ready=<path>` is the deployment's healthcheck: it reads the
 //! readiness mirror a running peer wrote, prints the sturdyref when the file
@@ -62,36 +62,51 @@ async fn start() -> Result<(), String> {
 	};
 	let report = Rc::new(|notice: Notice| eprintln!("rooms session: {notice}"));
 	if control == 1 {
-		let peer = session::Peer::open(config, report).await.map_err(|e| e.to_string())?;
-		let control =
+		let mut peer = session::Peer::open(config, report).await.map_err(|e| e.to_string())?;
+		let mut control =
 			match session::control::Control::open(&peer, Rc::new(|error| eprintln!("Rooms local control: {error}")))
 				.await
 			{
 				Ok(control) => control,
 				Err(error) => {
-					let closed = peer.close().await;
-					return Err(match closed {
-						Ok(()) => error.to_string(),
-						Err(cleanup) => format!("{error}; cleanup: {cleanup}"),
-					});
+					while let Err(cleanup) = peer.close().await {
+						eprintln!("Rooms session startup close: {cleanup}");
+						tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+					}
+					return Err(error.to_string());
 				}
 			};
 		println!("ROOMS-SESSION-LISTENING {}", peer.link());
 		let served = peer.serve(control.serve(stop)).await;
-		let closed = control.close().await;
-		return match (served, closed) {
-			(Ok(()), Ok(())) => Ok(()),
-			(Err(error), Ok(())) => Err(error.to_string()),
-			(Ok(()), Err(error)) => Err(error.to_string()),
-			(Err(error), Err(cleanup)) => Err(format!("{error}; cleanup: {cleanup}")),
-		};
+		// A transport can end serving before the halt future resolves. Both
+		// exits drain local commands while the peer still owns a running Host.
+		while let Err(error) = control.drain().await {
+			eprintln!("Rooms local control drain: {error}");
+			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+		}
+		loop {
+			match peer.close().await {
+				Ok(()) => break,
+				Err(error) => {
+					eprintln!("Rooms session close: {error}");
+					tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+				}
+			}
+		}
+		// Socket absence is the command front's completed-stop witness. Keep it
+		// until the managed store has released its state-directory lease.
+		while let Err(error) = control.close().await {
+			eprintln!("Rooms local control close: {error}");
+			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+		}
+		return served.map_err(|error| error.to_string());
 	}
 	session::run(
 		config,
 		stop,
 		|link| {
 			println!("ROOMS-SESSION-LISTENING {link}");
-			eprintln!("rooms session: host peer ready over {transport}; the sturdyref is session administration");
+			eprintln!("rooms session: host peer ready over {transport}; management is in control.sturdyref");
 		},
 		report,
 	)

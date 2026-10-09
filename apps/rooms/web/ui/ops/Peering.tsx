@@ -42,9 +42,8 @@ import {
 export function PeeringPane(
 	{ state, sources }: {
 		state: PeeringState | null;
-		/** The rooms this tab could publish: joined, on a directory other than
-		 * this one. Derived above from the conversations, so the choices are
-		 * exactly what the tab can reach. */
+		/** Held durable room entrances on another connected directory, derived
+		 * from the same custody projection the publish command selects. */
 		sources: readonly PeeringSource[];
 	},
 ) {
@@ -58,6 +57,7 @@ export function PeeringPane(
 	const [refused, setRefused] = useState<string | null>(null);
 	/** The last refusal per publication row, shown beside the revoke that asked. */
 	const [rowRefusals, setRowRefusals] = useState<Partial<Record<string, string>>>({});
+	const [revoking, setRevoking] = useState<ReadonlySet<string>>(new Set());
 
 	// The modal draws one pane per held capability; see the listeners pane.
 	if (state === null) return null;
@@ -83,10 +83,19 @@ export function PeeringPane(
 	};
 
 	const revoke = (id: string | number) => {
-		setRowRefusals((prior) => ({ ...prior, [String(id)]: undefined }));
+		const key = String(id);
+		if (revoking.has(key)) return;
+		setRevoking((prior) => new Set(prior).add(key));
+		setRowRefusals((prior) => ({ ...prior, [key]: undefined }));
 		void actionRefusal(() => session.revokePeeredPublication(id)).then((why) => {
-			if (why !== "") setRowRefusals((prior) => ({ ...prior, [String(id)]: why }));
-		});
+			if (why !== "") setRowRefusals((prior) => ({ ...prior, [key]: why }));
+		}).finally(() =>
+			setRevoking((prior) => {
+				const next = new Set(prior);
+				next.delete(key);
+				return next;
+			})
+		);
 	};
 
 	return (
@@ -194,7 +203,9 @@ export function PeeringPane(
 														<Button
 															type="button"
 															variant="quiet"
-															busy={row.phase === "revoking"}
+															busy={row.phase === "revoking" ||
+																revoking.has(String(row.id))}
+															disabled={revoking.has(String(row.id))}
 															onClick={() => revoke(row.id)}
 														>
 															Revoke

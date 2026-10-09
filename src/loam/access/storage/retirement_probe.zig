@@ -39,7 +39,7 @@ pub const Probe = struct {
                 self.ready = true;
                 return .ready;
             }
-            var scratch: [core.max_scope_objects * @sizeOf(core.ResourceId)]u8 align(@alignOf(core.ResourceId)) = undefined;
+            var scratch: [records.CapabilityRecord.selection_bytes]u8 align(@alignOf(core.ResourceId)) = undefined;
             var fixed = std.heap.FixedBufferAllocator.init(&scratch);
             var decoded = try records.CapabilityRecord.decodeOwned(fixed.allocator(), loaded.view);
             defer decoded.deinit(fixed.allocator());

@@ -11,10 +11,13 @@ import { useRoomsSession } from "../controller/session.ts";
 import type { RoomsSessionController } from "../controller/session.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { sessionConfirmKeep } from "../../../lib/text/session.ts";
+import { useOperatorActivity } from "./operator_activity.tsx";
 
 export interface OperatorActs {
 	/** Which row is holding its question open, keyed by the caller's own key. */
 	readonly confirming: string | null;
+	/** A sweep is retiring rows, so no row starts an act of its own. */
+	readonly locked: boolean;
 	/** Whether a row's act is in flight. */
 	readonly busy: (key: string) => boolean;
 	/** The refusal a row's act met, by key. */
@@ -31,12 +34,13 @@ export interface OperatorActs {
 
 export function useOperatorActs(): OperatorActs {
 	const session = useRoomsSession();
+	const { sweeping } = useOperatorActivity();
 	const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
 	const [confirming, setConfirming] = useState<string | null>(null);
 	const [why, setWhy] = useState<Partial<Record<string, string>>>({});
 	const running = useRef(new Set<string>());
 	const run = (key: string, request: () => Promise<string>) => {
-		if (running.current.has(key)) return;
+		if (running.current.has(key) || sweeping) return;
 		// Whether this act is the commitment of a question already open on its
 		// row. An act pressed without one — a grant, a reset — must not put away
 		// a question the reader opened while it was in flight, and rows reuse one
@@ -69,9 +73,12 @@ export function useOperatorActs(): OperatorActs {
 	};
 	const acts: OperatorActs = {
 		confirming,
+		locked: sweeping,
 		busy: (key) => busy.has(key),
 		why,
-		ask: setConfirming,
+		ask: (key) => {
+			if (!sweeping) setConfirming(key);
+		},
 		run,
 		session,
 		confirm: (key, say, label, request) =>

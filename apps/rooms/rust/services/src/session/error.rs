@@ -1,6 +1,5 @@
 //! One failure vocabulary for the session peer. Every tier below renders into
 //! it once, and the CapTP boundary renders it into a break reason once.
-use crate::{grant_publications, grants, session_commands::AdmissionError, session_state};
 use rooms_application::failure::Retry;
 use rooms_platform::storage::StorageError;
 use std::{borrow::Cow, fmt};
@@ -35,15 +34,12 @@ pub enum Error {
 	/// An effect was sent but its answer was lost, so whether it applied is
 	/// unknown. Only a withdrawal or a fresh observation is safe.
 	Uncertain(Cow<'static, str>),
-	Admission(AdmissionError),
 	/// The session state machine's own verdict. This is the application's
 	/// state error rather than the runtime's wrapper around it, because the
 	/// wrapper can carry a runtime failure that never crosses a thread and a
 	/// peer process moves its failures between them.
 	State(Box<rooms_application::session::state::Error>),
 	Storage(Box<dyn std::error::Error + Send + Sync>),
-	GrantLoad(Box<grants::LoadError>),
-	GrantPublication(Box<grant_publications::Error>),
 	Captp(Box<glowcap::Error>),
 	/// A remote application failure. The single-threaded runtime cannot move
 	/// its shared source here, but its exact retry verdict still crosses.
@@ -78,7 +74,7 @@ impl fmt::Display for TextError {
 }
 impl std::error::Error for TextError {}
 
-pub use rooms_runtime::service::Worker;
+pub use rooms_runtime::Worker;
 
 impl Error {
 	pub fn refused(text: impl Into<Cow<'static, str>>) -> Self {
@@ -142,11 +138,8 @@ impl fmt::Display for Error {
 			| Self::Stale(text)
 			| Self::Closed(text)
 			| Self::Uncertain(text) => f.write_str(text),
-			Self::Admission(e) => e.fmt(f),
 			Self::State(e) => e.fmt(f),
 			Self::Storage(e) => e.fmt(f),
-			Self::GrantLoad(e) => e.fmt(f),
-			Self::GrantPublication(e) => e.fmt(f),
 			Self::Captp(e) => e.fmt(f),
 			Self::Peer { reason, .. } => f.write_str(reason),
 			Self::Listener(e) => e.fmt(f),
@@ -163,11 +156,8 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		match self {
-			Self::Admission(e) => Some(e),
 			Self::State(e) => Some(e.as_ref()),
 			Self::Storage(e) => Some(e.as_ref()),
-			Self::GrantLoad(e) => Some(e.as_ref()),
-			Self::GrantPublication(e) => Some(e.as_ref()),
 			Self::Captp(e) => Some(e.as_ref()),
 			Self::Listener(e) => Some(e.as_ref()),
 			Self::Io { source, .. } => Some(source),
@@ -185,23 +175,6 @@ impl std::error::Error for Error {
 	}
 }
 
-impl From<AdmissionError> for Error {
-	fn from(e: AdmissionError) -> Self {
-		Self::Admission(e)
-	}
-}
-/// The runtime already classes its own state wrapper, so this tier takes that
-/// verdict rather than making a second one.
-impl From<session_state::Error> for Error {
-	fn from(error: session_state::Error) -> Self {
-		Self::from(rooms_runtime::Error::session(error))
-	}
-}
-impl From<session_state::ViewError> for Error {
-	fn from(error: session_state::ViewError) -> Self {
-		Self::from(rooms_runtime::Error::from(error))
-	}
-}
 impl From<rooms_application::session::state::Error> for Error {
 	fn from(e: rooms_application::session::state::Error) -> Self {
 		Self::State(Box::new(e))
@@ -210,16 +183,6 @@ impl From<rooms_application::session::state::Error> for Error {
 impl From<StorageError> for Error {
 	fn from(e: StorageError) -> Self {
 		Self::Storage(Box::new(e))
-	}
-}
-impl From<grants::LoadError> for Error {
-	fn from(e: grants::LoadError) -> Self {
-		Self::GrantLoad(Box::new(e))
-	}
-}
-impl From<grant_publications::Error> for Error {
-	fn from(e: grant_publications::Error) -> Self {
-		Self::GrantPublication(Box::new(e))
 	}
 }
 impl From<glowcap::Error> for Error {
@@ -240,9 +203,9 @@ impl From<Box<glowcap::Error>> for Error {
 /// single-threaded session, while a peer process moves failures across
 /// threads. What does carry across is the class, and this is the one place it
 /// is preserved rather than flattened.
-impl From<rooms_runtime::service::error::Error> for Error {
-	fn from(error: rooms_runtime::service::error::Error) -> Self {
-		use rooms_runtime::service::error::Error as Shared;
+impl From<rooms_runtime::Error> for Error {
+	fn from(error: rooms_runtime::Error) -> Self {
+		use rooms_runtime::Error as Shared;
 		match error {
 			Shared::Refused(e) => Self::Refused(e),
 			Shared::Invalid(e) => Self::Invalid(e),
@@ -251,15 +214,6 @@ impl From<rooms_runtime::service::error::Error> for Error {
 			Shared::Stale(e) => Self::Stale(e),
 			Shared::Closed(e) => Self::Closed(e),
 			Shared::Uncertain(e) => Self::Uncertain(e),
-			Shared::Admission(e) => Self::Admission(e),
-			// A live borrow clears as the current turn finishes. An unloaded
-			// state has no owner that can make progress, so it is closed.
-			Shared::View(session_state::ViewError::Busy) => {
-				Self::Busy(session_state::ViewError::Busy.to_string().into())
-			}
-			Shared::View(session_state::ViewError::Unloaded) => {
-				Self::Closed(session_state::ViewError::Unloaded.to_string().into())
-			}
 			Shared::State(e) => Self::State(Box::new(e)),
 			// The binding's diagnosis is refcounted for the runtime's observers
 			// and not shareable across threads, so this tier takes its own copy.
@@ -315,15 +269,6 @@ mod tests {
 		};
 		assert!(matches!(*primary, Error::Invalid(_)));
 		assert!(matches!(*cleanup, Error::Storage(_)));
-	}
-
-	/// The state view's two failures both clear on their own, and converting
-	/// one must not route back through the conversion that produced it.
-	#[test]
-	fn a_borrowed_state_view_converts_once_and_terminates() {
-		let busy = Error::from(crate::session_state::ViewError::Busy);
-		assert!(matches!(busy, Error::Busy(_)));
-		assert_eq!(busy.to_string(), "session state is already borrowed");
 	}
 
 	#[test]

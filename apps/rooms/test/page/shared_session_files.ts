@@ -39,7 +39,7 @@ export async function proveSharedImage(first: Page, second: Page, png: Uint8Arra
 	});
 	await first.waitForSelector('.composer-file:has-text("shared-session.png")');
 	await first.click("#sendBtn");
-	for (const page of [first, second]) {
+	for (const [index, page] of [first, second].entries()) {
 		await page.waitForFunction(
 			() => {
 				const image = [...document.querySelectorAll<HTMLImageElement>(".bubble .attach-image img")]
@@ -48,7 +48,13 @@ export async function proveSharedImage(first: Page, second: Page, png: Uint8Arra
 			},
 			undefined,
 			{ timeout: 20_000 },
-		).catch(() => fail("a shared-session image reserved its rectangle but never rendered its bytes"));
+		).catch(async () => {
+			const state = await page.evaluate(() => ({
+				text: document.body.innerText,
+				attachments: [...document.querySelectorAll(".bubble .attach")].map((row) => row.outerHTML),
+			}));
+			fail(`shared-session image did not render in view ${index + 1}: ${JSON.stringify(state)}`);
+		});
 	}
 	await reloadIntoSession(first, "a sent image");
 	await first.waitForFunction(
@@ -62,6 +68,21 @@ export async function proveSharedImage(first: Page, second: Page, png: Uint8Arra
 
 /** Reload `first` while a file many chunks long is still being taken from it. */
 export async function proveReloadMidUpload(first: Page, second: Page): Promise<void> {
+	// Hold the second chunk at the real browser byte source. Reload destroys
+	// that source while the session peer retains the admitted line and receipt.
+	await first.evaluate(() => {
+		const slice = File.prototype.slice;
+		File.prototype.slice = function (start, end, type) {
+			const chunk = slice.call(this, start, end, type);
+			if (this.name === "shared-session-large.bin" && (start ?? 0) > 0) {
+				chunk.arrayBuffer = () => {
+					document.documentElement.dataset.uploadReadBlocked = "true";
+					return new Promise<ArrayBuffer>(() => {});
+				};
+			}
+			return chunk;
+		};
+	});
 	await first.setInputFiles("#filePick", {
 		name: "shared-session-large.bin",
 		mimeType: "application/octet-stream",
@@ -69,8 +90,12 @@ export async function proveReloadMidUpload(first: Page, second: Page): Promise<v
 	});
 	await first.waitForSelector('.composer-file:has-text("shared-session-large.bin")');
 	await first.click("#sendBtn");
-	await first.waitForSelector('.bubble:has-text("shared-session-large.bin")', { timeout: 30_000 })
-		.catch(() => fail("a large shared file did not post from the sending browser"));
+	// The sender paints before admission. Only the other view proves the
+	// session process posted the line before its browser source disappears.
+	await second.waitForSelector('.bubble:has-text("shared-session-large.bin")', { timeout: 30_000 })
+		.catch(() => fail("a large shared file did not post to the other view"));
+	await first.waitForFunction(() => document.documentElement.dataset.uploadReadBlocked === "true")
+		.catch(() => fail("the real browser upload never reached its second chunk"));
 	await reloadIntoSession(first, "a reload mid-upload");
 	for (const page of [first, second]) {
 		await page.waitForSelector('.bubble:has-text("shared-session-large.bin")', { timeout: 30_000 })

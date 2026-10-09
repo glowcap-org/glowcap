@@ -22,7 +22,8 @@ import { preserveArchiveLineChronology } from "./chronology.ts";
 /** Whole-archive resident record ceiling. Least recently revised records
  * leave first. A held reference is authority to use the archive, not to grow
  * its host without limit. */
-export const MAX_ARCHIVE_RECORDS = 5000;
+import { MAX_ARCHIVE_RECORDS } from "./limits.ts";
+export { MAX_ARCHIVE_RECORDS } from "./limits.ts";
 
 export function archiveRecordKey(record: ArchiveRecord): string {
 	return JSON.stringify([

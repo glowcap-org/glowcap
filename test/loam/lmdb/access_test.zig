@@ -1,6 +1,7 @@
 //! Native atomic record participation, not a durable capability owner. This
 //! fixture keeps its exact Loam object references; no ID-to-capability lookup
 //! or control/publication restoration is implied by the record round trip.
+const structural_policy = @import("../access/grant_fixture.zig").structural_policy;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const loam = glowcap.loam.core;
@@ -58,7 +59,7 @@ test "loam LMDB commits access content and change records together through uncer
         defer store.deinit() catch unreachable;
         var graph = try access.Graph.init(a, @fromBackingInt(71), .{ .capacity = 1 });
         defer graph.deinit() catch unreachable;
-        const resource = try graph.create(graph.revision(), @fromBackingInt(1), null);
+        const resource = try graph.create(graph.revision(), &structural_policy, @fromBackingInt(1), null);
         const permission: access.Policy.Key = @fromBackingInt(1);
         const policy = try access.Policy.init(.{ .id = @fromBackingInt(1), .permissions = &.{permission} });
         const terms: access.Terms = .{ .scope = .{ .object = resource }, .policy = try policy.value(&.{permission}, &.{}) };

@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // A direct message between two browser tabs appears on the live timeline.
 //
 // This is the whole point of the publishing half of the feed. A DM is a session
@@ -30,12 +31,11 @@
 
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { connectTraceViewer, scrapeTraceSturdyref, traceMemorySeed } from "../trace/viewer.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { fail, openDmTo } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hello over the direct line, and onto the timeline";
@@ -54,16 +54,14 @@ async function joinAs(
 	browser: Browser,
 	port: number,
 	nick: string,
-	seed: { key: string; value: string },
+	trace: string,
 ): Promise<Page> {
 	const context = await browser.newContext();
-	// The endpoint admits only capability-presenting sockets; the tab holds
-	// the swiss the way a reader's "Remember on this device" would have.
-	await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), seed);
 	const tab = await context.newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	await tab.goto(`http://127.0.0.1:${port}/`);
 	await establishLocalSession(tab);
+	await acquireTraceCapability(tab, trace);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");
@@ -83,7 +81,7 @@ const tracePort = freePort();
 // The room server serves the live timeline endpoint; serve.ts passes its own
 // environment to the child and answers `/trace` with the port, which is how each
 // tab finds it without being told.
-const web = spawnOwned(WEB, {
+const web = spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) },
@@ -105,11 +103,11 @@ try {
 	}
 
 	const seen = await watch(await traceRef);
-	const seed = traceMemorySeed(httpPort, await traceRef);
+	const trace = await traceRef;
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	const alice = await joinAs(browser, httpPort, "web-alice", seed);
-	const bob = await joinAs(browser, httpPort, "web-bob", seed);
+	const alice = await joinAs(browser, httpPort, "web-alice", trace);
+	const bob = await joinAs(browser, httpPort, "web-bob", trace);
 
 	// Alice cold-dials Bob off-room and sends. Bob renders it, which is when the
 	// direct session has certainly carried traffic on both sides.
@@ -142,9 +140,8 @@ try {
 	const ids = opens.map((r) => r.session as string);
 	if (new Set(ids).size !== ids.length) fail(`two sessions collided on one id: ${ids}`);
 
-	// The room server labels itself, a tab does not, so a tab's sessions are the
-	// unlabelled ones. Among all of them the direct session is unmistakable: it
-	// is the one carrying the `dm` verb.
+	// The direct session is the one carrying the `dm` verb. Browser producers
+	// label themselves with their granted nickname, just as the server labels itself.
 	const dmTraffic = seen.filter(
 		(r) => r.kind === "ocapn.message-decoded" && r.op === "dm",
 	);
@@ -213,7 +210,7 @@ try {
 	// It came from a browser tab, not from the room. The room server cannot
 	// report this session at all — it carries none of it — so a `dm` verb on a
 	// room-produced session would mean the DM had been routed through the room.
-	if (dm.a_label !== undefined) {
+	if (dm.a_label !== "web-alice" && dm.a_label !== "web-bob") {
 		fail(`the direct message was drawn on the room's own session (${dm.a_label})`);
 	}
 	if (typeof dm.session_id !== "string" || !/^[0-9a-f]{64}$/.test(dm.session_id)) {

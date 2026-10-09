@@ -96,12 +96,16 @@ pub(in crate::server) fn submit(
 /// A command already admitted by the operations worker may wait for writer
 /// capacity. Capture its job now, without borrowing State across that wait.
 /// The outer worker bounds waiting commands and owns them through shutdown.
-pub(in crate::server) fn request(
+pub(in crate::server) fn request<P, C>(
 	state: &State,
 	verb: &'static str,
-	prepare: impl FnOnce(&State) -> Result<Option<Authority>, String> + 'static,
-	commit: impl FnOnce(&mut State) -> Outcome + 'static,
-) -> impl std::future::Future<Output = Outcome> + 'static {
+	prepare: P,
+	commit: C,
+) -> impl std::future::Future<Output = Outcome> + 'static + use<P, C>
+where
+	P: FnOnce(&State) -> Result<Option<Authority>, String> + 'static,
+	C: FnOnce(&mut State) -> Outcome + 'static,
+{
 	let jobs = state.authority_writer.jobs.clone();
 	let stopping = *state.authority_writer.stop.borrow();
 	async move {

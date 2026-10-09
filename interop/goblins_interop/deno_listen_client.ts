@@ -13,7 +13,7 @@ function greeter(_verb: string, args: Argument[]): string {
 }
 
 await using server = await tcp.listen("127.0.0.1", 0);
-server.host.publishGiftable(ACTOR_SWISS, greeter);
+server.host.publish(ACTOR_SWISS, greeter);
 console.log(`GOBLINS-LISTENER-READY ${server.port}`);
 
 for await (const accepted of server) {

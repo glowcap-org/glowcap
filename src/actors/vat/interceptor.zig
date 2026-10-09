@@ -13,6 +13,8 @@ pub const Outcome = union(enum) {
 /// A served reply's interceptor. Host integration uses this seam to turn a
 /// foreign object into a signed give, project a foreign promise, or rewrite a
 /// node-local route before the value reaches the wire.
+/// The handler has committed. Nested actor calls keep their effects even if
+/// the interceptor refuses the reply. Its value borrows the active turn.
 pub const Interceptor = struct {
     ctx: ?*anyopaque,
     func: *const fn (

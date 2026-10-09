@@ -7,29 +7,40 @@ pub const refs = h.loam.hosting.references;
 pub const schemas = h.schemas ++ [_]h.loam.core.Schema{refs.schema};
 pub const contents = [_]h.access.ContentBehavior{.{ .schema = 7, .requirement = requirement, .retry = retry, .references = references, .dependent_requirement = dependentRequirement, .invoke = invoke }};
 
-fn requirement(_: ?*anyopaque, _: std.mem.Allocator, _: h.loam.core.RecordView, verb: []const u8, _: []const h.driver.Value) !h.c.core.Policy.Requirement {
+fn requirement(_: ?*anyopaque, _: std.mem.Allocator, input: h.access.ContentInvocation) !h.c.core.Policy.Requirement {
+    const verb = input.verb;
     if (std.mem.eql(u8, verb, "get") or std.mem.eql(u8, verb, "ref") or std.mem.eql(u8, verb, "dependent")) return .{ .permissions = &.{h.f.vocabulary.read} };
-    if (std.mem.eql(u8, verb, "put") or std.mem.eql(u8, verb, "append") or std.mem.eql(u8, verb, "remove")) return .{ .permissions = &.{h.f.vocabulary.post} };
+    if (std.mem.eql(u8, verb, "put") or std.mem.eql(u8, verb, "append") or std.mem.eql(u8, verb, "copy") or std.mem.eql(u8, verb, "remove")) return .{ .permissions = &.{h.f.vocabulary.post} };
     return error.NoSuchMethod;
 }
-fn dependentRequirement(context: ?*anyopaque, _: std.mem.Allocator, _: h.loam.core.RecordView, verb: []const u8, _: []const h.driver.Value) !h.c.core.Policy.Requirement {
+pub const ForwardingProbe = struct {
+    calls: usize = 0,
+    resource: ?h.c.storage.Operation.BoundResource = null,
+    delivery: ?@FieldType(h.access.ContentInvocation, "delivery") = null,
+};
+fn dependentRequirement(context: ?*anyopaque, _: std.mem.Allocator, input: h.access.ContentInvocation) !h.c.core.Policy.Requirement {
+    const verb = input.verb;
     if (context) |pointer| {
-        const calls: *usize = @ptrCast(@alignCast(pointer));
-        calls.* += 1;
+        const probe: *ForwardingProbe = @ptrCast(@alignCast(pointer));
+        probe.calls += 1;
+        probe.resource = input.bound_resource;
+        probe.delivery = input.delivery;
     }
     if (std.mem.eql(u8, verb, "get") or std.mem.startsWith(u8, verb, "share")) return .{ .permissions = &.{h.f.vocabulary.read} };
     if (std.mem.eql(u8, verb, "mutate") or std.mem.eql(u8, verb, "pause") or std.mem.eql(u8, verb, "resume")) return .{ .permissions = &.{h.f.vocabulary.post} };
     return error.NoSuchMethod;
 }
 fn retry(_: ?*anyopaque, verb: []const u8, _: []const h.driver.Value) !h.access.RetryMode {
-    return if (std.mem.eql(u8, verb, "put") or std.mem.eql(u8, verb, "append") or std.mem.eql(u8, verb, "remove")) .idempotent else .read_only;
+    return if (std.mem.eql(u8, verb, "put") or std.mem.eql(u8, verb, "append") or std.mem.eql(u8, verb, "copy") or std.mem.eql(u8, verb, "remove")) .idempotent else .read_only;
 }
 fn index(args: []const h.driver.Value) !usize {
     if (args.len == 0 or args[0] != .integer) return error.InvalidArguments;
     return std.math.cast(usize, args[0].integer) orelse error.InvalidArguments;
 }
-fn references(_: ?*anyopaque, arena: std.mem.Allocator, _: h.loam.core.RecordView, verb: []const u8, args: []const h.driver.Value) ![]const refs.Request {
-    if (std.mem.eql(u8, verb, "ref") or std.mem.eql(u8, verb, "dependent")) {
+fn references(_: ?*anyopaque, arena: std.mem.Allocator, input: h.access.ContentInvocation) ![]const refs.Request {
+    const verb = input.verb;
+    const args = input.args;
+    if (std.mem.eql(u8, verb, "ref") or std.mem.eql(u8, verb, "dependent") or std.mem.eql(u8, verb, "copy")) {
         const requests = try arena.alloc(refs.Request, 1);
         requests[0] = .{ .restore = try index(args) };
         return requests;
@@ -42,10 +53,17 @@ fn references(_: ?*anyopaque, arena: std.mem.Allocator, _: h.loam.core.RecordVie
     }
     return &.{};
 }
-fn invoke(_: ?*anyopaque, call: *h.access.ContentCall, view: h.loam.core.RecordView, verb: []const u8, args: []const h.driver.Value) !h.driver.Value {
+fn invoke(_: ?*anyopaque, call: *h.access.ContentCall, input: h.access.ContentInvocation) !h.driver.Value {
+    const view = input.content;
+    const verb = input.verb;
+    const args = input.args;
     if (std.mem.eql(u8, verb, "get")) return .{ .integer = std.mem.readInt(i64, view.payload[0..8], .little) };
     if (std.mem.eql(u8, verb, "ref")) return call.discloseExact(try index(args));
     if (std.mem.eql(u8, verb, "dependent")) return call.discloseDependent(try index(args));
+    if (std.mem.eql(u8, verb, "copy")) {
+        try call.appendReference(try call.reference(try index(args)));
+        return .{ .boolean = true };
+    }
     if (std.mem.eql(u8, verb, "put")) {
         try call.replaceReference(try index(args), args[1].capability);
         const payload = try call.allocator().alloc(u8, 8);

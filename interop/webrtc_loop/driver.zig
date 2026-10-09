@@ -1,12 +1,13 @@
-//! Live WebRTC scale: many concurrent DataChannels served from one loop thread
-//! (ADR-0089's generic Host adoption over the completion tier).
+//! Live WebRTC scale: many concurrent DataChannels served from one HostRuntime
+//! thread (ADR-0089 over ADR-0202's completion resident).
 //!
-//! One server thread runs `completion.Loop(webrtc.Backend, webrtc.DialResolver)`
-//! under `driver.Bridge` + `driver_core.Host`, publishing a greeter. N client
+//! One server thread steps a `driver.HostRuntime` whose WebRTC listener is a
+//! `net.completion_resident` over `webrtc.Backend` with `webrtc.ResidentPolicy`,
+//! publishing a greeter. N client
 //! threads each bring a DataChannel up as the offerer and drive a packet-fed
 //! Host session over WebRTC, calling the greeter and checking every reply —
-//! so the one loop thread is provably multiplexing N channels through the
-//! backend's readiness fd, not serving them serially.
+//! so the one runtime thread is provably multiplexing N channels through the
+//! backend's readiness descriptor, not serving them serially.
 //!
 //! Signaling is an in-process hub, the same stand-in `webrtc-mesh` uses for the
 //! room-carried capability the rooms app ships in TypeScript: the hub answers
@@ -24,7 +25,6 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
-const harness = @import("interop_harness");
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
@@ -38,12 +38,14 @@ const calls_per_conn: usize = 4;
 const greeting = "hello from the webrtc loop host";
 const bring_up_timeout_ms: usize = 20_000;
 
-const WebrtcLoop = net.completion.Loop(webrtc.Backend, webrtc.DialResolver);
-const WebrtcBridge = driver.Bridge(WebrtcLoop);
-const runLoop = harness.LoopRunner(WebrtcLoop).runUntilFlag;
+const WebrtcResident = net.completion_resident.Resident(webrtc.Backend, webrtc.ResidentPolicy);
 
-const Greeter = harness.StaticReplyActor("greet", greeting);
-const publishGreeter = harness.publisher("greeter", Greeter);
+const Greeter = struct {
+    pub fn handle(_: *Greeter, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+        if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
+        return .{ .string = greeting };
+    }
+};
 const CapturedRef = webrtc_common.CapturedRef;
 const CapturedString = webrtc_common.CapturedString;
 
@@ -279,6 +281,52 @@ fn clientOnce(
     peer.close();
 }
 
+/// The serving side: one HostRuntime listener whose accepted sessions all
+/// serve the published greeter, stepped on one thread.
+const Server = struct {
+    failure: ?anyerror = null,
+
+    const listener_tag: u64 = 1;
+
+    fn observer(self: *Server) driver.HostRuntime.SessionAcceptObserver {
+        return .{ .ctx = self, .opened = opened, .failed = failed };
+    }
+
+    fn opened(_: *anyopaque, _: u64, _: *driver.core.HostSession) anyerror!void {}
+
+    fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
+        const self: *Server = @ptrCast(@alignCast(ctx));
+        if (self.failure == null) self.failure = failure.cause;
+    }
+
+    fn listen(self: *Server, runtime: *driver.HostRuntime, allocator: std.mem.Allocator) !void {
+        var listener = try runtime.bindListener(model.transport.webrtc, "", .{});
+        var owns_listener = true;
+        errdefer if (owns_listener) {
+            if (runtime.closeListener(&listener)) |failure| runtime.noteTerminalOperationFailure(failure);
+        };
+        var prepared = switch (runtime.prepareListenerLocatorOutcome(&listener)) {
+            .ready => |value| value,
+            .failed => |failure| return failure.cause,
+        };
+        var owns_prepared = true;
+        defer if (owns_prepared) prepared.deinit(allocator);
+        try runtime.activateOwnedListener(&listener, &prepared, listener_tag, self.observer());
+        owns_listener = false;
+        owns_prepared = false;
+        if (!try runtime.selectOwnedListener(listener_tag)) return error.ListenerNotSelected;
+    }
+
+    fn run(runtime: *driver.HostRuntime, done: *const std.atomic.Value(bool), out_err: *?anyerror) void {
+        while (!done.load(.acquire)) {
+            _ = runtime.stepAny(20) catch |err| {
+                out_err.* = err;
+                return;
+            };
+        }
+    }
+};
+
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
 
@@ -301,28 +349,36 @@ pub fn main(init: std.process.Init) !void {
         .limits = .{ .max_frame_bytes = frame_cap },
     });
     defer host.deinit();
-    var loop: WebrtcLoop = undefined;
-    var bridge = WebrtcBridge.init(allocator, &host, io, &loop, .{ .publish = publishGreeter });
-    defer bridge.deinit();
 
-    // The hub's backend pointer targets the loop's own copy: `initWithBackend`
-    // moves the backend in by value, so the address is stable only there.
     var hub = Hub.init(allocator, io, undefined, &server_resident);
     defer hub.deinit();
 
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
-    const backend = try webrtc.Backend.initBound(allocator, &server_resident, hub.authority(), 256, read_buffer_bytes);
-    loop = try WebrtcLoop.initWithBackend(allocator, backend, WebrtcBridge.makePeer, @ptrCast(&bridge), WebrtcBridge.hookOptions(.{
-        .max_conns = 64,
-        .listen = 0,
-    }));
-    defer loop.deinit();
-    hub.backend = &loop.backend;
-    try bridge.attach(model.transport.Known.webrtc.metadata(), server_designator, &.{});
+    var resident = try WebrtcResident.init(
+        allocator,
+        try webrtc.Backend.initBound(allocator, &server_resident, hub.authority(), 256, read_buffer_bytes),
+        .{},
+    );
+    defer {
+        resident.closeAndDrain(5_000) catch |err| std.log.err("WebRTC resident drain failed: {s}", .{@errorName(err)});
+        resident.deinit();
+    }
+    // The resident owns the backend in place, so the hub can hold its address.
+    hub.backend = &resident.backend;
+
+    var runtime = try driver.HostRuntime.initWithCore(allocator, io, &host, .{}, .{
+        .handshake = .{ .ms = 30_000 },
+        .settle = .{ .ms = 30_000 },
+    });
+    defer runtime.deinit();
+    _ = try runtime.addResident(model.transport.Known.webrtc.metadata(), resident.resident());
+    try runtime.publish("greeter", Greeter, .{});
+    var server = Server{};
+    try server.listen(&runtime, allocator);
 
     var loop_err: ?anyerror = null;
     var done = std.atomic.Value(bool).init(false);
-    var loop_future = try io.concurrent(runLoop, .{ &loop, &done, &loop_err });
+    var loop_future = try io.concurrent(Server.run, .{ &runtime, &done, &loop_err });
 
     var futures: [num_conns]@TypeOf(io.concurrent(clientOnce, .{ io, allocator, &hub, server_designator }) catch unreachable) = undefined;
     var started: usize = 0;
@@ -339,13 +395,13 @@ pub fn main(init: std.process.Init) !void {
     }
 
     done.store(true, .release);
-    try loop.backend.wake();
     loop_future.await(io);
     if (loop_err) |err| return err;
+    if (server.failure) |err| return err;
     if (first_err) |err| return err;
 
     std.debug.print(
-        "webrtc-loop: OK, {d} concurrent DataChannels, {d} calls each, served from one loop thread over Backend + Bridge + Host\n",
+        "webrtc-loop: OK, {d} concurrent DataChannels, {d} calls each, served from one HostRuntime thread over a completion resident\n",
         .{ num_conns, calls_per_conn },
     );
 }

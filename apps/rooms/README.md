@@ -132,13 +132,14 @@ name, `directory`, and every other reference is handed back from it.
 [The Rooms protocol](https://jimisaacs.github.io/glowcap/rooms/protocol/)
 lists each object; [Developing Rooms](developing.md) covers the build steps,
 the scenarios, and the source map.
+[What Rooms ships](shipped.md) describes each part of the implementation as
+it stands.
 
 ## Prerelease
 
 Rooms ships from this repository at an exact Git commit. There is no
-published versioned package or application image yet, and no state migration: the
-server, session, and archive stores accept their current schema and refuse
-an older one rather than rewriting it. A release names its commit, its green
+published versioned package or application image yet. The server, session, and
+archive stores accept their current schema and refuse an older one. A release names its commit, its green
 checks, and any state reset that commit requires.
 
 Project provenance and upstream-contact policy live in

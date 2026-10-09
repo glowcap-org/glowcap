@@ -137,8 +137,8 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\## Phase 2 (real socket load)
         \\
         \\Opt-in: `zig build bench-peer-scaling -- --live` (and optional
-        \\`--live-max=N`) drives TCP loopback on `completion.Loop` +
-        \\`driver.Bridge` (the same substrate as `zig build tcp-loop`) at
+        \\`--live-max=N`) drives TCP loopback against `driver.HostRuntime`
+        \\shards serving TCP through a completion resident (ADR-0202) at
         \\stepped connection counts, printing RSS, connect success, and
         \\ns/turn. It is not part of `zig build check`; smoke mode skips the
         \\live leg. Full-target ~500k runs need machine ulimit headroom — the

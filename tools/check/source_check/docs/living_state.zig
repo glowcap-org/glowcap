@@ -13,6 +13,7 @@ pub const surfaces = [_][]const u8{
     "docs/architecture.md",
     "docs/loam.md",
     "docs/loam/*.md",
+    "docs/rooms/*.md",
     "docs/build-steps.md",
     "docs/ladder.md",
     "docs/roadmap.md",

@@ -3,11 +3,43 @@ import { type Argument, type Behavior, Ref, type Session } from "@glowcap/runtim
 import type { Attachment } from "../../lib/attachment.ts";
 import { Room } from "../../lib/room/client.ts";
 import { LEAVE, LINE, NOTIFY, SUBSCRIBE } from "../../lib/protocol.ts";
-import { assertEquals } from "../assert.ts";
+import { assert, assertEquals } from "../assert.ts";
+import { postedLineResult } from "../../lib/posted_line.ts";
 
 function ref(): Ref {
 	return Object.create(Ref.prototype) as Ref;
 }
+
+Deno.test("post replies adopt exact line authority and release malformed results", async () => {
+	const authority = ref();
+	const released: Ref[] = [];
+	let target: Ref | undefined;
+	const session = {
+		send(reference: Ref) {
+			target = reference;
+			return Promise.resolve(null);
+		},
+		release: (reference: Ref) => released.push(reference),
+	} as unknown as Session;
+	const posted = postedLineResult(session, [23n, authority]);
+	assert(posted != null, "the tuple carries editing authority");
+	await posted.edit("changed");
+	assert(target === authority, "the acquired line uses the exact reply occurrence");
+	assertEquals(released.length, 0);
+	posted.release();
+	assertEquals(released.length, 1);
+	for (const reply of [authority, [0n, authority], [9007199254740992n, authority], [1n, authority, authority]]) {
+		const before = released.length;
+		let refused = false;
+		try {
+			postedLineResult(session, reply);
+		} catch {
+			refused = true;
+		}
+		assert(refused, "malformed room replies cannot acquire line authority");
+		assert(released.length > before, "refusal returns unclaimed capability custody");
+	}
+});
 
 function fileLine(blob: Ref, extra?: Ref): Argument[] {
 	return [

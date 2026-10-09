@@ -18,7 +18,7 @@
 ;; process sharing one address book.
 ;;
 ;; Topology:
-;;   Exporter  binds a LOCAL-DISCOVERY endpoint, publishes a node-giftable `greeter`.
+;;   Exporter  binds a LOCAL-DISCOVERY endpoint, publishes a Host-published `greeter`.
 ;;   Gifter    binds its own endpoint, dials the exporter by id (one node
 ;;             identity), fetches the greeter, and records the exporter's id-only
 ;;             location as the give's exporter location — a hint-less give.
@@ -49,9 +49,9 @@
          (set-box! serves-box (cons (thread (lambda () (session-serve session))) (unbox serves-box)))
          (loop))))))
 
-;; ── Exporter: a node-giftable greeter on its own local-discovery endpoint ──────
+;; ── Exporter: a Host-published greeter on its own local-discovery endpoint ──────
 (define exporter (listen-iroh (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))
-(host-publish-giftable (iroh-server-host exporter) "greeter"
+(host-publish (iroh-server-host exporter) "greeter"
                           (methods [(greet who) (format "hello ~a over a configured-posture redeem" who)]))
 (define exporter-id (iroh-server-node-id exporter))
 (define exporter-serves (box '()))
@@ -72,7 +72,7 @@
 ;; Record the exporter's location by node id alone, no direct-addresses. This is
 ;; what forces the recipient down the configured-posture redeem path.
 (session-set-exporter-locator! to-exporter (locator "iroh" exporter-id (hash) 'map))
-(host-publish-giftable (iroh-server-host gifter) "introducer"
+(host-publish (iroh-server-host gifter) "introducer"
                           (methods [(get-greeter) greeter-ref]))
 (define gifter-serves (box '()))
 (define gifter-accept (start-accept-loop gifter gifter-serves))

@@ -2,6 +2,13 @@
 //! these tests exercise projection, callback custody, worker progress and reopen.
 use super::*;
 #[cfg(feature = "tcp")]
+mod capacity;
+#[cfg(feature = "tcp")]
+mod continuation;
+#[cfg(feature = "tcp")]
+#[path = "../../../proofs/_support/loam_continuations.rs"]
+mod continuations;
+#[cfg(feature = "tcp")]
 use crate::ListenerIdentity;
 #[cfg(feature = "tcp")]
 use crate::Result as HostResult;
@@ -9,11 +16,17 @@ use crate::Result as HostResult;
 use crate::Session;
 use crate::{Argument, PendingWork};
 #[cfg(feature = "tcp")]
+#[path = "../../../proofs/_support/loam_context.rs"]
+mod context;
+#[cfg(feature = "tcp")]
 #[path = "../../../proofs/_support/loam_dependencies.rs"]
 mod dependencies;
 #[cfg(feature = "tcp")]
 #[path = "../../../proofs/_support/loam_fields.rs"]
 mod fields;
+#[cfg(feature = "tcp")]
+#[path = "../../../proofs/_support/loam_inventory.rs"]
+mod inventory;
 #[cfg(feature = "tcp")]
 #[path = "../../../proofs/_support/loam_management.rs"]
 mod management;
@@ -24,11 +37,51 @@ const SCHEMA: Schema = Schema {
 	max_payload: 256,
 	max_edges: 8,
 };
+
+#[test]
+fn schema_size_query_counts_payload_prefixes_and_refuses_overflow() {
+	let nine = Schema {
+		max_payload: 9,
+		..SCHEMA
+	}
+	.encoded_size_bound()
+	.unwrap();
+	let ten = Schema {
+		max_payload: 10,
+		..SCHEMA
+	}
+	.encoded_size_bound()
+	.unwrap();
+	assert_eq!(ten - nine, 2);
+	assert!(
+		Schema {
+			max_payload: usize::MAX,
+			..SCHEMA
+		}
+		.encoded_size_bound()
+		.is_err()
+	);
+	assert!(
+		Schema {
+			max_edges: usize::MAX,
+			..SCHEMA
+		}
+		.encoded_size_bound()
+		.is_err()
+	);
+}
+#[cfg(feature = "tcp")]
+#[test]
+fn reference_sizing_projects_owned_declarations_and_checked_refusal() {
+	fields::sizing();
+}
+
 struct Text;
 impl Content for Text {
-	fn requirement(&self, _: &[u8], verb: &str, _: &[Argument]) -> Result<Requirement> {
+	fn requirement(&self, input: super::Invocation<'_>) -> Result<Requirement> {
+		let verb = input.verb;
 		Requirement::new(
-			&[if matches!(verb, "get" | "field" | "dependent") {
+			&[if matches!(verb, "get" | "context" | "field" | "dependent") {
 				10
 			} else {
 				20
@@ -36,7 +89,9 @@ impl Content for Text {
 			&[],
 		)
 	}
-	fn references(&self, _: &[u8], _: usize, verb: &str, args: &[Argument]) -> Result<Vec<ReferenceRequest>> {
+	fn references(&self, input: super::Invocation<'_>) -> Result<Vec<ReferenceRequest>> {
+		let verb = input.verb;
+		let args = input.args;
 		#[cfg(feature = "tcp")]
 		return fields::requests(verb, args);
 		#[cfg(not(feature = "tcp"))]
@@ -45,13 +100,21 @@ impl Content for Text {
 			Ok(Vec::new())
 		}
 	}
-	fn dependent_requirement(&self, payload: &[u8], verb: &str, args: &[Argument]) -> Result<Requirement> {
-		if verb != "get" {
+	fn dependent_requirement(&self, input: super::Invocation<'_>) -> Result<Requirement> {
+		let verb = input.verb;
+		if verb != "get" && verb != "context" {
 			return Err(invalid("unsupported dependent method"));
 		}
-		self.requirement(payload, verb, args)
+		self.requirement(input)
 	}
-	fn invoke(&self, call: &mut Call<'_>, payload: &[u8], verb: &str, args: &[Argument]) -> Result<Argument> {
+	fn invoke(&self, call: &mut Call<'_>, input: super::Invocation<'_>) -> Result<Argument> {
+		let payload = input.payload;
+		let verb = input.verb;
+		let args = input.args;
+		#[cfg(feature = "tcp")]
+		if verb == "context" {
+			return Ok(context::reply(input));
+		}
 		#[cfg(feature = "tcp")]
 		if fields::handles(verb) {
 			return fields::invoke(call, verb, args);
@@ -73,6 +136,7 @@ impl Content for Text {
 }
 fn registration() -> Registration {
 	let registration = Registration {
+		graph: None,
 		schema: SCHEMA.id,
 		version: SCHEMA.version,
 		methods: vec![
@@ -95,6 +159,10 @@ fn registration() -> Registration {
 	{
 		let mut registration = registration;
 		registration.methods.extend(fields::methods());
+		registration.methods.push(Method {
+			verb: "context".into(),
+			retry: Retry::ReadOnly,
+		});
 		registration
 	}
 	#[cfg(not(feature = "tcp"))]
@@ -123,7 +191,7 @@ async fn create_share_edit_restart_and_cold_reopen() {
 		.run_until(async {
 			tokio::time::timeout(std::time::Duration::from_secs(5), async {
 				let directory = Directory::new();
-				let policy = Policy::with_dependencies([5; 16], &[10, 20], &[], &[(20, 10)]).unwrap();
+				let policy = dependencies::descriptor();
 				let mut store = Store::open(
 					&directory.0,
 					[3; 16],
@@ -137,9 +205,11 @@ async fn create_share_edit_restart_and_cold_reopen() {
 				let saved_resource = resource.encode();
 				let host = Host::from_seed([8; 32]).unwrap();
 				let mut attachment = store.attach(&host, vec![registration()]).unwrap();
+				attachment.start_live(None, 2).unwrap();
+				assert!(attachment.live_marker().unwrap().is_none());
 				let (use_ref, control) = attachment.restore(resource).unwrap();
 				let (use_copy, control_copy) = (use_ref.clone(), control.clone());
-				host.publish_giftable("resource", move || {
+				host.publish("resource", move || {
 					let pair = vec![
 						Argument::Reference(use_copy.clone()),
 						Argument::Reference(control_copy.clone()),
@@ -182,7 +252,11 @@ async fn create_share_edit_restart_and_cold_reopen() {
 					.unwrap();
 				let read_only = Ref::try_from(&read_only).unwrap();
 				assert_text(&client, &read_only, b"initial").await;
-				let field_name = fields::exercise(&client, &root, &read_only, &shared, &management, &catalog).await;
+				let (field_name, initial_context) =
+					fields::exercise(&client, &root, &read_only, &shared, &management, &catalog).await;
+				fields::live(&client, &root, &catalog).await;
+				let live_marker = attachment.live_marker().unwrap().unwrap();
+				let live_incarnation = attachment.live_incarnation().unwrap().unwrap();
 				assert!(
 					client
 						.send(
@@ -225,10 +299,37 @@ async fn create_share_edit_restart_and_cold_reopen() {
 						.await
 						.is_err()
 				);
-				client.send(&management, "pause", &[]).await.unwrap();
+				client
+					.send(
+						&management,
+						"pause",
+						&[Argument::Bytes(
+							crate::loam::control_revision(&client.host(), &management)
+								.await
+								.unwrap()
+								.to_be_bytes()
+								.to_vec(),
+						)],
+					)
+					.await
+					.unwrap();
 				assert!(client.send(&shared, "get", &[]).await.is_err());
-				client.send(&management, "resume", &[]).await.unwrap();
+				client
+					.send(
+						&management,
+						"resume",
+						&[Argument::Bytes(
+							crate::loam::control_revision(&client.host(), &management)
+								.await
+								.unwrap()
+								.to_be_bytes()
+								.to_vec(),
+						)],
+					)
+					.await
+					.unwrap();
 				assert_text(&client, &shared, b"edited").await;
+				let inventory_name = inventory::exercise(&client, &management, &policy).await;
 				let managed_name = management::exercise(&client, &root, &management, &policy).await;
 				dependencies::exercise(&client, &root, &management, &policy).await;
 				server.close().await.unwrap();
@@ -253,13 +354,14 @@ async fn create_share_edit_restart_and_cold_reopen() {
 				.unwrap();
 				let host = Host::from_seed([8; 32]).unwrap();
 				let attachment = store.attach(&host, vec![registration()]).unwrap();
+				attachment.start_live(Some(live_marker), 2).unwrap();
 				let (restored, restored_control) = attachment.restore(Resource::decode(saved_resource)).unwrap();
-				host.publish_giftable("control", move || {
+				host.publish("control", move || {
 					let control = restored_control.clone();
 					Box::new(move |_, _| Ok(Argument::Reference(control.clone())))
 				})
 				.unwrap();
-				host.publish_giftable("root", move || {
+				host.publish("root", move || {
 					let root = restored.clone();
 					Box::new(move |_, _| Ok(Argument::Reference(root.clone())))
 				})
@@ -283,7 +385,11 @@ async fn create_share_edit_restart_and_cold_reopen() {
 					&policy,
 				)
 				.await;
-				fields::reopen(&client, &Ref::try_from(&root).unwrap(), &field_name).await;
+				fields::reopen(&client, &Ref::try_from(&root).unwrap(), &field_name, &initial_context).await;
+				fields::expired_live(&client, &Ref::try_from(&root).unwrap()).await;
+				assert_eq!(attachment.live_marker().unwrap(), Some(live_marker));
+				assert_ne!(attachment.live_incarnation().unwrap(), Some(live_incarnation));
+				inventory::reopen(&client, &Ref::try_from(&control).unwrap(), &policy, &inventory_name).await;
 				management::reopen(&client, &Ref::try_from(&root).unwrap(), &policy, &managed_name).await;
 				assert_text(&client, &reopened, b"edited").await;
 				server.close().await.unwrap();
@@ -306,6 +412,7 @@ async fn assert_text(client: &crate::Session, target: &Ref, text: &[u8]) {
 	let value = client.send(target, "get", &[]).await.unwrap();
 	assert_eq!(value.as_list().unwrap()[0].as_bytes(), Some(text));
 }
+
 #[cfg(feature = "tcp")]
 async fn connect(
 	host: &Host,
@@ -346,11 +453,11 @@ impl Drop for DropProbe {
 	}
 }
 impl Content for DropProbe {
-	fn requirement(&self, payload: &[u8], verb: &str, args: &[Argument]) -> Result<Requirement> {
-		Text.requirement(payload, verb, args)
+	fn requirement(&self, input: super::Invocation<'_>) -> Result<Requirement> {
+		Text.requirement(input)
 	}
-	fn invoke(&self, call: &mut Call<'_>, payload: &[u8], verb: &str, args: &[Argument]) -> Result<Argument> {
-		Text.invoke(call, payload, verb, args)
+	fn invoke(&self, call: &mut Call<'_>, input: super::Invocation<'_>) -> Result<Argument> {
+		Text.invoke(call, input)
 	}
 }
 #[tokio::test]

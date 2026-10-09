@@ -6,6 +6,35 @@ import type { AttachmentSource } from "./attachment.ts";
 import { sendWithAttachments } from "./attachment.ts";
 import { ask } from "./ask.ts";
 import { EDIT, REFILE, WITHDRAW } from "./protocol.ts";
+import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
+
+/** Room replies pair the notification ID with the exact line authority. */
+function postedLineReference(reply: unknown): Ref | null {
+	if (reply == null) return null;
+	if (Array.isArray(reply) && reply.length === 2) {
+		const [id, authority] = reply;
+		const number = typeof id === "bigint" ? Number(id) : id;
+		if (Number.isSafeInteger(number) && number > 0 && (authority == null || authority instanceof Ref)) {
+			return authority;
+		}
+	}
+	throw new Error("The peer returned an invalid posted line result");
+}
+
+/** Adopt the reply's capability occurrence without retaining it again. */
+export function postedLineResult(session: Session, reply: unknown): PostedLine | null {
+	try {
+		const authority = postedLineReference(reply);
+		return authority == null ? null : new PostedLine(session, authority);
+	} catch (error) {
+		releaseUnclaimedCapabilityArguments(
+			session,
+			[reply as Argument],
+			"invalid posted line custody could not be released",
+		);
+		throw error;
+	}
+}
 
 /** A line this member posted, and the authority to change or withdraw it.
  *

@@ -103,6 +103,10 @@ gate zig build fuzz -Dfuzz-runs=25K
 gate zig build sidecar-common-test
 gate zig build iroh-sidecar-test
 gate zig build webrtc-sidecar-test
+# Host adoption of many DataChannels on one loop thread, and three-party redeem
+# over a bare webrtc designator through the configured signaling authority.
+gate zig build webrtc-loop
+gate zig build webrtc-redeem
 gate zig build bindings-fmt-check
 gate zig build bindings
 gate zig build bindings-noise-relay-listen
@@ -115,6 +119,9 @@ gate zig build bindings-noise-relay-listen
 gate zig build bindings-verb-spine
 gate zig build bindings-keyed-tcp-restart
 gate zig build bindings-keyed-relay-rendezvous
+# The native CLI registers at the reference relay with no listening socket and
+# answers a cold dial.
+gate zig build zig-keyed-relay-register
 gate zig build bindings-iroh-handoff
 gate zig build bindings-iroh-redeem-posture
 gate zig build racket-test

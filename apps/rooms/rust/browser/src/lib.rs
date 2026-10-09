@@ -8,13 +8,13 @@ mod abort;
 mod attached;
 mod entry;
 mod forms;
+mod history;
 mod js_text;
 mod nickname;
 mod operations_bundle;
 mod slash;
 mod text;
 mod trace;
-mod workspace_persistence;
 
 pub mod ice;
 pub mod platform;

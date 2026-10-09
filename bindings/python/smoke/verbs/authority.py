@@ -241,7 +241,7 @@ async def _mid_turn_host_release_orders_sessions_before_host() -> None:
             during.set_result(host.pending_release_count())
         return "closing"
 
-    host.publish_giftable("svc", svc)
+    host.publish("svc", svc)
 
     async def accept_two() -> None:
         count = 0

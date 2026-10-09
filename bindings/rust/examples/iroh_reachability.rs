@@ -40,7 +40,7 @@ async fn main() -> Result<(), Fail> {
 }
 
 async fn run() -> Result<(), Fail> {
-	// ── Server: a giftable greeter, dialable by node id alone over discovery ──────
+	// ── Server: a Host publication greeter, dialable by node id alone over discovery ──────
 	let server = Rc::new(
 		iroh::listen(
 			iroh::Config::new(Reachability::Discovery),
@@ -48,7 +48,7 @@ async fn run() -> Result<(), Fail> {
 		)
 		.await?,
 	);
-	server.host().publish_giftable("greeter", || Box::new(greeter))?;
+	server.host().publish("greeter", || Box::new(greeter))?;
 	let server_id = server.node_id().to_string();
 	let accepting = accept_loop(Rc::clone(&server));
 	println!(

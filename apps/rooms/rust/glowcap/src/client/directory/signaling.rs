@@ -9,8 +9,82 @@ pub use state::CleanupFailure;
 pub(crate) use state::Registry;
 use state::{State, wait, wake};
 
-pub struct Exchange<D: Tasks> {
-	client: Client<D>,
+/// One exact signaling capability. Managed workspaces supply a mediated name;
+/// baseline peers supply their held directory. Both use this exchange owner.
+#[derive(Clone)]
+pub struct Route<D> {
+	caller: Caller<D>,
+	reference: Ref,
+	signaling: Registry,
+	exact_name: bool,
+	introducer: Option<Rc<Session>>,
+}
+impl<D: Deadline> Route<D> {
+	pub(crate) fn through(caller: Caller<D>, reference: Ref) -> Self {
+		Self {
+			caller,
+			reference,
+			signaling: Registry::default(),
+			exact_name: true,
+			introducer: None,
+		}
+	}
+	pub fn host(&self) -> glowcap::Host {
+		self.caller.host()
+	}
+	pub fn platform(&self) -> &D {
+		self.caller.platform()
+	}
+	pub fn session(&self) -> Option<&Session> {
+		self.introducer
+			.as_deref()
+			.or_else(|| self.caller.session().map(|session| session.as_ref()))
+	}
+	/// The embedding supplies its actually held directory, never a locator or
+	/// nickname. Its live exporter binds handoff routing to that introducer.
+	pub fn retain_introducer(&mut self, directory: &Ref) -> Result<(), Error> {
+		self.introducer = self.host().reference_session(directory)?.map(Rc::new);
+		Ok(())
+	}
+	pub fn new(client: Client<D>, reference: Ref) -> Self {
+		Self::through(Caller::Remote(client), reference)
+	}
+	/// Verify source admission and the original upstream registration before
+	/// accepting an incoming transport. Baseline directory routes have no name
+	/// capability; their existing connection closure remains their boundary.
+	pub async fn check(&self) -> Result<(), Error> {
+		if !self.exact_name {
+			return Ok(());
+		}
+		let reply = self
+			.caller
+			.call(
+				&self.reference,
+				policy::CHECK,
+				&[],
+				"the signaling registration did not answer",
+			)
+			.await?;
+		if reply != Argument::Void {
+			return Err(policy::Error::Reply.into());
+		}
+		Ok(())
+	}
+}
+impl<D: Deadline + Clone> Directory<D> {
+	pub fn signaling(&self) -> Route<D> {
+		Route {
+			caller: Caller::Remote(self.client.clone()),
+			reference: self.reference.clone(),
+			signaling: self.signaling.clone(),
+			exact_name: false,
+			introducer: None,
+		}
+	}
+}
+
+pub struct Exchange<D: Tasks + Deadline> {
+	client: Caller<D>,
 	directory: Ref,
 	designator: policy::Id,
 	state: Rc<RefCell<State>>,
@@ -19,13 +93,13 @@ pub struct Exchange<D: Tasks> {
 	worker: RefCell<Option<D::Task>>,
 	closed: RefCell<Option<D::Task>>,
 }
-impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
+impl<D: Deadline + Tasks + Clone + 'static> Route<D> {
 	pub fn signaling_exchange(&self, designator: &str) -> Result<Exchange<D>, Error> {
 		let designator = policy::Id::parse(designator)?;
 		let state = Rc::new(RefCell::new(State::default()));
 		self.signaling.insert(&designator, &state)?;
 		let weak = Rc::downgrade(&state);
-		let reply = match self.client.session.spawn_owned(move |verb, args| {
+		let reply = match self.caller.host().spawn(move |verb, args| {
 			let state = weak.upgrade().ok_or("the signaling exchange has ended")?;
 			let reply = policy::reply(verb, args.len(), |i| args.get(i).map(Value)).map_err(|e| e.to_string())?;
 			let result = state.borrow_mut().core.receive(reply);
@@ -40,30 +114,32 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 			}
 		};
 		let weak = Rc::downgrade(&state);
-		let session = self.client.session.clone();
-		let closed = self.client.deadline.spawn(async move {
-			let _ = session.closed().await;
-			if let Some(state) = weak.upgrade() {
-				state.borrow_mut().core.retire();
-				wake(&state);
-			}
+		let session = self.introducer.clone().or_else(|| self.caller.session().cloned());
+		let closed = session.map(|session| {
+			self.caller.platform().spawn(async move {
+				let _ = session.closed().await;
+				if let Some(state) = weak.upgrade() {
+					state.borrow_mut().core.retire();
+					wake(&state);
+				}
+			})
 		});
 		Ok(Exchange {
-			client: self.client.clone(),
+			client: self.caller.clone(),
 			directory: self.reference.clone(),
 			designator,
 			state,
 			registry: self.signaling.clone(),
 			reply: RefCell::new(Some(reply)),
 			worker: RefCell::new(None),
-			closed: RefCell::new(Some(closed)),
+			closed: RefCell::new(closed),
 		})
 	}
 	pub fn take_signaling_failure(&self) -> Option<CleanupFailure> {
 		self.signaling.take_failure()
 	}
 	pub async fn offer_signaling(&self, inbox: &Ref) -> Result<(), Error> {
-		let pending = self.client.call(
+		let pending = self.caller.call(
 			&self.reference,
 			policy::OFFER_INBOX,
 			&[inbox.clone().into()],
@@ -74,7 +150,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 	}
 	pub fn signal_answer(&self, id: &policy::Id, answer: &policy::Description) -> Result<(), Error> {
 		tell(
-			&self.client.session,
+			&self.caller,
 			&self.reference,
 			policy::ANSWER,
 			id.as_str(),
@@ -83,7 +159,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 	}
 	pub fn signal_candidate(&self, id: &policy::Id, candidate: &policy::Candidate) -> Result<(), Error> {
 		tell(
-			&self.client.session,
+			&self.caller,
 			&self.reference,
 			policy::CANDIDATE,
 			id.as_str(),
@@ -104,7 +180,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Exchange<D> {
 			self.state.clone(),
 		);
 		let description = description.clone();
-		*self.worker.borrow_mut() = Some(self.client.deadline.spawn(async move {
+		*self.worker.borrow_mut() = Some(self.client.platform().spawn(async move {
 			let work = async {
 				let pending = {
 					let args = [designator.as_str().into(), description.as_str().into(), reply.into()];
@@ -121,7 +197,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Exchange<D> {
 				}
 				state::settled(&state).await
 			};
-			let failure = match client.deadline.within(policy::TIMEOUT_MS, work).await {
+			let failure = match client.platform().within(policy::TIMEOUT_MS, work).await {
 				None => Some(Error::Timeout("the signaling exchange timed out")),
 				Some(Err(error)) => Some(error),
 				Some(Ok(())) => None,
@@ -139,7 +215,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Exchange<D> {
 	pub async fn candidate(&self, candidate: &policy::Candidate) -> Result<(), Error> {
 		let id = wait(&self.state, |core| core.accepted()).await?;
 		tell(
-			&self.client.session,
+			&self.client,
 			&self.directory,
 			policy::CANDIDATE,
 			id.as_str(),
@@ -157,7 +233,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Exchange<D> {
 		.await
 	}
 }
-impl<D: Tasks> Exchange<D> {
+impl<D: Tasks + Deadline> Exchange<D> {
 	pub fn close(&self) -> Result<(), Error> {
 		let id = self.state.borrow_mut().core.retire();
 		self.worker.borrow_mut().take();
@@ -166,21 +242,19 @@ impl<D: Tasks> Exchange<D> {
 		self.registry.remove(&self.state);
 		wake(&self.state);
 		if let Some(id) = id {
-			self.client
-				.session
-				.tell(&self.directory, policy::DONE, &[id.as_str().into()])?;
+			self.client.tell(&self.directory, policy::DONE, &[id.as_str().into()])?;
 		}
 		Ok(())
 	}
 }
-impl<D: Tasks> Drop for Exchange<D> {
+impl<D: Tasks + Deadline> Drop for Exchange<D> {
 	fn drop(&mut self) {
 		if let Err(error) = self.close() {
 			self.registry.failed(error);
 		}
 	}
 }
-fn tell(session: &Session, directory: &Ref, verb: &str, id: &str, payload: &str) -> Result<(), Error> {
+fn tell<D: Deadline>(session: &Caller<D>, directory: &Ref, verb: &str, id: &str, payload: &str) -> Result<(), Error> {
 	session.tell(directory, verb, &[id.into(), payload.into()])?;
 	Ok(())
 }

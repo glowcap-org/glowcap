@@ -7,6 +7,8 @@ const a = std.testing.allocator;
 
 const Probe = struct {
     bias: i64,
+    bound_resource: ?h.c.storage.Operation.BoundResource = null,
+    content_revision: u64 = 0,
     requirements: usize = 0,
     retries: usize = 0,
     resources: usize = 0,
@@ -22,31 +24,39 @@ const Probe = struct {
     fn behavior(self: *Probe) h.access.ContentBehavior {
         return .{ .context = self, .schema = 7, .requirement = requirement, .retry = retry, .resource = resource, .references = references, .invoke = invoke };
     }
-    fn requirement(context: ?*anyopaque, arena: std.mem.Allocator, view: h.loam.core.RecordView, verb: []const u8, args: []const h.driver.Value) !h.c.core.Policy.Requirement {
-        get(context).requirements += 1;
-        return h.contents[0].requirement(null, arena, view, verb, args);
+    fn requirement(context: ?*anyopaque, arena: std.mem.Allocator, input: h.access.ContentInvocation) !h.c.core.Policy.Requirement {
+        const self = get(context);
+        self.requirements += 1;
+        self.bound_resource = input.bound_resource;
+        self.content_revision = input.content.revision;
+        return h.contents[0].requirement(null, arena, input);
     }
     fn retry(context: ?*anyopaque, verb: []const u8, args: []const h.driver.Value) !h.access.RetryMode {
         get(context).retries += 1;
         return h.contents[0].retry(null, verb, args);
     }
-    fn resource(context: ?*anyopaque, arena: std.mem.Allocator, id: h.c.core.ResourceId, view: h.loam.core.RecordView, verb: []const u8, args: []const h.driver.Value) !?h.c.storage.ResourceChange.Action {
+    fn resource(context: ?*anyopaque, arena: std.mem.Allocator, input: h.access.ContentInvocation) !?h.c.storage.ResourceChange.Action {
         get(context).resources += 1;
-        return h.contents[0].resource.?(null, arena, id, view, verb, args);
+        return h.contents[0].resource.?(null, arena, input);
     }
-    fn references(context: ?*anyopaque, _: std.mem.Allocator, _: h.loam.core.RecordView, _: []const u8, _: []const h.driver.Value) ![]const h.loam.hosting.references.Request {
-        get(context).reference_calls += 1;
+    fn references(context: ?*anyopaque, _: std.mem.Allocator, input: h.access.ContentInvocation) ![]const h.loam.hosting.references.Request {
+        const self = get(context);
+        self.reference_calls += 1;
+        try std.testing.expectEqualDeep(self.bound_resource.?, input.bound_resource);
+        try std.testing.expectEqual(self.content_revision, input.content.revision);
         return &.{};
     }
-    fn invoke(context: ?*anyopaque, call: *h.access.ContentCall, view: h.loam.core.RecordView, verb: []const u8, args: []const h.driver.Value) !h.driver.Value {
+    fn invoke(context: ?*anyopaque, call: *h.access.ContentCall, input: h.access.ContentInvocation) !h.driver.Value {
         const self = get(context);
         self.invocations += 1;
-        const result = try h.contents[0].invoke(null, call, view, verb, args);
+        try std.testing.expectEqualDeep(self.bound_resource.?, input.bound_resource);
+        try std.testing.expectEqual(self.content_revision, input.content.revision);
+        const result = try h.contents[0].invoke(null, call, input);
         return .{ .integer = result.integer + self.bias };
     }
-    fn replacementInvoke(context: ?*anyopaque, call: *h.access.ContentCall, view: h.loam.core.RecordView, verb: []const u8, args: []const h.driver.Value) !h.driver.Value {
+    fn replacementInvoke(context: ?*anyopaque, call: *h.access.ContentCall, input: h.access.ContentInvocation) !h.driver.Value {
         get(context).replacement_invocations += 1;
-        return invoke(context, call, view, verb, args);
+        return invoke(context, call, input);
     }
     fn refusedEntropy(_: ?*anyopaque, _: *h.driver.Host.DurableSwiss.Entropy) !void {
         return error.ReplacedEntropy;
@@ -149,7 +159,7 @@ test "loam managed service decoders receive their application context on refusal
         .{ .ref = host.control, .verb = "pause", .args = &.{} },
         .{ .ref = host.use, .verb = "derive", .args = &.{.{ .integer = 1 }} },
         .{ .ref = host.use, .verb = "derive-managed", .args = &.{.{ .integer = 1 }} },
-        .{ .ref = host.control, .verb = "attenuate-control", .args = &.{} },
+        .{ .ref = host.control, .verb = "mutate", .args = &.{ .{ .integer = 1 }, .{ .string = "attenuate-control" } } },
     };
     for (calls, 0..) |call, index| {
         var answer: h.Answer = .{};
@@ -267,6 +277,11 @@ test "loam managed revision restart reconstructs registration and current admiss
     try host.drain(&backend);
     try std.testing.expect(answer.broken);
     try std.testing.expect(after.requirements != 0);
+    try std.testing.expect(before.bound_resource.?.id.eql(data.resource));
+    try std.testing.expect(after.bound_resource.?.id.eql(data.resource));
+    // Grant-only changes leave descriptive resource revision unchanged. The
+    // Store restart still rechecks admission and refuses the paused grant.
+    try std.testing.expectEqual(before.bound_resource.?.revision, after.bound_resource.?.revision);
     try std.testing.expectEqual(@as(usize, 0), before.invocations);
     try std.testing.expectEqual(@as(usize, 0), after.invocations);
     try std.testing.expectEqual(@as(usize, 0), host.caps.operations);

@@ -137,6 +137,18 @@ pub const Backend = union(Selection) {
         }
     }
 
+    pub fn listenerIp4(self: *const Backend) [4]u8 {
+        return switch (self.*) {
+            inline else => |*backend| backend.listenerIp4(),
+        };
+    }
+
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
+    }
+
     pub fn openListener(self: *Backend, port: u16) !Fd {
         return switch (self.*) {
             inline else => |*backend| backend.openListener(port),
@@ -177,6 +189,24 @@ pub const Backend = union(Selection) {
         };
     }
 
+    pub fn flush(self: *Backend) !void {
+        return switch (self.*) {
+            inline else => |*backend| backend.flush(),
+        };
+    }
+
+    pub fn waitBoundMs(self: *const Backend, requested_ms: i32) i32 {
+        return switch (self.*) {
+            inline else => |*backend| backend.waitBoundMs(requested_ms),
+        };
+    }
+
+    pub fn readinessFd(self: *const Backend) Fd {
+        return switch (self.*) {
+            inline else => |*backend| backend.readinessFd(),
+        };
+    }
+
     pub fn submitAccept(self: *Backend, user_data: u64, fd: Fd) !void {
         return switch (self.*) {
             inline else => |*backend| backend.submitAccept(user_data, fd),
@@ -192,6 +222,12 @@ pub const Backend = union(Selection) {
     pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         return switch (self.*) {
             inline else => |*backend| backend.submitSend(user_data, fd, bytes),
+        };
+    }
+
+    pub fn submitPoll(self: *Backend, user_data: u64, fd: Fd, interest: completion.Interest) !void {
+        return switch (self.*) {
+            inline else => |*backend| backend.submitPoll(user_data, fd, interest),
         };
     }
 

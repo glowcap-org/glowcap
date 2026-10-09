@@ -28,7 +28,14 @@ export async function proveSharedRoomLink(directory: Directory, views: readonly 
 		await joining.click("#joinBtn");
 		for (const view of views) {
 			await namedRoomRow(view, ROOM).waitFor({ timeout: 30_000 })
-				.catch(() => fail("a room link pasted in an attached view did not reach the shared workspace"));
+				.catch(async () => {
+					const states = await Promise.all(views.map((page) => page.evaluate(() => document.body.innerText)));
+					fail(
+						`a room link pasted in an attached view did not reach the shared workspace: ${
+							JSON.stringify(states)
+						}`,
+					);
+				});
 		}
 	} finally {
 		await witness.leave();

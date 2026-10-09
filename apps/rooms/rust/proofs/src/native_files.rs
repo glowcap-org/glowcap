@@ -1,6 +1,6 @@
 //! Loopback integration fixtures, not a second Rooms server. Application
 //! methods run through real Host calls; publication and the pending-work queue
-//! are controlled here until the production room/session owner is migrated.
+//! are controlled here to exercise exact outcomes and pending-work lifetimes.
 use glowcap::{Argument, ConnectOptions, Host, PendingWork, Resolver, Runtime, RuntimeConfig, Session, tcp};
 use rooms_application::{
 	files::{FileDescription, FileMember, FileRoom, FileStore, ReadOutcome, ReadTicket},
@@ -42,7 +42,7 @@ impl Fixture {
 					.unwrap(),
 			));
 			let file_store = store.clone();
-			host.publish_giftable(&format!("upload-{name}"), move || {
+			host.publish(&format!("upload-{name}"), move || {
 				let (store, upload) = (file_store.clone(), upload.clone());
 				Box::new(move |verb, args| {
 					store
@@ -54,7 +54,7 @@ impl Fixture {
 			})
 			.unwrap();
 			let (file_store, behavior_host, tx) = (store.clone(), host.clone(), tx.clone());
-			host.publish_giftable(&format!("blob-{name}"), move || {
+			host.publish(&format!("blob-{name}"), move || {
 				let (store, host, blob, tx) = (file_store.clone(), behavior_host.clone(), blob.clone(), tx.clone());
 				Box::new(move |verb, args| {
 					match store
@@ -75,7 +75,7 @@ impl Fixture {
 			})
 			.unwrap();
 			let file_store = store.clone();
-			host.publish_giftable(&format!("line-{name}"), move || {
+			host.publish(&format!("line-{name}"), move || {
 				let (store, line) = (file_store.clone(), line.clone());
 				Box::new(move |verb, args| {
 					let args = values(args).collect::<Vec<_>>();
@@ -105,7 +105,7 @@ impl Fixture {
 async fn pair(server: &tcp::Server, runtime: &Runtime) -> (Session, Session) {
 	let locator = server.locator().unwrap();
 	let (client, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	(client.unwrap().with_gc(), accepted.unwrap().with_gc())
+	(client.unwrap(), accepted.unwrap())
 }
 
 async fn settle(store: &Store, (mut resolver, ticket): Waiting) {

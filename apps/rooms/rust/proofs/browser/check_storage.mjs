@@ -5,7 +5,12 @@ export async function checkStorage(page) {
 		const binding = await import("/rooms_contract_proofs.js");
 		const open = () =>
 			new Promise((resolve, reject) => {
-				const request = indexedDB.open("rooms-history", 1);
+				// The product contract creates the schema before this seeder runs.
+				const request = indexedDB.open("rooms-history");
+				request.onupgradeneeded = () => {
+					request.transaction.abort();
+					reject(new Error("storage seeding requires the product schema"));
+				};
 				request.onsuccess = () => resolve(request.result);
 				request.onerror = () => reject(request.error);
 			});
@@ -24,6 +29,7 @@ export async function checkStorage(page) {
 		const key = JSON.stringify(["browser", "generation", "line", "room", "directory", "garden", "seeded-line"]);
 		tx.objectStore("archive-records").put({
 			key,
+			context: JSON.stringify(["line", "room", "directory", "garden"]),
 			coordinates: JSON.stringify([
 				"browser",
 				"generation",
@@ -111,6 +117,7 @@ export async function checkStorage(page) {
 			tx.objectStore("archive-records").put({
 				key: JSON.stringify(["browser", "generation", "line", "room", "directory", "garden", id]),
 				coordinates: JSON.stringify(["browser", "generation", id, "line", "room", "directory", "garden"]),
+				context: JSON.stringify(["line", "room", "directory", "garden"]),
 				revision: i + 1,
 				digests: i === 0 ? [digest] : [],
 				row: [

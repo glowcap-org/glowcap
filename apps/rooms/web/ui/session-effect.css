@@ -75,9 +75,6 @@
 .session-recovery-modal > .lead {
 	margin-bottom: 2px;
 }
-.session-recovery-modal .entry > .actions {
-	justify-content: flex-end;
-}
 @media (max-width: 520px) {
 	.session-effect-notice {
 		gap: var(--gap-group);

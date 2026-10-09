@@ -15,6 +15,39 @@ mod receipts;
 mod support;
 
 #[test]
+fn every_subscription_delivers_complete_policy_before_arrival() {
+	for policy in [RoomPolicy::Open, RoomPolicy::Moderated, RoomPolicy::Private] {
+		let mut world = World::new(false);
+		let entrance = world.open(1, "Garden", policy);
+		for nick in ["Alice", "Alicia"] {
+			let seated = world.join(1, &entrance, nick);
+			let heard = notices(&seated.effects, 1);
+			assert_eq!(heard[0], &Notice::Carries(Carries::EVERYTHING));
+			assert_eq!(heard[1], &Notice::PolicyChanged(policy));
+			assert_eq!(heard[2], &Notice::Listed(policy.is_listed()));
+		}
+	}
+}
+
+#[test]
+fn exact_retirement_is_idempotent_and_cannot_remove_a_successor_seat() {
+	let mut world = World::new(false);
+	let entrance = world.open(1, "Garden", RoomPolicy::Open);
+	let first = world.join(1, &entrance, "Alice").membership;
+	let retired = world.rooms.retire_membership(&entrance.room, first);
+	assert_eq!(retired.presence, vec![1]);
+	assert!(world.rooms.membership_kind(&entrance.room, first).is_err());
+	let repeated = world.rooms.retire_membership(&entrance.room, first);
+	assert!(repeated.presence.is_empty() && repeated.releases.is_empty() && repeated.events.is_empty());
+	let next = world.open(1, "Garden", RoomPolicy::Open);
+	let successor = world.join(1, &next, "Alice").membership;
+	let stale = world.rooms.retire_membership(&entrance.room, first);
+	assert!(stale.presence.is_empty() && stale.releases.is_empty() && stale.events.is_empty());
+	assert!(world.rooms.membership_kind(&next.room, successor).is_ok());
+	assert!(world.rooms.leave(&next.room, first).is_err());
+}
+
+#[test]
 fn opening_and_entering_seat_members_and_announce_the_room() {
 	let mut world = World::new(false);
 	let entrance = world.open(1, "Garden", RoomPolicy::Open);
@@ -26,9 +59,10 @@ fn opening_and_entering_seat_members_and_announce_the_room() {
 	// What the room carries comes before the occupancy that marks arrival, so
 	// a client that returns from joining on that mark already holds it.
 	assert_eq!(heard[0], &Notice::Carries(Carries::EVERYTHING));
-	assert_eq!(heard[1], &Notice::Listed(true));
-	assert!(matches!(heard[2], Notice::Join { nick, count: 1 } if nick == "Alice"));
-	assert_eq!(heard[3], &Notice::Roster(vec!["Alice".into()]));
+	assert_eq!(heard[1], &Notice::PolicyChanged(RoomPolicy::Open));
+	assert_eq!(heard[2], &Notice::Listed(true));
+	assert!(matches!(heard[3], Notice::Join { nick, count: 1 } if nick == "Alice"));
+	assert_eq!(heard[4], &Notice::Roster(vec!["Alice".into()]));
 	assert!(
 		matches!(&seated.effects.events[0], Event::Room { kind: RoomChange::Opened, entry } if entry.count.as_ref().unwrap().get() == 1)
 	);
@@ -56,7 +90,10 @@ fn opening_and_entering_seat_members_and_announce_the_room() {
 		.unwrap_err();
 	assert_eq!(refused.code, Some(FailureCode::RoomExists));
 	let entry_id = alloc::string::String::from(world.rooms.listed().next().unwrap().id.text().as_str().unwrap());
-	assert_eq!(world.rooms.enter_publication(&entry_id).unwrap().room, entrance.room);
+	assert_eq!(
+		world.rooms.enter_publication(&entry_id, &world.authority).unwrap().room,
+		entrance.room
+	);
 	assert_eq!(
 		world.rooms.enter("Nowhere", &world.authority).unwrap_err().code,
 		Some(FailureCode::NoSuchRoom)
@@ -157,7 +194,7 @@ fn a_name_is_one_persons_and_a_reconnect_replaces_quietly() {
 	assert_eq!(world.rooms.nick_of(&entrance.room, 1), None);
 	// Re-entering on the same connection under a new name is a rename.
 	let seated = world.join(4, &entrance, "Alicia");
-	assert!(matches!(notices(&seated.effects, 4)[1], Notice::Listed(true)));
+	assert!(matches!(notices(&seated.effects, 4)[2], Notice::Listed(true)));
 	assert!(
 		seated
 			.effects

@@ -22,10 +22,9 @@
 //! every driver surface is reached through this one root: the borrowing,
 //! caller-pumped `BlockingSession` and its transport constructors in
 //! `blocking_session.zig`, and the owning, one-call `Session`/`Server` views
-//! in `session.zig`. Zig-owned fan-out at scale is the byte-fed
-//! `driver.core.Host` under a completion loop: TCP ships as `net.TcpLoop` plus
-//! `driver.Bridge` (ADR-0076); iroh ships as `completion.Loop(iroh.Backend, iroh.DialResolver)`
-//! plus the same `driver.Bridge` (ADR-0057 + ADR-0076).
+//! in `session.zig`. Zig-owned fan-out at scale is the same `HostRuntime`:
+//! one thread serves every session of one Host over its transport residents
+//! (ADR-0193, ADR-0202).
 
 const std = @import("std");
 
@@ -35,7 +34,7 @@ const driver_core = @import("driver_core");
 /// The sans-io driver core layer (`driver_core`), re-exported whole so a
 /// consumer can reach the byte-fed host core and its vocabulary as
 /// `driver.core.Host`, `driver.core.HostAction`, and so on — the layer
-/// `driver.Bridge` + `completion.Loop` feed over the wire.
+/// `HostRuntime` feeds over the wire.
 pub const core = driver_core;
 
 /// The off-turn settle mailbox (ADR-0102 stage 4): a worker thread posts a
@@ -99,17 +98,6 @@ pub const connectVia = blocking_session.connectVia;
 pub const connectUri = blocking_session.connectUri;
 pub const acceptVia = blocking_session.acceptVia;
 
-const bridge = @import("bridge.zig");
-/// The completion-loop to byte-fed `driver.core.Host` bridge, generic over
-/// the loop type (see `bridge.zig`). One completion-loop thread serving a
-/// full multi-session CapTP host — cross-session flushes armed through
-/// `Loop.armOutbound`, the budgeted drive, and the host's action queue
-/// answered at this tier's entropy boundary (ADR-0076). This is the Zig
-/// multi-session CapTP *scale* spine; the blocking application tier is the
-/// owning face `driver.HostRuntime` (ADR-0090) over that same core. Neither is a
-/// second core of its own — that is the type that stays deleted.
-pub const Bridge = bridge.Bridge;
-
 const session = @import("session.zig");
 /// The owning native runtime (ADR-0090): transport I/O and a blocking,
 /// poll-multiplexed pump around one byte-fed Host. `connect`/`listen` build one
@@ -141,11 +129,11 @@ pub const PendingWork = driver_core.PendingWork;
 pub const CloseGrace = driver_core.CloseGrace;
 /// The shared close barrier's observable result.
 pub const CloseOutcome = driver_core.CloseOutcome;
+/// The transports a runtime serves, as one value (ADR-0193).
+pub const Transports = HostRuntime.Transports;
 pub const connect = session.connect;
-pub const connectProviders = session.connectProviders;
 pub const connectUriOwned = session.connectUriOwned;
 pub const listen = session.listen;
-pub const listenProviders = session.listenProviders;
 
 const dial_retry = @import("dial_retry.zig");
 /// CapTP-honest dial continuity (ADR-0082): DialError classification, discovery

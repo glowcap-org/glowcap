@@ -153,11 +153,11 @@ export abstract class HostState {
 	// mid-turn); the drain runs them once the enclosing feed unwinds, so a
 	// mid-turn close never leaks its C handle. Mirrors Python/Rust.
 	protected readonly _parkedReleases: Array<() => void> = [];
-	// Trampoline ctx ids of this host's live giftable aliases, by published name.
+	// Trampoline ctx ids of this host's live Host publicationes, by published name.
 	// Native actor retirement drops their strong behavior ownership; Host release
 	// is the final catch-all. Keyed by name so `Session.publishedRef` can find the
 	// ctx.
-	protected readonly _giftables = new Map<string, bigint>();
+	protected readonly _publications = new Map<string, bigint>();
 	// Every Session.spawn/publish trampoline on this Host. Actors live in the
 	// Host Vat and remain callable through sibling Ports after the Port that
 	// first projected them closes.

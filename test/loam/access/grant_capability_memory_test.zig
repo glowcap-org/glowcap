@@ -1,5 +1,6 @@
 //! Native grant references bound their live object count, retain aliases
 //! without allocation, and own copied management scopes until final release.
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");
 const core = f.core;
@@ -8,7 +9,7 @@ const Ledger = core.GrantLedger;
 test "access native capability quota counts objects and releases final aliases" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 2, .max_capabilities = 1 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
@@ -33,8 +34,8 @@ test "access native capability quota counts objects and releases final aliases" 
 test "access management ceiling owns its scope and refuses wider factory terms" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
-    const other = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const other = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 2 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .objects = &.{ resource, other } }, &.{f.read}, null);
@@ -61,7 +62,7 @@ test "access capability allocation failures leave no binding or retained scope" 
 fn allocationCase(allocator: std.mem.Allocator) !void {
     var graph = try f.graphInit(allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(allocator, &graph, f.descriptor, .{ .capacity = 2 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .objects = &.{resource} }, &.{f.read}, null);
@@ -80,7 +81,7 @@ test "access prepared edits retain their inputs after final control release" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var graph = try f.graphInit(failing.allocator());
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(failing.allocator(), &graph, f.descriptor, .{ .capacity = 2 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .objects = &.{resource} }, &.{ f.read, f.post }, null);

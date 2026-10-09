@@ -43,6 +43,7 @@ import type { ArchiveShareView } from "../archive_model.ts";
 import { DmArchiveHistory, RoomArchiveHistory } from "./ArchiveHistory.tsx";
 import { bridgedOrigin, roomPublication } from "../store/dirs.ts";
 import { useCommitments } from "../commitment.tsx";
+import { useAsyncAction } from "../async_action.ts";
 import { memberYouAre } from "../../../lib/text/conversation.ts";
 import { directoryLeaveKeep } from "../../../lib/text/conversation.ts";
 import {
@@ -390,6 +391,7 @@ function LeaveControls(
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
 	const commitments = useCommitments();
+	const leaving = useAsyncAction(() => session.endConv());
 	return asking
 		? (
 			<Confirm
@@ -400,11 +402,12 @@ function LeaveControls(
 				commit={leaveCommit(conv)}
 				keepId="convcardLeaveStay"
 				commitId="convcardLeave"
+				busy={leaving.busy}
 				onKeep={() => {
 					setAsking(false);
 					if (askingLeave) browser.aboutConversation();
 				}}
-				onCommit={() => commitments.request(() => session.endConv())}
+				onCommit={() => commitments.request(() => leaving.run())}
 			/>
 		)
 		: (

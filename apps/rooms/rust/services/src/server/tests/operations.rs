@@ -6,6 +6,7 @@
 mod authority;
 mod irc;
 mod listener_changes;
+mod manager_scope;
 mod operator;
 mod peering;
 mod trace;
@@ -145,11 +146,7 @@ async fn scenario() {
 	);
 	let runtime = runtime().await;
 	let dial = glowcap::parse_locator(&running.location).unwrap();
-	let session = runtime
-		.connect(&dial, ConnectOptions::default())
-		.await
-		.unwrap()
-		.with_gc();
+	let session = runtime.connect(&dial, ConnectOptions::default()).await.unwrap();
 	let admin = session.fetch(&listeners_swiss).await.unwrap();
 
 	// The seat list: one per transport, described, the boot tcp seat serving.
@@ -283,8 +280,7 @@ async fn scenario() {
 	let via_keyed = runtime
 		.connect(&glowcap::parse_locator(&keyed).unwrap(), ConnectOptions::default())
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	let directory = via_keyed.fetch("directory").await.unwrap();
 	let garden = via_keyed
 		.send(&directory, "open", &[Argument::String("garden".into())])
@@ -348,8 +344,7 @@ async fn scenario() {
 			ConnectOptions::default(),
 		)
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	let admin = session.fetch(&listeners_swiss).await.unwrap();
 	let seats = list(&session, &admin).await;
 	let restored = seat(&seats, KEYED_TCP);
@@ -406,8 +401,7 @@ async fn no_capability_exists_without_its_flag() {
 						ConnectOptions::default(),
 					)
 					.await
-					.unwrap()
-					.with_gc();
+					.unwrap();
 				assert!(session.fetch(&swiss).await.is_err(), "a stale swiss answers nothing");
 				session.fetch("directory").await.unwrap();
 				session.close(PendingWork::Cancel).await.unwrap();

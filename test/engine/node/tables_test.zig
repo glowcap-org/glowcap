@@ -17,9 +17,11 @@ test "Node action extraction preserves the inline Node footprint" {
     // Stated under runtime safety, where each embedded `std.ArrayList` header
     // carries std's one-word `pointer_stability` lock: 24 of these bytes, and
     // each hash map carries one more. One further word counts the queue seats
-    // promised to actions the Host has parked off the queue (ADR-0145).
+    // promised to actions the Host has parked off the queue (ADR-0145). The
+    // list of batches staged for an open provisional window adds one more
+    // array list (ADR-0194).
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 960), @sizeOf(Node));
+    try std.testing.expectEqual(@as(usize, 992), @sizeOf(Node));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Node));
 }
 
@@ -100,8 +102,8 @@ const ReleaseProjection = struct {
         };
     }
 
-    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, request: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
-        return if (request.session_fallback) |position| .{ .found = position } else .missing;
+    fn resolveName(_: ?*anyopaque, _: engine.PeerHandle, _: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
+        return .missing;
     }
 
     fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {

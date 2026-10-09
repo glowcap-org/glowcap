@@ -27,6 +27,7 @@ pub(super) async fn serve(
 	let mut connections = JoinSet::new();
 	let mut upgrades = JoinSet::new();
 	let mut retry = rooms_platform::serving::Retry::default();
+	let mut relay_failures = super::notice::Repeats::default();
 	let result = loop {
 		if *stop.borrow() {
 			break Ok(());
@@ -74,7 +75,9 @@ pub(super) async fn serve(
 			Some(job) = incoming.recv() => { upgrades.spawn_local(job); },
 			Some(ended) = upgrades.join_next(), if !upgrades.is_empty() => {
 				match ended {
-					Ok(Err(error)) => (environment.report)(super::Notice::RelayEnded(error)),
+					Ok(Err(cause)) => if let Some(times) = relay_failures.observe(&cause) {
+						(environment.report)(super::Notice::RelayEnded { cause, times });
+					},
 					Err(error) => break Err(error.to_string()),
 					Ok(Ok(())) => {},
 				}

@@ -98,17 +98,15 @@
   (define bare
     (with-handlers ([exn:fail? (lambda (_) (bad-locator locator))])
       (url->ocapn-node url)))
-  ;; Goblins' URL path cannot produce the host:port designator its TCP netlayer
-  ;; needs. A literal colon becomes URL port syntax, while `%3A` stays encoded
-  ;; in the designator. Refuse both here rather than failing later in a socket
-  ;; dial; the bare host:port form below is the one TCP admission.
-  (when (eq? (ocapn-node-transport bare) 'tcp) (bad-locator locator))
+  ;; Goblins leaves percent escapes in the designator. Decode the TCP socket
+  ;; address and validate it through the same admission as the shorthand.
+  (define designator
+    (if (eq? (ocapn-node-transport bare) 'tcp)
+        (ocapn-node-designator
+         (host:port->node (uri-decode (ocapn-node-designator bare))))
+        (ocapn-node-designator bare)))
   (define hints (query->hints (url-query url)))
-  (if hints
-      (make-wire-ocapn-node (ocapn-node-transport bare)
-                            (ocapn-node-designator bare)
-                            hints)
-      bare))
+  (make-wire-ocapn-node (ocapn-node-transport bare) designator hints))
 
 ;; The query of an OCapN URI as the hint mapping a decoded hello carries, or #f
 ;; when it has none. `url-query` has already percent-decoded each value, so an
@@ -131,11 +129,9 @@
 ;; The locator string a peer reaches `node` by, the string `locator->node`
 ;; reads back.
 ;;
-;; A `tcp` node answers the bare `host:port` shorthand, because that is the only
-;; spelling a TCP address travels in: a URL parser reads what follows the
-;; designator's colon as the URL's own port and refuses it. Every other transport
-;; answers the `ocapn://<designator>.<transport>` form, and a node's hints become
-;; the query. The values are percent-encoded, so an iroh locator's
+;; A TCP node without hints answers the bare `host:port` shorthand. Hinted nodes
+;; use the URI form, with TCP address delimiters encoded in the designator.
+;; A node's hints become the query. The values are percent-encoded, so an iroh locator's
 ;; `direct-addresses` arrives at the far side with its `:` separators and its
 ;; bracketed IPv6 address intact.
 ;;
@@ -145,10 +141,10 @@
 (define (node->locator node)
   (define transport (ocapn-node-transport node))
   (define designator (ocapn-node-designator node))
+  (define hints (node-hints node))
   (cond
-    [(eq? transport 'tcp) designator]
+    [(and (eq? transport 'tcp) (not hints)) designator]
     [else
-     (define hints (node-hints node))
      (define pairs
        (if (hash? hints)
            (sort (for/list ([(key value) (in-hash hints)])
@@ -156,7 +152,8 @@
                  string<?
                  #:key (lambda (pair) (symbol->string (car pair))))
            '()))
-     (string-append "ocapn://" designator "." (symbol->string transport)
+     (string-append "ocapn://" (if (eq? transport 'tcp) (uri-encode designator) designator)
+                    "." (symbol->string transport)
                     (if (null? pairs)
                         ""
                         (string-append "?" (alist->form-urlencoded pairs))))]))
@@ -321,12 +318,16 @@
     (check-equal? (ocapn-node-designator node) "[::1]:9099")
     (check-false (node-hints node)))
 
-  ;; A TCP URI cannot reach this netlayer. With no colon it lacks a port, a
-  ;; literal colon is URL port syntax, and an encoded colon stays encoded in the
-  ;; designator. All three are refused at locator admission.
+  ;; TCP URIs encode their address delimiter; literal colons are URL port
+  ;; syntax, and a designator without a socket port still refuses.
   (check-exn #rx"rooms locator" (lambda () (locator->node "ocapn://127.0.0.1.tcp")))
   (check-exn #rx"rooms locator" (lambda () (locator->node "ocapn://127.0.0.1:9099.tcp")))
-  (check-exn #rx"rooms locator" (lambda () (locator->node "ocapn://127.0.0.1%3A9099.tcp")))
+  (let ([node (locator->node "ocapn://127.0.0.1%3A9099.tcp?glowcap%2Fcaptp-version=glowcap-next")])
+    (check-equal? (ocapn-node-designator node) "127.0.0.1:9099")
+    (check-equal? (node-hints node) (hash "glowcap/captp-version" "glowcap-next"))
+    (check-equal? (locator->node (node->locator node)) node))
+  (let ([node (locator->node "ocapn://%5B%3A%3A1%5D%3A9099.tcp")])
+    (check-equal? (ocapn-node-designator node) "[::1]:9099"))
 
   ;; An iroh locator as a rooms server announces one: the designator is the
   ;; endpoint's Ed25519 key and the addresses ride percent-encoded in the query.

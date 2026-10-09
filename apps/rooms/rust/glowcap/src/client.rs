@@ -9,6 +9,10 @@ use std::{
 	future::{Future, IntoFuture},
 	rc::Rc,
 };
+mod caller;
+pub(crate) use caller::Caller;
+#[cfg(feature = "loam")]
+pub mod access;
 pub mod archive;
 pub mod direct;
 pub mod directory;
@@ -16,10 +20,14 @@ pub mod files;
 pub mod invitation;
 pub mod manager;
 pub mod posted_line;
+#[cfg(feature = "loam")]
+mod retained;
 pub mod room;
 pub mod session;
 pub mod sources;
 pub mod stewardship;
+#[cfg(feature = "loam")]
+pub mod workspace;
 
 /// Ending a deadline drops the pending observation. The binding retains and
 /// retires any protocol work and releases late projected reply occurrences.
@@ -40,6 +48,11 @@ pub trait Entropy {
 }
 #[derive(Clone, Debug)]
 pub enum Error {
+	/// The peer proved that a stale workspace candidate installed no changes.
+	WorkspaceConflict,
+	/// The original terminal observation failed. This proves no absence and
+	/// cannot authorize another dispatch of that effect.
+	Observation(String),
 	/// The binding refused admission; this operation was never sent.
 	Unsent(Box<glowcap::Error>),
 	Receipt(rooms_application::room::receipt::Error),
@@ -77,6 +90,9 @@ impl Error {
 	/// Untyped application refusals may depend on either a different request or
 	/// changed peer state; transport loss always needs the connection to change.
 	pub fn retry(&self) -> Retry {
+		if matches!(self, Self::Observation(_)) {
+			return Retry::Never;
+		}
 		if let Self::Binding(error) | Self::Unsent(error) = self {
 			return binding_retry(error);
 		}
@@ -218,6 +234,8 @@ impl From<glowcap::Error> for Error {
 impl core::fmt::Display for Error {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		match self {
+			Self::WorkspaceConflict => f.write_str("workspace revision changed; this acquisition installed no changes"),
+			Self::Observation(reason) => f.write_str(reason),
 			Self::Binding(e) | Self::Unsent(e) => e.fmt(f),
 			Self::Timeout(what) => f.write_str(what),
 			Self::Reply(e) => e.fmt(f),
@@ -270,7 +288,7 @@ impl WeakClient {
 }
 impl<D: Deadline> Client<D> {
 	pub fn new(session: Session, deadline: D) -> Self {
-		Self::from_shared_session(Rc::new(session.with_gc()), deadline)
+		Self::from_shared_session(Rc::new(session), deadline)
 	}
 	pub(crate) fn from_shared_session(session: Rc<Session>, deadline: D) -> Self {
 		Self {

@@ -8,6 +8,7 @@ use rooms_application::{
 };
 use std::{cell::RefCell, path::Path};
 use tokio::sync::Notify;
+mod selection;
 
 struct Delayed {
 	inner: FileArchive,
@@ -100,6 +101,7 @@ fn file(client: &Client<HostPlatform>, root: &Ref, size: usize) -> File<HostPlat
 	)
 }
 pub(super) async fn run(runtime: Rc<Runtime>, client: &Client<HostPlatform>, link: &str, path: &Path) {
+	selection::run(runtime.clone(), client, link, path).await;
 	for remote in [false, true] {
 		survives(runtime.clone(), client, remote.then_some(link), path).await;
 	}
@@ -119,17 +121,11 @@ pub(super) async fn run(runtime: Rc<Runtime>, client: &Client<HostPlatform>, lin
 async fn stalled_source_leaves_reads_flowing(runtime: Rc<Runtime>, client: &Client<HostPlatform>, path: &Path) {
 	let answer = Rc::new(RefCell::new(None::<Resolver>));
 	let pending = answer.clone();
+	let source_host = client.session().host();
 	let root = client
 		.session()
 		.spawn_owned(move |_, _| {
-			*pending.borrow_mut() = Some(
-				glowcap::current_session()
-					.map_err(|e| e.to_string())?
-					.ok_or("caller")?
-					.host()
-					.defer_turn()
-					.map_err(|e| e.to_string())?,
-			);
+			*pending.borrow_mut() = Some(source_host.defer_turn().map_err(|e| e.to_string())?);
 			Ok(Argument::Void)
 		})
 		.unwrap();
@@ -209,17 +205,11 @@ async fn stalled_source_leaves_reads_flowing(runtime: Rc<Runtime>, client: &Clie
 async fn aborted(runtime: Rc<Runtime>, client: &Client<HostPlatform>, path: &Path) {
 	let answer = Rc::new(RefCell::new(None::<Resolver>));
 	let pending = answer.clone();
+	let source_host = client.session().host();
 	let root = client
 		.session()
 		.spawn_owned(move |_, _| {
-			*pending.borrow_mut() = Some(
-				glowcap::current_session()
-					.map_err(|e| e.to_string())?
-					.ok_or("caller")?
-					.host()
-					.defer_turn()
-					.map_err(|e| e.to_string())?,
-			);
+			*pending.borrow_mut() = Some(source_host.defer_turn().map_err(|e| e.to_string())?);
 			Ok(Argument::Void)
 		})
 		.unwrap();
@@ -449,15 +439,11 @@ async fn survives(runtime: Rc<Runtime>, client: &Client<HostPlatform>, target: O
 async fn pressure(runtime: Rc<Runtime>, client: &Client<HostPlatform>, path: &Path, streams: bool) {
 	let answers = Rc::new(RefCell::new(Vec::<Resolver>::new()));
 	let pending = answers.clone();
+	let source_host = client.session().host();
 	let root = client
 		.session()
 		.spawn_owned(move |_, _| {
-			let reply = glowcap::current_session()
-				.map_err(|e| e.to_string())?
-				.ok_or("caller")?
-				.host()
-				.defer_turn()
-				.map_err(|e| e.to_string())?;
+			let reply = source_host.defer_turn().map_err(|e| e.to_string())?;
 			pending.borrow_mut().push(reply);
 			Ok(Argument::Void)
 		})

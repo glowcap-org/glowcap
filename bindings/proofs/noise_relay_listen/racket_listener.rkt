@@ -18,7 +18,7 @@
 (define seed (crypto-random-bytes 32))
 (define server (listen-noise-relay relay-url register-url #:seed seed))
 (define host (server-host server))
-(host-publish-giftable host "greeter"
+(host-publish host "greeter"
   (methods [(greet who)
             (format "Hello, ~a" who)]))
 (printf "RELAY-LISTENER-READY ~a\n" (server-uri server))

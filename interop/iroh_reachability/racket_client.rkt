@@ -43,9 +43,9 @@
          (set-box! serves-box (cons (thread (lambda () (session-serve session))) (unbox serves-box)))
          (loop))))))
 
-;; ── Server: a giftable greeter, dialable by node id alone over discovery ───────
+;; ── Server: a Host publication greeter, dialable by node id alone over discovery ───────
 (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))
-(host-publish-giftable (iroh-server-host server) "greeter"
+(host-publish (iroh-server-host server) "greeter"
                           (methods [(greet who) (format "hello ~a over iroh discovery" who)]))
 (define server-id (iroh-server-node-id server))
 (define server-serves (box '()))

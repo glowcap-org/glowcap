@@ -49,7 +49,7 @@ const SessionOpenFailingAllocator = harness.SessionOpenFailingAllocator;
 const TaggedRow = harness.TaggedRow;
 const PublicationProbe = harness.PublicationProbe;
 
-test "Host owner extraction preserves the aggregate footprint and supported verb shapes" {
+test "Host aggregate footprint and supported verb shapes stay within their budgets" {
     try std.testing.expect(Host.InitError == error{ DurableBootstrapUnavailable, InvalidHostWorkQuantum });
     try std.testing.expect(Host.RuntimeAdoptionError == error{ ReenteredHost, HostClosing, HostNotQuiescent });
     try std.testing.expectEqual(@as(usize, 2), @typeInfo(Host.BootstrapDurability).@"enum".field_names.len);
@@ -64,7 +64,7 @@ test "Host owner extraction preserves the aggregate footprint and supported verb
     const queue_listen: *const fn (*Host, *HostSession, model.Reference) anyerror!u64 = &Host.queueListenTo;
     const listen_capability: *const fn (*Host, *HostSession, driver.core.Capability) anyerror!u64 = &Host.listenToCapability;
     const queue_listen_capability: *const fn (*Host, *HostSession, driver.core.Capability) anyerror!u64 = &Host.queueListenToCapability;
-    const set_trace: *const fn (*Host, ?driver.core.trace.Sink) error{WrongThread}!void = &Host.setTrace;
+    const set_trace: *const fn (*Host, ?driver.core.trace.Sink) error{ ReenteredHost, WrongThread }!void = &Host.setTrace;
     const with_frame_cap: *const fn (usize) Host.Options = &Host.Options.withFrameCap;
     const frame_cap_method: *const fn (Host.Options) usize = &Host.Options.frameCap;
     const outbound_high_water: *const fn (Host.Options) usize = &Host.Options.outboundHighWaterBytes;
@@ -95,10 +95,26 @@ test "Host owner extraction preserves the aggregate footprint and supported verb
     // provider pointer (8 bytes per Host); the engine resolver keeps its
     // existing callback slot and sessions gain no fields. ADR-0177 adds a
     // 16-byte arena state to the last completion; sessions stay unchanged.
+    // ADR-0191 adds 32 to the Host's Vat: the list of ingresses with sends
+    // staged by the running turn, and that turn's failure. Staging sits on the
+    // Vat so sessions pay nothing for it. ADR-0194 adds 104 more: the Vat's
+    // list of layers waiting on that turn's outcome, the Host's lowering
+    // receipts held until it, and the Node's batches staged for it. A
+    // session's Peer gains one flag and stays within its struct budget.
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 2360), @sizeOf(Host));
+    // A public local completion has no peer. Its diagnostic presence tag
+    // adds one word to each action seat and the Host's last-action storage.
+    // Opaque callbacks carry archive-independent failure text. The Vat's
+    // optional slice adds 16 bytes to the former error-code storage.
+    // One Vat-wide callback identity makes owning forwarding recognizable
+    // across native archives without expanding each listener or session.
+    // Shared enlivenment adds one Host-wide map (24 bytes). Session shells
+    // and existing vow rows gain no storage; groups exist only during fetches.
+    // Rollback reserves failure notifications in one Vat-wide list and count
+    // (40 bytes). Each pending answer uses a 16-byte slot, shared across Ports.
+    try std.testing.expectEqual(@as(usize, 2592), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
-    try std.testing.expectEqual(@as(usize, 80), @sizeOf(driver.core.HostAction));
+    try std.testing.expectEqual(@as(usize, 88), @sizeOf(driver.core.HostAction));
 }
 
 test "Host transport profiles own extension semantics and refuse ambiguity" {

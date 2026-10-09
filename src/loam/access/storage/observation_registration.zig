@@ -7,14 +7,20 @@ const op = @import("capability_operation.zig");
 const Load = @import("load.zig").Load;
 const record = @import("record.zig");
 const snapshot = @import("observation_snapshot.zig");
+const Cancellation = @import("observation_cancellation.zig").Cancellation;
+const Lifetime = records.ObservationRecord.Lifetime;
 
 const State = struct {
     operation: *op.Operation,
     target: ?core.ResourceId,
     key: [32]u8,
+    lifetime: ?Lifetime = null,
     load: Load = .{},
     index: records.ObservationIndexRecord = .{},
     index_expected: ?u64 = null,
+    index_loaded: bool = false,
+    scanned: usize = 0,
+    expired: ?*Cancellation = null,
     ready: bool = false,
     staged: bool = false,
     cancelled: bool = false,
@@ -37,33 +43,65 @@ const State = struct {
         const state = op.state(self.operation);
         try state.opened();
         if (self.ready) return .ready;
-        if (state.read.?.header.observations) |id| {
-            const row = switch (try self.load.resolve(state.binding.owner.store, id)) {
-                .read => |request| return .{ .read = request },
-                .waiting => return .waiting,
-                .ready => |row| row,
-            };
-            defer row.release(state.binding.owner.store);
-            self.index = try records.ObservationIndexRecord.decode(row.view);
-            self.index_expected = if (try state.binding.owner.store.proposed(id)) |proposal| proposal.expected else row.view.revision;
+        if (!self.index_loaded) {
+            if (state.read.?.header.observations) |id| {
+                const row = switch (try self.load.resolve(state.binding.owner.store, id)) {
+                    .read => |request| return .{ .read = request },
+                    .waiting => return .waiting,
+                    .ready => |row| row,
+                };
+                defer row.release(state.binding.owner.store);
+                self.index = try records.ObservationIndexRecord.decode(row.view);
+                self.index_expected = if (try state.binding.owner.store.proposed(id)) |proposal| proposal.expected else row.view.revision;
+            }
+            self.index_loaded = true;
         }
-        if (self.index.count == records.ObservationIndexRecord.capacity) return error.ObservationCapacity;
+        if (self.lifetime) |lifetime| {
+            // Reclaim at most one expired slot per registration. This bounds
+            // transaction demand independently of how many callers crashed;
+            // a full expired index always has room for its replacement.
+            const store = state.binding.owner.store;
+            while (self.expired == null and self.scanned < self.index.count) {
+                const row = switch (try self.load.resolve(store, self.index.contexts[self.scanned])) {
+                    .read => |request| return .{ .read = request },
+                    .waiting => return .waiting,
+                    .ready => |row| row,
+                };
+                defer row.release(store);
+                const context = try records.ObservationRecord.decode(row.view);
+                if (context.lifetime) |prior| {
+                    if (prior.marker.eql(lifetime.marker) and prior.revision != lifetime.revision) {
+                        if (prior.revision > lifetime.revision) return error.InvalidRecord;
+                        self.expired = try Cancellation.init(store, row.lease orelse return error.WrongPhase);
+                    }
+                }
+                self.scanned += 1;
+            }
+            if (self.expired) |expired| {
+                const step = try expired.advance();
+                if (step != .ready) return step;
+            }
+        }
+        if (self.index.count == records.ObservationIndexRecord.capacity and self.expired == null) return error.ObservationCapacity;
         self.ready = true;
         return .ready;
     }
 
     pub fn completeRead(self: *State, ticket: loam.Ticket, result: loam.ReadResult) !void {
+        if (self.load.pending == null) if (self.expired) |expired| return expired.completeRead(ticket, result);
         return self.load.complete(op.state(self.operation).binding.owner.store, ticket, result);
     }
 
     /// Trusted publication composition supplies the already-allocated recipes.
     /// The returned context becomes observation authority only after commit.
-    pub fn stage(self: *State, publications: [2]?loam.ObjectId) !loam.ObjectId {
+    pub fn stage(self: *State, publications: [2]?loam.ObjectId, retirement: ?Cancellation.Retirement) !loam.ObjectId {
         const state = op.state(self.operation);
         try state.opened();
         if (!self.ready or self.staged or self.cancelled) return error.WrongPhase;
         const store = state.binding.owner.store;
         if (store.phase != .staging) return error.WrongPhase;
+        errdefer store.abort() catch unreachable;
+        if (self.expired) |expired| _ = try expired.stage(retirement);
         const read = &state.read.?;
         var header = read.header;
         var expected = read.header_revision;
@@ -78,10 +116,9 @@ const State = struct {
             index_expected = proposal.expected;
         };
         if (index.count == records.ObservationIndexRecord.capacity) return error.ObservationCapacity;
-        errdefer store.abort() catch unreachable;
         read.transaction = store.ticket;
         const context = try store.allocateId();
-        const value: records.ObservationRecord = .{ .owner = read.owner_object, .descriptor = state.binding.object, .target = self.target, .key = self.key, .started = state.read.?.history.next_sequence - 1, .publications = publications };
+        const value: records.ObservationRecord = .{ .owner = read.owner_object, .descriptor = state.binding.object, .target = self.target, .key = self.key, .started = state.read.?.history.next_sequence - 1, .publications = publications, .lifetime = self.lifetime };
         var edges: [records.ObservationRecord.max_edges]loam.Edge = undefined;
         try record.putEncoded(store, context, records.profile.observation, value, value.edges(&edges), null, false);
         try index.append(context);
@@ -97,12 +134,14 @@ const State = struct {
     }
 
     pub fn cancel(self: *State) !void {
+        if (self.expired) |expired| try expired.cancel();
         try self.load.cancel(op.state(self.operation).binding.owner.store);
         self.cancelled = true;
     }
 
     pub fn deinit(self: *State) !void {
         if (self.load.pending != null) return error.Busy;
+        if (self.expired) |expired| try expired.deinit();
         op.state(self.operation).children -= 1;
         self.* = undefined;
     }
@@ -123,7 +162,23 @@ pub const Registration = opaque {
         return backing(self).completeRead(ticket, result);
     }
     pub fn stage(self: *Registration, publications: [2]?loam.ObjectId) !loam.ObjectId {
-        return backing(self).stage(publications);
+        return backing(self).stage(publications, null);
+    }
+    /// Runtime observations borrow an explicitly supplied trusted marker. One
+    /// optional cancellation owns stale-context preparation through commit;
+    /// no population-sized allocation or permanent runtime index is added.
+    pub fn initLifetime(operation: *op.Operation, target: ?core.ResourceId, key: [32]u8, lifetime: Lifetime) !*Registration {
+        const store = op.state(operation).binding.owner.store;
+        if (lifetime.marker.store != store.metadata.store or lifetime.revision == 0) return error.InvalidRecord;
+        const result = try init(operation, target, key);
+        backing(result).lifetime = lifetime;
+        return result;
+    }
+    pub fn expiredPublications(self: *Registration) ![2]?loam.ObjectId {
+        return if (backing(self).expired) |expired| expired.publications() else @splat(null);
+    }
+    pub fn stageWithRetirement(self: *Registration, publications: [2]?loam.ObjectId, retirement: Cancellation.Retirement) !loam.ObjectId {
+        return backing(self).stage(publications, retirement);
     }
     pub fn cancel(self: *Registration) !void {
         return backing(self).cancel();

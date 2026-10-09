@@ -42,7 +42,6 @@ pub const Handle = struct {
     /// The listening transport's residents. They live here rather than on
     /// `start`'s frame because the server borrows one for the accept thread's
     /// whole life; which one is chosen is `ocapn.listenTarget`'s decision.
-    tcp: glowcap.net.tcp.Resident = undefined,
     relay: ?relay_runtime.Provider = null,
     server: *driver.Server,
     thread: std.Thread = undefined,
@@ -193,9 +192,8 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
 
     const accept_id = try ctx.acceptIdentity();
 
-    // The handle is allocated before the server because it owns the
-    // transport residents the server will borrow, and a resident must not
-    // move once a netlayer points at it.
+    // The handle is allocated before the server because it owns the relay
+    // TLS runtime the server's relay backend leases.
     const handle = try ctx.gpa.create(Handle);
     handle.relay = null;
     // `errdefer` fires only on an error return, and this verb reports its
@@ -213,14 +211,13 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
         bind,
         parsed.flagString("rendezvous"),
         parsed.flagString("rendezvous-relay"),
-        &handle.tcp,
         &handle.relay,
     ) catch |err| switch (err) {
         error.Usage => return exit_codes.usage,
         error.OutOfMemory => return err,
         else => return exit_codes.dial,
     };
-    var server = driver.listen(ctx.gpa, target.netlayer, .{ .designator = target.designator }, accept_id, session_opts.sessionOptsReporting(ctx)) catch |err| {
+    var server = driver.listen(ctx.gpa, ctx.io, target.transports, target.transport, .{ .designator = target.designator }, accept_id, session_opts.sessionOptsReporting(ctx)) catch |err| {
         ctx.logErr("listen: {s}", .{@errorName(err)});
         return exit_codes.dial;
     };
@@ -237,8 +234,8 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     defer if (!handed_over) ctx.gpa.free(locator_copy);
     const publish_copy: ?[]u8 = if (publish_name) |name| try ctx.gpa.dupe(u8, name) else null;
     defer if (!handed_over) if (publish_copy) |name| ctx.gpa.free(name);
-    // Field-wise: `tcp`/`relay` already hold the residents the netlayer
-    // above points at, so the whole struct must not be overwritten.
+    // Field-wise: `relay` already holds the TLS runtime the server leases,
+    // so the whole struct must not be overwritten.
     handle.gpa = ctx.gpa;
     handle.server = server;
     handle.stop = .init(false);

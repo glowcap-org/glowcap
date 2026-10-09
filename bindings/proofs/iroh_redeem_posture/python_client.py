@@ -17,7 +17,7 @@ posture. Deterministic and flake-free, three ``LOCAL_DISCOVERY`` endpoints in on
 process sharing one address book.
 
 Topology:
-  Exporter  binds a ``LOCAL_DISCOVERY`` endpoint, publishes a node-giftable
+  Exporter  binds a ``LOCAL_DISCOVERY`` endpoint, publishes a Host-published
             ``greeter``.
   Gifter    binds its own endpoint, dials the exporter by id (one node identity),
             fetches the greeter, and records the exporter's **id-only** location as
@@ -73,10 +73,10 @@ async def accept_loop(server, served: list) -> None:
 async def run() -> None:
     config = IrohConfig(Reachability.LOCAL_DISCOVERY)
 
-    # ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
+    # ── Exporter: a Host-published greeter on its own local-discovery endpoint ─────
     exporter_runtime = await Runtime.open(provider=provider(config))
     exporter = await listen(config, host=exporter_runtime.host)
-    exporter.host.publish_giftable("greeter", greeter)
+    exporter.host.publish("greeter", greeter)
     exporter_id = exporter.node_id
     exporter_served: list = []
     exporter_task = asyncio.create_task(accept_loop(exporter, exporter_served))
@@ -98,7 +98,7 @@ async def run() -> None:
             return greeter_ref
         return None
 
-    gifter.host.publish_giftable("introducer", introducer)
+    gifter.host.publish("introducer", introducer)
     gifter_served: list = []
     gifter_task = asyncio.create_task(accept_loop(gifter, gifter_served))
     print(f"python-iroh-redeem-posture: gifter published introducer on {gifter_id}")

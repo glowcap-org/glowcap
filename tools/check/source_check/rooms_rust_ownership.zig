@@ -33,13 +33,9 @@ const retired_service_identifiers = [_][]const u8{
 
 const runtime_domain_roots = [_][]const u8{
     "session",
-    "directories",
-    "rooms",
-    "direct",
     "files",
     "archive",
-    "grants",
-    "service",
+    "trace",
 };
 
 const runtime_support_files = [_][]const u8{
@@ -194,7 +190,7 @@ test "Rooms runtime keeps domain roots instead of flat owner modules" {
         const path = try std.fmt.allocPrint(gpa, source_root ++ "/{s}", .{domain});
         defer gpa.free(path);
         try tmp.dir.createDirPath(std.testing.io, path);
-        if (!std.mem.eql(u8, domain, "service")) {
+        if (!std.mem.eql(u8, domain, "session")) {
             try declarations.print(gpa, "pub mod {s};\n", .{domain});
         }
     }
@@ -215,15 +211,15 @@ test "Rooms runtime keeps domain roots instead of flat owner modules" {
     }
     try checkRuntimeLayout(std.testing.io, gpa, tmp.dir, &violations);
     try std.testing.expectEqual(@as(usize, 3), violations.items.len);
-    var missing_service = false;
+    var missing_session = false;
     var flat_file = false;
     var flat_directory = false;
     for (violations.items) |message| {
-        missing_service = missing_service or std.mem.indexOf(u8, message, "pub mod service;") != null;
+        missing_session = missing_session or std.mem.indexOf(u8, message, "pub mod session;") != null;
         flat_file = flat_file or std.mem.indexOf(u8, message, "session_service.rs") != null;
         flat_directory = flat_directory or std.mem.indexOf(u8, message, "direct_events") != null;
     }
-    try std.testing.expect(missing_service and flat_file and flat_directory);
+    try std.testing.expect(missing_session and flat_file and flat_directory);
 }
 
 test "retired Rooms owners and crate boundaries cannot return" {

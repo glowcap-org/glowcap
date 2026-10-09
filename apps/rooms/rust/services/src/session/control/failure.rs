@@ -69,8 +69,6 @@ impl From<Error> for Failure {
 			Error::Stale(_) => "stale",
 			Error::Closed(_) => "closed",
 			Error::Uncertain(_) => "uncertain",
-			Error::Admission(_) => "admission",
-			Error::View(_) => "view",
 			Error::State(_) => "state",
 			Error::Captp(_) => "captp",
 			Error::Peer(_) => "peer",

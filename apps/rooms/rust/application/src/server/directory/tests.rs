@@ -1,5 +1,8 @@
 //! The directory policy read as values: every verb's refusal and every
 //! effect it hands the adapter, without a wire.
+mod discovery;
+mod openings;
+mod retirement;
 use super::*;
 use crate::directory::{MAX_ROWS, MemberChange};
 use alloc::{format, vec};
@@ -237,13 +240,16 @@ fn an_introduction_waits_for_an_offered_inbox() {
 		notice: Notice::MintInboxFor {
 			nick: "Bob".into(),
 			id: id(2),
+			opening: "opening".into(),
 		},
 	};
 	assert_eq!(
-		dir.introduce(2, "Alice", id(1).as_str()),
+		dir.introduce(2, "Alice", id(1).as_str(), "opening"),
 		Ok(Introduction::Pending(pending))
 	);
-	let effects = dir.offer_inbox(1, "Bob", id(2).as_str(), "for-bob").expect("offers");
+	let effects = dir
+		.offer_inbox(1, "Bob", id(2).as_str(), "opening", "for-bob")
+		.expect("offers");
 	assert_eq!(
 		effects.tells,
 		vec![Tell {
@@ -251,33 +257,34 @@ fn an_introduction_waits_for_an_offered_inbox() {
 			inbox: "b-inbox",
 			notice: Notice::Introducible {
 				nick: "Alice".into(),
-				id: id(1)
+				id: id(1),
+				opening: "opening".into()
 			}
 		}]
 	);
 	assert_eq!(
-		dir.introduce(2, "Alice", id(1).as_str()),
+		dir.introduce(2, "Alice", id(1).as_str(), "opening"),
 		Ok(Introduction::Inbox("for-bob"))
 	);
-	// Offering again replaces, and the replaced inbox goes back.
-	let effects = dir.offer_inbox(1, "Bob", id(2).as_str(), "for-bob-2").expect("offers");
+	// Introduction consumed the offer. Re-offering retains a fresh occurrence.
+	let effects = dir
+		.offer_inbox(1, "Bob", id(2).as_str(), "opening", "for-bob-2")
+		.expect("offers");
+	assert_eq!(effects.releases, vec![]);
 	assert_eq!(
-		effects.releases,
-		vec![Release {
-			connection: 1,
-			capability: "for-bob"
-		}]
-	);
-	assert_eq!(
-		dir.introduce(3, "Alice", id(1).as_str()).unwrap_err().code,
+		dir.introduce(3, "Alice", id(1).as_str(), "opening").unwrap_err().code,
 		Some(FailureCode::NotRegistered)
 	);
 	assert_eq!(
-		dir.offer_inbox(1, "Bob", id(9).as_str(), "stale").unwrap_err().code,
+		dir.offer_inbox(1, "Bob", id(9).as_str(), "opening", "stale")
+			.unwrap_err()
+			.code,
 		Some(FailureCode::PeerOffline)
 	);
 	assert_eq!(
-		dir.offer_inbox(3, "Bob", id(2).as_str(), "x").unwrap_err().code,
+		dir.offer_inbox(3, "Bob", id(2).as_str(), "opening", "x")
+			.unwrap_err()
+			.code,
 		Some(FailureCode::NotRegistered)
 	);
 }
@@ -287,8 +294,9 @@ fn withdrawal_returns_every_inbox_pointing_at_the_name() {
 	let mut dir = Dir::default();
 	registered(&mut dir, 1, "Alice", "a-inbox");
 	registered(&mut dir, 2, "Bob", "b-inbox");
-	dir.offer_inbox(1, "Bob", id(2).as_str(), "for-bob").expect("offers");
-	dir.offer_inbox(2, "Alice", id(1).as_str(), "for-alice")
+	dir.offer_inbox(1, "Bob", id(2).as_str(), "opening", "for-bob")
+		.expect("offers");
+	dir.offer_inbox(2, "Alice", id(1).as_str(), "opening", "for-alice")
 		.expect("offers");
 	dir.offer_signaling(2, "b-signaling").expect("offers signaling");
 	let effects = dir.connection_closed(2);
@@ -317,7 +325,7 @@ fn withdrawal_returns_every_inbox_pointing_at_the_name() {
 	);
 	assert_eq!(member_event(&effects.events[0]), Some((false, "Bob", 0)));
 	assert_eq!(
-		dir.introduce(1, "Bob", id(2).as_str()).unwrap_err().code,
+		dir.introduce(1, "Bob", id(2).as_str(), "opening").unwrap_err().code,
 		Some(FailureCode::PeerOffline)
 	);
 	// Closing a connection that registered nothing does nothing.
@@ -330,14 +338,17 @@ fn offered_inboxes_are_bounded_per_member() {
 	registered(&mut dir, 1, "Alice", "a-inbox");
 	for n in 0..MAX_DM_INBOXES as u32 {
 		registered(&mut dir, 10 + n, &format!("m{n}"), "inbox");
-		dir.offer_inbox(1, &format!("m{n}"), id(10 + n).as_str(), "offered")
+		dir.offer_inbox(1, &format!("m{n}"), id(10 + n).as_str(), "opening", "offered")
 			.expect("under the cap");
 	}
 	registered(&mut dir, 9999, "last", "inbox");
-	let refusal = dir.offer_inbox(1, "last", id(9999).as_str(), "offered").unwrap_err();
+	let refusal = dir
+		.offer_inbox(1, "last", id(9999).as_str(), "opening", "offered")
+		.unwrap_err();
 	assert_eq!(refusal.code, None);
 	// Replacing one already offered stays admitted.
-	dir.offer_inbox(1, "m0", id(10).as_str(), "again").expect("replaces");
+	dir.offer_inbox(1, "m0", id(10).as_str(), "opening", "again")
+		.expect("replaces");
 }
 
 #[test]
@@ -580,17 +591,17 @@ fn inbox_settlement_cannot_cross_a_registration_replacement_or_directory() {
 	let mut dir = Dir::default();
 	registered(&mut dir, 1, "Alice", "a-inbox");
 	registered(&mut dir, 2, "Bob", "b-inbox");
-	let pending = dir.prepare_inbox(1, "Bob", id(2).as_str()).unwrap();
+	let pending = dir.prepare_inbox(1, "Bob", id(2).as_str(), "opening").unwrap();
 	dir.register(1, request("Alice", "new-a"), id(3), 0).unwrap();
 	assert_eq!(
 		dir.complete_inbox(pending, "late").unwrap_err().code,
 		Some(FailureCode::NotRegistered)
 	);
 	assert!(matches!(
-		dir.introduce(2, "Alice", id(3).as_str()).unwrap(),
+		dir.introduce(2, "Alice", id(3).as_str(), "opening").unwrap(),
 		Introduction::Pending(_)
 	));
-	let pending = dir.prepare_inbox(1, "Bob", id(2).as_str()).unwrap();
+	let pending = dir.prepare_inbox(1, "Bob", id(2).as_str(), "opening").unwrap();
 	dir.register(2, request("Bob", "new-b"), id(4), 0).unwrap();
 	assert_eq!(
 		dir.complete_inbox(pending, "late").unwrap_err().code,
@@ -599,13 +610,13 @@ fn inbox_settlement_cannot_cross_a_registration_replacement_or_directory() {
 	let mut other = Dir::default();
 	other.register(1, request("Alice", "new-a"), id(3), 0).unwrap();
 	other.register(2, request("Bob", "new-b"), id(4), 0).unwrap();
-	let pending = dir.prepare_inbox(1, "Bob", id(4).as_str()).unwrap();
+	let pending = dir.prepare_inbox(1, "Bob", id(4).as_str(), "opening").unwrap();
 	assert!(other.complete_inbox(pending, "foreign").is_err());
-	let current = dir.prepare_inbox(1, "Bob", id(4).as_str()).unwrap();
+	let current = dir.prepare_inbox(1, "Bob", id(4).as_str(), "opening").unwrap();
 	let effects = dir.complete_inbox(current, "ready").unwrap();
 	assert_eq!(effects.tells.len(), 1);
 	assert_eq!(
-		dir.introduce(2, "Alice", id(3).as_str()),
+		dir.introduce(2, "Alice", id(3).as_str(), "opening"),
 		Ok(Introduction::Inbox("ready"))
 	);
 }

@@ -97,7 +97,7 @@ async def _live_trace_produces_timeline() -> None:
     # owner-thread confined. Installing from a worker must hop back to this
     # loop rather than calling through a retained raw pointer.
     uninstall = await asyncio.to_thread(lambda: enable_trace(record_then_raise, self_label="smoke"))
-    host.publish_giftable("greeter", lambda verb, args: f"hello {verb}")
+    host.publish("greeter", lambda verb, args: f"hello {verb}")
     server = await tcp.listen("127.0.0.1", 0, host=host)
     try:
 
@@ -195,7 +195,7 @@ async def _async_behavior_defers() -> None:
             return object()
         return "computed off-turn"
 
-    host.publish_giftable("worker", work)
+    host.publish("worker", work)
     server = await tcp.listen("127.0.0.1", 0, host=host)
     try:
 
@@ -292,13 +292,16 @@ async def _allocator_context_round_trip() -> None:
                 return count["value"]
             raise ValueError(f"no such method {verb!r}")
 
-        host.publish_giftable("counter", counter)
+        host.publish("counter", counter)
         server = await tcp.listen("127.0.0.1", 0, host=host)
+        held_counter = None
         try:
 
             async def serve_one() -> None:
+                nonlocal held_counter
                 async for session in server:
                     local_counter = session.published_ref("counter")
+                    held_counter = local_counter
                     assert local_counter is not None, "the Host alias projects onto the accepted session"
                     assert await session.send(local_counter, "get", []) == 10
                     await session.serve()
@@ -316,8 +319,8 @@ async def _allocator_context_round_trip() -> None:
             # Alias-only unpublish: discovery moves, the issued capability does
             # not. A removed alias misses even on the session that fetched it,
             # a second removal is a loud miss, and the ref still answers.
-            assert host.unpublish_giftable("counter") is True
-            assert host.unpublish_giftable("counter") is False
+            assert host.unpublish("counter") is True
+            assert host.unpublish("counter") is False
             try:
                 await client.fetch("counter")
             except VowBroken:
@@ -344,6 +347,13 @@ async def _allocator_context_round_trip() -> None:
                 raise AssertionError("fetch of a removed durable name must break")
             kept = await client.send(durable_ref, "get", [])
             assert kept == 15, f"issued ref survives remove_durable, got {kept!r}"
+            assert held_counter is not None
+            exact_name = host.publish_reference(held_counter)
+            exact_ref = await client.fetch(exact_name)
+            assert await client.send(exact_ref, "add", [2]) == 17
+            assert await client.send(counter_ref, "get", []) == 17
+            assert host.remove_durable(exact_name)
+            assert await client.send(exact_ref, "get", []) == 17
             await client.close()
             await asyncio.wait_for(hosted, timeout=5)
         finally:
@@ -497,6 +507,11 @@ async def _tightened_admission_cap_refuses() -> None:
         session.close_transport()
 
     tightened = Host()
+    tightened.set_ingress_limits(
+        max_pending_turns=4096,
+        max_pending_bytes=1024 * 1024,
+        max_chunk_bytes=128 * 1024,
+    )
     tightened.set_session_limits(
         max_frame_bytes=1024,
         max_retained_sent_answer_bytes=8 * 1024 * 1024,

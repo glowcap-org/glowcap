@@ -7,17 +7,58 @@ const loam = @import("loam_core");
 const hosting = @import("loam_hosting");
 const driver = @import("driver_core");
 const working = @import("working.zig");
+pub const graph = @import("content_graph.zig");
 
 pub const ContentCall = opaque {
+    /// Own one occurrence of exact prepared reference custody beyond callback
+    /// return. Preparation validates its recipe; this grants no disclosure.
+    /// The Host retain adds no buffer or parallel inventory. Caller releases it.
+    pub fn retainPreparedReference(self: *ContentCall, target: driver.Capability) !driver.Capability {
+        const value = state(self);
+        const references = value.call.references orelse return error.ReferenceUnprepared;
+        _ = try references.captured(target);
+        _ = try value.call.attachment.host.projectOwnedValue(.{ .capability = target }, {}, struct {
+            fn keep(_: void, _: driver.Value) !void {}
+        }.keep);
+        return target;
+    }
+    /// Own one occurrence of the actual invoking endpoint. Receipt recovery
+    /// compares held authority, never descriptive resource or policy metadata.
+    /// The caller releases this retain; obtaining it declares no disclosure.
+    pub fn retainSource(self: *ContentCall) !driver.Capability {
+        const value = state(self);
+        const owner = value.call.attachment;
+        const entry = for (owner.entries) |*candidate| {
+            if (candidate.actor != null and candidate.id.eql(value.call.view.id)) break candidate;
+        } else return error.NotDurable;
+        return owner.host.retainLocalCapability(entry.actor.?);
+    }
+    /// Reserve independent effect custody before replacing content with its
+    /// receipt. The source is the actual invoking endpoint. An idempotent
+    /// application may own its receipt; activation still requires confirmed
+    /// mutation. Read-only calls cannot reserve external effects.
+    pub fn reserveContinuationCopying(self: *ContentCall, targets: []const driver.Capability, activation: hosting.Continuation.Activation) !*hosting.ContinuationReservation {
+        const value = state(self);
+        if (!value.receipt and value.retry != .idempotent) return error.RetryRequired;
+        return hosting.Continuation.reserveCopying(value.call, value.intent, targets, activation);
+    }
     /// The retained call arena. Reply values and replacement payloads borrow it.
     pub fn allocator(self: *ContentCall) std.mem.Allocator {
-        return state(self).call.arena;
+        return state(self).call.arena();
     }
 
     /// Replaces the bound content payload, preserving its committed edges.
     /// Bytes must survive callback return; allocate them from `allocator()`.
     pub fn replace(self: *ContentCall, payload: []const u8) void {
         state(self).replacement = payload;
+    }
+
+    /// Borrow exact prepared field custody for an edit or internal act. This
+    /// grants no disclosure; the retained call owns it through settlement.
+    pub fn reference(self: *ContentCall, index: usize) !driver.Capability {
+        const value = state(self);
+        if (value.graph != null) return error.NotReferenceField;
+        return value.call.storedEdge(value.view, index);
     }
 
     /// Declare that this method's reply hands over a stored reference field's
@@ -27,7 +68,28 @@ pub const ContentCall = opaque {
     /// refused before settlement (ADR-0172).
     pub fn discloseExact(self: *ContentCall, index: usize) !driver.Value {
         const value = state(self);
-        return .{ .capability = try value.call.discloseHeld(try value.call.storedEdge(value.view, index)) };
+        return .{ .capability = try value.call.discloseHeld(try self.reference(index)) };
+    }
+
+    /// Borrow the stable facet made by an explicit live dependent declaration.
+    /// Its reservation owns custody; this does not authorize public disclosure.
+    pub fn preparedLiveDependent(self: *ContentCall, source: driver.Capability, target: driver.Capability) !driver.Capability {
+        const value = state(self);
+        const references = value.call.references orelse return error.ReferenceUnprepared;
+        return references.preparedDependent(source, target);
+    }
+
+    /// Verify the actual guarded pair of a committed live facet on retry.
+    pub fn matchesLiveDependent(self: *ContentCall, facet: driver.Capability, source: driver.Capability, target: driver.Capability) !bool {
+        const scope = state(self).call.attachment.options.live_scope orelse return error.LiveScopeRequired;
+        return scope.matchesDependent(facet, source, target);
+    }
+
+    /// Borrow exporter metadata from this attachment's committed live custody.
+    /// No target capability is returned and no new retain or facade is made.
+    pub fn liveDependentExporter(self: *ContentCall, facet: driver.Capability) !?*driver.HostSession {
+        const scope = state(self).call.attachment.options.live_scope orelse return error.LiveScopeRequired;
+        return scope.dependentExporter(facet);
     }
 
     /// Declare a returned facet whose every call must pass both the current
@@ -35,8 +97,22 @@ pub const ContentCall = opaque {
     /// `index`. Unlike `discloseExact`, this never exposes the saved target.
     pub fn discloseDependent(self: *ContentCall, index: usize) !driver.Value {
         const value = state(self);
-        const target = try value.call.storedEdge(value.view, index);
+        const target = try self.reference(index);
         return .{ .capability = try value.call.discloseHeld(try value.call.projectDependent(target)) };
+    }
+
+    /// Declare a read facade over actual held authority. The original admitted
+    /// intent governs every later invocation and every recursive result. Trusted
+    /// content supplies only read interfaces; effect dispatch uses receipts.
+    pub fn discloseReadsCopying(self: *ContentCall, target: driver.Capability, interfaces: []const hosting.ReadScope.Interface, role: usize) !driver.Value {
+        const value = state(self);
+        if (value.receipt or value.retry != .read_only) return error.ReadOnlyRequired;
+        try value.call.held.ensureUnusedCapacity(value.call.arena(), 1);
+        const scope = try hosting.ReadScope.createCopying(value.call, value.intent, interfaces);
+        defer scope.release();
+        const front = try scope.project(target, role);
+        value.call.adoptRetain(front);
+        return .{ .capability = try value.call.discloseHeld(front) };
     }
 
     /// Replace one declared strong reference field in the same transaction as
@@ -44,8 +120,9 @@ pub const ContentCall = opaque {
     /// targets require a declared, prepared save. Custody survives the outcome.
     pub fn replaceReference(self: *ContentCall, index: usize, replacement: driver.Capability) !void {
         const value = state(self);
+        if (value.graph != null) return error.NotReferenceField;
         try requireStrongEdge(value.view, index);
-        try value.edits.ensureUnusedCapacity(value.call.arena, 1);
+        try value.edits.ensureUnusedCapacity(value.call.arena(), 1);
         try value.refuseDuplicate(index);
         const captured = try capture(value, replacement);
         value.edits.appendAssumeCapacity(.{ .index = index, .replacement = captured });
@@ -55,10 +132,11 @@ pub const ContentCall = opaque {
     /// its verified recipe and capability custody to this retained call.
     pub fn replaceSavedReference(self: *ContentCall, index: usize, saved: *hosting.references.Save) !void {
         const value = state(self);
+        if (value.graph != null) return error.NotReferenceField;
         try requireStrongEdge(value.view, index);
         try value.refuseDuplicate(index);
         const replacement = try hosting.references.copySaved(value.call, saved);
-        try value.edits.append(value.call.arena, .{ .index = index, .replacement = replacement });
+        try value.edits.append(value.call.arena(), .{ .index = index, .replacement = replacement });
     }
 
     /// Remove one declared strong reference field transactionally. Edit
@@ -66,8 +144,9 @@ pub const ContentCall = opaque {
     /// one another while the callback is running.
     pub fn removeReference(self: *ContentCall, index: usize) !void {
         const value = state(self);
+        if (value.graph != null) return error.NotReferenceField;
         try requireStrongEdge(value.view, index);
-        try value.edits.ensureUnusedCapacity(value.call.arena, 1);
+        try value.edits.ensureUnusedCapacity(value.call.arena(), 1);
         try value.refuseDuplicate(index);
         value.edits.appendAssumeCapacity(.{ .index = index, .replacement = null });
     }
@@ -79,6 +158,7 @@ pub const ContentCall = opaque {
     /// the schema's remaining edge capacity; no separate heap owner is created.
     pub fn appendReference(self: *ContentCall, replacement: driver.Capability) !void {
         const value = state(self);
+        if (value.graph != null) return error.NotReferenceField;
         const schema = for (value.call.attachment.store.cache.schemas) |candidate| {
             if (candidate.id == value.view.schema and candidate.version == value.view.schema_version) break candidate;
         } else return error.UnsupportedSchema;
@@ -87,17 +167,115 @@ pub const ContentCall = opaque {
             removed += 1;
         };
         if (value.view.edge_count - removed + value.appended.items.len >= schema.max_edges) return error.TooManyEdges;
-        try value.appended.ensureUnusedCapacity(value.call.arena, 1);
+        try value.appended.ensureUnusedCapacity(value.call.arena(), 1);
         value.appended.appendAssumeCapacity(try capture(value, replacement));
+    }
+
+    /// Borrow the exact held authority of a prepared page field. The reserved
+    /// binding is excluded: index zero names the page's first capability field.
+    /// Custody belongs to the retained call and does not authorize disclosure.
+    pub fn pageReference(self: *ContentCall, page: *const graph.PageHandle, index: usize) !driver.Capability {
+        const value = state(self);
+        const prepared = value.graph orelse return error.NotContentGraph;
+        return value.call.storedEdge(try prepared.snapshot.page(page), try std.math.add(usize, index, 1));
+    }
+
+    pub fn disclosePage(self: *ContentCall, page: *const graph.PageHandle, index: usize, dependent: bool) !driver.Value {
+        const value = state(self);
+        const held = try self.pageReference(page, index);
+        return .{ .capability = try value.call.discloseHeld(if (dependent) try value.call.projectDependent(held) else held) };
+    }
+
+    /// Explicit restoration or inspection may retain its canonical foreign recipe URI.
+    /// The bytes borrow this Call; local and live recipes return null, never a guessed
+    /// locator. Obtaining metadata grants no capability disclosure.
+    pub fn pageSavedUri(self: *ContentCall, page: *const graph.PageHandle, index: usize) !?[]const u8 {
+        const value = state(self);
+        const prepared = value.graph orelse return error.NotContentGraph;
+        const refs = value.call.references orelse return error.ReferenceUnprepared;
+        return refs.restoredUri(try prepared.snapshot.page(page), try std.math.add(usize, index, 1));
+    }
+
+    /// Stage a complete resource-owned graph. Root/page payloads borrow the
+    /// retained arena through settlement; the page and field spines are copied
+    /// there. Held fields are captured by the same saved-reference machinery
+    /// as ordinary content edits. Retained page tokens preserve unchanged rows.
+    pub fn replaceGraph(self: *ContentCall, payload: []const u8, pages: []const GraphPage) !void {
+        const value = state(self);
+        const prepared = value.graph orelse return error.NotContentGraph;
+        if (value.graph_replaced) return error.DuplicateGraphReplacement;
+        if (!try prepared.validateCandidate(payload, pages)) {
+            value.graph_replaced = true;
+            return;
+        }
+        try validateFields(prepared, pages);
+        const candidates = try value.call.arena().alloc(graph.Replacement, pages.len);
+        for (pages, candidates) |input, *candidate| candidate.* = switch (input) {
+            .keep => |page| .{ .keep = page },
+            .update => |update| .{ .update = .{ .page = update.page, .payload = update.payload } },
+            .write => |write| fresh: {
+                const fields = try value.call.arena().alloc(hosting.references.Replacement, write.fields.len);
+                for (write.fields, fields) |field, *target| target.* = switch (field) {
+                    .held => |held| try capture(value, held),
+                    .retained => |retained| .{ .edge = try prepared.snapshot.field(retained.page, retained.index) },
+                };
+                break :fresh .{ .write = .{ .schema = write.schema, .payload = write.payload, .fields = fields } };
+            },
+        };
+        const delta = try prepared.replacement(payload, candidates);
+        value.graph_delta = delta;
+        value.graph_replaced = true;
+    }
+
+    pub fn graphLimits(self: *ContentCall) ?graph.Spec {
+        return if (state(self).graph) |prepared| prepared.spec else null;
+    }
+
+    pub fn validateGraph(self: *ContentCall, payload: []const u8, pages: []const GraphPage) !void {
+        const prepared = state(self).graph orelse return error.NotContentGraph;
+        _ = try prepared.validateCandidate(payload, pages);
+        try validateFields(prepared, pages);
     }
 };
 
+fn validateFields(prepared: *graph.Prepared, pages: []const GraphPage) !void {
+    for (pages) |page| if (page == .write) {
+        for (page.write.fields) |field| if (field == .retained) {
+            _ = try prepared.snapshot.field(field.retained.page, field.retained.index);
+        };
+    };
+}
+
+pub const GraphPage = union(enum) {
+    keep: *const graph.PageHandle,
+    update: struct { page: *const graph.PageHandle, payload: []const u8 },
+    write: struct { schema: graph.Schema, payload: []const u8, fields: []const GraphField },
+};
+
+/// Retaining a prepared field copies its exact committed recipe edge, without
+/// restoring or invoking its target. The token borrows this call's current
+/// graph; it cannot select a binding, an arbitrary object or another graph.
+pub const GraphField = union(enum) {
+    held: driver.Capability,
+    retained: struct { page: *const graph.PageHandle, index: usize },
+};
+
+/// Add the shared candidate/field copies made by ContentCall.replaceGraph.
+/// Foreign candidates and payload ownership are added at the embedding seam.
+pub fn graphAllocationBound(pages: usize, payload_bytes: usize, fields: usize) !hosting.references.AllocationBound {
+    var bound = try graph.allocationBound(pages, payload_bytes, fields);
+    try bound.include(try std.math.mul(usize, pages, @sizeOf(graph.Replacement)), @alignOf(graph.Replacement), 1);
+    try bound.includeTotal(try std.math.mul(usize, fields, @sizeOf(hosting.references.Replacement)), @alignOf(hosting.references.Replacement), pages);
+    return bound;
+}
+
 fn capture(value: *ContentCallState, replacement: driver.Capability) !hosting.references.Replacement {
-    if (value.call.capture(replacement)) |edge| return .{ .edge = edge } else |err| {
-        if (err != error.NotDurable) return err;
+    if (value.call.references) |references| {
+        if (references.captured(replacement)) |captured| return captured else |err| {
+            if (err != error.ReferenceUnprepared) return err;
+        }
     }
-    const references = value.call.references orelse return error.NotDurable;
-    return references.captured(replacement);
+    return .{ .edge = try value.call.capture(replacement) };
 }
 
 pub const ReferenceEdit = struct { index: usize, replacement: ?hosting.references.Replacement };
@@ -110,10 +288,16 @@ pub const ContentCallState = struct {
     replacement: ?[]const u8 = null,
     edits: std.ArrayList(ReferenceEdit) = .empty,
     appended: std.ArrayList(hosting.references.Replacement) = .empty,
+    graph: ?*graph.Prepared = null,
+    graph_delta: ?graph.Delta = null,
+    graph_replaced: bool = false,
+    intent: hosting.Call.Intent,
+    receipt: bool,
+    retry: RetryMode,
 
-    pub fn init(call: *hosting.Call, view: loam.RecordView) ContentCallState {
+    pub fn init(call: *hosting.Call, view: loam.RecordView, intent: hosting.Call.Intent, receipt: bool, retry: RetryMode) ContentCallState {
         call.requireDisclosedReply();
-        return .{ .call = call, .view = view };
+        return .{ .call = call, .view = view, .intent = intent, .receipt = receipt, .retry = retry };
     }
 
     pub fn handle(self: *ContentCallState) *ContentCall {
@@ -144,30 +328,50 @@ fn requireStrongEdge(view: loam.RecordView, index: usize) !void {
 
 pub const RetryMode = enum { read_only, idempotent, receipt };
 
+/// Synchronous callback input from the selected endpoint and current resource
+/// row. Local dependent calls bind their selected target. Forwarding binds only
+/// the mediating source, never facts about the separately held dispatch target.
+/// Metadata can be copied as data; it supplies no admission after the callback.
+pub const ContentInvocation = struct {
+    bound_resource: storage.Operation.BoundResource,
+    delivery: enum { local, forwarding },
+    content: loam.RecordView,
+    /// Present after complete page preparation. Declared requirements receive
+    /// pages for Graph.Spec.requirement_verbs; other requirements read root data.
+    /// References and invocation receive the complete admitted graph.
+    graph: ?graph.Snapshot = null,
+    verb: []const u8,
+    args: []const driver.Value,
+};
+
 /// A borrowed application registration. Context pointees and returned borrows
 /// remain valid through settlement; the attachment never owns or frees them.
 pub const ContentBehavior = struct {
     context: ?*anyopaque = null,
     schema: u64,
     version: u32 = 1,
+    graph: ?graph.Spec = null,
     /// Pure declaration using committed content and retained arguments. Returned
     /// slices live through invocation. Include every fact relevant to the effect.
-    requirement: *const fn (?*anyopaque, std.mem.Allocator, loam.RecordView, []const u8, []const driver.Value) anyerror!core.Policy.Requirement,
+    requirement: *const fn (?*anyopaque, std.mem.Allocator, ContentInvocation) anyerror!core.Policy.Requirement,
     /// Every method declares its retry contract. Receipt-backed methods require
     /// mutate(sequence, method, arguments); reads and idempotent effects may be
     /// called directly. Classification is pure and precedes invocation.
     retry: *const fn (?*anyopaque, []const u8, []const driver.Value) anyerror!RetryMode,
     /// Optional structural effect, decoded before invocation. Shared admission
     /// checks source and placement parents under this method's requirement.
-    resource: ?*const fn (?*anyopaque, std.mem.Allocator, core.ResourceId, loam.RecordView, []const u8, []const driver.Value) anyerror!?storage.ResourceChange.Action = null,
+    resource: ?*const fn (?*anyopaque, std.mem.Allocator, ContentInvocation) anyerror!?storage.ResourceChange.Action = null,
     /// Declare the invoking grant's requirement for each forwarded method.
     /// The separately held target checks its own authority when dispatched.
-    dependent_requirement: ?*const fn (?*anyopaque, std.mem.Allocator, loam.RecordView, []const u8, []const driver.Value) anyerror!core.Policy.Requirement = null,
+    dependent_requirement: ?*const fn (?*anyopaque, std.mem.Allocator, ContentInvocation) anyerror!core.Policy.Requirement = null,
     /// Pure declaration of the stored fields and held replacements this method
     /// needs. Preparation runs after current grant admission, before invocation.
-    references: ?*const fn (?*anyopaque, std.mem.Allocator, loam.RecordView, []const u8, []const driver.Value) anyerror![]const hosting.references.Request = null,
+    references: ?*const fn (?*anyopaque, std.mem.Allocator, ContentInvocation) anyerror![]const hosting.references.Request = null,
     /// Called only after current authority admits the declared requirement.
-    invoke: *const fn (?*anyopaque, *ContentCall, loam.RecordView, []const u8, []const driver.Value) anyerror!driver.Value,
+    /// Reply bytes and spines remain valid and unchanged through settlement,
+    /// recovery and confirmation. Allocate them in the supplied call arena or
+    /// borrow retained inputs; copy mutable callback-context data before return.
+    invoke: *const fn (?*anyopaque, *ContentCall, ContentInvocation) anyerror!driver.Value,
 };
 
 pub const Service = struct {
@@ -179,6 +383,7 @@ pub const Service = struct {
     /// the bound control's powers and shared rules still decide permission.
     /// Loaded powers supply scope without trusting a caller-provided identity.
     decode_control: *const fn (?*anyopaque, std.mem.Allocator, core.Control.Powers, []const u8, []const driver.Value) anyerror!core.Control.Edit = lifecycle,
+    decode_control_revision: ?*const fn ([]const u8, []const driver.Value) anyerror!core.Revision = null,
     /// Enables derive(sequence, application arguments). Resource identity comes
     /// from the endpoint; shared model rules admit the decoded request.
     decode_derive: ?*const fn (?*anyopaque, std.mem.Allocator, core.ResourceId, []const driver.Value) anyerror!core.GrantLedger.Issue = null,

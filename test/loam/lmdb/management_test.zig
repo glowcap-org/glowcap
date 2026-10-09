@@ -17,6 +17,7 @@ test "loam LMDB management keeps control attenuation and independent retirement 
     defer store.deinit() catch unreachable;
     try @import("../access/management_cases.zig").native(&store, &db);
     try @import("../access/management_cases.zig").composed(&store, &db);
+    try @import("../access/management_inventory_cases.zig").run(&store, &db);
 }
 
 test "loam LMDB management recovers use and issuer control after lost issuance and attenuation replies" {

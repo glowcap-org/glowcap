@@ -11,6 +11,10 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	// capabilities: give creates a copyable moderator sturdyref; revoke asks for
 	// explicit confirmation and leaves the row present but unissued.
 	await tab.click("#settingsClose");
+	// The home directory address selects the authority this operator owns,
+	// independently of the foreign directory the Operations rail last showed.
+	await tab.goto(new URL("/directory", tab.url()).href);
+	await tab.waitForSelector('#roomAbout[aria-label="About this directory"]');
 	await tab.click("#newRoomBtn");
 	await tab.fill("#newRoomInput", "operator-proof");
 	await tab.press("#newRoomInput", "Enter");

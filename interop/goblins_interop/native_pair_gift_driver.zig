@@ -6,7 +6,7 @@
 //! question this one asks cannot come up. The cast here is the one
 //! `apps/ocapnviz/src/fixtures/three-vat-handoff-mixed.ts` draws:
 //!
-//!   Exporter (glowcap)  publishes a giftable greeter and listens.
+//!   Exporter (glowcap)  publishes a greeter for every session and listens.
 //!   Gifter   (glowcap)  dials the exporter, fetches the greeter, and
 //!                       publishes an introducer that hands it out.
 //!   Carol    (Goblins)  dials the gifter's introducer, redeems the give it
@@ -36,16 +36,8 @@ const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
 const model = glowcap.ocapn.model;
-const actors = glowcap.actors;
-const crypto = glowcap.foundation.crypto;
 const driver = glowcap.driver;
-const net = glowcap.net;
 const tcp = glowcap.net.tcp;
-
-const Host = driver.core.Host;
-const HostSession = driver.core.HostSession;
-const TcpBridge = driver.Bridge(net.TcpLoop);
-const runLoop = harness.LoopRunner(net.TcpLoop).runUntilFlag;
 
 const host_addr = "127.0.0.1";
 const default_carol_port: u16 = 22150;
@@ -59,23 +51,14 @@ const deadline_ms: u64 = 60_000;
 
 /// The profile both glowcap hosts ask for. Neither gets it on every session,
 /// and that mismatch is what the run is about.
-fn nativeOptions() Host.Options {
-    var o = Host.Options.withFrameCap(frame_cap);
-    o.local_turn_budget = 64;
-    o.codec = .capnp;
-    o.captp_version = .next;
-    return o;
-}
+const opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .codec = .capnp,
+    .captp_version = .next,
+    .handshake = .{ .ms = 20_000 },
+    .settle = .{ .ms = 20_000 },
+};
 
-fn pokeListener(io: std.Io, port: u16) void {
-    if (port == 0) return;
-    const address = std.Io.net.IpAddress.parse(host_addr, port) catch return;
-    var stream = std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream }) catch return;
-    stream.close(io);
-}
-
-/// The greeter Carol reaches by redeeming the give. It answers with the name
-/// it was called with, so a correct reply proves the call landed on this actor
 /// The profile each session settled on, counted so the run asserts the split
 /// rather than assuming it.
 const ProfileLog = struct {
@@ -97,61 +80,64 @@ const ProfileLog = struct {
         }
     }
 
-    fn noteSession(self: *ProfileLog, label: []const u8, session: *HostSession) void {
-        const state = &session.served.port.peer.session_state;
+    fn noteSession(self: *ProfileLog, label: []const u8, session: *driver.Session) void {
+        const state = &session.hs.served.port.peer.session_state;
         self.note(label, state.codec, state.captp_version);
     }
 };
 
-const GifterState = struct {
-    host: *Host,
-    bridge: *TcpBridge,
-    greeter: ?model.Reference = null,
-    fetched: *std.atomic.Value(bool),
-    log: ProfileLog = .{},
-
-    fn onFetched(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *GifterState = @ptrCast(@alignCast(ctx.?));
-        switch (resolution) {
-            .fulfilled => |value| {
-                if (value == .reference) {
-                    self.greeter = value.reference;
-                    std.debug.print("goblins-native-pair-gift: gifter fetched the exporter's greeter\n", .{});
-                } else {
-                    std.debug.print("goblins-native-pair-gift: fetch settled to a non-reference\n", .{});
-                }
-            },
-            .broken => |reason| std.debug.print("goblins-native-pair-gift: fetch broke: {s}\n", .{reason}),
-            .give => {},
-        }
-        self.fetched.store(true, .release);
-    }
-};
-
 const Introducer = struct {
-    state: *GifterState,
+    greeter: driver.Capability,
 
-    pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "get-greeter")) return error.NoSuchMethod;
-        const greeter = self.state.greeter orelse return error.NotReady;
-        return .{ .reference = greeter };
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
+        _ = args;
+        if (!std.mem.eql(u8, verb, "get-greeter")) return error.NoSuchMethod;
+        return .{ .capability = self.greeter };
     }
 };
 
-fn publishIntroducer(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
-    const state: *GifterState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish(vat, introducer_swiss, Introducer, .{ .state = state });
-}
+/// Dial the exporter, fetch its greeter, publish the introducer that hands it
+/// out, then serve Carol until the run ends. Owns `log` until joined.
+fn serveGifter(
+    gifter: *driver.Server,
+    exporter_bound: []const u8,
+    log: *ProfileLog,
+    settled: *std.atomic.Value(bool),
+    published: *std.atomic.Value(bool),
+    done: *std.atomic.Value(bool),
+) anyerror!void {
+    defer settled.store(true, .release);
+    const exporter_session = try gifter.runtime.connectLocator(.{
+        .transport = tcp.transport_name,
+        .designator = exporter_bound,
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit);
+    const exporter = try driver.Session.adopt(gifter.runtime, exporter_session);
+    defer exporter.deinit();
+    log.noteSession("gifter", exporter);
+    const greeter = try exporter.fetch(greeter_swiss);
+    std.debug.print("goblins-native-pair-gift: gifter fetched the exporter's greeter\n", .{});
+    try gifter.publish(introducer_swiss, Introducer, .{ .greeter = greeter });
+    published.store(true, .release);
+    settled.store(true, .release);
 
-fn gifterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
-    const state: *GifterState = @ptrCast(@alignCast(ctx.?));
-    state.log.noteSession("gifter", conn.session);
-    if (conn.leg != .app_dial or conn.session.role != .dialed) return;
-    if (state.greeter != null) return;
-    const vow = try state.host.fetch(conn.session, greeter_swiss);
-    try state.host.vowOn(vow, .{ .ctx = state, .func = GifterState.onFetched });
-    try bridge.drainActions();
+    var carol: ?*driver.Session = null;
+    defer if (carol) |session| session.deinit();
+    while (!done.load(.acquire)) {
+        if (carol == null and try gifter.waitAcceptable(20)) {
+            carol = try gifter.accept();
+            log.noteSession("gifter", carol.?);
+        }
+        _ = exporter.stepReadable(10) catch |err| switch (err) {
+            error.ConnectionClosed, error.ProtocolAbort => {},
+            else => |e| return e,
+        };
+        if (carol) |session| _ = session.stepReadable(10) catch |err| switch (err) {
+            error.ConnectionClosed, error.ProtocolAbort => {},
+            else => |e| return e,
+        };
+    }
 }
 
 /// The exporter child's bound address, from its announce line.
@@ -237,10 +223,8 @@ fn run(
     carol_port_str: []const u8,
 ) !void {
     // ── The glowcap exporter, as its own process ────────────────────────────
-    // One completion loop per process: the gifter's loop and this main task's
-    // polling are already two schedulable things, and a third made the run's
-    // outcome depend on how they interleaved. The peers talk over a real
-    // socket either way.
+    // The peers talk over a real socket, so the run cannot depend on how two
+    // runtimes in one process interleave.
     var exporter = try std.process.spawn(io, .{
         .argv = &.{exporter_exe_path},
         .environ_map = environ_map,
@@ -258,76 +242,47 @@ fn run(
     std.debug.print("goblins-native-pair-gift: glowcap exporter on {s}\n", .{exporter_bound});
 
     // ── The glowcap gifter ──────────────────────────────────────────────────
-    var gifter_seed: [crypto.SEED_BYTES]u8 = undefined;
-    io.randomSecure(&gifter_seed) catch return error.HandshakeEntropyFailed;
-    var gifter_session_root: [crypto.SEED_BYTES]u8 = undefined;
-    io.randomSecure(&gifter_session_root) catch return error.HandshakeEntropyFailed;
-    var gifter = try Host.init(allocator, gifter_seed, gifter_session_root, nativeOptions());
+    var gifter = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = host_addr ++ ":0" }, .ephemeral, opts);
     defer gifter.deinit();
+    var gifter_bound_buf: [64]u8 = undefined;
+    const gifter_bound = try allocator.dupe(u8, try gifter.localDesignator(&gifter_bound_buf));
+    defer allocator.free(gifter_bound);
 
-    var fetched = std.atomic.Value(bool).init(false);
-    var gifter_state: GifterState = undefined;
-    var gifter_loop: net.TcpLoop = undefined;
-    var gifter_bridge = TcpBridge.init(allocator, &gifter, io, &gifter_loop, .{
-        .publish = publishIntroducer,
-        .publish_ctx = &gifter_state,
-        .on_open = gifterOnOpen,
-        .on_open_ctx = &gifter_state,
-    });
-    defer gifter_bridge.deinit();
-    gifter_state = .{ .host = &gifter, .bridge = &gifter_bridge, .fetched = &fetched };
+    var log = ProfileLog{};
+    var settled = std.atomic.Value(bool).init(false);
+    var published = std.atomic.Value(bool).init(false);
+    var done = std.atomic.Value(bool).init(false);
+    var serving = try io.concurrent(serveGifter, .{ gifter, exporter_bound, &log, &settled, &published, &done });
+    var serving_joined = false;
+    defer if (!serving_joined) {
+        done.store(true, .release);
+        serving.await(io) catch {};
+    };
 
-    gifter_loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&gifter_bridge), TcpBridge.hookOptions(.{
-        .max_conns = 8,
-        .listen = 0,
-    }));
-    defer gifter_loop.deinit();
-    const gifter_port = gifter_loop.port().?;
-    var gifter_bound_buf: [tcp.designator_buf_len]u8 = undefined;
-    const gifter_addr = try tcp.parseHostPort(host_addr, gifter_port);
-    const gifter_bound = tcp.locatorFromAddress(&gifter_bound_buf, gifter_addr).designator;
-    try gifter_bridge.attach(model.transport.Known.tcp.metadata(), gifter_bound, &.{});
-
-    // Queue the dial before the loop thread starts. The bridge and its host
-    // belong to whichever thread drives the loop, so reaching in from here
-    // afterwards races it: the dial is sometimes lost, and the session that
-    // does open arrives as an accept, whose leg this driver's `on_open`
-    // correctly ignores — leaving the fetch never issued and the run parked
-    // on a vow nobody will settle.
-    try gifter_bridge.dialOutbound(.{
-        .transport = tcp.transport_name,
-        .designator = exporter_bound,
-        .hints = model.Hints.emptyFalse(),
-    });
-
-    var gifter_done = std.atomic.Value(bool).init(false);
-    var gifter_err: ?anyerror = null;
-    var gifter_future = try io.concurrent(runLoop, .{ &gifter_loop, &gifter_done, &gifter_err });
-    defer {
-        gifter_done.store(true, .release);
-        pokeListener(io, gifter_port);
-        gifter_future.await(io);
-    }
-
-    harness.untilFlag(io, deadline_ms, &fetched) catch |err| {
+    harness.untilFlag(io, deadline_ms, &settled) catch |err| {
         goblins_child.dumpChildStderr(io, "goblins-native-pair-gift exporter", &exporter);
         return err;
     };
-    if (gifter_state.greeter == null) return error.FetchFailed;
+    if (!published.load(.acquire)) {
+        done.store(true, .release);
+        serving_joined = true;
+        try serving.await(io);
+        return error.FetchFailed;
+    }
 
     // ── Goblins Carol ───────────────────────────────────────────────────────
     std.debug.print(
         "goblins-native-pair-gift: glowcap gifter publishing introducer swiss={s} on {s}\n",
         .{ introducer_swiss, gifter_bound },
     );
+    var carol_argv: [8][]const u8 = undefined;
     var carol = try std.process.spawn(io, .{
-        .argv = &.{
-            goblins_child.racket_path,
+        .argv = goblins_child.racketArgv(&carol_argv, &.{
             recipient_script,
             gifter_bound,
             introducer_swiss,
             carol_port_str,
-        },
+        }),
         .environ_map = environ_map,
         .stdout = .pipe,
         .stderr = .pipe,
@@ -342,15 +297,17 @@ fn run(
     carol.kill(io);
     carol_reaped = true;
 
-    if (gifter_err) |err| return err;
+    done.store(true, .release);
+    serving_joined = true;
+    try serving.await(io);
 
     // The claim the run exists to make. The gifter holds one native session
     // (to the exporter) and one baseline session (Carol's dial); the exporter
     // holds the mirror native session and the baseline session Carol's redeem
     // opened.
-    if (gifter_state.log.native_sessions != 1) return error.GifterMissingNativeSession;
-    if (gifter_state.log.baseline_sessions != 1) return error.GifterMissingBaselineSession;
-    if (gifter_state.log.other_sessions != 0) return error.UnexpectedProfile;
+    if (log.native_sessions != 1) return error.GifterMissingNativeSession;
+    if (log.baseline_sessions != 1) return error.GifterMissingBaselineSession;
+    if (log.other_sessions != 0) return error.UnexpectedProfile;
 
     // The exporter reports its own, so the assertion covers the process that
     // actually negotiated them rather than this one's view.

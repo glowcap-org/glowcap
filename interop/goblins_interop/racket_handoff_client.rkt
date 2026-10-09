@@ -34,7 +34,7 @@
 (define HOST-SCRIPT "conformance/goblins-peer/racket/handoff-introducer-host.rkt")
 
 (define-values (proc proc-out proc-in proc-err)
-  (subprocess #f #f #f RACKET HOST-SCRIPT (number->string PORT) (number->string (+ PORT 1))))
+  (subprocess #f #f #f RACKET "-y" HOST-SCRIPT (number->string PORT) (number->string (+ PORT 1))))
 
 (with-handlers ([(lambda (_) #t) (lambda (e) (subprocess-kill proc #t) (raise e))])
   (define swiss (read-swiss proc-out "alice exited before publishing the introducer"))

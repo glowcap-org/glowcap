@@ -46,9 +46,10 @@ pub const Route = union(enum) {
     ordinary: ?model.VirtualAnswer,
 };
 
-/// Pure route decision plus the V1.0 resolver authority prepared for the same
-/// frame. The inbound owner commits both only after the selected destination
-/// (pipeline queue or surfaced event) is secured.
+/// Route selection with the resolver and destination state prepared by the
+/// routes that can do so here. The inbound owner commits prepared authority
+/// only after securing the chosen destination; specialized callback views are
+/// validated there before the shared import preparation.
 pub const Classification = struct {
     route: Route,
     resolver: ?session.PreparedInboundResolver = null,

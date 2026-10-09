@@ -172,7 +172,7 @@ test "fresh capability id exhaustion precedes publication mutation" {
 
     try std.testing.expectError(
         error.CapabilitySpaceExhausted,
-        host.publish(session, "local", LocalActor, .{}),
+        host.sessionPublish(session, "local", LocalActor, .{}),
     );
     try std.testing.expectEqual(@as(usize, 1), calls);
     try std.testing.expect(session.served.port.peer.session_state.bootstrapLookup("local") == null);

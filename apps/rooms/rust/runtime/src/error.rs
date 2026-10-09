@@ -5,7 +5,6 @@
 //! The class also fixes when a retry can help, through the same [`Retry`]
 //! vocabulary the wire's failure codes use, so an owner that only knows the
 //! class still answers "try again, or not?" correctly.
-use crate::{session::commands::AdmissionError, session::state::ViewError};
 use rooms_application::{failure::Retry, session::state};
 use std::{borrow::Cow, fmt, rc::Rc};
 
@@ -75,8 +74,6 @@ pub enum Error {
 	/// An effect was sent but its answer was lost, so whether it applied is
 	/// unknown. Only a withdrawal or a fresh observation is safe.
 	Uncertain(Cow<'static, str>),
-	Admission(AdmissionError),
-	View(ViewError),
 	State(state::Error),
 	/// The local CapTP binding failed: a session closed, a reference died, a
 	/// deferred turn could not be taken.
@@ -172,30 +169,6 @@ impl Error {
 			error => Self::Peer(Rc::new(error)),
 		}
 	}
-	pub fn session<E: std::error::Error + 'static>(error: crate::session::state::Error<E>) -> Self {
-		match error {
-			crate::session::state::Error::State(error) => Self::State(error),
-			// The effects failure was already classed by the owner that ran it.
-			crate::session::state::Error::Effects(error) => error,
-			error => Self::Storage(Rc::new(error)),
-		}
-	}
-	pub fn grant<E: std::error::Error + 'static>(error: crate::grants::publications::Error<E>) -> Self {
-		use crate::grants::publications::Error as Publication;
-		match error {
-			// The ledger has already judged this. Flattening it to one class
-			// here would lose the difference between a grant that is revoked
-			// and a store that is waiting to be recovered.
-			Publication::Policy(error) => Self::ledger(error),
-			error @ (Publication::Load(_) | Publication::Apply(_)) => Self::Storage(Rc::new(error)),
-			// The published set and the ledger disagree until a later reconcile
-			// or close retries the part that failed, so the caller reads the
-			// grants back rather than sending the command again.
-			error @ Publication::Publication { .. } => Self::Uncertain(error.to_string().into()),
-			// This session never published the grant the id names.
-			error @ Publication::NotPublished(_) => Self::Stale(error.to_string().into()),
-		}
-	}
 	/// The durable grant ledger's own refusal, classed by what it says about
 	/// the ledger rather than by its sentence. A document that will not parse
 	/// needs a different document, a ceiling reached needs room, an id that
@@ -285,11 +258,7 @@ impl Error {
 			Self::Invalid(_) => Retry::AfterRequestChange,
 			Self::Busy(_) => Retry::Soon,
 			Self::Exhausted(_) => Retry::AfterStateChange,
-			Self::View(ViewError::Busy) => Retry::Soon,
-			Self::View(ViewError::Unloaded) => Retry::AfterStateChange,
 			Self::Stale(_) | Self::Closed(_) | Self::Uncertain(_) | Self::WorkerEnded { .. } => Retry::AfterStateChange,
-			Self::Admission(AdmissionError::Full) => Retry::Soon,
-			Self::Admission(_) => Retry::AfterStateChange,
 			Self::Captp(error) => rooms_glowcap::client::binding_retry(error),
 			Self::Storage(_) => Retry::AfterStateChange,
 			Self::Peer(error) => error.retry(),
@@ -360,8 +329,6 @@ impl fmt::Display for Error {
 			| Self::Stale(error)
 			| Self::Closed(error)
 			| Self::Uncertain(error) => f.write_str(error),
-			Self::Admission(error) => error.fmt(f),
-			Self::View(error) => error.fmt(f),
 			Self::State(error) => error.fmt(f),
 			Self::Captp(error) => error.fmt(f),
 			Self::Peer(error) => error.fmt(f),
@@ -378,8 +345,6 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		match self {
-			Self::Admission(error) => Some(error),
-			Self::View(error) => Some(error),
 			Self::State(error) => Some(error),
 			Self::Captp(error) => Some(error.as_ref()),
 			Self::Peer(error) => Some(error.as_ref()),
@@ -397,16 +362,6 @@ impl std::error::Error for Error {
 	}
 }
 
-impl From<AdmissionError> for Error {
-	fn from(error: AdmissionError) -> Self {
-		Self::Admission(error)
-	}
-}
-impl From<ViewError> for Error {
-	fn from(error: ViewError) -> Self {
-		Self::View(error)
-	}
-}
 impl From<state::Error> for Error {
 	fn from(error: state::Error) -> Self {
 		Self::State(error)

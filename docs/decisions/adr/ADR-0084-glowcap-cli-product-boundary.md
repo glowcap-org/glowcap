@@ -81,7 +81,7 @@ layer.
 - `cli/` and `test/cli/` land; `build.zig` adds `glowcap` executable + install.
 - `docs/shipped.md` / `README.md` / `docs/boundaries.md` name the CLI and its
   present edges.
-- Rooms peer presence migrates toward `glowcap apps rooms session` without a second Host
-  stack.
+- Rooms peer presence uses `glowcap apps rooms session` and its shared durable
+  session lifecycle ([ADR-0174](ADR-0174-rooms-command-front-and-session-control.md)).
 - `source-check` gains the `zig build glowcap` step when documented.
 - Future OTEL/timeline attach to one event spine designed with stderr logging.

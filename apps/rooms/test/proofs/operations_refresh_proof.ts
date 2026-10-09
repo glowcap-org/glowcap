@@ -1,12 +1,14 @@
+import { spawnWeb } from "../support/web_front.ts";
 // The shipped page refreshes operator inventories through its Rust read owner.
 import { chromium } from "playwright";
-import { WEB } from "../support/paths.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { removeCapability, takeCapability } from "../page/capability_set.ts";
 import { fail } from "../support/fail.ts";
+import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
 
 const root = new URL("../../../../", import.meta.url).pathname;
 const state = await Deno.makeTempDir({ prefix: "rooms-operations-refresh-" });
@@ -15,7 +17,7 @@ const room = freePort();
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const deadline = setTimeout(() => fail("operations-refresh scenario timed out after 180s"), 180_000);
 try {
-	spawnOwned(WEB, {
+	spawnWeb({
 		args: ["--transport=tcp", String(http), String(room)],
 		cwd: root,
 		env: { GLOWCAP_ROOMS_STATE: state, GLOWCAP_ROOMS_OPERATOR: "1" },
@@ -25,6 +27,9 @@ try {
 	await waitForHttp(http);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const tab = await browser.newPage();
+	tab.on("console", (event) => {
+		if (event.type() === "error") console.error(`PAGE-CONSOLE ${event.text()}`);
+	});
 	tab.on("pageerror", (error) => console.error(`PAGE-ERROR ${error.message}`));
 	await tab.goto(`http://127.0.0.1:${http}/`);
 	await establishLocalSession(tab);
@@ -37,11 +42,18 @@ try {
 		await tab.click("#newRoomBtn");
 		await tab.fill("#newRoomInput", name);
 		await tab.press("#newRoomInput", "Enter");
-		await namedRoomRow(tab, name, true).waitFor({ timeout: 10_000 });
+		await namedRoomRow(tab, name, true).waitFor({ timeout: 10_000 }).catch(async () =>
+			fail(`room ${name} was not installed: ${await tab.locator("body").innerText()}`)
+		);
 	}
 	await tab.click("#settingsBtn");
 	await tab.click("#holdingsTab");
-	await takeCapability(tab, "#opsOperatorToggle", (await Deno.readTextFile(`${state}/operator`)).trim());
+	const locator = await (await fetch(`http://127.0.0.1:${http}/locator`)).text();
+	const operator = formatRoomsSturdyref(
+		roomsLocator(locator.trim()),
+		(await Deno.readTextFile(`${state}/operator`)).trim(),
+	);
+	await takeCapability(tab, "#opsOperatorToggle", operator);
 	await tab.click("#opsBtn");
 	await tab.waitForSelector("#operatorSearch");
 	await tab.waitForFunction(() => document.querySelectorAll("#operatorRooms .entry").length === 32);

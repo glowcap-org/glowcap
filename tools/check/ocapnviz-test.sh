@@ -11,6 +11,12 @@
 # Build, type, lint, and format checks live in ocapnviz-build-check.sh because
 # they are cache-populating tool work, not a deterministic test deadline.
 #
+# Test files run in parallel. Run one after another, each file's isolate
+# startup cost more than its tests, and the suite outgrew the per-step
+# deadline. A test that reads back persisted state installs its own memory
+# storage (src/state/memory-storage.ts), since Deno's localStorage is one
+# SQLite file shared by every worker.
+#
 # Deno is part of the declared in-tree toolchain. A missing runtime is a failed
 # precondition, not a green test with less coverage.
 set -euo pipefail
@@ -24,4 +30,4 @@ if [ ! -d "$app" ]; then
 fi
 
 cd "$app"
-exec deno test -A
+exec deno test -A --parallel

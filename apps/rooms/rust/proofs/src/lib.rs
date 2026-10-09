@@ -51,10 +51,26 @@ mod room;
 mod room_links;
 mod room_operation;
 mod room_view;
+mod session_capacity;
 mod session_commands;
 mod session_events;
+#[cfg(any(
+	all(test, not(target_arch = "wasm32")),
+	all(target_arch = "wasm32", feature = "async-host")
+))]
+mod session_executor;
+#[cfg(any(
+	all(test, not(target_arch = "wasm32")),
+	all(target_arch = "wasm32", feature = "async-host")
+))]
+mod session_foreign;
 mod session_results;
 mod session_state;
+#[cfg(any(
+	all(test, not(target_arch = "wasm32")),
+	all(target_arch = "wasm32", feature = "async-host")
+))]
+mod session_storage;
 mod signaling_client;
 mod snapshot;
 mod sources;
@@ -94,6 +110,7 @@ pub extern "C" fn rooms_contract_proof() -> u32 {
 	workspace::run();
 	command_admission::run();
 	content_session::run();
+	session_capacity::run();
 	controller_commands::run();
 	reconciliation::run();
 	session_commands::run();

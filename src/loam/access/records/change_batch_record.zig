@@ -88,7 +88,7 @@ pub const ChangeBatchRecord = struct {
                         if (!std.meta.eql(parent, if (grant.path.len > 1) @as(?core.GrantId, grant.path[1]) else null)) return error.InvalidRecord;
                     },
                     .status_changed => |status| if (status.before == status.after or status.before == .revoked) return error.InvalidRecord,
-                    .policy_changed => {},
+                    .policy_changed, .label_changed => {},
                 }
             },
             .resource => |resource| {
@@ -151,7 +151,7 @@ pub const ChangeBatchRecord = struct {
                             try s.writeSymbol(sink, @tagName(status.before));
                             try s.writeSymbol(sink, @tagName(status.after));
                         },
-                        .policy_changed => {},
+                        .policy_changed, .label_changed => {},
                     }
                     try writePath(sink, grant.path);
                 },
@@ -220,6 +220,8 @@ pub const ChangeBatchRecord = struct {
                 .{ .status_changed = .{ .before = try fields.readStatus(bytes, cursor), .after = try fields.readStatus(bytes, cursor) } }
             else if (std.mem.eql(u8, kind_tag, "policy_changed"))
                 .policy_changed
+            else if (std.mem.eql(u8, kind_tag, "label_changed"))
+                .label_changed
             else
                 return error.InvalidRecord;
             break :result .{ .grant = .{ .change = .{ .version = version, .grant = grant, .kind = kind }, .path = try readPath(core.GrantId, allocator, bytes, cursor, owner) } };

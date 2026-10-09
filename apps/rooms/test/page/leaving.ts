@@ -21,6 +21,7 @@ export async function run(
 	tab: Page,
 	foreignLocator: string,
 	foreignRoom: Deno.ChildProcess,
+	foreignState: string,
 	foreignRoomPort: number,
 	homeRoomPort: number,
 	aboutOf: (room: string) => Locator,
@@ -90,7 +91,12 @@ export async function run(
 	await tab.fill("#room", "elsewhere");
 	await tab.click("#joinBtn");
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
-		.catch(() => fail("a room could not be joined from the row of a directory with nothing on it"));
+		.catch(async () =>
+			fail(
+				"a room could not be joined from the row of a directory with nothing on it: " +
+					await tab.locator("body").innerText(),
+			)
+		);
 
 	// Leaving a directory, which is the other end of reaching one. Holding a
 	// directory is a live session, a name registered on it, and everything
@@ -257,6 +263,9 @@ export async function run(
 	// Back on the foreign room so the rail field names that directory: empty
 	// locator means this page's own, and this check is that the other one fills.
 	await namedRoomRow(tab, "elsewhere").locator(".room-open").click();
+	// The old room's enabled composer can remain during authoritative lookup.
+	// Naming the next room requires the foreign destination to be selected.
+	await namedRoomRow(tab, "elsewhere", true).waitFor({ timeout: 30_000 });
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
 		.catch(() => fail("could not return to the room on the directory that was not left"));
 
@@ -325,5 +334,5 @@ export async function run(
 		fail(`pressing "this directory" left ${JSON.stringify(cleared)} in the field instead of clearing it`);
 	}
 
-	await goneRun(tab, foreignRoom, foreignRoomPort, homeRoomPort, aboutOf);
+	await goneRun(tab, foreignRoom, foreignState, foreignRoomPort, homeRoomPort, aboutOf);
 }

@@ -10,6 +10,7 @@
 import type { RoomConv } from "../types.ts";
 import type { PageProjection } from "./core.ts";
 import { getConv, put } from "./convs.ts";
+import { retireRoomLineIds } from "./items.ts";
 import type { RoomAuthorityChange } from "../../../lib/room/authority.ts";
 import { roomAuthorityToken } from "../application.ts";
 import type { RoomMembershipKind } from "../../../lib/room/membership.ts";
@@ -107,6 +108,7 @@ export function setRoomMembership(
 ): void {
 	const conv = getConv(projection, key);
 	if (conv?.type !== "room" || (conv.membership === membership && conv.membershipIssue === issue)) return;
+	if (membership !== "joined") retireRoomLineIds(projection, key);
 	put(projection, { ...conv, membership, membershipIssue: membership === "unavailable" ? issue : "" });
 }
 

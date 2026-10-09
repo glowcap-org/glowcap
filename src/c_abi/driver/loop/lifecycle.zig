@@ -112,7 +112,7 @@ fn buildInstance(
             .closed = observeClose,
         },
     } };
-    inst.runtime = try driver.HostRuntime.initWithCore(alloc, inst.io(), claim.core(), &.{}, adoption);
+    inst.runtime = try driver.HostRuntime.initWithCore(alloc, inst.io(), claim.core(), .{}, adoption);
     errdefer inst.runtime.deinitAfterFailedAdoption();
     inst.providers = provider_registry.Registry.init(alloc, inst.io(), &inst.runtime);
     // Mint the settle mailbox now, so its wake descriptor joins the readiness

@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // A room nobody can look up, and the only way into one.
 //
 // A public room is reached by its name: the directory lists it, `enter` finds
@@ -40,7 +41,7 @@
 // (the web front and room server run Rust), and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web/private_room_test.ts`.
 
-import { SERVER, WEB } from "../support/paths.ts";
+import { SERVER } from "../support/paths.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../../lib/locator.ts";
 import { type Browser, chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
@@ -84,7 +85,7 @@ spawnOwned(SERVER, {
 	stderr: "inherit",
 });
 
-spawnOwned(WEB, {
+spawnWeb({
 	args: [
 		"--transport=tcp",
 		String(httpPort),
@@ -198,7 +199,22 @@ try {
 	// ── Handed over ──────────────────────────────────────────────────────
 	await say(ada, "/invite bo");
 	await bo.waitForSelector(".inviterow", { timeout: 30_000 })
-		.catch(() => fail("handing the room over never reached bo"));
+		.catch(async () => {
+			const state = (page: typeof ada) =>
+				page.evaluate(() => ({
+					title: document.title,
+					log: document.querySelector("#log")?.textContent,
+					status: document.querySelector("#status")?.textContent,
+					rooms: document.querySelector("#roomList")?.textContent,
+					composer: (document.querySelector("#line") as HTMLTextAreaElement | null)?.value,
+					notices: [...document.querySelectorAll(".toast")].map((node) => node.textContent),
+				}));
+			fail(
+				`handing the room over never reached bo: ${
+					JSON.stringify({ ada: await state(ada), bo: await state(bo) })
+				}`,
+			);
+		});
 	const offered = (await bo.textContent(".inviterow")) ?? "";
 	if (!offered.includes(LABEL) || !offered.includes("ada")) {
 		fail(`the invitation does not say what it is or who it is from: ${JSON.stringify(offered)}`);
@@ -251,11 +267,14 @@ try {
 		.catch(() => fail("handing the listed room over never reached ada"));
 	await ada.click(".inviterow .room-open");
 	await ada.waitForFunction(
-		(label) =>
-			[...document.querySelectorAll("#roomList li")].some((li) =>
-				(li.querySelector(".rname")?.textContent ?? "") === label &&
-				li.querySelector(".hash svg") === null
-			),
+		(label) => {
+			const line = document.querySelector<HTMLTextAreaElement>("#line");
+			return line != null && !line.disabled &&
+				[...document.querySelectorAll("#roomList li")].some((li) =>
+					(li.querySelector(".rname")?.textContent ?? "") === label &&
+					li.querySelector(".hash svg") === null && li.classList.contains("here")
+				);
+		},
 		LABEL,
 		{ timeout: 30_000 },
 	).catch(() => fail("taking up a listed room's offer did not seat ada in the listed room"));
@@ -362,7 +381,10 @@ try {
 		() =>
 			[...document.querySelectorAll("#log .sys")].some((row) =>
 				(row.textContent ?? "").includes("That link did not open a room") &&
-				(row.textContent ?? "").includes("connection closed during the OCapN handshake")
+				[
+					"connection closed during the OCapN handshake",
+					"WebSocket closed abnormally (code 1011)",
+				].some((cause) => (row.textContent ?? "").includes(cause))
 			),
 		undefined,
 		{ timeout: 60_000 },
@@ -407,7 +429,10 @@ try {
 	// whole of getting into a room on a server he has never spoken to.
 	await say(bo, `/join ${elsewhere} elsewhere`);
 	await bo.waitForFunction(
-		() => [...document.querySelectorAll("#roomList .rname")].some((row) => row.textContent === "elsewhere"),
+		() =>
+			[...document.querySelectorAll("#roomList li")].some((row) =>
+				row.querySelector(".rname")?.textContent === "elsewhere" && row.querySelector(".hash svg") !== null
+			),
 		undefined,
 		{ timeout: 60_000 },
 	).catch(async () => {

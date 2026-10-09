@@ -28,9 +28,9 @@ pub fn register(
     // so the prose and the API calls can't drift (each is built and run under
     // `check`); they read top-down, from the application surface to the raw
     // engine. `readme_quick_start` keeps the README's Quick Start snippet
-    // compiling. `frame_view`, `connect_explicit_buffers`, and
-    // `many_sessions_one_loop` are the lower-level library-mechanics
-    // walkthroughs.
+    // compiling. `frame_view` and `connect_explicit_buffers` are the
+    // lower-level library-mechanics walkthroughs; `many_sessions_one_loop`
+    // serves many sessions from one Server thread.
     // `lmdb` examples also import the optional LMDB Loam backend and own a
     // fresh store directory per run.
     const zig_examples = [_]struct { name: []const u8, path: []const u8, lmdb: bool = false }{

@@ -266,3 +266,51 @@ test "an actor id is never reissued after a restore" {
     const after = try vat.spawn(CloneCounter, .{ .n = 7 });
     try std.testing.expect(before.local != after.local);
 }
+
+test "restore publishes its actor table before discarded state cleanup reenters" {
+    const Trace = struct {
+        subject: actors.Ref = undefined,
+        created: ?actors.Ref = null,
+        observed: ?i64 = null,
+        drops: usize = 0,
+    };
+    const State = struct {
+        pub const snapshot_persistent = true;
+        vat: *actors.Vat,
+        trace: *Trace,
+        armed: bool = false,
+        grow: bool,
+        pub fn handle(self: *const @This(), turn: *Turn, msg: Message) !model.Argument {
+            if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = @intFromBool(self.armed) };
+            var next = self.*;
+            next.armed = true;
+            try turn.become(@This(), next);
+            return .{ .void = {} };
+        }
+        pub fn deinit(self: *@This(), _: std.mem.Allocator) void {
+            if (!self.armed or self.vat.tearing_down) return;
+            self.trace.drops += 1;
+            const reply = self.vat.near(self.trace.subject, .{ .verb = "get" }) catch unreachable;
+            self.trace.observed = reply.integer;
+            const capacity = self.vat.actors.capacity();
+            while (true) {
+                self.trace.created = self.vat.spawn(Counter, .{ .n = 42 }) catch unreachable;
+                if (!self.grow or self.vat.actors.capacity() != capacity) break;
+            }
+        }
+    };
+    for ([_]bool{ false, true }) |grow| {
+        var vat = actors.Vat.init(std.testing.allocator);
+        defer vat.deinit();
+        var trace: Trace = .{};
+        trace.subject = try vat.spawn(State, .{ .vat = &vat, .trace = &trace, .grow = grow });
+        var snap = try vat.snapshot();
+        defer snap.deinit();
+        _ = try vat.near(trace.subject, .{ .verb = "arm" });
+        try vat.restore(&snap);
+        try std.testing.expectEqual(@as(usize, 1), trace.drops);
+        try std.testing.expectEqual(@as(?i64, 0), trace.observed);
+        try std.testing.expectEqual(@as(i64, 0), (try vat.near(trace.subject, .{ .verb = "get" })).integer);
+        try std.testing.expectEqual(@as(i64, 42), (try vat.near(trace.created.?, .{ .verb = "get" })).integer);
+    }
+}

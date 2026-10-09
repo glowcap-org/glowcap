@@ -5,6 +5,10 @@ The session supplies revision checks, capability checks, persistence, and
 execution. A command success is application completion; it is not proof that
 another person has read a message. Read `status` after a refusal or uncertain
 completion, and never replay a side effect merely because a tool timed out.
+An uncertain command reports its operation ID and original base revision. Keep
+both and the exact arguments for `--operation ID --base REVISION`; an explicit
+operation ID cannot select a fresh revision. An uncertain acquisition reports
+its recovery ID for `recover --acquisition ID`.
 
 Use conversation IDs and line IDs from `status` and `tick`:
 
@@ -18,7 +22,8 @@ glowcap apps rooms session command --dir "$HOME/.rooms/alice" select CONVERSATIO
 ```
 
 Edit/withdraw require your own line authority. A topic change requires the
-membership's topic capability; `status.rooms` states what the member may do.
+membership's topic capability, held in the conversation row under
+`status.workspace.conversations`.
 Selecting a conversation only changes focus. It never removes the observer
 from the other rooms or DMs.
 

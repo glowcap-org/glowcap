@@ -15,7 +15,7 @@ export async function runTraceRoundtrip(managed: Runtime): Promise<void> {
 	});
 
 	await using traceHost = new Host();
-	traceHost.publishGiftable("greeter", (verb) => `hello ${verb}`);
+	traceHost.publish("greeter", (verb) => `hello ${verb}`);
 	const server = await tcp.listen("127.0.0.1", 0, { host: traceHost });
 	const port = server.port;
 	const hosted = (async () => {

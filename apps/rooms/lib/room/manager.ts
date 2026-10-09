@@ -10,7 +10,6 @@ import {
 	SET_ROOM_POLICY,
 	UNREGISTER_ROOM,
 } from "../protocol_operator.ts";
-import { roomAuthorityToken } from "./authority.ts";
 import { isRoomEntry, isRoomSpeaking, isRoomVisibility, parseRoomPolicy, type RoomPolicy } from "./policy.ts";
 
 export async function managedRoomIdentity(session: Session, room: Ref): Promise<string> {
@@ -75,14 +74,13 @@ export class RoomManager {
 
 	async unregisterRoom(): Promise<{ policy: RoomPolicy; name: string }> {
 		return this.#policyAnswer(
-			await this.#call(UNREGISTER_ROOM, [roomAuthorityToken(this.sturdyref)]),
+			await this.#call(UNREGISTER_ROOM, []),
 			"unregistration",
 		);
 	}
 
 	async setPolicy(policy: RoomPolicy, name: string): Promise<{ policy: RoomPolicy; name: string }> {
 		const answer = await this.#call(SET_ROOM_POLICY, [
-			roomAuthorityToken(this.sturdyref),
 			policy.visibility,
 			policy.entry,
 			policy.speaking,

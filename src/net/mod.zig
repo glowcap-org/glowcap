@@ -128,6 +128,18 @@ pub const Keepalive = socket.Keepalive;
 /// See `transport/inproc.zig`.
 pub const inproc = @import("transport/inproc.zig");
 
+/// `inproc` as a completion adapter (ADR-0193): bounded in-process pipes behind
+/// the completion backend contract, beside the blocking resident above.
+pub const inproc_completion = @import("transport/inproc/completion.zig");
+pub const external_completion = @import("transport/external/completion.zig");
+pub const completion_resident = @import("completion_resident.zig");
+/// Every first-party stream symbol on one completion backend, as one
+/// HostRuntime resident. Empty off the supported platforms.
+pub const StreamStack = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+    @import("stream_resident.zig").Stack(Backend)
+else
+    struct {};
+
 /// The relay provider and its `keyed-relay` and `noise-relay` profiles. One
 /// configured package owns both realizations, including locator construction,
 /// WebSocket rendezvous, registration, and readiness.
@@ -137,14 +149,6 @@ pub const relay = @import("transport/relay.zig");
 /// Relay implementations import the leaf by relative path to avoid a
 /// `net` -> `relay` -> `net` cycle; consumers reach it here.
 pub const websocket = @import("websocket.zig");
-
-/// The sealing completion-backend adapter (`noise-relay`, ADR-0107): wraps
-/// any completion backend so a `.sealed` dial target completes the Noise_XK
-/// handshake before the loop hears the connect completed, then seals sends
-/// into records and lends opened record plaintext to the recv seat. The
-/// loop-tier owner of the sealed channel, composing
-/// `foundation.sealed.SealedChannel`. See `transport/noise_completion.zig`.
-pub const noise_completion = @import("transport/noise_completion.zig");
 
 /// Shared `std.Io` Reader/Writer scaffolding for byte-source residents
 /// (inproc, iroh). Pub because the out-of-graph iroh resident is its own
@@ -296,7 +300,7 @@ else
     struct {};
 
 /// The ready-to-use native onion completion loop. Tor conversations stay in
-/// `OnionBackend`; `completion.Loop` and `driver.Bridge` remain transport-blind.
+/// `OnionBackend`; `completion.Loop` remains transport-blind.
 pub const OnionLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
     completion.Loop(OnionBackend, OnionDialResolver)
 else
@@ -314,28 +318,8 @@ else
     struct {};
 
 /// A completion loop whose locator grammar includes `tcp`, `keyed-tcp`, and
-/// outbound `keyed-relay`, so `driver.Bridge` can keep rendezvous redemption on
-/// the native scale path instead of its blocking side-wire fallback.
+/// outbound `keyed-relay`.
 pub const KeyedRelayLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
     completion.Loop(KeyedRelayBackend, relay.DialResolver)
-else
-    struct {};
-
-/// The keyed-relay backend wrapped with sealing `noise-relay` dials
-/// (ADR-0107). Construct the relay backend with `initWithRelay`, then wrap it
-/// with `noise_completion.CompletionBackend(...).initSealing` so the durable
-/// identity and channel-entropy seed are explicit deployment state, and hand
-/// the result to `NoiseRelayLoop.initWithBackend`.
-pub const NoiseRelayBackend = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
-    noise_completion.CompletionBackend(KeyedRelayBackend)
-else
-    struct {};
-
-/// A completion loop whose locator grammar adds sealed `noise-relay` dials to
-/// `KeyedRelayLoop`'s `tcp` / `keyed-tcp` / `keyed-relay` set, so a native
-/// peer reaches a relay-registered responder over a channel the relay cannot
-/// read.
-pub const NoiseRelayLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
-    completion.Loop(NoiseRelayBackend, noise_completion.DialResolver(NoiseRelayBackend, relay.DialResolver))
 else
     struct {};

@@ -30,15 +30,36 @@ def cli(state, verb, *args):
     return json.loads(result.stdout)
 
 
+def line_text(row):
+    if row.get("unavailable"):
+        return ""
+    notice = row["event"]["notice"]
+    return notice["text"] if notice["kind"] == "line" else ""
+
+
+def target(row):
+    return row["event"]["target"]
+
+
+def marker(row):
+    return row["event"]["notice"]["marker"]
+
+
 def until(state, text):
     deadline = time.monotonic() + 5
+    after_id = 0
     while True:
-        rows = cli(state, "tick", "--wait", "0")["pending"]
-        found = [row for row in rows if row["text"] == text]
+        batch = cli(state, "tick", "--wait", "0", "--after-id", str(after_id))
+        rows = batch["pending"]
+        found = [row for row in rows if line_text(row) == text]
         if found:
             return found[0]
         if time.monotonic() >= deadline:
             raise AssertionError(f"missing {text!r}: {rows!r}")
+        if rows:
+            after_id = rows[-1]["id"]
+        if batch["more"]:
+            continue
         time.sleep(0.05)
 
 
@@ -117,41 +138,56 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 cli(team, "team-start", "--transport", transport, "--reachability", "direct", "--locator", locator,
                     "--lead", "Bob", "--member", "Carol", "--room", "garden", "--room", "workshop")
                 assert len(cli(team, "team-status")["members"]) == 2
+                rooms = {row["name"]: row["id"] for row in cli(alice, "status")["workspace"]["conversations"]
+                         if row["kind"] == "room"}
                 # Both inactive and active conversations deliver; no @mention.
                 cli(bob, "reply", "--room", "garden", "--text", "garden-message")
                 cli(bob, "reply", "--room", "workshop", "--text", "workshop-message")
                 garden = until(alice, "garden-message")
                 workshop = until(alice, "workshop-message")
-                assert garden["conversation"] != workshop["conversation"]
-                assert garden["room"] == "garden" and workshop["room"] == "workshop"
+                assert target(garden)["id"] != target(workshop)["id"]
+                assert target(garden)["id"] == rooms["garden"] and target(workshop)["id"] == rooms["workshop"]
                 cli(alice, "reply", "--id", str(workshop["id"]), "--text", "workshop-answer")
-                assert until(bob, "workshop-answer")["conversation"] == until(bob, "workshop-message")["conversation"]
+                assert target(until(bob, "workshop-answer"))["id"] == target(until(bob, "workshop-message"))["id"]
                 # First contact, then reply-by-id; no text appears in Carol's rooms.
-                cli(bob, "reply", "--dm", "Alice", "--operation", "private-question-op", "--text", "private-question")
+                cli(bob, "reply", "--dm", "Alice", "--text", "private-question")
                 private = until(alice, "private-question")
-                assert private["channel"] == "dm", private
+                assert target(private)["kind"] == "direct", private
                 cli(alice, "reply", "--id", str(private["id"]), "--text", "private-answer")
-                assert until(bob, "private-answer")["channel"] == "dm"
-                assert not any(row["text"].startswith("private-")
+                assert target(until(bob, "private-answer"))["kind"] == "direct"
+                assert not any(line_text(row).startswith("private-")
                                for row in cli(carol, "tick", "--wait", "0")["pending"])
                 cli(carol, "reply", "--dm", "Alice", "--text", "second-private-question")
                 second_private = until(alice, "second-private-question")
-                assert second_private["channel"] == "dm"
-                assert second_private["conversation"] != private["conversation"]
+                assert target(second_private)["kind"] == "direct"
+                assert target(second_private)["id"] != target(private)["id"]
                 cli(alice, "reply", "--id", str(second_private["id"]), "--text", "second-private-answer")
-                assert until(carol, "second-private-answer")["channel"] == "dm"
-                assert not any(row["text"].startswith("second-private-")
+                assert target(until(carol, "second-private-answer"))["kind"] == "direct"
+                assert not any(line_text(row).startswith("second-private-")
                                for row in cli(bob, "tick", "--wait", "0")["pending"])
                 answer = until(bob, "private-answer")
-                cli(bob, "leave", "--conversation", answer["conversation"])
-                assert until(bob, "private-answer")["channel"] == "dm"
+                cli(bob, "leave", "--conversation", target(answer)["id"])
+                assert target(until(bob, "private-answer"))["kind"] == "direct"
                 # Edits are observed as edits, with their original line identity.
                 own = until(bob, "garden-message")
-                cli(bob, "command", "editLine", own["conversation"], str(own["line"]), "garden-edited")
+                cli(bob, "command", "editLine", target(own)["id"], str(marker(own)["id"]), "garden-edited")
                 edited = until(alice, "garden-edited")
-                assert edited["line"] == garden["line"] and edited["change"] == "edited"
-                cli(bob, "reply", "--dm", "Alice", "--text", "private-unread")
+                assert marker(edited)["id"] == marker(garden)["id"] and marker(edited)["change"] == "edited"
+                sent = cli(bob, "reply", "--dm", "Alice", "--text", "private-unread")
                 unread_dm = until(alice, "private-unread")
+                cli(alice, "reply", "--conversation", target(unread_dm)["id"],
+                    "--text", "private-reopened-answer")
+                assert target(until(bob, "private-reopened-answer"))["kind"] == "direct"
+                assert not any(line_text(row) == "private-reopened-answer"
+                               for row in cli(carol, "tick", "--wait", "0")["pending"])
+                bob_direct = next(row["id"] for row in cli(bob, "status")["workspace"]["conversations"]
+                                  if row["kind"] == "direct" and row["peer"] == "Alice" and not row["closed"])
+                replay_args = ("--conversation", bob_direct, "--operation", sent["operation"],
+                               "--base", str(sent["base"]), "--text", "private-unread")
+                cli(bob, "reply", *replay_args)
+                unread_rows = [row for row in cli(alice, "tick", "--wait", "0")["pending"]
+                               if line_text(row) == "private-unread"]
+                assert [row["id"] for row in unread_rows] == [unread_dm["id"]], "exact replay sent twice"
                 # A new process keeps the same unanswered IDs and memberships.
                 cli(alice, "dismiss", "--id", str(workshop["id"]))
                 cli(alice, "stop")
@@ -164,15 +200,15 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 replay = until(alice, "garden-message")
                 assert replay["id"] == garden["id"]
                 replay_dm = until(alice, "private-unread")
-                assert replay_dm["id"] == unread_dm["id"] and replay_dm["channel"] == "dm"
+                assert replay_dm["id"] == unread_dm["id"] and target(replay_dm)["kind"] == "direct"
                 assert not any(row["id"] == workshop["id"]
                                for row in cli(alice, "tick", "--wait", "0")["pending"])
                 cli(alice, "join", "--room", "garden", "--room", "workshop")
                 cli(alice, "leave", "--room", "garden")
                 # Old messages keep their room context even after leaving.
-                assert until(alice, "garden-message")["room"] == "garden"
+                assert target(until(alice, "garden-message"))["id"] == rooms["garden"]
                 cli(bob, "reply", "--room", "workshop", "--text", "still-listening")
-                assert until(alice, "still-listening")["room"] == "workshop"
+                assert target(until(alice, "still-listening"))["id"] == rooms["workshop"]
                 # One continuous consumer delivers rooms, DMs, and own echoes
                 # once each, without scripts, filtering, or acknowledging them.
                 output = root / "listener.jsonl"
@@ -194,22 +230,22 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                             batches = [json.loads(line) for line in output.read_text().splitlines(keepends=True)
                                        if line.endswith("\n")]
                             delivered = [event for batch in batches for event in batch["pending"]]
-                            if {"listener-private-message", "listener-own-echo"} <= {event["text"] for event in delivered}:
+                            if {"listener-private-message", "listener-own-echo"} <= {line_text(event) for event in delivered}:
                                 break
                             assert time.monotonic() < deadline, "listen missed a DM or own echo"
                             assert listener.poll() is None, "listener exited"
                             time.sleep(0.05)
                         ids = [event["id"] for event in delivered]
                         assert len(ids) == len(set(ids)), "listen repeated already delivered pending events"
-                        private = next(event for event in delivered if event["text"] == "listener-private-message")
-                        assert private["channel"] == "dm"
+                        private = next(event for event in delivered if line_text(event) == "listener-private-message")
+                        assert target(private)["kind"] == "direct"
                     finally:
                         listener.terminate()
                         listener.wait(timeout=5)
-                assert until(alice, "continuous-listener")["text"] == "continuous-listener"
-                assert until(alice, "listener-private-message")["channel"] == "dm"
+                assert line_text(until(alice, "continuous-listener")) == "continuous-listener"
+                assert target(until(alice, "listener-private-message"))["kind"] == "direct"
                 cli(bob, "reply", "--room", "workshop", "--text", "after-consumer-exit")
-                assert until(alice, "after-consumer-exit")["room"] == "workshop"
+                assert target(until(alice, "after-consumer-exit"))["id"] == rooms["workshop"]
                 # One observer's disk failure must not stop the shared session.
                 journal = alice / "inbox/events.jsonl"
                 journal.chmod(0o400)
@@ -225,7 +261,34 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                     journal.chmod(0o600)
                 cli(alice, "resume", "--accept-gap")
                 cli(bob, "reply", "--room", "workshop", "--text", "after-resume")
-                until(alice, "after-resume")
+                resumed = until(alice, "after-resume")
+                assert cli(alice, "tick", "--wait", "0")["more"], "journey must cover multiple inbox pages"
+                assert resumed["id"] > cli(alice, "tick", "--wait", "0")["pending"][-1]["id"]
+                # A restarted listener replays every retained page without
+                # dismissing the prefix or needing a new journal mutation.
+                with output.open("wb") as sink:
+                    listener = subprocess.Popen([str(FRONT), "apps", "rooms", "session", "listen", "--dir", str(alice)],
+                                                stdout=sink, stderr=subprocess.PIPE, cwd="/tmp")
+                    try:
+                        deadline = time.monotonic() + 5
+                        while True:
+                            batches = [json.loads(line) for line in output.read_text().splitlines(keepends=True)
+                                       if line.endswith("\n")]
+                            delivered = [event for batch in batches for event in batch["pending"]]
+                            if any(line_text(event) == "after-resume" for event in delivered):
+                                break
+                            assert time.monotonic() < deadline, "restarted listener did not drain later pages"
+                            assert listener.poll() is None, "listener exited during replay"
+                            time.sleep(0.05)
+                        ids = [event["id"] for event in delivered]
+                        assert len(ids) == len(set(ids)), "replay duplicated events between pages"
+                        assert any(line_text(event) == "continuous-listener" for event in delivered)
+                        assert any(line_text(event) == "after-resume" for event in delivered)
+                    finally:
+                        listener.terminate()
+                        listener.wait(timeout=5)
+                cli(alice, "reply", "--id", str(resumed["id"]), "--text", "reply-to-later-page")
+                until(bob, "reply-to-later-page")
                 cli(team, "team-stop")
             except BaseException:
                 for state in (alice, bob, carol):

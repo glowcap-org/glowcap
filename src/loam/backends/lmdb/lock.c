@@ -33,6 +33,14 @@ int loam_lmdb_lock(int directory) {
     return fd;
 }
 
+int loam_lmdb_unlock(int fd) {
+    /* close alone leaves a flock held by a child between fork and exec. */
+    while (flock(fd, LOCK_UN) < 0) {
+        if (errno != EINTR) return errno;
+    }
+    return 0;
+}
+
 void loam_lmdb_close_fd(int fd) {
     close(fd);
 }

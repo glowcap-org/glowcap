@@ -48,7 +48,7 @@ try {
 					return original.apply(this, args);
 				};
 			};
-			globalThis.blockLoamStorage = () =>
+			globalThis.blockLoamStorage = (observeRestore) =>
 				new Promise((resolve, reject) => {
 					const opening = indexedDB.open("glowcap-loam-browser-proof", 1);
 					opening.onerror = () => reject(opening.error);
@@ -56,6 +56,29 @@ try {
 						const database = opening.result;
 						const transaction = database.transaction("rows", "readwrite");
 						const rows = transaction.objectStore("rows");
+						const originalGet = IDBObjectStore.prototype.get;
+						let queued;
+						const restoreQueued = new Promise((resolve) => { queued = resolve; });
+						globalThis.waitLoamRestoreQueued = () => restoreQueued;
+						let retired;
+						const restoreRetired = new Promise((resolve) => { retired = resolve; });
+						globalThis.waitLoamRestoreRetired = () => restoreRetired;
+						const restores = new Set();
+						const observedGet = function (...args) {
+							const result = originalGet.apply(this, args);
+							if (this.transaction.db.name === "glowcap-loam-browser-proof" && this.transaction.mode === "readonly") {
+								if (!restores.has(this.transaction)) {
+									restores.add(this.transaction);
+									if (restores.size === 1) queued();
+									else {
+										IDBObjectStore.prototype.get = originalGet;
+										this.transaction.addEventListener("complete", retired, { once: true });
+									}
+								}
+							}
+							return result;
+						};
+						if (observeRestore) IDBObjectStore.prototype.get = observedGet;
 						let held = true;
 						let answered = false;
 						const timer = setTimeout(() => {
@@ -76,7 +99,8 @@ try {
 								if (held) next();
 							};
 						};
-						transaction.oncomplete = transaction.onabort = () => {
+						transaction.oncomplete = transaction.onabort = (event) => {
+							if (event.type === "abort" && IDBObjectStore.prototype.get === observedGet) IDBObjectStore.prototype.get = originalGet;
 							clearTimeout(timer);
 							database.close();
 						};
@@ -103,7 +127,13 @@ try {
 	console.log(JSON.stringify(JSON.parse(saved).costs));
 	await initialize();
 	await bounded(() => page.evaluate((saved) => binding.reopen(saved), saved));
+	await bounded(() => page.evaluate((saved) => binding.cancelled_restore(saved), saved));
+	await bounded(() => page.evaluate((saved) => binding.cancelled_call_progress(saved), saved));
+	await bounded(() => page.evaluate((saved) => binding.buffered_restore(saved), saved));
+	await bounded(() => page.evaluate((saved) => binding.retired_executor(saved), saved));
+	await bounded(() => page.evaluate((saved) => binding.partial_restore(saved), saved));
 	await bounded(() => page.evaluate(() => binding.cancelled_creation()));
+	await bounded(() => page.evaluate(() => binding.record_bound()));
 	await bounded(() => page.evaluate(() => binding.empty_store()));
 	const counts = await bounded(() =>
 		page.evaluate(async () => {

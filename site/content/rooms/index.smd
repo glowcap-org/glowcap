@@ -96,7 +96,9 @@ and your links, and wherever you open it, you are looking at the same thing.
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-light.webp'))
 
-A link to your session comes in three kinds: observe, interact, and admin.
+Session access has separate permissions for observing, changing intent, and
+managing custody. A management control is held separately from the link used
+to open the workspace.
 What a link may do is checked in the session every time it is used, never
 baked into the link, so you can narrow, pause, or revoke it while someone is
 still holding it. [Run Rooms]($link.page('rooms/start')) shares a session

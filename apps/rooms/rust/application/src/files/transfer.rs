@@ -46,6 +46,9 @@ impl UploadProgress {
 	pub fn written(&self) -> usize {
 		self.written
 	}
+	pub fn remaining(&self) -> usize {
+		self.size - self.written
+	}
 	pub fn complete(&self) -> bool {
 		self.written == self.size
 	}
@@ -56,7 +59,7 @@ impl UploadProgress {
 		if self.complete() {
 			return Err(Error::Complete);
 		}
-		if length == 0 || length > CHUNK_BYTES || length > self.size - self.written {
+		if length == 0 || length > CHUNK_BYTES || length > self.remaining() {
 			return Err(Error::Chunk);
 		}
 		self.pending = Some(length);

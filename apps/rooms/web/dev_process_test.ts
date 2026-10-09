@@ -130,7 +130,15 @@ Deno.test("rooms-dev serves source modules and finishes retirement across repeat
 		assert((await script.text()).includes("main.tsx"), "Vite did not serve the shared page entry");
 		const main = await fetch(`http://127.0.0.1:${port}/main.tsx`);
 		assertEquals(main.status, 200);
-		assert((await main.text()).includes("createRoot"), "Vite did not transform the Rooms React module");
+		const startup = await main.text();
+		assert(startup.includes("createRoot"), "Vite did not transform the Rooms React module");
+		assert(
+			!startup.includes("import.meta.hot.accept"),
+			"page startup must reload instead of opening a second Host",
+		);
+		const setup = await fetch(`http://127.0.0.1:${port}/panes/SessionSetup.tsx`);
+		assertEquals(setup.status, 200);
+		assert((await setup.text()).includes("import.meta.hot.accept"), "component edits must retain Fast Refresh");
 
 		const wasm = await fetch(`http://127.0.0.1:${port}/rooms_browser_bg.wasm`);
 		assertEquals(wasm.status, 200);

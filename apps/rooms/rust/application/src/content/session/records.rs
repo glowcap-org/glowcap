@@ -2,13 +2,18 @@
 //! Capability bytes belong to shared hosting. These payloads contain only data
 //! and coordinates paired with separately retained strong reference fields.
 mod effects;
+mod graph;
 mod pages;
+mod provenance;
+mod reservations;
 use super::{
 	custody::{self, Coordinate, Custody, References, Retained, RetainedField},
 	workspace::Intent,
 };
 use alloc::vec::Vec;
 pub use effects::{decode_effect, encode_effect};
+pub use graph::{GraphPage, decode_graph};
+pub use reservations::check_reservations;
 use serde::{Deserialize, Serialize};
 
 pub const PAGE_BYTES: usize = 48 * 1024;
@@ -41,7 +46,13 @@ pub const EFFECT: Schema = Schema {
 	max_payload: PAGE_BYTES,
 	max_edges: custody::MAX_TARGET_FIELDS + custody::MAX_RESULT_FIELDS + 2,
 };
-pub const SCHEMAS: &[Schema] = &[WORKSPACE, CUSTODY, EFFECT];
+pub const PROVENANCE: Schema = Schema {
+	id: u64::from_be_bytes(*b"ROOMSP01"),
+	version: super::VERSION as u32,
+	max_payload: PAGE_BYTES,
+	max_edges: 1,
+};
+pub const SCHEMAS: &[Schema] = &[WORKSPACE, CUSTODY, PROVENANCE, EFFECT];
 
 #[derive(Debug)]
 pub enum Error {
@@ -74,10 +85,13 @@ pub struct Encoded<'a, R: References, C> {
 	pub binding: &'a custody::ResourceBinding<C>,
 	pub workspace: Vec<Vec<u8>>,
 	pub custody: Vec<Page<'a, R>>,
+	pub provenance: Vec<Vec<u8>>,
 	pub effects: Vec<Vec<Page<'a, R>>>,
 }
 pub fn encode<R: References, C>(record: &super::workspace::Record<R, C>) -> Result<Encoded<'_, R, C>, Error> {
 	record.intent.validate(&record.custody).map_err(|_| Error::Fields)?;
+	check_outgoing(&record.outgoing, &record.custody)?;
+	provenance::check_bridges(&record.bridges, &record.custody)?;
 	for (index, receipt) in record.effects.0.iter().enumerate() {
 		if record.effects.0[..index]
 			.iter()
@@ -90,6 +104,7 @@ pub fn encode<R: References, C>(record: &super::workspace::Record<R, C>) -> Resu
 		binding: &record.binding,
 		workspace: encode_workspace(&record.intent)?,
 		custody: encode_custody(&record.custody)?,
+		provenance: provenance::encode(&record.outgoing, &record.bridges)?,
 		effects: record.effects.0.iter().map(encode_effect).collect::<Result<_, _>>()?,
 	};
 	check_budget(
@@ -98,7 +113,18 @@ pub fn encode<R: References, C>(record: &super::workspace::Record<R, C>) -> Resu
 			.iter()
 			.map(Vec::as_slice)
 			.chain(output.custody.iter().map(|p| p.payload.as_slice()))
+			.chain(output.provenance.iter().map(Vec::as_slice))
 			.chain(output.effects.iter().flatten().map(|p| p.payload.as_slice())),
+	)?;
+	check_reservations(
+		record,
+		output
+			.workspace
+			.iter()
+			.map(Vec::as_slice)
+			.chain(output.custody.iter().map(|page| page.payload.as_slice()))
+			.chain(output.provenance.iter().map(Vec::as_slice))
+			.chain(output.effects.iter().flatten().map(|page| page.payload.as_slice())),
 	)?;
 	Ok(output)
 }
@@ -106,16 +132,25 @@ pub fn decode<R: References, C>(
 	binding: custody::ResourceBinding<C>,
 	workspace: &[&[u8]],
 	custody: Vec<RestoredPage<R>>,
+	provenance: &[&[u8]],
 	effects: Vec<Vec<RestoredPage<R>>>,
 ) -> Result<super::workspace::Record<R, C>, Error> {
 	if effects.len() > custody::MAX_EFFECTS {
 		return Err(Error::Capacity);
 	}
+	let sizes: Vec<_> = workspace
+		.iter()
+		.map(|page| (WORKSPACE.id, page.len()))
+		.chain(custody.iter().map(|page| (CUSTODY.id, page.payload.len())))
+		.chain(provenance.iter().map(|page| (PROVENANCE.id, page.len())))
+		.chain(effects.iter().flatten().map(|page| (EFFECT.id, page.payload.len())))
+		.collect();
 	check_budget(
 		workspace
 			.iter()
 			.copied()
 			.chain(custody.iter().map(|p| p.payload.as_slice()))
+			.chain(provenance.iter().copied())
 			.chain(effects.iter().flatten().map(|p| p.payload.as_slice())),
 	)?;
 	let effects = effects.into_iter().map(decode_effect).collect::<Result<Vec<_>, _>>()?;
@@ -127,14 +162,30 @@ pub fn decode<R: References, C>(
 			return Err(Error::Format);
 		}
 	}
+	let private = self::provenance::decode(provenance)?;
 	let record = super::workspace::Record {
 		binding,
 		intent: decode_workspace(workspace)?,
 		custody: decode_custody(custody)?,
+		outgoing: private.outgoing,
+		bridges: private.bridges,
 		effects: crate::fields::List::new(effects).ok_or(Error::Capacity)?,
 	};
 	record.intent.validate(&record.custody).map_err(|_| Error::Fields)?;
+	check_outgoing(&record.outgoing, &record.custody)?;
+	self::provenance::check_bridges(&record.bridges, &record.custody)?;
+	reservations::check_sizes(&record, sizes)?;
 	Ok(record)
+}
+
+type Origins = provenance::Origins;
+pub(super) fn check_outgoing<R: References>(origins: &Origins, held: &Custody<R>) -> Result<(), Error> {
+	for (at, origin) in origins.as_slice().iter().enumerate() {
+		if !origin.validate(held) || origins.as_slice()[..at].iter().any(|other| other.line == origin.line) {
+			return Err(Error::Fields);
+		}
+	}
+	Ok(())
 }
 
 pub fn encode_workspace(intent: &Intent) -> Result<Vec<Vec<u8>>, Error> {
@@ -153,6 +204,7 @@ pub fn decode_workspace(payloads: &[&[u8]]) -> Result<Intent, Error> {
 #[serde(deny_unknown_fields)]
 struct Fields {
 	version: super::workspace::Version,
+	next_identity: Option<crate::fields::SafeInteger>,
 	coordinates: crate::fields::List<Coordinate, FIELDS_PER_PAGE>,
 }
 
@@ -165,6 +217,7 @@ pub fn encode_custody<R: References>(custody: &Custody<R>) -> Result<Vec<Page<'_
 		let coordinates = held.iter().map(Retained::coordinate).collect();
 		let data = Fields {
 			version: super::workspace::Version::V1,
+			next_identity: output.is_empty().then(|| custody.next_identity()),
 			coordinates: crate::fields::List::new(coordinates).ok_or(Error::Capacity)?,
 		};
 		let payloads = pages::encode(CUSTODY.id, &serde_json::to_vec(&data)?)?;
@@ -187,32 +240,65 @@ pub fn decode_custody<R: References>(pages: Vec<RestoredPage<R>>) -> Result<Cust
 	}
 	let mut custody = Custody::default();
 	let mut bytes = 0usize;
-	for page in pages {
+	for (at, page) in pages.into_iter().enumerate() {
 		bytes = bytes.checked_add(page.payload.len()).ok_or(Error::Capacity)?;
 		if bytes > custody::MAX_AUTHORITY_BYTES {
 			return Err(Error::Capacity);
 		}
-		let body = pages::decode(CUSTODY.id, &[&page.payload])?;
-		let data: Fields = serde_json::from_slice(&body)?;
-		check_fields(&data.coordinates.0, &page.fields)?;
-		for field in page.fields {
-			custody.insert(field).map_err(|_| Error::Fields)?;
-		}
+		let mut fields = page.fields.into_iter();
+		restore_custody(&mut custody, &page.payload, fields.len(), at == 0, |_, _| {
+			fields.next().ok_or(Error::Fields)
+		})?;
 	}
 	Ok(custody)
 }
-fn check_fields<R: References>(coordinates: &[Coordinate], fields: &[RetainedField<R>]) -> Result<(), Error> {
-	if coordinates.len() != fields.len()
-		|| coordinates
-			.iter()
-			.zip(fields)
-			.any(|(coordinate, field)| *coordinate != field.borrowed().coordinate())
-	{
+/// Decode coordinates at their owner, then ask hosting for each exact field.
+/// The resolver cannot turn payload bytes into authority or change its role.
+fn restore_custody<R: References>(
+	custody: &mut Custody<R>,
+	payload: &[u8],
+	field_count: usize,
+	first: bool,
+	mut restore: impl FnMut(Coordinate, usize) -> Result<RetainedField<R>, Error>,
+) -> Result<(), Error> {
+	let body = pages::decode(CUSTODY.id, &[payload])?;
+	let data: Fields = serde_json::from_slice(&body)?;
+	match (first, data.next_identity) {
+		(true, Some(next)) => custody.set_next_identity(next),
+		(false, None) => {}
+		_ => return Err(Error::Format),
+	}
+	if data.coordinates.0.len() != field_count {
 		return Err(Error::Fields);
+	}
+	for (index, coordinate) in data.coordinates.0.into_iter().enumerate() {
+		let field = restore(coordinate, index)?;
+		if field.borrowed().coordinate() != coordinate {
+			return Err(Error::Fields);
+		}
+		custody.insert(field).map_err(|_| Error::Fields)?;
 	}
 	Ok(())
 }
 
+/// Only the first custody page owns the durable sender identity high water mark.
+/// Advancing it preserves every strong field and the other physical pages.
+pub fn advance_identity_sequence(payload: &[u8], next: crate::fields::SafeInteger) -> Result<Option<Vec<u8>>, Error> {
+	let body = pages::decode(CUSTODY.id, &[payload])?;
+	let mut data: Fields = serde_json::from_slice(&body)?;
+	if data.next_identity == Some(next) {
+		return Ok(None);
+	}
+	if data.next_identity.is_none() {
+		return Err(Error::Format);
+	}
+	data.next_identity = Some(next);
+	let mut encoded = pages::encode(CUSTODY.id, &serde_json::to_vec(&data)?)?;
+	if encoded.len() != 1 {
+		return Err(Error::Capacity);
+	}
+	Ok(encoded.pop())
+}
 /// The owning transaction includes all three families in this aggregate. A
 /// bounded page is not a new per-record authority allowance.
 pub fn check_budget<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Result<(), Error> {

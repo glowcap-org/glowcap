@@ -302,10 +302,11 @@ pub const Session = struct {
     v1_0_inbound_resolver_link: InboundResolverLink,
     /// Resolved sturdyref enlivenments, mapping a swissnum to its `(import, kind)`
     /// (ADR-0012 dedup).
-    /// FIFO-evicting (cap `max_sturdyref_cache_entries`), so it keeps insertion
-    /// order and owns each swissnum on the gpa — freed precisely on eviction.
+    /// FIFO-evicting (cap `max_sturdyref_cache_entries`), with inline row links
+    /// preserving insertion order through dense removal. Owns each swissnum on
+    /// the gpa — freed precisely on eviction.
     sturdyref_cache: std.ArrayList(SturdyrefCacheEntry),
-    /// Side index for `sturdyref_cache`: swissnum to FIFO row index, O(1) lookup.
+    /// Side index for `sturdyref_cache`: swissnum to dense row index, O(1) lookup.
     /// Keys are the same owned slices the ArrayList rows hold (one owner); kept
     /// in lockstep on insert and FIFO eviction (`sturdyref_cache.zig`).
     sturdyref_cache_index: std.StringHashMapUnmanaged(usize),
@@ -439,6 +440,8 @@ pub const Session = struct {
     pub const admits = protocol.admits;
 
     pub const recordSend = protocol.recordSend;
+    pub const retractSend = protocol.retractSend;
+    pub const retractPreparedListen = protocol.retractPreparedListen;
     pub const recordPreparedSend = protocol.recordPreparedSend;
     pub const recordSessionImportRelease = protocol.recordSessionImportRelease;
     pub const recordSentResolutionNamed = protocol.recordSentResolutionNamed;
@@ -513,6 +516,7 @@ pub const Session = struct {
 
     pub const abandonOutboundAnswer = answer_lifecycle.abandonOutbound;
     pub const claimOutboundAnswerRelease = answer_lifecycle.claimOutboundRelease;
+    pub const consumeOutboundAnswerNotification = answer_lifecycle.consumeOutboundNotification;
     pub const releaseOutboundAnswer = answer_lifecycle.releaseOutbound;
     pub const abandonUnsharedInboundAnswerNamed = answer_lifecycle.abandonUnsharedInboundNamed;
     pub const releaseInboundAnswerCell = answer_lifecycle.releaseInboundCell;

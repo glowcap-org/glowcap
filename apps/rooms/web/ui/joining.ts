@@ -6,7 +6,7 @@
 // reader has typed under it, and what this browser remembers. The whole
 // question can therefore be answered in a test without a page.
 
-import { type DirId, dirId, dirMarkIn, type DirView, type RoomDestination } from "./types.ts";
+import { type DirId, dirId, dirMarkIn, type DirView, liveRoomNames, type RoomDestination } from "./types.ts";
 import type { JoinNickTarget } from "./join_nick.ts";
 import { directoryName } from "./text.ts";
 import { applicationModule, inspectCapability, inspectDirectory } from "./application.ts";
@@ -311,14 +311,24 @@ export function joinAnswers(
 	};
 }
 
+/** Both naming surfaces offer rooms only from the draft's actual destination. */
+export function joinRoomOffers(
+	locator: string,
+	room: string,
+	dirs: ReadonlyMap<DirId, DirView>,
+	context: DirectoryDestinationContext,
+	directoryOf: (locator: string) => DirId | null,
+): string[] {
+	if (typedRoomLink(locator, room) != null) return [];
+	const typed = locator.trim();
+	const target = typed === "" ? context.defaultDirectory?.id ?? context.home : directoryOf(typed);
+	return target == null ? [] : liveRoomNames(dirs.get(target)?.liveRooms ?? new Map());
+}
+
 /** The nickname an empty join field means for the directory it is aimed at.
- *
- * A connected directory's granted name is current authority; the workspace's
- * requested name is only intent and may have been refused or replaced. An
- * unreached or disconnected destination has no granted answer to reuse, so it
- * falls back to the application's ordinary guest offer. Presentation and
- * submission both call this function so the placeholder is never a promise
- * different from what pressing Join will do. */
+ * A connected directory supplies its granted name; an unreached destination
+ * falls back to the application's guest offer. Presentation and submission
+ * share this answer. */
 export function suggestedJoinNick(
 	locator: string,
 	dirs: ReadonlyMap<DirId, DirView>,

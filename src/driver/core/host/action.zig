@@ -92,8 +92,10 @@ pub const HostAction = union(enum) {
     /// occurrence until the action is freed. Projection grants the consumer
     /// independent retains. The originating peer is diagnostic context, not
     /// the lifetime owner of local or third-party capabilities in the value.
+    /// It is absent for a public local send, including a foreign forwarded
+    /// reply. Its presence word adds eight bytes per action seat on 64-bit.
     settled: struct {
-        peer_handle: engine.PeerHandle,
+        peer_handle: ?engine.PeerHandle,
         vow_id: u64,
         value: value_mod.Value,
         storage: std.heap.ArenaAllocator.State = .init,
@@ -169,6 +171,13 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
     return action;
 }
 
+/// Whether another action drain can run now. Parked vows and outstanding
+/// network replies alone are not runnable work; querying never drives a turn.
+pub fn hasRunnableWork(self: *const Host) bool {
+    return self.retry_last_action or self.actions.peek() != null or
+        (!self.resume_pump_refused and host_pump.hasInternalWork(self));
+}
+
 /// Preserve the current borrowed pop for the next `nextAction` call. This is
 /// the transactional refusal path for the C convenience pump: a non-OK arm
 /// means it committed no externally visible effect, so the exact action must
@@ -204,8 +213,7 @@ pub fn peekAction(self: *Host) HostError!?HostAction {
 
 /// Pop the next embedder action, owned: the caller adopts the payload and
 /// frees it with `freeAction` — or moves it into a durable owner first,
-/// which is how `driver.Bridge` parks a completion with zero
-/// copies. Leaves the `nextAction` borrow untouched, so the two pops
+/// which is how an embedder parks a completion with zero copies. Leaves the `nextAction` borrow untouched, so the two pops
 /// compose. Refused under the latch like `nextAction`.
 pub fn takeAction(self: *Host) HostError!?HostAction {
     try self.refuseReentry();

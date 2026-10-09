@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { chromium } from "playwright";
+import { checkChannels } from "./check_channels.mjs";
 
 const root = new URL("../../../../../zig-out/wasm/rooms/", import.meta.url);
 const wasm = await readFile(new URL("rooms_browser_bg.wasm", root));
 const script = await readFile(new URL("rooms_browser.js", root));
-const fixtures = JSON.parse(await readFile(new URL("../fixtures/workspaces.json", import.meta.url), "utf8"));
 const module = await WebAssembly.compile(wasm);
 assert.deepEqual(WebAssembly.Module.exports(module).filter((item) => item.kind === "memory").map((item) => item.name), [
 	"memory",
@@ -16,17 +16,7 @@ assert(
 	WebAssembly.Module.imports(module).every((item) => item.kind === "function" && !item.name.startsWith("glowcap_")),
 );
 
-function contract(binding, rows) {
-	for (const row of rows) {
-		if ((binding.readWorkspace(row.raw) ?? null) !== row.normalized) throw new Error(`workspace: ${row.name}`);
-	}
-	const exact = rows.find((row) => row.name === "lossless text");
-	const literal = exact.raw.replace("\\ud800", "\ud800");
-	if (binding.readWorkspace(literal) !== exact.normalized) throw new Error("literal UTF-16 text was changed");
-	if (binding.readWorkspace(exact.raw.replace("\\ud800", "\\\ud800")) != null) {
-		throw new Error("an invalid escape became valid");
-	}
-	if (binding.readWorkspace(" ".repeat(512 * 1024 + 1)) != null) throw new Error("oversize document accepted");
+function contract(binding) {
 	if (binding.directoryAuthority("127.0.0.1:1234") !== "ocapn://127.0.0.1%3A1234.tcp") {
 		throw new Error("TCP directory identity");
 	}
@@ -52,12 +42,12 @@ function contract(binding, rows) {
 async function lifetime(binding) {
 	const trouble = [];
 	const reportTrouble = (source, reason) => trouble.push({ source, reason });
-	const first = new binding.RoomsBrowserApplication(reportTrouble);
-	const sibling = new binding.RoomsBrowserApplication(reportTrouble);
+	const first = new binding.RoomsManagedApplication(crypto.randomUUID(), reportTrouble);
+	const sibling = new binding.RoomsManagedApplication(crypto.randomUUID(), reportTrouble);
 	// Fill admission synchronously, before the worker's first poll. Every
 	// refusal gets an observer immediately, including pressure and closure.
 	const answers = Array.from({ length: 256 }, () =>
-		first.attach("invalid").then(
+		first.attachWorkspace("invalid").then(
 			() => {
 				throw new Error("invalid capability attached");
 			},
@@ -68,14 +58,14 @@ async function lifetime(binding) {
 	if (!results.some((error) => error.includes("capacity"))) throw new Error("unbounded application admission");
 	let failure;
 	try {
-		await first.attach("invalid");
+		await first.attachWorkspace("invalid");
 	} catch (error) {
 		failure = error.message;
 	}
 	if (!failure?.includes("closed")) throw new Error("closed application admitted work");
 	failure = undefined;
 	try {
-		await sibling.attach("invalid");
+		await sibling.attachWorkspace("invalid");
 	} catch (error) {
 		failure = error.message;
 	}
@@ -90,9 +80,21 @@ async function lifetime(binding) {
 
 const binding = await import(new URL("rooms_browser.js", root));
 binding.initSync({ module });
-contract(binding, fixtures);
+contract(binding);
 const sockets = new Set();
 const server = createServer((request, response) => {
+	if (request.url?.startsWith("/snippets/")) {
+		const url = new URL(request.url.slice(1), root);
+		if (!url.href.startsWith(new URL("snippets/", root).href)) {
+			response.writeHead(404).end();
+			return;
+		}
+		readFile(url).then((bytes) => {
+			response.writeHead(200, { "Content-Type": "text/javascript" });
+			response.end(bytes);
+		}, () => response.writeHead(404).end());
+		return;
+	}
 	const asset = request.url === "/rooms_browser.js"
 		? ["text/javascript", script]
 		: request.url === "/rooms_browser_bg.wasm"
@@ -124,17 +126,20 @@ try {
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage();
 	await page.goto(`http://127.0.0.1:${server.address().port}/`);
-	await page.evaluate(async ({ source, lifecycle, rows }) => {
+	await page.evaluate(async ({ source, lifecycle }) => {
 		const binding = await import("/rooms_browser.js");
 		await binding.default();
-		Function(`return (${source})`)()(binding, rows);
+		Function(`return (${source})`)()(binding);
 		await Function(`return (${lifecycle})`)()(binding);
-	}, { source: contract.toString(), lifecycle: lifetime.toString(), rows: fixtures });
+	}, { source: contract.toString(), lifecycle: lifetime.toString() });
+	await checkChannels(page, { script, wasm, root, moduleName: "rooms_browser" }, "tcp", "entry");
+	await page.goto(`http://127.0.0.1:${server.address().port}/`);
 	const upgrading = once(server, "upgrade", { signal: AbortSignal.timeout(10_000) });
 	await page.evaluate(async () => {
 		const binding = await import("/rooms_browser.js");
-		globalThis.openingApplication = new binding.RoomsBrowserApplication(() => {});
-		globalThis.openingOutcome = globalThis.openingApplication.attach("ocapn://127.0.0.1%3A1234.tcp/s/held").then(
+		await binding.default();
+		globalThis.openingApplication = new binding.RoomsManagedApplication(crypto.randomUUID(), () => {});
+		globalThis.openingOutcome = globalThis.openingApplication.attachWorkspace("ocapn://127.0.0.1%3A1234.tcp/s/held").then(
 			() => "unexpected attachment",
 			(error) => error.message,
 		);
@@ -173,7 +178,7 @@ try {
 		throw new Error("application close returned before its opening socket retired", { cause: retirementError });
 	}
 	console.log(
-		`Production Rooms startup passed ${fixtures.length} saved-workspace cases in Deno and Chromium; ${wasm.length} Wasm bytes.`,
+		`Production Rooms route admission and managed IndexedDB startup passed in Deno and Chromium; ${wasm.length} Wasm bytes.`,
 	);
 } finally {
 	await browser?.close();

@@ -143,12 +143,13 @@ Deno.test("the counter watches whichever cap is in force", () => {
 	assertEquals(lineCapSaid(app, "あ".repeat(2000)), null);
 });
 
-Deno.test("peering only offers rooms on a directory that is connected", () => {
+Deno.test("peering only offers held durable entrances on another connected directory", () => {
 	const home = dirId("home");
 	const away = dirId("away");
 	const convs = new Map<string, Conv>([
-		["local", { type: "room", dir: home, key: "local", id: "general" } as Conv],
-		["foreign", { type: "room", dir: away, key: "foreign", id: "shared" } as Conv],
+		["local", { type: "room", dir: home, key: "local", id: "general", linkToken: "local-access" } as Conv],
+		["public", { type: "room", dir: away, key: "public", id: "listed" } as Conv],
+		["foreign", { type: "room", dir: away, key: "foreign", id: "shared", linkToken: "foreign-access" } as Conv],
 	]);
 	const dirs = new Map<DirId, DirView>([
 		[home, { session: "connected" } as DirView],

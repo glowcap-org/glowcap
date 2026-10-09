@@ -9,7 +9,7 @@
 // Topology — three iroh endpoints (separate identities) in one process, the
 // relay-less `Direct` posture on loopback, so the gate is deterministic and
 // flake-free (no discovery service, no network):
-//   Exporter  binds an iroh endpoint and publishes a node-giftable `greeter`.
+//   Exporter  binds an iroh endpoint and publishes a Host-published `greeter`.
 //   Gifter    binds its own endpoint, dials the exporter (sharing one node
 //             identity), fetches the greeter, records the exporter's dialable
 //             URI as the give's exporter location, and publishes an
@@ -69,9 +69,9 @@ function greeter(verb: string, args: unknown[]): string | null {
 	return `hello ${String(args[0] ?? "")} over iroh handoff`;
 }
 
-// ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
+// ── Exporter: a Host-published greeter on its own endpoint ────────────────────
 const exporter = await listen({ reachability: Reachability.Direct });
-exporter.host.publishGiftable("greeter", greeter);
+exporter.host.publish("greeter", greeter);
 const [exporterId, exporterAddrs] = await dialable(exporter);
 const exporterServed: Session[] = [];
 const exporterAccept = acceptLoopWithServed(exporter, exporterServed);
@@ -98,7 +98,7 @@ toExporter.setExporterLocator(
 		hintWireForm: "map",
 	},
 );
-gifter.host.publishGiftable("introducer", (verb) => {
+gifter.host.publish("introducer", (verb) => {
 	if (verb !== "get-greeter") return null;
 	return greeterRef;
 });

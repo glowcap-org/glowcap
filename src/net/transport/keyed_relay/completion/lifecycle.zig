@@ -126,9 +126,9 @@ pub fn Machine(
         pub fn shutdownFd(backend: *Backend, fd: anytype) void {
             // The outer Loop calls shutdown immediately before submitClose. A
             // synthetic handle delays it until its WebSocket close can drain.
-            // The sealing and onion legs shut their inner descriptor down at
-            // once instead, because neither carries a close handshake on the
-            // wire that a premature shutdown could cut short.
+            // The onion leg shuts its inner descriptor down at once instead,
+            // because it carries no close handshake on the wire that a
+            // premature shutdown could cut short.
             if (Access.idFromFd(fd)) |id| {
                 if (backend.conns.get(id)) |c| c.close.shutdown_requested = true;
                 return;

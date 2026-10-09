@@ -36,7 +36,7 @@ function fail(message: string): never {
 }
 
 async function main(): Promise<void> {
-	// Bob's giftable echoes each DM into an inbox and answers the sender over the
+	// Bob's Host publication echoes each DM into an inbox and answers the sender over the
 	// arriving connection, so a delivered reply proves the sender hosted its inbox
 	// on a real exporter session (not the directory session).
 	const bobInbox: string[] = [];
@@ -111,6 +111,7 @@ async function main(): Promise<void> {
 	const firstLine = await DirectMessage.open(carol, "bob");
 	const secondReplies: string[] = [];
 	const secondLine = await DirectMessage.open(carol, "bob", {
+		ready: (session, reply) => session.release(reply),
 		message: (text) => {
 			secondReplies.push(text);
 			return null;

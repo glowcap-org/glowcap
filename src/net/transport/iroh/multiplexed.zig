@@ -202,8 +202,9 @@ pub const MultiplexedAdapter = struct {
         from(ctx).cancelConnect(request);
         return null;
     }
-    fn startListen(ctx: *anyopaque, route: usize, transport: []const u8, requested: []const u8, options: net.netlayer.OperationOptions) net.MultiplexedResident.RawListenStartOutcome {
-        from(ctx).listen(route, transport, requested, options) catch |err| {
+    /// The node id is iroh's own identity, so the Host key is not read.
+    fn startListen(ctx: *anyopaque, route: usize, transport: []const u8, config: net.netlayer.ListenConfig) net.MultiplexedResident.RawListenStartOutcome {
+        from(ctx).listen(route, transport, config.designator, config.options) catch |err| {
             return .{ .failed = .init(err) };
         };
         return .{ .admitted = .{ .ready = ctx } };

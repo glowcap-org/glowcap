@@ -1,6 +1,6 @@
 // Persistent promotion for durable operations that require an explicit choice.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Button } from "../Button.tsx";
 import { useRoomsState } from "../hooks.ts";
 import { useOpenModal } from "../modal.ts";
@@ -13,9 +13,6 @@ export function SessionEffectNotice() {
 	const openModalFrom = useOpenModal();
 	const [reviewing, setReviewing] = useState(false);
 	const closeReview = useCallback(() => setReviewing(false), []);
-	useEffect(() => {
-		if (effects.length === 0) setReviewing(false);
-	}, [effects.length]);
 	const count = effects.length;
 	return (
 		<>
@@ -33,7 +30,7 @@ export function SessionEffectNotice() {
 					</Button>
 				</div>
 			)}
-			<SessionRecoveryModal open={reviewing && count > 0} onClose={closeReview} />
+			<SessionRecoveryModal open={reviewing} onClose={closeReview} />
 		</>
 	);
 }

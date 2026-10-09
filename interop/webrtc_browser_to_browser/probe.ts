@@ -136,7 +136,7 @@ async function main(): Promise<void> {
 				}
 			}
 		};
-		host.publishGiftable("greeter", (verb) => (verb === "greet" ? GREETING : null));
+		host.publish("greeter", (verb) => (verb === "greet" ? GREETING : null));
 		send({ type: "identity", designator: myDesignator });
 		await peer.waitOpen();
 		status("channel open");

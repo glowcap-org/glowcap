@@ -12,7 +12,7 @@ const webrtc_archive = @import("c_abi_net_transport_webrtc");
 const webrtc_connection_state_bytes: usize = 104;
 
 test "supported WebRTC type surfaces and footprints stay exact" {
-    const root_names = .{ "transport_name", "max_packet_bytes", "max_signal_bytes", "max_ice_candidate_bytes", "max_ice_servers", "max_ice_urls_per_server", "max_ice_url_bytes", "max_ice_credential_bytes", "max_pending_ice_candidates", "pending_ice_candidate_queue_bytes", "data_channel_queue_bytes", "sctp_receive_buffer_bytes", "designator_scheme", "designator_len", "locator", "ev_open", "ev_candidate", "ev_readable", "ev_writable", "ev_closed", "ReadyEvent", "PeerId", "StringView", "IceServerConfig", "SignalError", "Peer", "Resident", "DialResolver", "SignalingAuthority", "Backend" };
+    const root_names = .{ "transport_name", "max_packet_bytes", "max_signal_bytes", "max_ice_candidate_bytes", "max_ice_servers", "max_ice_urls_per_server", "max_ice_url_bytes", "max_ice_credential_bytes", "max_pending_ice_candidates", "pending_ice_candidate_queue_bytes", "data_channel_queue_bytes", "sctp_receive_buffer_bytes", "designator_scheme", "designator_len", "locator", "ev_open", "ev_candidate", "ev_readable", "ev_writable", "ev_closed", "ReadyEvent", "PeerId", "StringView", "IceServerConfig", "SignalError", "Peer", "Resident", "DialResolver", "SignalingAuthority", "Backend", "ResidentPolicy" };
     try std.testing.expectEqual(root_names.len, @typeInfo(webrtc).@"struct".decl_names.len);
     inline for (root_names) |name| try std.testing.expect(@hasDecl(webrtc, name));
 
@@ -40,7 +40,7 @@ test "supported WebRTC type surfaces and footprints stay exact" {
     try std.testing.expectEqual(resident_names.len, @typeInfo(webrtc.Resident).@"struct".decl_names.len);
     inline for (resident_names) |name| try std.testing.expect(@hasDecl(webrtc.Resident, name));
 
-    const backend_names = .{ "Fd", "ConnectTarget", "ListenerAddress", "listen_fd", "connection_state_bytes", "initBound", "deinit", "openListener", "listenerAddress", "listenerPort", "startDial", "adoptAnswerer", "provideAnswer", "provideRemoteCandidate", "wake", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll" };
+    const backend_names = .{ "Fd", "ConnectTarget", "ListenerAddress", "ListenTarget", "loopListenTarget", "listen_fd", "connection_state_bytes", "initBound", "deinit", "openListener", "listenerAddress", "listenerPort", "startDial", "adoptAnswerer", "provideAnswer", "provideRemoteCandidate", "wake", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll", "readinessFd", "flush", "submitPoll", "waitBoundMs" };
     try std.testing.expectEqual(backend_names.len, @typeInfo(webrtc.Backend).@"struct".decl_names.len);
     inline for (backend_names) |name| try std.testing.expect(@hasDecl(webrtc.Backend, name));
 
@@ -56,8 +56,10 @@ test "supported WebRTC type surfaces and footprints stay exact" {
     // The `Backend` footprint is stated under runtime safety, where each
     // embedded `std.ArrayList` header carries std's one-word
     // `pointer_stability` lock: 48 of these bytes, one fixed charge per loop.
+    // The readiness set and the one foreign poll a resident's wake arms are
+    // another 40, the cost of presenting a single readiness descriptor.
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 760), @sizeOf(webrtc.Backend));
+    try std.testing.expectEqual(@as(usize, 800), @sizeOf(webrtc.Backend));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Backend));
 }
 

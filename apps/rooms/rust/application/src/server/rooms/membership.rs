@@ -358,6 +358,15 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		seated(&self.rooms, room, membership)?;
 		Ok(self.leave_member(room, membership, None, Departure::Left))
 	}
+	/// Internal lifetime retirement selects an exact minted seat. An absent
+	/// seat is already retired; neither a reused nickname nor another room's
+	/// generation can inherit this key. Ordinary `leave` still checks admission.
+	pub fn retire_membership(&mut self, room: &RoomKey, membership: MembershipKey) -> Effects<C, R> {
+		if seated(&self.rooms, room, membership).is_err() {
+			return Effects::default();
+		}
+		self.leave_member(room, membership, None, Departure::Left)
+	}
 
 	/// Mint one invitation into this room generation, carrying the minter's
 	/// say-so for as long as the minting membership lasts.

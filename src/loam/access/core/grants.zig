@@ -1,5 +1,5 @@
 //! Bounded local grant ancestry and lifecycle for a trusted resource owner.
-//! The owner creates native use and control references for committed grants.
+//! The owner creates its own use and control references for committed grants.
 //! Holders exercise those references; ID-based methods remain owner operations.
 //! The graph must outlive the ledger at a stable address. Its mutations and
 //! these calls are synchronous and serialized by the embedding application.
@@ -38,6 +38,7 @@ pub const GrantLedger = struct {
     pub const Version = types.Version;
     pub const Change = types.Change;
     pub const Issue = types.Issue;
+    pub const Label = types.Label;
     pub const Record = types.Record;
     pub const Error = types.Error;
 
@@ -65,7 +66,7 @@ pub const GrantLedger = struct {
         self.* = undefined;
     }
 
-    /// The trusted owner allocates a native use reference to a committed grant.
+    /// The trusted owner allocates its own use reference to a committed grant.
     /// The reference carries authority; recipients need no additional credential.
     pub fn createUse(self: *GrantLedger, id: GrantId) Error!*capability.GrantUse {
         return capability.createUse(self, id);

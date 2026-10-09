@@ -46,7 +46,7 @@ async fn direct_acknowledgement_waits_for_the_irc_write_and_preserves_its_failur
 				let locator = listener.locator().unwrap();
 				let (caller, peer) =
 					tokio::join!(runtime.connect(&locator, ConnectOptions::default()), listener.accept());
-				let (caller, peer) = (caller.unwrap().with_gc(), peer.unwrap().with_gc());
+				let (caller, peer) = (caller.unwrap(), peer.unwrap());
 				let (writer, pump) = Writer::open(Duration::ZERO);
 				let output = Output::new(writer, "rooms.test".into(), "alice").unwrap();
 				let (state, jobs) = State::new(output.clone());

@@ -74,6 +74,7 @@ pub const SubmissionDebt = @import("submission_debt.zig").State;
 pub const CloseReason = contract.CloseReason;
 pub const CloseReport = contract.CloseReport;
 pub const Completion = contract.Completion;
+pub const Interest = contract.Interest;
 pub const ReadyQueue = contract.ReadyQueue;
 pub const failureFromErrno = contract.failureFromErrno;
 const loop_configuration = @import("loop/configuration.zig");
@@ -279,7 +280,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
 
             // A loop only listens when asked to: a dialer-only loop must not
             // expose a socket that accepts strangers under its identity.
-            const listen_fd: ?Fd = if (options.listen) |listen_port| try backend_mut.openListener(listen_port) else null;
+            const listen_fd: ?Fd = if (options.listen) |listen_port| try backend_mut.openListener(Backend.loopListenTarget(listen_port)) else null;
             errdefer if (listen_fd) |fd| backend_mut.closeFd(fd);
             const listener_address: ?Backend.ListenerAddress = if (listen_fd) |fd|
                 try backend_mut.listenerAddress(fd)

@@ -21,8 +21,12 @@ pub const Attachment = struct {
     entropy: c.GlowcapLoamEntropyFn,
     context: ?*anyopaque,
     works: usize = 0,
+    /// Foreign continuation and result observers independently borrow Host,
+    /// Store and callback registrations after the originating operation retires.
+    effect_observers: usize = 0,
     recovery_work: bool = false,
     work_slots: []@import("work.zig").Work,
+    live_scope: ?*common.hosting.LiveScope = null,
     /// Startup reserves declaration/behavior arrays and cache_slots + 1 Work
     /// slots. Their independent admission limit bounds executor custody;
     /// The pool refuses pressure rather than allocating handles in a turn.
@@ -46,11 +50,13 @@ pub const Attachment = struct {
             for (contents[0..i]) |previous| if (previous.schema == raw.schema and previous.version == raw.version) return error.DuplicateSchema;
             item.* = try callbacks.Content.init(gpa, raw);
             count += 1;
+            if (item.graph) |spec| try spec.validate(&store.value, .{ .id = raw.schema, .version = raw.version });
         }
         const content_behaviors = try gpa.alloc(access.hosting.ContentBehavior, contents.len);
         errdefer gpa.free(content_behaviors);
         for (declarations, content_behaviors) |*item, *target| {
             item.host = borrow.core();
+            item.attachment = owner;
             target.* = item.behavior();
         }
         // Publish each stable owner only after its fallible construction succeeds.
@@ -61,16 +67,18 @@ pub const Attachment = struct {
         owner.entropy = entropy;
         owner.context = ctx;
         owner.works = 0;
+        owner.effect_observers = 0;
         owner.recovery_work = false;
+        owner.live_scope = null;
         const work_slots = try gpa.alloc(@import("work.zig").Work, try std.math.add(usize, store.limits.cache_slots, 1));
         errdefer gpa.free(work_slots);
         for (work_slots) |*slot| slot.* = .{ .owner = owner };
         owner.work_slots = work_slots;
         owner.caps = try access.storage.Capabilities.init(gpa, &store.value, .{ .max_references = store.limits.max_references, .max_operations = store.limits.max_operations });
         errdefer owner.caps.deinit() catch unreachable;
-        owner.service = .{ .capabilities = &owner.caps, .contents = content_behaviors, .context = owner, .decode_control = vocabulary.edit, .decode_derive = vocabulary.derive, .decode_managed_derive = vocabulary.managed, .decode_attenuation = vocabulary.attenuate, .entropy = .{ .context = owner, .fill = fillEntropy } };
+        owner.service = .{ .capabilities = &owner.caps, .contents = content_behaviors, .record_capacity = store.limits.record_capacity, .context = owner, .decode_control = vocabulary.edit, .decode_control_revision = vocabulary.revision, .decode_derive = vocabulary.derive, .decode_managed_derive = vocabulary.managed, .decode_attenuation = vocabulary.attenuate, .entropy = .{ .context = owner, .fill = fillEntropy } };
         owner.behaviors = owner.service.behaviors();
-        owner.value = try common.hosting.Attachment.create(gpa, borrow.core(), &store.value, &owner.behaviors, .{ .max_endpoints = store.limits.max_references, .max_calls = store.limits.max_operations });
+        owner.value = try common.hosting.Attachment.create(gpa, borrow.core(), &store.value, &owner.behaviors, common.Store.hostingOptions(store.limits));
         errdefer owner.value.destroy() catch unreachable;
         try common.hosting.publication.listen(owner.value, .{ .max_names = store.limits.cache_slots, .max_fetches = store.limits.max_operations });
         store.attachments += 1;
@@ -78,8 +86,12 @@ pub const Attachment = struct {
     }
     pub fn destroy(self: *Attachment) !void {
         const gpa = self.store.allocator;
-        if (self.works != 0) return error.Busy;
+        if (self.works != 0 or self.effect_observers != 0) return error.Busy;
         try self.value.destroy();
+        if (self.live_scope) |scope| {
+            scope.deinit() catch unreachable;
+            gpa.destroy(scope);
+        }
         gpa.free(self.work_slots);
         self.caps.deinit() catch unreachable;
         for (self.contents) |*item| item.deinit();
@@ -91,7 +103,9 @@ pub const Attachment = struct {
     }
 };
 pub fn attachment(raw: ?*c.GlowcapLoamAttachment) !*Attachment {
-    return @ptrCast(@alignCast(raw orelse return error.NullPointer));
+    const owner: *Attachment = @ptrCast(@alignCast(raw orelse return error.NullPointer));
+    try common.EvaluationGuard.check(owner.store);
+    return owner;
 }
 fn fillEntropy(ctx: ?*anyopaque, entropy: *driver.Host.DurableSwiss.Entropy) !void {
     const self: *Attachment = @ptrCast(@alignCast(ctx.?));

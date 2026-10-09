@@ -39,14 +39,3 @@ pub fn operations_bundle_entries(raw: js_sys::JsString) -> Result<String, JsValu
 	}
 	Ok(project(draft))
 }
-
-#[wasm_bindgen(js_name = operationsBundleView)]
-pub fn operations_bundle_view(raw: js_sys::JsString) -> Result<String, JsValue> {
-	use rooms_application::session::checkpoint::{Checkpoint, MAX_CHECKPOINT_UNITS};
-	if raw.length() as usize > MAX_CHECKPOINT_UNITS {
-		return Err(js_sys::Error::new("Rooms checkpoint exceeds its document bound").into());
-	}
-	Checkpoint::decode(&String::from(raw), &rooms_glowcap::routes::CheckpointRoutes)
-		.map(|checkpoint| serde_json::json!({ "bundle": checkpoint.operations_bundle(), "context": checkpoint.operations_bundle_context() }).to_string())
-		.map_err(|error| js_sys::Error::new(&error.to_string()).into())
-}

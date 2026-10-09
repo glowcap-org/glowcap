@@ -41,9 +41,7 @@ pub const Ctx = struct {
     /// slice storage must outlive the session, not the dialing frame. Slot 0
     /// is always tcp; slots 1 and 2 join when `GLOWCAP_RENDEZVOUS` configures
     /// the relay provider's clear and sealed rendezvous profiles.
-    dial_resident: glowcap.net.tcp.Resident = undefined,
     rendezvous_provider: ?relay_runtime.Provider = null,
-    dial_netlayers: [3]glowcap.net.netlayer.Netlayer = undefined,
     session: ?*Session = null,
     /// A refused close leaves `session` reachable for the exact retry but no
     /// longer exposes it as an ordinary command session.

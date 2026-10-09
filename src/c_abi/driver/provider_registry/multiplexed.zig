@@ -246,10 +246,14 @@ pub const Adapter = struct {
         ctx: *anyopaque,
         route_id: usize,
         transport: []const u8,
-        requested_designator: []const u8,
-        options: net.OperationOptions,
+        config: net.netlayer.ListenConfig,
     ) net.multiplexed_resident.MultiplexedResident.RawListenStartOutcome {
         const self = of(ctx);
+        var identity_storage: [foundation.crypto.PeerKey.designator_len]u8 = undefined;
+        const identity: []const u8 = if (config.identity) |key| blk: {
+            identity_storage = key.toDesignator();
+            break :blk &identity_storage;
+        } else &.{};
         var result = validation.emptyListenResult();
         var options_storage: shared.GlowcapTransportOperationOptions = undefined;
         var report = shared.transport_provider.emptyProviderFailure();
@@ -258,9 +262,11 @@ pub const Adapter = struct {
             @intCast(route_id),
             transport.ptr,
             transport.len,
-            requested_designator.ptr,
-            requested_designator.len,
-            validation.projectOperationOptions(options, &options_storage),
+            config.designator.ptr,
+            config.designator.len,
+            identity.ptr,
+            identity.len,
+            validation.projectOperationOptions(config.options, &options_storage),
             &result,
             &report,
         );

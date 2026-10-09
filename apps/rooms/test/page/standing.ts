@@ -56,6 +56,9 @@ export async function run(
 		// asked once. Filling the field is one event and never sees it.
 		await tab.click(".standing-why input");
 		await tab.type(".standing-why input", "back in ten", { delay: 10 });
+		// Closing Settings ends modality before its exit animation finishes.
+		// Retirement must preserve the field the reader has moved on to.
+		await tab.waitForSelector("#settingsTitle", { state: "detached", timeout: 10_000 });
 		const typing = await tab.evaluate(() => ({
 			focused: document.activeElement?.closest(".standing-why") !== null,
 			value: (document.querySelector(".standing-why input") as HTMLInputElement | null)?.value ?? "",

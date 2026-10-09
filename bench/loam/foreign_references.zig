@@ -1,4 +1,4 @@
-//! Checked foreign fields restore through Host and call native durable actors.
+//! Checked foreign fields restore through Host and call durable actors.
 //! Byte-fed sessions measure protocol/storage cost without a network delay.
 const std = @import("std");
 const g = @import("glowcap");
@@ -10,6 +10,12 @@ const r = @import("report.zig");
 const memory = @import("process_memory.zig");
 const refs = g.loam.hosting.references;
 const designator = "127.0.0.1:9794";
+
+fn callAllowance() !usize {
+    var bound = try refs.allocationBound(1, 0, refs.schema.max_payload - 1);
+    try bound.merge(try m.callAllocationBound());
+    return bound.physicalBytes();
+}
 
 pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, depth: u16, smoke: bool) !void {
     const path = try std.fmt.allocPrint(init.gpa, "zig-out/loam-foreign-{d}", .{r.now(init.io)});
@@ -34,7 +40,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
         try target.init(allocations.allocator(), &target_db, targets, 256);
         defer target.deinit();
         var source: m.Managed = undefined;
-        try source.initIdentity(allocations.allocator(), &source_db, count, depth, 0x87);
+        try source.initIdentity(allocations.allocator(), &source_db, count, depth, 0x87, try callAllowance());
         defer source.deinit();
         for (0..count) |index| {
             try source.create(index);
@@ -59,7 +65,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
         source.store.evict();
         target.store.evict();
         try memory.emit(init.gpa, report, "foreign-startup", count, depth);
-        try r.emit(init.gpa, report, "foreign_limits resources={d} ancestry={d} targets={d} source_cache_slots={d} source_max_leases={d} target_cache_slots={d} max_calls=8 pending_limit_bytes=32768 reply_bytes_each=512 startup_zig_heap_bytes={d} publication_names={d} source_record_bytes={d} target_record_bytes={d}\n", .{ count, depth, targets, m.cache_slots, source.store.limits.max_leases, w.cache_slots, bytes.liveBytes(), targets, source.store.metadata.record_bytes, target.store.metadata.record_bytes });
+        try r.emit(init.gpa, report, "foreign_limits resources={d} ancestry={d} targets={d} source_cache_slots={d} source_max_leases={d} target_cache_slots={d} max_calls=8 call_bytes={d} pending_limit_bytes={d} reply_bytes_each=512 startup_zig_heap_bytes={d} publication_names={d} source_record_bytes={d} target_record_bytes={d}\n", .{ count, depth, targets, m.cache_slots, source.store.limits.max_leases, w.cache_slots, source.attachment.options.call_bytes, source.attachment.options.pending_bytes, bytes.liveBytes(), targets, source.store.metadata.record_bytes, target.store.metadata.record_bytes });
         const samples: usize = if (smoke) 8 else 128;
         for ([_]bool{ false, true }) |fresh| for ([_][]const u8{ "exact", "dependent" }) |phase| {
             const reads = source.reads;
@@ -94,7 +100,10 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
                 const returned = try source.host.callCapability(source.allocator, pair.session, source.items[which].use, phase, &.{}, 512);
                 defer returned.deinit();
                 try pair.drain(&source, @as(?*w.Workload, &target));
-                if (returned.result() != .ready or returned.result().ready != .capability) return error.MissingForeignAuthority;
+                if (returned.result() != .ready or returned.result().ready != .capability) {
+                    std.debug.print("foreign authority phase={s} session_fresh={any} result={any}\n", .{ phase, fresh, returned.result() });
+                    return error.MissingForeignAuthority;
+                }
                 const called = try source.host.callCapability(source.allocator, pair.session, returned.result().ready.capability, "read", &.{}, 512);
                 defer called.deinit();
                 try pair.drain(&source, @as(?*w.Workload, &target));
@@ -140,9 +149,10 @@ fn install(source: *m.Managed, target: *w.Workload, pair: *Pair, name: g.driver.
     const lease = try source.load(source.items[index].content);
     defer source.store.release(lease) catch unreachable;
     const view = try source.store.currentView(lease);
-    var arena = std.heap.ArenaAllocator.init(source.allocator);
-    defer arena.deinit();
-    var call: g.loam.hosting.Call = .{ .attachment = source.attachment, .arena = arena.allocator(), .view = view };
+    var call_memory: g.loam.hosting.Call.Memory = undefined;
+    call_memory.init(source.allocator, 1024 * 1024);
+    defer call_memory.deinit();
+    var call: g.loam.hosting.Call = .{ .attachment = source.attachment, .memory = &call_memory, .view = view };
     defer call.release();
     const replacement = try refs.copySaved(&call, saved);
     try source.store.begin();

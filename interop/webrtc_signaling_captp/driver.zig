@@ -26,7 +26,7 @@
 //! `poll` is the one narrowing from the ADR's push-trickle shape: a pull keeps
 //! the recipient from having to host its own inbox for the exporter to call
 //! back on, so this stays a single-session proof. The routing hub keyed by
-//! designator and the recipient-hosted inbox (a giftable answering over
+//! designator and the recipient-hosted inbox (a Host publication answering over
 //! `currentSession`) are the room-introduction topology, deferred to the redeem
 //! pass. Every signaling message here still crosses a real keyed session.
 //!
@@ -124,7 +124,7 @@ fn exporterHalf(
 
     try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
     var served = std.atomic.Value(bool).init(false);
-    _ = try host.publish(session, "greeter", Greeter, .{ .done = &served });
+    _ = try host.sessionPublish(session, "greeter", Greeter, .{ .done = &served });
     try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 30_000);
 }
 

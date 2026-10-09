@@ -63,12 +63,14 @@ export async function run(managed: Runtime): Promise<void> {
 			// Expected: a closing Context cannot mint another handle family.
 		}
 		assert(!acceptedAfterRelease, "a released Context refuses a new Host");
-		captpHost.publishGiftable("counter", counterBehavior(10n));
+		captpHost.publish("counter", counterBehavior(10n));
 		const server = await tcp.listen("127.0.0.1", 0, { host: captpHost });
 		const port = server.port;
+		let heldCounter: Ref | null = null;
 
 		async function host(): Promise<void> {
 			for await (const session of server) {
+				heldCounter = session.publishedRef("counter");
 				session.serve().catch(() => {});
 				break; // one client is the proof; ending the loop closes the listener
 			}
@@ -83,6 +85,13 @@ export async function run(managed: Runtime): Promise<void> {
 			assert(grown === 15n, `counter.add(5) returns 15, got ${String(grown)}`);
 			const read = await session.send(counter, "get", []);
 			assert(read === 15n, `counter.get() returns 15, got ${String(read)}`);
+			assert(heldCounter !== null, "accepted session holds the published actor");
+			const name = captpHost.publishReference(heldCounter);
+			const exact = await session.fetch(name);
+			assert(await session.send(exact, "add", [2n]) === 17n, "published reference mutates the original actor");
+			assert(await session.send(counter, "get", []) === 17n, "original authority sees the same state");
+			assert(captpHost.unpublishDurable(name), "remove independent publication root");
+			assert(await session.send(exact, "get", []) === 17n, "issued reference survives removal");
 			await session.close();
 		}
 
@@ -120,7 +129,7 @@ export async function run(managed: Runtime): Promise<void> {
 			lateFail: makeGate(),
 		};
 		const completions: Promise<Argument>[] = [];
-		workerHost.publishGiftable("worker", (verb) => {
+		workerHost.publish("worker", (verb) => {
 			const completion = (async () => {
 				const gate = gates[verb as keyof typeof gates];
 				if (gate === undefined) throw new Error(`unexpected worker verb ${verb}`);
@@ -201,7 +210,7 @@ export async function run(managed: Runtime): Promise<void> {
 	// codec.
 	{
 		await using capnpHost = new Host(undefined, { codec: "capnp" });
-		capnpHost.publishGiftable("svc", (verb, args) => {
+		capnpHost.publish("svc", (verb, args) => {
 			assert(verb === "probe", `capnp server expected probe, got ${verb}`);
 			assert(args[0] === 2n ** 80n, `big integer survives capnp: ${String(args[0])}`);
 			assert(
@@ -256,7 +265,7 @@ export async function run(managed: Runtime): Promise<void> {
 	// once the disconnect lands, whichever side of the race it hits.
 	{
 		await using closeHost = new Host();
-		closeHost.publishGiftable("svc", () => null);
+		closeHost.publish("svc", () => null);
 		const server = await tcp.listen("127.0.0.1", 0, { host: closeHost });
 		const port = server.port;
 		let serverClosed!: () => void;
@@ -414,7 +423,7 @@ export async function run(managed: Runtime): Promise<void> {
 	// trip rather than a pending promise.
 	{
 		await using listenHost = new Host();
-		listenHost.publishGiftable("beacon", () => new Sym("lit"));
+		listenHost.publish("beacon", () => new Sym("lit"));
 		const server = await tcp.listen("127.0.0.1", 0, { host: listenHost });
 		const port = server.port;
 

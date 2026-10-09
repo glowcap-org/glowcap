@@ -16,6 +16,7 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 const driver = glowcap.driver;
+const model = glowcap.ocapn.model;
 
 /// The published actor: answers `greet(name)` with a greeting built in the
 /// turn's arena, which outlives the reply encode and nothing more.
@@ -31,7 +32,7 @@ const Greeter = struct {
 /// partner that fetches as soon as the session opens cannot miss it. Then
 /// accept (the keyed handshake completes inside) and serve until they leave.
 fn host(server: *driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
+    try server.publish("greeter", Greeter, .{});
     var session = try server.accept();
     defer session.deinit();
     try session.serve();
@@ -43,11 +44,9 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = glowcap.net.tcp.Resident{ .io = io };
-    const netlayers = [_]glowcap.net.netlayer.Netlayer{tcp_resident.netlayer()};
     // Listen on a designator, the peer's name on its transport: for tcp a
     // `host:port`, with port 0 letting the OS pick one.
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
         .handshake = driver.default_handshake_budget,
         .settle = driver.default_settle_budget,
     });
@@ -68,7 +67,8 @@ pub fn main(init: std.process.Init) !void {
         // against a peer that never answers.
         var session: *glowcap.Session = try driver.connect(
             allocator,
-            &netlayers,
+            io,
+            .{ .symbols = &.{.tcp} },
             glowcap.net.tcp.locator(designator),
             .ephemeral,
             .{

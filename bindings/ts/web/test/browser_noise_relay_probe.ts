@@ -18,7 +18,7 @@ if (relayUrl.protocol !== "ws:" && relayUrl.protocol !== "wss:") {
 }
 
 const web = await init({ wasm: fetch("/glowcap_host.wasm") });
-web.host.publishGiftable("noise-greeter", (verb, args) => {
+web.host.publish("noise-greeter", (verb, args) => {
 	if (verb !== "greet") throw new Error(`noise greeter has no method ${verb}`);
 	return `hello ${typeof args[0] === "string" ? args[0] : "?"} from Chromium Noise`;
 });

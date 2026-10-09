@@ -36,7 +36,7 @@ pub const State = struct {
     children: usize = 0,
     staged: bool = false,
     cancelled: bool = false,
-    scratch: [core.max_scope_objects * @sizeOf(core.ResourceId)]u8 align(@alignOf(core.ResourceId)) = undefined,
+    scratch: [records.CapabilityRecord.selection_bytes]u8 align(@alignOf(core.ResourceId)) = undefined,
 
     pub fn current(self: *State) !void {
         if (self.cancelled) return error.Cancelled;
@@ -87,6 +87,23 @@ pub fn state(operation: *Operation) *State {
 pub const Operation = opaque {
     pub const ControlDescription = @import("control_plan.zig").Description;
     pub const Description = struct { access: core.GrantView.Access, policy: core.Policy };
+    /// Descriptive data from this operation's current resource view. The graph
+    /// revision identifies the owner's resource snapshot, never grant admission.
+    pub const BoundResource = struct { id: core.ResourceId, kind: core.KindId, object: loam.ObjectId, revision: core.Revision };
+
+    /// Trusted embedding metadata before declaration, without scoped admission.
+    /// Never expose this as holder-facing inspection; describe owns that path.
+    /// Hosting retains one scalar copy for its synchronous callbacks.
+    /// The row is also needed by require; no additional lease or read spine exists.
+    pub fn boundResource(self: *Operation, target: core.ResourceId) !BoundResource {
+        const value = state(self);
+        if (value.binding.role != .use) return error.WrongRole;
+        try value.opened();
+        var resources = try value.read.?.resourceView();
+        const resource = try resources.get(target);
+        const binding = (try value.read.?.binding(.{ .resource = target })).?;
+        return .{ .id = resource.id, .kind = resource.kind, .object = binding.object orelse return error.InvalidRecord, .revision = resources.version.revision };
+    }
 
     /// Owned bounded values, valid as a snapshot only. Drive read demands and
     /// retry exactly as require; no owner/grant IDs or revisions are exposed.
@@ -219,11 +236,35 @@ pub const Operation = opaque {
         const append = try value.binding.owner.allocator.create(Append);
         errdefer value.binding.owner.allocator.destroy(append);
         append.* = try Append.init(&value.read.?, .grant);
+        append.grant_parent = plan.delta.issue.parent;
         value.prepared = .{ .grant = .{ .plan = plan, .append = append } };
     }
 
     pub fn describeControl(self: *Operation) !@import("control_plan.zig").Description {
         return controlDescription(state(self));
+    }
+
+    pub fn requireManagement(self: *Operation) !void {
+        try requireControl(state(self));
+    }
+
+    /// Issuance receipt recovery admits the exact use endpoint without using
+    /// it. The hosting owner separately checks the held management control.
+    pub fn requireRecovery(self: *Operation, target: core.ResourceId) !void {
+        const value = state(self);
+        if (value.binding.role != .use) return error.WrongRole;
+        try value.opened();
+        var grants = try value.read.?.grantView();
+        var resources = try value.read.?.resourceView();
+        try grants.requireRecovery(&resources, &value.read.?.header.policy, value.descriptor.grant, target);
+    }
+
+    /// Decode fresh management commands from held powers, even when use is
+    /// revoked. The command owner decides terminal/no-op lifecycle semantics.
+    pub fn controlPowers(self: *Operation) !core.Control.Powers {
+        const value = state(self);
+        try requireControl(value);
+        return value.descriptor.powers;
     }
 
     pub fn prepareAttenuationCopying(self: *Operation, powers: core.Control.Powers) !void {
@@ -248,6 +289,71 @@ pub const Operation = opaque {
         errdefer owned.deinit(value.binding.owner.allocator);
         try self.prepareDeriveCopying(request);
         value.prepared.grant.powers = owned;
+    }
+
+    /// Independently admit management issuance. The child's ancestry retains
+    /// source use limits without requiring active use or delegation permission.
+    pub fn prepareIssueCopying(self: *Operation, request: core.GrantLedger.Issue, powers: core.Control.Powers, expected: core.Revision) !void {
+        const value = state(self);
+        try requireControl(value);
+        try value.unprepared();
+        var grants = try value.read.?.grantView();
+        if ((try grants.get(value.descriptor.grant)).revision != expected) return error.RevisionConflict;
+        const ceiling = value.descriptor.powers.issue_ceiling orelse return error.Denied;
+        if (!powers.empty() and !value.descriptor.powers.delegate_control) return error.Denied;
+        var resources = try value.read.?.resourceView();
+        try core.Control.validate(&resources, &value.read.?.header.policy, request.ceiling, powers);
+        try core.Control.attenuate(&resources, &value.read.?.header.policy, value.descriptor.powers, powers);
+        var owned = try @import("control_plan.zig").PowerCopy.init(value.binding.owner.allocator, powers);
+        errdefer owned.deinit(value.binding.owner.allocator);
+        var plan = (try prepare(value, .{ .issue_control = .{ .parent = value.descriptor.grant, .ceiling = ceiling, .request = request } })).?;
+        errdefer plan.deinit(value.binding.owner.allocator);
+        const append = try value.binding.owner.allocator.create(Append);
+        errdefer value.binding.owner.allocator.destroy(append);
+        append.* = try Append.init(&value.read.?, .grant);
+        append.grant_parent = plan.delta.issue.parent;
+        value.prepared = .{ .grant = .{ .plan = plan, .append = append, .powers = owned } };
+    }
+
+    /// Revision is checked before preparing even a no-op edit. Hosting checks
+    /// a committed receipt first, so replay does not become a new stale edit.
+    pub fn expectRevision(self: *Operation, expected: core.Revision) !void {
+        const value = state(self);
+        try requireControl(value);
+        var grants = try value.read.?.grantView();
+        if ((try grants.get(value.descriptor.grant)).revision != expected) return error.RevisionConflict;
+    }
+
+    /// Inspect is independent of editing, issuance and use. The shared branch
+    /// check applies to the immutable grant ancestry, including paused use.
+    pub fn inspectGrant(self: *Operation, target: ?core.GrantId) !core.GrantView.Record {
+        const value = state(self);
+        try requireControl(value);
+        if (!value.descriptor.powers.inspect) return error.Denied;
+        var grants = try value.read.?.grantView();
+        if (try grants.effectiveStatus(value.descriptor.grant) == .revoked) return error.Revoked;
+        const id = target orelse value.descriptor.grant;
+        var path = grants.ancestry(id);
+        while (try path.next()) |entry| {
+            if (entry.id.eql(value.descriptor.grant)) return grants.get(id);
+        }
+        return error.OutOfScope;
+    }
+
+    /// An inspector can describe effective use at its immutable exact resource
+    /// without acquiring a use endpoint. Collection and subtree policies need
+    /// a target-specific inspection contract rather than a misleading aggregate.
+    /// All values are scalar snapshots; the existing model owns every read.
+    pub fn inspectFixedAccess(self: *Operation) !Description {
+        const own = try self.inspectGrant(null);
+        const target = switch (own.ceiling.scope) {
+            .object => |id| id,
+            .objects, .owned_subtree => return error.ExactResourceRequired,
+        };
+        const value = state(self);
+        var grants = try value.read.?.grantView();
+        var resources = try value.read.?.resourceView();
+        return .{ .access = try grants.describe(&resources, &value.read.?.header.policy, value.descriptor.grant, target), .policy = value.read.?.header.policy };
     }
 
     pub fn cancel(self: *Operation) !void {
@@ -362,7 +468,8 @@ fn controlDescription(value: *State) !@import("control_plan.zig").Description {
     if (!value.control_ready) return error.RecordUnloaded;
     var grants = try value.read.?.grantView();
     const status = try grants.effectiveStatus(value.descriptor.grant);
-    return .{ .available = value.control_live and status != .revoked, .grant_status = status, .powers = if (value.control_live and status != .revoked) value.descriptor.powers else .{}, .policy = value.read.?.header.policy };
+    const revision = (try grants.get(value.descriptor.grant)).revision;
+    return .{ .available = value.control_live and status != .revoked, .grant_status = status, .powers = if (value.control_live and status != .revoked) value.descriptor.powers else .{}, .policy = value.read.?.header.policy, .revision = revision };
 }
 
 fn prepareAttenuation(value: *State, powers: core.Control.Powers) !void {
@@ -370,7 +477,8 @@ fn prepareAttenuation(value: *State, powers: core.Control.Powers) !void {
     try value.unprepared();
     if (value.control_depth == value.read.?.header.max_grant_depth) return error.DepthLimit;
     var grants = try value.read.?.grantView();
-    try grants.requireActive(value.descriptor.grant);
+    if (try grants.effectiveStatus(value.descriptor.grant) == .revoked) return error.Revoked;
+    if (!value.descriptor.powers.delegate_control) return error.Denied;
     var resources = try value.read.?.resourceView();
     try core.Control.attenuate(&resources, &value.read.?.header.policy, value.descriptor.powers, powers);
     try value.read.?.prepareIdentities(2);

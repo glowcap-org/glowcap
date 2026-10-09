@@ -195,7 +195,7 @@ fn answererHalf(
 
     try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
     var served = std.atomic.Value(bool).init(false);
-    _ = try host.publish(session, "greeter", Greeter, .{ .done = &served });
+    _ = try host.sessionPublish(session, "greeter", Greeter, .{ .done = &served });
     try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 30_000);
 }
 

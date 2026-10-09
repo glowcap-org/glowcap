@@ -13,29 +13,14 @@ const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 pub const Selected = struct {
     transport: []const u8,
     designator_scheme: net.netlayer.DesignatorScheme,
-    source: Source,
-
-    pub const Source = union(enum) {
-        stream: net.netlayer.Netlayer,
-        resident: usize,
-    };
+    resident: usize,
 };
 
-pub const MultiplexedRegistration = struct {
+/// One transport profile served by a multiplexed resident. Several profiles
+/// may name the same resident; the runtime polls each resident once.
+pub const Registration = struct {
     profile: model.transport.Metadata,
     resident: net.MultiplexedResident,
-};
-
-pub const Registration = union(enum) {
-    stream: net.netlayer.Netlayer,
-    multiplexed: MultiplexedRegistration,
-
-    pub fn profile(self: Registration) model.transport.Metadata {
-        return switch (self) {
-            .stream => |value| value.transportProfile(),
-            .multiplexed => |value| value.profile,
-        };
-    }
 };
 
 pub const Owner = struct {
@@ -55,7 +40,7 @@ pub const Installed = struct {
 
     pub fn overlaps(self: Installed, candidate: []const Registration) !bool {
         for (self.profiles) |installed| for (candidate) |registration| {
-            const profile = try runtime_contract.canonicalProviderProfile(registration.profile());
+            const profile = try runtime_contract.canonicalProviderProfile(registration.profile);
             if (std.mem.eql(u8, installed.symbol, profile.symbol)) return true;
         };
         return false;
@@ -65,7 +50,7 @@ pub const Installed = struct {
         if (self.profiles.len != candidate.len) return false;
         for (self.profiles) |installed| {
             for (candidate) |registration| {
-                if (installed.eql(try runtime_contract.canonicalProviderProfile(registration.profile()))) break;
+                if (installed.eql(try runtime_contract.canonicalProviderProfile(registration.profile))) break;
             } else return false;
         }
         return true;

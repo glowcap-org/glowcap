@@ -76,7 +76,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 				"the membership did not answer the line",
 			)
 			.await?;
-		Ok(PostedLine::from_reply(self.inner.client.clone(), reply))
+		PostedLine::from_room_reply(self.inner.client.clone(), reply)
 	}
 	pub async fn post_files(&self, caption: &str) -> Result<Option<PostedLine<D>>, Error> {
 		self.post_files_with_previews(caption, &rooms_application::open_graph::Selection::default())
@@ -124,7 +124,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 				"the room did not answer posting the files",
 			)
 			.await?;
-		Ok(PostedLine::from_reply(self.inner.client.clone(), reply))
+		PostedLine::from_room_reply(self.inner.client.clone(), reply)
 	}
 	pub async fn history(&self) -> Result<Vec<history::Line>, Error> {
 		let reply = self

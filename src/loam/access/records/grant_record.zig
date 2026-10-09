@@ -13,8 +13,9 @@ pub const GrantRecord = struct {
     authority: Stamp = .{},
     inventory: Stamp = .{},
     lifecycle: Stamp = .{},
+    children: ?@import("loam_records").ObjectId = null,
 
-    pub const format_version: u64 = 1;
+    pub const format_version: u64 = 2;
     /// Two 256-member selections, fixed identities, and 32 optional bounds.
     pub const max_encoded_bytes: usize = 32 * 1024;
     pub const Error = error{ MalformedRecord, UnsupportedVersion, InvalidRecord, RecordTooLarge };
@@ -37,6 +38,17 @@ pub const GrantRecord = struct {
         }
     };
 
+    /// The scalar index identity and its retaining edge describe one root.
+    /// Store corruption cannot redirect traversal outside the retained graph.
+    pub fn validateChildren(self: GrantRecord, view: @import("loam_records").View) Error!void {
+        const root = self.children orelse return;
+        if (root.store != view.id.store or root.incarnation == 0 or root.sequence == 0) return error.InvalidRecord;
+        var edges = view.edges();
+        var last: ?@import("loam_records").Edge = null;
+        while (edges.next()) |edge| last = edge;
+        if (last == null or last.?.strength != .strong or !last.?.target.eql(root)) return error.InvalidRecord;
+    }
+
     /// At most two exact-sized selection allocations. No input bytes survive
     /// the call; scalar/subtree scopes decode without allocation.
     pub fn decodeOwned(allocator: std.mem.Allocator, bytes: []const u8) DecodeError!Owned {
@@ -51,6 +63,7 @@ pub const GrantRecord = struct {
 
     fn validate(self: GrantRecord) Error!void {
         const g = self.grant;
+        g.label.validate() catch return error.InvalidRecord;
         try self.authority.validate(@backingInt(g.revision));
         try self.inventory.validate(@backingInt(g.revision));
         try self.lifecycle.validate(@backingInt(g.revision));
@@ -76,9 +89,14 @@ pub const GrantRecord = struct {
         try syntax.writeSymbol(sink, @tagName(g.status));
         try syntax.writePositiveInt(sink, g.delegation_depth);
         try syntax.writePositiveInt(sink, g.child_count);
+        try syntax.writeBytes(sink, g.label.slice());
         try self.authority.write(sink);
         try self.inventory.write(sink);
         try self.lifecycle.write(sink);
+        try syntax.writeBool(sink, self.children != null);
+        if (self.children) |id| try fields.writeWide(sink, @backingInt(id.store));
+        if (self.children) |id| try syntax.writePositiveInt(sink, id.incarnation);
+        if (self.children) |id| try syntax.writePositiveInt(sink, id.sequence);
         try syntax.endRecord(sink);
     }
 
@@ -97,12 +115,14 @@ pub const GrantRecord = struct {
         const status = try fields.readStatus(bytes, &cursor);
         const depth = std.math.cast(u16, try syntax.readPositiveInt(bytes, &cursor)) orelse return error.InvalidRecord;
         const children = std.math.cast(u32, try syntax.readPositiveInt(bytes, &cursor)) orelse return error.InvalidRecord;
+        const grant_label = @import("loam_access_core").GrantLedger.Label.init(try syntax.readBytesLimited(bytes, &cursor, bytes.len)) catch return error.InvalidRecord;
         const authority = try Stamp.read(bytes, &cursor);
         const inventory = try Stamp.read(bytes, &cursor);
         const lifecycle = try Stamp.read(bytes, &cursor);
+        const child_root: ?@import("loam_records").ObjectId = if (try syntax.readBool(bytes, &cursor)) .{ .store = @fromBackingInt(try fields.readWide(bytes, &cursor)), .incarnation = try syntax.readPositiveInt(bytes, &cursor), .sequence = try syntax.readPositiveInt(bytes, &cursor) } else null;
         try syntax.readByte(bytes, &cursor, '>');
         try syntax.expectEnd(bytes, cursor);
-        const value: GrantRecord = .{ .authority = authority, .inventory = inventory, .lifecycle = lifecycle, .grant = .{ .id = id, .revision = revision, .parent = parent, .ceiling = ceiling, .configured = configured, .status = status, .delegation_depth = depth, .child_count = children } };
+        const value: GrantRecord = .{ .children = child_root, .authority = authority, .inventory = inventory, .lifecycle = lifecycle, .grant = .{ .label = grant_label, .id = id, .revision = revision, .parent = parent, .ceiling = ceiling, .configured = configured, .status = status, .delegation_depth = depth, .child_count = children } };
         try value.validate();
         return .{ .value = value };
     }

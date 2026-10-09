@@ -122,10 +122,11 @@ test "loam LMDB foreign roles survive compaction and restore a later vat during 
             try source.host.dialFailed(action.dial.ticket, action.dial.route_index, "unavailable");
         if (pause_source) _ = try h.f.change(&source_store, &source_db, source_data.owner, .{ .resume_access = source_data.grant });
     }
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
+    var memory: h.loam.hosting.Call.Memory = undefined;
+    memory.init(a, 1024 * 1024);
+    defer memory.deinit();
     var lease = try h.c.load(&source_store, &source_db, source_data.content);
-    var call: h.loam.hosting.Call = .{ .arena = arena.allocator(), .attachment = source.attached, .view = try source_store.currentView(lease) };
+    var call: h.loam.hosting.Call = .{ .memory = &memory, .attachment = source.attached, .view = try source_store.currentView(lease) };
     defer call.release();
     var prepared = try f.refs.Set.create(&call, call.view, &.{ .{ .restore = 0 }, .{ .restore = 1 }, .{ .restore = 2 } });
     for (0..32) |_| switch (try prepared.advance()) {
@@ -143,7 +144,7 @@ test "loam LMDB foreign roles survive compaction and restore a later vat during 
     try source_store.release(lease);
     lease = try h.c.load(&source_store, &source_db, source_data.content);
     defer source_store.release(lease) catch unreachable;
-    call = .{ .arena = arena.allocator(), .attachment = source.attached, .view = try source_store.currentView(lease) };
+    call = .{ .memory = &memory, .attachment = source.attached, .view = try source_store.currentView(lease) };
     prepared = try f.refs.Set.create(&call, call.view, &.{ .{ .restore = 0 }, .{ .restore = 1 }, .{ .restore = 2 } });
     var target: h.Hosted = undefined;
     try target.initIdentity(&target_store, &target_db, target_data, .{}, @splat(0x65));

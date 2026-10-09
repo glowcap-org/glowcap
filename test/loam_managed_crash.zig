@@ -71,7 +71,7 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
     // Startup does not need an inventory of owner, grant, or endpoint IDs.
-    if (store.cache.allocated_bytes != 0 or server.host.giftables.count() != 0) return error.EagerRestore;
+    if (store.cache.allocated_bytes != 0 or server.host.publications.count() != 0) return error.EagerRestore;
     for (server.attached.entries) |entry| if (entry.actor != null) return error.EagerRestore;
     var client = h.host_support.init(init.gpa, @splat(0x63), h.driver.Host.Options.withFrameCap(4096));
     defer client.deinit();
@@ -442,7 +442,7 @@ fn verifyManagement(server: *Server, client: *h.driver.Host, pair: pairs.Pair, u
     try send(client, pair, recovered, "describe-control", &.{}, &inspection);
     try server.drain();
     try pairs.pumpToQuiescence(&.{pair});
-    if (inspection.available != true or inspection.fields != 6) return error.InvalidControlRecovery;
+    if (inspection.available != true or inspection.fields != 10) return error.InvalidControlRecovery;
     var paused: h.Answer = .{};
     try send(client, pair, recovered, "pause", &.{}, &paused);
     try server.drain();

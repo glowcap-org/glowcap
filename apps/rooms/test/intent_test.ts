@@ -124,6 +124,34 @@ Deno.test("the application's own defaults are not offered back as choices", () =
 	assert(intent.keepable(" alice ", "guest") === " alice ", "a remembered name was silently trimmed");
 });
 
+Deno.test("paired room fields follow the draft destination across multiple directories", () => {
+	const away = dirId(AWAY);
+	const directory = (id: typeof HOME, name: string) =>
+		({
+			id,
+			liveRooms: new Map([[name, { name }]]),
+		}) as unknown as import("../web/ui/types.ts").DirView;
+	const dirs = new Map([[HOME, directory(HOME, "deadnet/#nowhere")], [away, directory(away, "elsewhere")]]);
+	const resolve = (locator: string) => locator === AWAY ? away : null;
+	assert(
+		joining.joinRoomOffers("", "deadnet", dirs, HOME_CONTEXT, resolve)[0] === "deadnet/#nowhere",
+		"the linked rail offered the previous foreign directory instead of the empty locator's destination",
+	);
+	assert(
+		joining.joinRoomOffers(AWAY, "", dirs, HOME_CONTEXT, resolve)[0] === "elsewhere",
+		"the explicit foreign destination retained home offers",
+	);
+	assert(
+		joining.joinRoomOffers("ocapn://unknown.iroh", "", dirs, HOME_CONTEXT, resolve).length === 0,
+		"an unknown explicit destination claimed home offers",
+	);
+	const attached = { home: null, defaultDirectory: { id: away, locator: AWAY } };
+	assert(
+		joining.joinRoomOffers("", "", dirs, attached, resolve)[0] === "elsewhere",
+		"an attached workspace ignored its default directory",
+	);
+});
+
 Deno.test("an empty nickname means the granted name on the aimed connected directory", () => {
 	const away = dirId(AWAY);
 	const directory = (

@@ -13,8 +13,8 @@ Every Rooms command is a `zig build` step. The ones a developer reaches for:
 | Command | Does | Needs |
 | --- | --- | --- |
 | `zig build rooms-web` | Builds the services and the page, serves the page; `-Dtransport=tcp` or `onion`, `-Dport=`, server flags after `--` | Cargo, Deno; Tor for `onion` |
-| `zig build rooms-dev` | React Fast Refresh by default; `-Dhot-reload=false` serves compiled generations natively. Both mint every operator capability and keep state under `.local/.state/rooms` | Cargo, Deno |
-| `zig build rooms-server-test` | The native server, production bundle, Vite configuration, and development lifecycle contracts (part of `runtime-check`) | Cargo, Deno |
+| `zig build rooms-dev` | React Fast Refresh by default; `-Dhot-reload=false` serves compiled generations directly. Both mint every operator capability and keep state under `.local/.state/rooms` | Cargo, Deno |
+| `zig build rooms-server-test` | The installed server, production bundle, Vite configuration, and development lifecycle contracts (part of `runtime-check`) | Cargo, Deno |
 | `zig build rooms-rust-test` | The Rust application contracts (part of `runtime-check`) | Cargo |
 | `zig build rooms-peers-test` | The archive, session, and room server as installed processes: identity, restart, and signals (part of `runtime-check`) | Cargo |
 | `zig build rooms-terminal-client-test` | The Zig, Rust, Python, and Racket client contracts | Cargo, Python, Racket |
@@ -28,6 +28,18 @@ Every Rooms command is a `zig build` step. The ones a developer reaches for:
 including which ride `zig build check`, `runtime-check`, or `check-external`.
 The devcontainer image carries the Chromium the browser proofs use.
 
+Component edits use React Fast Refresh. Changes that reach page startup reload
+the document: its Host, session and React root each belong to one document
+lifetime. Refreshing startup in place would leave controls attached to an
+earlier session. The development process tests check both update boundaries.
+
+The browser proofs run concurrently, so name every proof you need in one
+`zig build` invocation, or run the whole family with `rooms-web-proofs`. The
+build prepares the browser assets once; each proof starts `rooms-web` with
+that immutable generation for its entire journey. Source compilation and
+development refresh have separate process contracts. A change to a Rust crate
+the browser module links needs `zig build rooms-browser-build` first.
+
 ### Browser compiler boundary
 
 `web/compiler.json` selects the production Deno invocation. Its `args` are
@@ -40,7 +52,7 @@ identity alongside the application sources and assets.
 The compiler must emit `page.js` and its minified ESM chunks as sibling files.
 Static and literal dynamic imports must resolve within that output. Browser
 journeys exercise runtime-computed imports that inspection cannot resolve.
-The native publisher adds the page, CSS, fonts, Wasm, and revision metadata, then publishes the complete
+The publisher adds the page, CSS, fonts, Wasm, and revision metadata, then publishes the complete
 generation atomically. It also owns compiler cancellation and the build
 deadline. A bundler change therefore leaves serving and deployment intact.
 
@@ -58,7 +70,7 @@ output name. To try `deno bundle`, replace the recipe with:
 to the selected compiler and an isolated Deno build with Vite's dependencies
 removed. `zig build rooms-web-page` exercises the selected output in Chromium.
 
-Development can also use native generation serving:
+Development can also serve compiled generations:
 
 ```sh
 zig build rooms-dev -Dhot-reload=false
@@ -69,7 +81,7 @@ dependencies. It recompiles changed sources on requests and uses page reloads
 instead of React Fast Refresh. Production compiler selection stays in the
 recipe, independently of which development front serves the page.
 
-Removing Vite entirely means retaining this native launch in
+Removing Vite entirely means retaining this generation launch in
 `tools/build/rooms/browser_front.zig`, deleting the Vite launch and `web/dev.ts`
 supervisor with their tests, and removing `web/vite.config.ts` and the Vite
 imports from `web/deno.json`. Update the app's check task and regenerate its
@@ -180,7 +192,7 @@ on, so a page from elsewhere cannot use a reader's relay; a request with no
 `Origin` (every non-browser client) passes.
 
 Browser peers also register a rendezvous identity with the relay, so another
-browser tab or a native process can open a fresh connection to the held
+browser tab or another process can open a fresh connection to the held
 WebSocket. That makes a cold dial possible without putting the room in the
 message path. A page opened with `?dm=webrtc`, or with that choice made in
 Settings, advertises a WebRTC identity instead: direct messages then cross a
@@ -304,7 +316,7 @@ The cost is that the server has limits to enforce:
 | `rust/platform/` | Tokio, entropy, leased storage, listeners, TLS, WebSocket channels |
 | `rust/services/` | The room server, session peer, archive peer, IRC edges, web front, and interactive client |
 | `rust/browser/` | The Wasm application: session controllers, storage, signaling, transport |
-| `rust/proofs/` | The application contracts replayed from fixtures, natively and in Wasm |
+| `rust/proofs/` | The application contracts replayed from fixtures, in a process and in Wasm |
 | `web/ui/` | The browser page: React components, the store, the session projection |
 | `web/compiler.json` | The production compiler invocation and additional source-identity inputs |
 | `web/deno.json`, `web/vite.config.ts` | The pinned browser toolchain and Vite configuration |

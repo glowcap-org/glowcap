@@ -48,7 +48,8 @@ an explicit advertised host. The bind address is only a local socket, and
 partners dial the advertised host.
 
 The bindings also offer sturdyref enlivenment, promise pipelining,
-attenuation, revocation, and opt-in distributed garbage collection.
+attenuation, revocation, and distributed garbage collection, on by default in
+Rust and opt-in per session elsewhere.
 
 ### References
 
@@ -205,6 +206,12 @@ The native relay package exposes one Zig provider through the C ABI.
   retry, tries at most once at each later safe point, and retires the owner
   exactly once when a final result arrives. Any release or cleanup failure
   along the way is recorded as a consequence of the original failure.
+
+Rust retains unfinished native releases if their thread exits. Native code may
+still borrow the Rust callbacks or allocator, so destroying those owners would
+be unsafe. Finish close and any required recovery on the owning thread to
+reclaim them. Abandoned releases remain allocated for the process lifetime.
+Successful retries release the owner and return empty finalizer queue storage.
 
 ### Failures with no caller
 

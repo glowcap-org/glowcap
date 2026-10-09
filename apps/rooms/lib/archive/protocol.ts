@@ -47,7 +47,8 @@ export { ARCHIVE_ATTACHMENT, ARCHIVE_BLOB, ARCHIVE_PUT_FILES } from "./blob_prot
 export { ARCHIVE_LIST_SHARES, ARCHIVE_REVOKE_SHARE, ARCHIVE_SHARE } from "./durable_protocol.ts";
 
 /** Largest page one read can answer in a single CapTP turn. */
-export const MAX_ARCHIVE_READ = 128;
+import { MAX_ARCHIVE_READ } from "./limits.ts";
+export { MAX_ARCHIVE_READ } from "./limits.ts";
 /** Fresh forwarding actors one caller session may mint over its lifetime.
  * Released facets do not refill the budget: actor churn is still work and
  * consumes monotonic export positions even when no occurrence remains live. */

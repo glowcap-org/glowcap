@@ -91,6 +91,7 @@ pub fn pendingVowCount(self: *const Host) usize {
 /// after the operation that can settle the row has committed.
 pub fn publishRow(self: *Host, row: *VowRow) void {
     std.debug.assert(!row.settled);
+    std.debug.assert(!self.vows.contains(row.id));
     std.debug.assert(self.pending_vow_count != std.math.maxInt(u32));
     self.vows.putAssumeCapacity(row.id, row);
     self.pending_vow_count += 1;
@@ -285,11 +286,11 @@ pub fn mintDeferredVow(
 /// caller learned the promise to the session that now owns its real send.
 pub fn moveDeferredVow(self: *Host, vow_id: u64, target: *HostSession) void {
     const row = self.vows.get(vow_id) orelse return;
-    const source_peer = row.peer_handle orelse unreachable;
+    const source_peer = row.peer() orelse unreachable;
     if (source_peer == target.peer_handle) return;
     if (self.sessions.get(source_peer)) |source| self.finishSessionOperation(source);
     self.beginSessionOperation(target);
-    row.peer_handle = target.peer_handle;
+    row.owner = .{ .session = target.peer_handle };
 }
 
 /// Attach a pre-minted deferred Host vow directly to the real Vat/Port vow.
@@ -311,9 +312,10 @@ pub fn attachDeferredVow(
     std.debug.assert(observer_release == null or answer_release == .peer_visible);
     std.debug.assert(observer_release == null or row.inner != null);
     row.observer_release = observer_release;
-    row.pending_cancel = .row_listener;
+    const installed: actors.Listener = .{ .ctx = row, .func = VowRow.fire };
+    row.pending_cancel = .{ .row_listener = installed };
     _ = settlement.claimPeerVisibleAnswer(row, target);
-    target.served.port.onReserved(&self.vat, listener, vow, .{ .ctx = row, .func = VowRow.fire });
+    target.served.port.onReserved(&self.vat, listener, vow, installed);
 }
 
 /// Publish a vow using only resources reserved before its semantic operation.
@@ -323,13 +325,14 @@ pub fn commitVow(
     reservation: VowReservation,
     vow: actors.Vow,
 ) u64 {
+    const installed: actors.Listener = .{ .ctx = reservation.row, .func = VowRow.fire };
     const id = commitVowWithListener(
         self,
         session,
         reservation,
         vow,
-        .{ .ctx = reservation.row, .func = VowRow.fire },
-        .row_listener,
+        installed,
+        .{ .row_listener = installed },
     );
     std.debug.assert(id == self.next_vow);
     self.next_vow += 1;
@@ -371,7 +374,7 @@ pub fn reserveRow(
     errdefer self.allocator.destroy(row);
     row.* = .{
         .host = self,
-        .peer_handle = if (session) |s| s.peer_handle else null,
+        .owner = if (session) |s| .{ .session = s.peer_handle } else .resolver,
         .id = id,
         .vow = undefined,
         .kind = kind,
@@ -412,7 +415,7 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
 }
 
 fn pipelineAnswer(row: *const VowRow) !model.AnswerPosition {
-    if (row.answer_release != .peer_visible) return vocab.Error.NotPipelineable;
+    if (row.answer_release != .peer_visible and row.answer_release != .shared_peer_visible) return vocab.Error.NotPipelineable;
     return switch (row.vow) {
         .far => |answer| answer,
         .local => return vocab.Error.NotPipelineable,
@@ -428,7 +431,7 @@ fn pipelineAnswer(row: *const VowRow) !model.AnswerPosition {
 fn resolveVowSession(self: *Host, vow_id: u64) HostError!ResolvedVow {
     self.assertOwner();
     const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;
-    const peer_handle = row.peer_handle orelse return HostError.SessionlessVow;
+    const peer_handle = row.peer() orelse return HostError.SessionlessVow;
     const session = self.sessions.get(peer_handle) orelse return HostError.NoSuchVow;
     try self.checkSession(session);
     return .{ .row = row, .session = session };

@@ -201,16 +201,16 @@ pub const transport_provider_architecture: []const Ban = &.{
     .{
         .where = .{ .file = "include/glowcap_transport_provider.h" },
         .kind = .require,
-        .needles = &.{"GlowcapStreamReadFn read;"},
+        .needles = &.{"GlowcapStreamTryReadFn try_read;"},
         .check = "transport-provider-architecture",
         .why = "ABI-identical read and metadata callbacks still need role-specific C typedefs; field-aware generation preserves the provider contract's meaning",
     },
     .{
         .where = .{ .file = "include/glowcap_transport_provider.h" },
         .kind = .require,
-        .needles = &.{"GlowcapStreamWriteAllFn write_all;"},
+        .needles = &.{"GlowcapStreamTryWriteFn try_write;"},
         .check = "transport-provider-architecture",
-        .why = "the stream execution model exposes an explicit write-all status callback; byte-count writes belong only to multiplexed try_write",
+        .why = "stream and multiplexed tables share one nonblocking byte-count I/O contract; the stream typedefs keep their role-specific names",
     },
     .{
         .where = .{ .file = "include/glowcap_transport_provider.h" },

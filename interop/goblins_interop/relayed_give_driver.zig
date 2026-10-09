@@ -17,9 +17,8 @@
 //!                               when the driver writes a line to his stdin.
 //!   glowcap  (introducer)        holds Bob's promise as an opaque Host
 //!                               capability and answers `get-greeter` with it.
-//!                               Its host
-//!                               proxies the promise onto Carol's session and
-//!                               waits on Bob's.
+//!                               Its `driver.Server` proxies the promise onto
+//!                               Carol's session and waits on Bob's.
 //!   Carol    (Goblins recipient) asks glowcap for the greeter, waits on the
 //!                               promise she is answered with, redeems the give
 //!                               the settlement carries, dials Bob, and calls
@@ -41,16 +40,8 @@ const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
 const model = glowcap.ocapn.model;
-const actors = glowcap.actors;
-const crypto = glowcap.foundation.crypto;
 const driver = glowcap.driver;
-const net = glowcap.net;
 const tcp = glowcap.net.tcp;
-
-const Host = driver.core.Host;
-const HostSession = driver.core.HostSession;
-const TcpBridge = driver.Bridge(net.TcpLoop);
-const runLoop = harness.LoopRunner(net.TcpLoop).runUntilFlag;
 
 const host_addr = "127.0.0.1";
 const default_bob_port: u16 = 22150;
@@ -59,81 +50,33 @@ const exporter_script = "conformance/goblins-peer/racket/deferred-exporter-host.
 const recipient_script = "conformance/goblins-peer/racket/relayed-give-recipient.rkt";
 const rendezvous_swiss = "glowcapDeferredRendezvousSwiss01";
 const introducer_swiss = "introducer";
-const holder_swiss = "holder";
 const deadline_ms: u64 = 60_000;
 
-fn pokeListener(io: std.Io, port: u16) void {
-    if (port == 0) return;
-    const address = std.Io.net.IpAddress.parse(host_addr, port) catch return;
-    var stream = std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream }) catch return;
-    stream.close(io);
-}
-
-/// What the introducer half of glowcap knows: Bob's session, the capability it
-/// published for Bob to send the promise to, and the opaque Host capability
-/// produced when that argument arrives.
-const IntroducerState = struct {
-    host: *Host,
-    bridge: *TcpBridge,
-    bob_conn: ?*HostSession = null,
-    holder: ?model.Reference = null,
-    promise: ?driver.Capability = null,
-    held: *std.atomic.Value(bool),
-
-    fn onRendezvous(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *IntroducerState = @ptrCast(@alignCast(ctx.?));
-        const conn = self.bob_conn orelse return;
-        const holder = self.holder orelse return;
-        switch (resolution) {
-            .fulfilled => |value| {
-                if (value != .reference) {
-                    std.debug.print("goblins-relayed-give: rendezvous fetch settled to a non-reference\n", .{});
-                    return;
-                }
-                std.debug.print("goblins-relayed-give: fetched goblins-bob's rendezvous\n", .{});
-                // Hand Bob a capability of ours, so he can send the unresolved
-                // promise back to it as a delivered argument.
-                const vow = self.host.send(conn, value.reference, .{
-                    .verb = "hold-with",
-                    .args = &.{.{ .reference = holder }},
-                }) catch |err| {
-                    std.debug.print("goblins-relayed-give: hold-with send: {s}\n", .{@errorName(err)});
-                    return;
-                };
-                self.host.vowOn(vow, .{ .ctx = self, .func = onHeldWith }) catch {};
-                self.bridge.drainActions() catch {};
-            },
-            .broken => |reason| std.debug.print("goblins-relayed-give: rendezvous fetch broke: {s}\n", .{reason}),
-            .give => {},
-        }
-    }
-
-    fn onHeldWith(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        _ = ctx;
-        switch (resolution) {
-            .broken => |reason| std.debug.print("goblins-relayed-give: hold-with broke: {s}\n", .{reason}),
-            .fulfilled, .give => {},
-        }
-    }
+const opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 20_000 },
+    .settle = .{ .ms = 20_000 },
 };
 
-/// The capability Bob sends the promise to. The owning-tier adapter lifts the
+/// The opaque Host capability produced when Bob's promise arrives as an
+/// argument. Written by the holder inside a turn on the serving thread.
+const Held = struct {
+    promise: ?driver.Capability = null,
+    flag: *std.atomic.Value(bool),
+};
+
+/// The capability Bob sends the promise to. The owning tier lifts the
 /// delivered promise under Bob's session before this handler sees it, so the
 /// opaque capability already carries the home and kind needed for handoff.
 const Holder = struct {
-    state: *IntroducerState,
+    held: *Held,
 
-    pub fn handle(
-        self: *Holder,
-        turn: *driver.HostTurn,
-        verb: []const u8,
-        args: []const driver.Value,
-    ) !driver.Value {
-        _ = turn;
+    pub fn handle(self: *Holder, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
         if (!std.mem.eql(u8, verb, "hold")) return error.NoSuchMethod;
         if (args.len != 1 or args[0] != .capability) return error.NotACapability;
-        self.state.promise = args[0].capability;
-        self.state.held.store(true, .release);
+        self.held.promise = args[0].capability;
+        self.held.flag.store(true, .release);
         std.debug.print("goblins-relayed-give: goblins-bob handed over an unsettled promise\n", .{});
         return .{ .string = "held" };
     }
@@ -142,42 +85,52 @@ const Holder = struct {
 /// What Carol asks. Lowering the opaque promise onto Carol's session sends the
 /// host down the introducing-session proxy path.
 const Introducer = struct {
-    state: *IntroducerState,
+    held: *Held,
 
-    pub fn handle(
-        self: *Introducer,
-        turn: *driver.HostTurn,
-        verb: []const u8,
-        args: []const driver.Value,
-    ) !driver.Value {
-        _ = turn;
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
         _ = args;
         if (!std.mem.eql(u8, verb, "get-greeter")) return error.NoSuchMethod;
-        return .{ .capability = self.state.promise orelse return error.NotReady };
+        return .{ .capability = self.held.promise orelse return error.NotReady };
     }
 };
 
-fn publishIntroducer(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
-    const state: *IntroducerState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish(vat, introducer_swiss, driver.Hosting(Introducer), .{ .inner = .{ .state = state } });
-}
-
-fn introducerOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
-    const state: *IntroducerState = @ptrCast(@alignCast(ctx.?));
-    if (conn.leg != .app_dial or conn.session.role != .dialed) return;
-    if (state.bob_conn != null) return;
-    state.bob_conn = conn.session;
+/// Dial Bob, hand him a holder for his promise, publish the introducer, and
+/// serve Carol until the run ends.
+fn serveIntroducer(
+    introducer: *driver.Server,
+    bob_locator: model.PeerLocator,
+    held: *Held,
+    done: *std.atomic.Value(bool),
+) anyerror!void {
+    // A setup failure still releases the waiting main thread.
+    defer held.flag.store(true, .release);
+    const bob_session = try introducer.runtime.connectLocator(bob_locator, .inherit);
+    const bob = try driver.Session.adopt(introducer.runtime, bob_session);
+    defer bob.deinit();
     std.debug.print("goblins-relayed-give: session open (glowcap as introducer -> bob)\n", .{});
-    const holder = try conn.session.served.publish(
-        &conn.session.host.vat,
-        holder_swiss,
-        driver.Hosting(Holder),
-        .{ .inner = .{ .state = state } },
-    );
-    state.holder = holder.nearRef();
-    const vow = try state.host.fetch(conn.session, rendezvous_swiss);
-    try state.host.vowOn(vow, .{ .ctx = state, .func = IntroducerState.onRendezvous });
-    try bridge.drainActions();
+    try introducer.publish(introducer_swiss, Introducer, .{ .held = held });
+    const rendezvous = try bob.fetch(rendezvous_swiss);
+    std.debug.print("goblins-relayed-give: fetched goblins-bob's rendezvous\n", .{});
+    // Hand Bob a capability of ours, so he can send the unresolved promise
+    // back to it as a delivered argument.
+    const holder = try bob.spawn(Holder, .{ .held = held });
+    const held_with = try bob.send(rendezvous, "hold-with", &.{.{ .capability = holder }});
+    defer held_with.release() catch {};
+
+    var carol: ?*driver.Session = null;
+    defer if (carol) |session| session.deinit();
+    while (!done.load(.acquire)) {
+        if (carol == null and try introducer.waitAcceptable(20)) carol = try introducer.accept();
+        _ = bob.stepReadable(10) catch |err| switch (err) {
+            error.ConnectionClosed, error.ProtocolAbort => {},
+            else => |e| return e,
+        };
+        if (carol) |session| _ = session.stepReadable(10) catch |err| switch (err) {
+            error.ConnectionClosed, error.ProtocolAbort => {},
+            else => |e| return e,
+        };
+    }
 }
 
 /// Follow Carol's stdout. `LISTENING` means Goblins has subscribed to the
@@ -277,83 +230,48 @@ fn introducerStep(
     carol_port_str: []const u8,
     bob: *std.process.Child,
 ) !void {
-    var seed: [crypto.SEED_BYTES]u8 = undefined;
-    io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
-    var session_root: [crypto.SEED_BYTES]u8 = undefined;
-    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-
-    var host = try Host.init(allocator, seed, session_root, blk: {
-        var o = Host.Options.withFrameCap(frame_cap);
-        o.local_turn_budget = 64;
-        break :blk o;
-    });
-    defer host.deinit();
-
-    var held = std.atomic.Value(bool).init(false);
-    var state: IntroducerState = undefined;
-    var loop: net.TcpLoop = undefined;
-    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{
-        .publish = publishIntroducer,
-        .publish_ctx = &state,
-        .on_open = introducerOnOpen,
-        .on_open_ctx = &state,
-    });
-    defer bridge.deinit();
-    state = .{
-        .host = &host,
-        .bridge = &bridge,
-        .held = &held,
-    };
-
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-        .max_conns = 8,
-        .listen = 0,
-    }));
-    defer loop.deinit();
-    const introducer_port = loop.port().?;
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bound_addr = try tcp.parseHostPort(host_addr, introducer_port);
-    const bound = tcp.locatorFromAddress(&designator_buf, bound_addr).designator;
-    try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
+    var introducer = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = host_addr ++ ":0" }, .ephemeral, opts);
+    defer introducer.deinit();
+    var introducer_designator_buf: [64]u8 = undefined;
+    const introducer_designator = try allocator.dupe(u8, try introducer.localDesignator(&introducer_designator_buf));
+    defer allocator.free(introducer_designator);
 
     var bob_designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bob_addr = try tcp.parseHostPort(host_addr, bob_port);
-    const bob_locator = tcp.locatorFromAddress(&bob_designator_buf, bob_addr);
-    try bridge.dialOutbound(bob_locator);
+    const bob_locator = tcp.locatorFromAddress(&bob_designator_buf, try tcp.parseHostPort(host_addr, bob_port));
 
-    var loop_done = std.atomic.Value(bool).init(false);
-    var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(runLoop, .{ &loop, &loop_done, &loop_err });
-    defer {
-        loop_done.store(true, .release);
-        pokeListener(io, introducer_port);
-        loop_future.await(io);
-    }
+    var held_flag = std.atomic.Value(bool).init(false);
+    var held: Held = .{ .flag = &held_flag };
+    var done = std.atomic.Value(bool).init(false);
+    var serving = try io.concurrent(serveIntroducer, .{ introducer, bob_locator, &held, &done });
+    var serving_joined = false;
+    defer if (!serving_joined) {
+        done.store(true, .release);
+        serving.await(io) catch {};
+    };
 
     // Bob has to have handed the promise over before Carol can be introduced to
     // it; the introducer answers `NotReady` until then.
-    try harness.untilFlag(io, deadline_ms, &held);
-    if (state.promise == null) return error.PromiseNeverHeld;
-
-    var introducer_designator_buf: [64]u8 = undefined;
-    const introducer_designator = try std.fmt.bufPrint(
-        &introducer_designator_buf,
-        "{s}:{d}",
-        .{ host_addr, introducer_port },
-    );
+    try harness.untilFlag(io, deadline_ms, &held_flag);
+    if (held.promise == null) {
+        done.store(true, .release);
+        serving_joined = true;
+        try serving.await(io);
+        return error.PromiseNeverHeld;
+    }
     std.debug.print(
         "goblins-relayed-give: glowcap publishing introducer swiss={s} on {s}\n",
         .{ introducer_swiss, introducer_designator },
     );
 
+    var carol_argv: [8][]const u8 = undefined;
+
     var carol = try std.process.spawn(io, .{
-        .argv = &.{
-            goblins_child.racket_path,
+        .argv = goblins_child.racketArgv(&carol_argv, &.{
             recipient_script,
             introducer_designator,
             introducer_swiss,
             carol_port_str,
-        },
+        }),
         .environ_map = environ_map,
         .stdout = .pipe,
         .stderr = .pipe,
@@ -367,5 +285,7 @@ fn introducerStep(
     };
     carol.kill(io);
     carol_reaped = true;
-    if (loop_err) |err| return err;
+    done.store(true, .release);
+    serving_joined = true;
+    try serving.await(io);
 }

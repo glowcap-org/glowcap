@@ -66,6 +66,8 @@ async fn start_with(state: PathBuf, transport: Transport, asked: Asked) -> Runni
 			storage: None,
 			asked,
 			trace_port: 0,
+			trace_publish: None,
+			trace_connect: None,
 		},
 		async {
 			let _ = stopped.await;
@@ -130,7 +132,7 @@ impl Member {
 				loop {
 					let session = tokio::select! {
 						_ = &mut stopping => break,
-						accepted = listener.accept() => accepted.unwrap().with_gc(),
+						accepted = listener.accept() => accepted.unwrap(),
 					};
 					served.push(tokio::task::spawn_local(async move {
 						let _ = session.serve().await;
@@ -268,7 +270,15 @@ async fn members() {
 	assert_eq!(asked.kind, Kind::MintInboxFor);
 	assert_eq!(asked.peer.text().as_str(), Some("Bob"));
 	assert_eq!(asked.registration, bob_id);
-	alice_dir.offer_inbox("Bob", &bob_id, &inbox).await.unwrap();
+	alice_dir
+		.offer_inbox(
+			"Bob",
+			&bob_id,
+			asked.opening.as_ref().unwrap().text().as_str().unwrap(),
+			&inbox,
+		)
+		.await
+		.unwrap();
 	let introduction = introducing.await.unwrap().unwrap();
 	assert_eq!(introduction.registration, alice_id);
 	let answer = introduction
@@ -285,6 +295,7 @@ async fn members() {
 	assert_eq!(requested.kind, Kind::DirectRequested);
 	assert_eq!(requested.registration, bob_id);
 
+	let retired_carol_name = carol_name.take_name().unwrap().unwrap();
 	// Signaling: Carol registers a webrtc designator, offers an inbox, and
 	// Bob's offer reaches it; Carol's answer and both candidates cross back.
 	let carol_id = carol_name
@@ -304,14 +315,30 @@ async fn members() {
 			other => panic!("unexpected watch event {other:?}"),
 		}
 	}
-	let mut carol_signaling = carol_dir.signaling_inbox().await.unwrap();
-	let exchange = bob_dir.signaling_exchange("carol-designator").unwrap();
+	let carol_name_ref = carol_name.take_name().unwrap().unwrap();
+	let carol_route = rooms_glowcap::client::directory::signaling::Route::new(carol.clone(), carol_name_ref.clone());
+	let bob_route =
+		rooms_glowcap::client::directory::signaling::Route::new(bob.clone(), bob_name.take_name().unwrap().unwrap());
+	for verb in [
+		"offerSignaling",
+		"signalOffer",
+		"signalAnswer",
+		"signalCandidate",
+		"signalDone",
+	] {
+		assert!(
+			carol.session().send(&retired_carol_name, verb, &[]).await.is_err(),
+			"retired name cannot signal through its successor: {verb}"
+		);
+	}
+	let mut carol_signaling = carol_route.signaling_inbox().await.unwrap();
+	let exchange = bob_route.signaling_exchange("carol-designator").unwrap();
 	exchange.offer(&Description::parse("v=0 offer").unwrap()).unwrap();
 	let Incoming::Offer { id, description } = carol_signaling.next().await.unwrap().expect("an offer") else {
 		panic!("expected an offer");
 	};
 	assert_eq!(description.as_str(), "v=0 offer");
-	carol_dir
+	carol_route
 		.signal_answer(&id, &Description::parse("v=0 answer").unwrap())
 		.unwrap();
 	assert_eq!(exchange.answer().await.unwrap().as_str(), "v=0 answer");
@@ -325,7 +352,7 @@ async fn members() {
 	};
 	assert_eq!(relayed, id);
 	assert_eq!(candidate.as_str(), "candidate:bob");
-	carol_dir
+	carol_route
 		.signal_candidate(
 			&id,
 			&rooms_application::signaling::Candidate::parse("candidate:carol").unwrap(),
@@ -337,11 +364,19 @@ async fn members() {
 	);
 	exchange.close().unwrap();
 	// An offer to a designator nobody registered is refused as offline.
-	let nowhere = bob_dir.signaling_exchange("nobody").unwrap();
+	let nowhere = bob_dir.signaling().signaling_exchange("nobody").unwrap();
 	nowhere.offer(&Description::parse("v=0").unwrap()).unwrap();
 	let refused = nowhere.answer().await.unwrap_err();
 	assert!(refused.to_string().contains("peer-offline"), "{refused}");
 
+	// Exact name retirement is idempotent and independent of transport close.
+	carol.session().send(&carol_name_ref, "leave", &[]).await.unwrap();
+	carol.session().send(&carol_name_ref, "leave", &[]).await.unwrap();
+	assert!(carol.session().send(&carol_name_ref, "voucher", &[]).await.is_err());
+	assert!(
+		carol_route.offer_signaling(&inbox).await.is_err(),
+		"retired exact name cannot file another signaling inbox"
+	);
 	// Carol leaving is told to the watcher, and her name frees.
 	drop((carol_signaling, carol_name, carol_dir));
 	closing_tolerated(carol.session().close(PendingWork::Cancel).await);
@@ -431,7 +466,7 @@ async fn expiry() {
 		.unwrap();
 	// Carol's signaling inbox takes every offer and answers none.
 	let silent = carol.session().spawn_owned(|_, _| Ok(Argument::Void)).unwrap();
-	carol_dir.offer_signaling(&silent).await.unwrap();
+	carol_dir.signaling().offer_signaling(&silent).await.unwrap();
 	let (heard, mut replies) = tokio::sync::mpsc::unbounded_channel();
 	let reply = bob
 		.session()
@@ -514,6 +549,8 @@ async fn restart() {
 					storage: None,
 					asked: Default::default(),
 					trace_port: 0,
+					trace_publish: None,
+					trace_connect: None,
 				},
 				Rc::new(|_| {})
 			)

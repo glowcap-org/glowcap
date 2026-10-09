@@ -8,7 +8,7 @@ const Descriptor = records.CapabilityRecord;
 const object: f.loam.core.ObjectId = .{ .store = f.store_id, .incarnation = 1, .sequence = 1 };
 
 fn encode(payload: []const u8, edges: []const f.loam.core.Edge) ![]u8 {
-    const row: f.loam.core.Record = .{ .id = object, .revision = 1, .schema = records.profile.capability, .payload = payload, .edges = edges };
+    const row: f.loam.core.Record = .{ .id = object, .revision = 1, .schema = records.profile.capability, .schema_version = Descriptor.version, .payload = payload, .edges = edges };
     return row.encodeAlloc(a, f.limits.records, &f.schemas);
 }
 fn view(bytes: []const u8) !f.loam.core.RecordView {
@@ -19,7 +19,7 @@ test "access capability descriptors bound selected controls and refuse malformed
     var selected: [c.core.max_scope_objects]c.core.ResourceId = undefined;
     for (&selected, 0..) |*id, i| id.* = .{ .owner = @fromBackingInt(71), .slot = @intCast(i), .generation = 1 };
     const ceiling = try f.vocabulary.terms(.{ .objects = &selected }, &.{f.vocabulary.read}, 100);
-    var descriptor: Descriptor = .{ .owner = object, .grant_object = object, .grant = .{ .owner = @fromBackingInt(71), .slot = 0, .generation = 1 }, .role = .control, .powers = .{ .policy_ceiling = ceiling, .resume_access = true } };
+    var descriptor: Descriptor = .{ .owner = object, .grant_object = object, .grant = .{ .owner = @fromBackingInt(71), .slot = 0, .generation = 1 }, .role = .control, .powers = .{ .policy_ceiling = ceiling, .issue_ceiling = ceiling, .resume_access = true } };
     const payload = try descriptor.encodeAlloc(a);
     defer a.free(payload);
     var descriptor_edges: [3]f.loam.core.Edge = undefined;
@@ -28,7 +28,7 @@ test "access capability descriptors bound selected controls and refuse malformed
     var failing = std.testing.FailingAllocator.init(a, .{});
     var decoded = try Descriptor.decodeOwned(failing.allocator(), try view(bytes));
     defer decoded.deinit(failing.allocator());
-    try std.testing.expectEqual(@as(usize, 1), failing.alloc_index);
+    try std.testing.expectEqual(@as(usize, 2), failing.alloc_index);
     try std.testing.expectEqualDeep(descriptor, decoded.value);
     descriptor.role = .use;
     try std.testing.expectError(error.InvalidRecord, descriptor.encodeAlloc(a));
@@ -74,7 +74,7 @@ test "access stored capability refuses a substituted grant retention edge" {
     descriptor.value.grant_object = owner;
     try store.begin();
     var descriptor_edges: [3]f.loam.core.Edge = undefined;
-    try store.putCopying(.{ .id = id, .revision = 0, .schema = row.schema, .payload = row.payload, .edges = descriptor.value.edges(&descriptor_edges), .rooted = true }, row.revision);
+    try store.putCopying(.{ .id = id, .revision = 0, .schema = row.schema, .schema_version = row.schema_version, .payload = row.payload, .edges = descriptor.value.edges(&descriptor_edges), .rooted = true }, row.revision);
     try store.release(lease);
     try f.commit(store, backend);
     const held = try c.use(&caps, backend, id);

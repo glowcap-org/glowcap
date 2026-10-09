@@ -23,6 +23,10 @@ use rooms_application::{
 };
 use rooms_glowcap::Value;
 use std::{cell::Cell, rc::Rc};
+mod public_membership;
+mod publication_link;
+pub(super) use public_membership::subscribe_publication;
+pub(super) use publication_link::link_publication;
 
 /// The key a durable name's room lives under.
 pub(super) fn durable_key(name: &str) -> RoomKey {
@@ -39,7 +43,7 @@ pub(super) fn fresh(state: &State) -> Result<Fresh, String> {
 	for _ in 0..8 {
 		rooms_platform::entropy::fill(&mut bytes).map_err(|e| format!("drawing a room identity failed: {e}"))?;
 		let entry_id = Id::from_entropy(bytes);
-		if state.rooms.entry_id_known(&entry_id) {
+		if state.rooms.entry_id_known(&entry_id) || state.authority.publication_room(entry_id.as_str()).is_some() {
 			continue;
 		}
 		rooms_platform::entropy::fill(&mut bytes).map_err(|e| format!("drawing a room key failed: {e}"))?;
@@ -370,7 +374,7 @@ pub(super) fn directory_verb(
 			let found = if verb == creation::ENTER {
 				state.rooms.enter(name, &state.authority)
 			} else {
-				state.rooms.enter_publication(name)
+				state.rooms.enter_publication(name, &state.authority)
 			}
 			.map_err(refusal)?;
 			let session = state

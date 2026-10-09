@@ -1,4 +1,4 @@
-//! Bounded native custody of durable managed references on one existing Store.
+//! Bounded privileged custody of durable managed references on one existing Store.
 const std = @import("std");
 const loam = @import("loam_core");
 const core = @import("loam_access_core");
@@ -30,7 +30,7 @@ pub const Capabilities = struct {
         self.* = undefined;
     }
 
-    /// Privileged creation persists a descriptor; no native reference escapes
+    /// Privileged creation persists a descriptor; no reference escapes
     /// before commit. The caller roots it or retains it through content edges.
     pub fn stageUse(self: *Capabilities, read: *Read, grant: core.GrantId, rooted: bool) !loam.ObjectId {
         if (read.store != self.store) return error.ForeignStore;
@@ -56,7 +56,7 @@ pub const Capabilities = struct {
             if ((try records.TerminalRecord.decode(row)).kind != .capability) return error.InvalidRecord;
             return error.CapabilityRetired;
         }
-        var scratch: [core.max_scope_objects * @sizeOf(core.ResourceId)]u8 align(@alignOf(core.ResourceId)) = undefined;
+        var scratch: [records.CapabilityRecord.selection_bytes]u8 align(@alignOf(core.ResourceId)) = undefined;
         var fixed = std.heap.FixedBufferAllocator.init(&scratch);
         const decoded = try Descriptor.decodeOwned(fixed.allocator(), row);
         if (decoded.value.role != role) return error.WrongRole;

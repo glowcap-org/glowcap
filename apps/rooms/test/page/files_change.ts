@@ -39,6 +39,22 @@ export async function runChange(
 			undefined,
 			{ timeout: 30_000 },
 		).catch(() => fail("the second peer never saw the file line to be refiled"));
+		// Delivery precedes receipt adoption. Until acknowledgment, the sender
+		// may show both its pending upload and the server echo; reconciliation
+		// retires that echo. Edit the acknowledged original, whose identity stays.
+		await tab.waitForFunction(
+			() => {
+				const lines = [...document.querySelectorAll(".bubble")].filter((bubble) =>
+					[...bubble.querySelectorAll(".attach-file .name")].some((name) =>
+						name.textContent === "refile-me.txt"
+					)
+				);
+				return lines.length === 1 && !lines[0].classList.contains("sending") &&
+					(document.querySelector("#line") as HTMLTextAreaElement | null)?.value === "";
+			},
+			undefined,
+			{ timeout: 30_000 },
+		).catch(() => fail("the sender never acknowledged the original file line before editing"));
 
 		const line = tab.locator('.bubble:has-text("refile-me.txt")').last();
 		await line.hover();
@@ -236,6 +252,10 @@ export async function runChange(
 	await tab.click("#sendBtn");
 	await tab.waitForSelector(".row.mine .attach-file .icon-button", { timeout: 30_000 })
 		.catch(() => fail("the sender never saw its own file action"));
+	await tab.waitForFunction(() => {
+		const action = document.querySelector(".row.mine .attach-file .icon-button");
+		return action instanceof HTMLButtonElement && !action.disabled && !action.closest(".sending");
+	}).catch(() => fail("the sender's file action never became ready"));
 	const originalTheme = await tab.getAttribute("html", "data-theme");
 	for (const theme of ["light", "dark"] as const) {
 		await tab.evaluate((theme) => document.documentElement.setAttribute("data-theme", theme), theme);
@@ -258,7 +278,7 @@ export async function runChange(
 			);
 		}
 		for (const selector of [".row.mine .attach-file .glyph", ".row.mine .attach-file .sub"]) {
-			const inkRatio = await bubbleInkContrast(tab, selector, ".attach-file");
+			const inkRatio = await bubbleInkContrast(tab, selector);
 			if (!("ratio" in inkRatio) || inkRatio.ratio < 4.5) {
 				fail(
 					`${theme} ${selector} falls to ${

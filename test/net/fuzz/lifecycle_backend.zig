@@ -169,6 +169,12 @@ pub const LifecycleBackend = struct {
         self.* = .{};
     }
 
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
+    }
+
     pub fn openListener(self: *@This(), port: u16) !Fd {
         _ = port;
         self.next_fd += 1;

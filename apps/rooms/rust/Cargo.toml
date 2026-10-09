@@ -54,6 +54,19 @@ unsafe_code = "forbid"
 # first exception has to be written down rather than achieved with a flag.
 all = { level = "deny", priority = -1 }
 
+[profile.test]
+# Keep source locations for failure backtraces without full variable/type
+# debug data in every test binary. CARGO_PROFILE_TEST_DEBUG=2 opts back in.
+debug = "line-tables-only"
+
+[profile.browser-proof]
+# Contract execution needs optimized loops, without deployment's whole-program
+# link. Keep this output separate so proofs cannot replace deployable artifacts.
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+
 [profile.release]
 lto = true
 codegen-units = 1

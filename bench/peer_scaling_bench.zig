@@ -116,8 +116,8 @@ pub const Scenario = enum {
     active16,
     /// The loop-driven path (ADR-0057): a warmed peer plus the `driver.Served`
     /// serve core (the vat and the bounded partner-abort retention) with one
-    /// published capability, the slot a bridged completion loop
-    /// (`iroh.Backend` + `driver.Bridge` + Host) holds per connection. This is
+    /// published capability, the slot a `driver.HostRuntime` over an iroh
+    /// resident holds per connection. This is
     /// the marginal cost a connection
     /// adds when served from one loop thread rather than a thread of its own, the
     /// number the `iroh-loop` gate proves at scale.

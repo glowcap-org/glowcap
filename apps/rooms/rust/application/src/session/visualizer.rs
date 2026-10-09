@@ -10,16 +10,3 @@ pub(crate) fn parse_endpoint(value: &str) -> Result<url::Url, &'static str> {
 	}
 	Ok(url)
 }
-pub fn override_refusal(value: &str) -> Option<&'static str> {
-	if value.is_empty() {
-		return None;
-	}
-	let url = match parse_endpoint(value) {
-		Ok(url) => url,
-		Err(reason) => return Some(reason),
-	};
-	if url.fragment().is_some_and(|fragment| !fragment.is_empty()) {
-		return Some("The visualizer endpoint cannot include a fragment.");
-	}
-	None
-}

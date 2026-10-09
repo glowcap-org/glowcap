@@ -10,7 +10,7 @@ const model = @import("model");
 const driver = @import("driver");
 const owner_mod = @import("provider_registry/owner.zig");
 const install_outcome = @import("provider_registry/install_outcome.zig");
-const stream_adapter = @import("provider_registry/stream.zig");
+const stream_adapter = @import("provider_registry/stream_resident.zig");
 const multiplexed_adapter = @import("provider_registry/multiplexed.zig");
 const validation = @import("provider_registry/validation.zig");
 const driver_error = @import("error.zig");
@@ -50,11 +50,16 @@ const PreparedPackage = struct {
     fn releaseOwner(raw: *anyopaque) ?driver.OperationFailure {
         const self: *PreparedPackage = @ptrCast(@alignCast(raw));
         const owner = self.owner;
-        for (self.adapters) |adapter| adapter.deinit(owner);
+        var failure: ?driver.OperationFailure = null;
+        for (self.adapters) |adapter| if (adapter.deinit(owner)) |cleanup| {
+            if (failure) |*first| first.noteFailure(cleanup) else failure = cleanup;
+        };
         owner.allocator.free(self.adapters);
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.release(self.lease_ctx, &report);
-        const failure = owner.providerCallbackFailure(code, report, "provider package release");
+        if (owner.providerCallbackFailure(code, report, "provider package release")) |released| {
+            if (failure) |*first| first.noteFailure(released) else failure = released;
+        }
         owner.allocator.destroy(self);
         return failure;
     }
@@ -165,7 +170,9 @@ pub const Registry = struct {
         var prepared: usize = 0;
         var owned: usize = 0;
         var published = false;
-        defer if (!published) for (owned_adapters[0..owned]) |adapter| adapter.deinit(&self.owner);
+        defer if (!published) for (owned_adapters[0..owned]) |adapter| {
+            if (adapter.deinit(&self.owner)) |cleanup| self.owner.runtime.reportUnhandledFailure(cleanup);
+        };
 
         for (entries, prepared_entries, decoded_profiles) |entry, *prepared_entry, profile| {
             const implementation = entry.implementation orelse {
@@ -224,7 +231,7 @@ pub const Registry = struct {
         const registrations = self.owner.allocator.alloc(driver.HostRuntime.ProviderRegistration, entries.len) catch
             return .fromError(error.OutOfMemory);
         defer self.owner.allocator.free(registrations);
-        const resident_indices = self.owner.allocator.alloc(?usize, entries.len) catch
+        const resident_indices = self.owner.allocator.alloc(usize, entries.len) catch
             return .fromError(error.OutOfMemory);
         defer self.owner.allocator.free(resident_indices);
         for (prepared_entries, registrations) |entry, *registration| {
@@ -285,19 +292,17 @@ const Adapter = union(enum) {
         self: Adapter,
         profile: model.transport.Metadata,
     ) driver.HostRuntime.ProviderRegistration {
-        return switch (self) {
-            .stream => |adapter| .{ .stream = adapter.netlayer() },
-            .multiplexed => |adapter| .{ .multiplexed = .{
-                .profile = profile,
-                .resident = adapter.multiplexedResident(),
-            } },
-        };
+        return .{ .profile = profile, .resident = switch (self) {
+            .stream => |adapter| adapter.multiplexedResident(),
+            .multiplexed => |adapter| adapter.multiplexedResident(),
+        } };
     }
 
-    fn deinit(self: Adapter, owner: *Owner) void {
+    fn deinit(self: Adapter, owner: *Owner) ?driver.OperationFailure {
         switch (self) {
-            .stream => |adapter| adapter.deinit(),
+            .stream => |adapter| return adapter.deinit(),
             .multiplexed => |adapter| owner.allocator.destroy(adapter),
         }
+        return null;
     }
 };

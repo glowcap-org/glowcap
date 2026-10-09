@@ -7,10 +7,14 @@ decision: "Browser storage evaluates shared Zig transactions through bounded tra
 supersedes: []
 superseded_by: []
 amends: [ADR-0185]
-amended_by: []
+amended_by: [ADR-0200]
 ---
 
 # ADR-0186 Loam browser transaction execution
+
+[ADR-0200](ADR-0200-resumable-loam-batch-evaluation.md) replaces the
+discard-and-replay policy and narrows backend row borrows to the next callback.
+Terminal custody, strict durability and exclusive opening remain in force.
 
 ## Context
 

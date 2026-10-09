@@ -61,9 +61,9 @@ async def accept_loop(server, served: list) -> None:
 
 
 async def run() -> None:
-    # ── Server: a giftable greeter, dialable by node id alone over discovery ──────
+    # ── Server: a Host publication greeter, dialable by node id alone over discovery ──────
     server = await listen(IrohConfig(Reachability.DISCOVERY))
-    server.host.publish_giftable("greeter", greeter)
+    server.host.publish("greeter", greeter)
     server_id = server.node_id
     served: list = []
     server_task = asyncio.create_task(accept_loop(server, served))

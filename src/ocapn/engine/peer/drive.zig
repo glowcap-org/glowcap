@@ -57,6 +57,10 @@ pub fn step(self: *Peer) !events.StepOutcome {
         try inbound.dispatchOwnedFrame(self, frame);
         return .progress;
     }
+    // A carrier still in Node staging holds every later one behind it; its
+    // batch flushes this Peer when it fills or removes the row. A closed
+    // session discards rows instead, so it never waits.
+    if (self.blockedOnStaging() and !self.sessionIsClosed()) return .idle;
     if (self.pending_send.peek() != null) {
         outbound.stepPending(self) catch |err| {
             failures.projectDeferredStepFailure(self, err);

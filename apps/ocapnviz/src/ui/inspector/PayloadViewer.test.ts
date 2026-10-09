@@ -1,8 +1,9 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { installMemoryStorage } from "../../state/memory-storage.ts";
 import { derivationNote, hexGroupFor, loadPersistedViewMode, payloadState, renderPayload } from "./PayloadViewer.tsx";
 
-// Deno provides a real localStorage, so the round trip runs against
-// the same storage the browser uses.
+// The round trip runs against storage only this file can see.
+installMemoryStorage();
 
 Deno.test("the payload lens persists and survives a malformed store", () => {
 	localStorage.setItem("ocapnviz:payload-view-mode", "utf-8");

@@ -32,9 +32,9 @@ const DelayedStop = struct {
         result.listen.?.finish_accept = accept;
         break :blk result;
     };
-    fn listen(ctx: *anyopaque, route: usize, transport: []const u8, requested: []const u8, options: net.netlayer.OperationOptions) net.MultiplexedResident.RawListenStartOutcome {
+    fn listen(ctx: *anyopaque, route: usize, transport: []const u8, config: net.netlayer.ListenConfig) net.MultiplexedResident.RawListenStartOutcome {
         from(ctx).route = route;
-        return base.listen.?.listen(ctx, route, transport, requested, options);
+        return base.listen.?.listen(ctx, route, transport, config);
     }
     fn accept(ctx: *anyopaque, listener: *anyopaque) net.MultiplexedResident.RawFinishAcceptOutcome {
         if (from(ctx).fail_accept) return .{ .failed = .init(error.ConnectionLost) };
@@ -70,11 +70,11 @@ test "native Server: resident close joins physical stop and advertisement refusa
     defer threaded.deinit();
     var resident = DelayedStop{ .inner = try fixtures.AcceptOwnershipResident.init() };
     defer resident.inner.deinit();
-    const providers = [_]driver.HostRuntime.ProviderRegistration{.{ .multiplexed = .{
+    const providers = [_]driver.HostRuntime.ProviderRegistration{.{
         .profile = .{ .symbol = fixtures.AcceptOwnershipResident.transport, .designator_scheme = .address },
         .resident = resident.resident(),
-    } }};
-    const server = try driver.listenProviders(allocator, threaded.io(), &providers, fixtures.AcceptOwnershipResident.transport, .{ .designator = "" }, .ephemeral, fixtures.opts);
+    }};
+    const server = try driver.listen(allocator, threaded.io(), .{ .residents = &providers }, fixtures.AcceptOwnershipResident.transport, .{ .designator = "" }, .ephemeral, fixtures.opts);
     defer server.deinit();
     try std.testing.expectEqualStrings("resident.test:1", (try server.advertisedLocator()).designator);
     try std.testing.expectError(error.InvalidAddress, server.setAdvertisedLocator(.{
@@ -100,11 +100,11 @@ test "native Server: close claims a failure delivered during asynchronous stop" 
     defer threaded.deinit();
     var resident = DelayedStop{ .inner = try fixtures.AcceptOwnershipResident.init(), .fail_stop = true };
     defer resident.inner.deinit();
-    const providers = [_]driver.HostRuntime.ProviderRegistration{.{ .multiplexed = .{
+    const providers = [_]driver.HostRuntime.ProviderRegistration{.{
         .profile = .{ .symbol = fixtures.AcceptOwnershipResident.transport, .designator_scheme = .address },
         .resident = resident.resident(),
-    } }};
-    const server = try driver.listenProviders(allocator, threaded.io(), &providers, fixtures.AcceptOwnershipResident.transport, .{ .designator = "" }, .ephemeral, fixtures.opts);
+    }};
+    const server = try driver.listen(allocator, threaded.io(), .{ .residents = &providers }, fixtures.AcceptOwnershipResident.transport, .{ .designator = "" }, .ephemeral, fixtures.opts);
     defer server.deinit();
     const failure = server.close().?;
     try std.testing.expectEqual(error.ConnectionLost, failure.cause);
@@ -120,11 +120,11 @@ test "native Server: ready wait releases affinity and close claims an unconsumed
     const io = threaded.io();
     var resident = DelayedStop{ .inner = try fixtures.AcceptOwnershipResident.init(), .fail_accept = true };
     defer resident.inner.deinit();
-    const providers = [_]driver.HostRuntime.ProviderRegistration{.{ .multiplexed = .{
+    const providers = [_]driver.HostRuntime.ProviderRegistration{.{
         .profile = .{ .symbol = fixtures.AcceptOwnershipResident.transport, .designator_scheme = .address },
         .resident = resident.resident(),
-    } }};
-    const server = try driver.listenProviders(allocator, io, &providers, fixtures.AcceptOwnershipResident.transport, .{ .designator = "" }, .ephemeral, fixtures.opts);
+    }};
+    const server = try driver.listen(allocator, io, .{ .residents = &providers }, fixtures.AcceptOwnershipResident.transport, .{ .designator = "" }, .ephemeral, fixtures.opts);
     defer server.deinit();
     resident.inner.announceAccept();
     try std.testing.expect(try server.waitAcceptable(100));

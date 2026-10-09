@@ -37,12 +37,12 @@ import { PostedLine } from "./posted_line.ts";
 import { refuseCapabilityArguments, releaseUnexpectedCapabilityArguments } from "./argument_custody.ts";
 import { lineCost, MAX_LINE } from "./limits.ts";
 
-/** The direct protocol a caller is prepared to receive on the reply route it
- * hands to the peer. Messages are the base contract; optional sibling verbs
- * are refused rather than silently reported as delivered. */
+/** The direct protocol accepted on a public inbox or reply route. Messages and
+ * reciprocal route delivery are the base contract. Optional sibling verbs
+ * return their actual supported outcome. */
 export interface DirectMessageReceiver {
 	message(text: string, attachments: Attachment[], session: Session, reply: Ref | null): ReturnType<Behavior>;
-	ready?(session: Session, reply: Ref): void | Promise<void>;
+	ready(session: Session, reply: Ref): void | Promise<void>;
 	typing?(on: boolean): void;
 	handRoom?(label: string, room: Ref, session: Session): void | Promise<void>;
 	offerRoom?(label: string, link: string): void | Promise<void>;
@@ -75,9 +75,6 @@ export function directMessageReceiverBehavior(
 		if (verb === DIRECT_READY) {
 			if (args.length !== 1 || !(args[0] instanceof Ref)) {
 				refuseCapabilityArguments(session(), args, "directReady takes one reply capability");
-			}
-			if (receiver.ready == null) {
-				refuseCapabilityArguments(session(), args, "direct inbox cannot establish a reciprocal route");
 			}
 			return Promise.resolve(receiver.ready(session(), args[0])).then(() => null);
 		}

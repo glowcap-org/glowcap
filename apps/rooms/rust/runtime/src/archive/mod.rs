@@ -25,7 +25,6 @@ mod operation;
 mod publications;
 pub mod recording;
 pub mod session;
-pub mod shares;
 mod worker;
 use operation::Operation;
 pub use worker::{Report, Worker};
@@ -47,6 +46,14 @@ pub trait Backend {
 	/// Trusted owner operation; archive facets have no wire erasure verb.
 	fn clear(&mut self) -> impl Future<Output = Result<(), Error>> {
 		async { Err(Error::refused("archive backend does not support local erasure")) }
+	}
+	/// Trusted owner erasure for exactly one recorder account. Preserve every
+	/// other owner's records, shared blob custody, and the global revision.
+	fn clear_source(
+		&mut self,
+		_source: &rooms_application::text::DocumentText,
+	) -> impl Future<Output = Result<(), Error>> {
+		async { Err(Error::refused("archive backend does not support scoped erasure")) }
 	}
 	fn durable_shares(&self) -> bool {
 		false

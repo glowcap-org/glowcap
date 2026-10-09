@@ -114,7 +114,7 @@ pub async fn run() {
 		let caller_key = caller.designator().unwrap();
 		let server_key = server.designator().unwrap();
 		server
-			.publish_giftable("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
+			.publish("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
 			.unwrap();
 		let first = Rc::new(Queue::default());
 		let second = Rc::new(Queue::default());

@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { chromium } from "playwright";
 
 const wasm = await readFile(
-	new URL("../../target/wasm32-unknown-unknown/release/rooms_contract_proofs.wasm", import.meta.url),
+	new URL("../../target/wasm32-unknown-unknown/browser-proof/rooms_contract_proofs.wasm", import.meta.url),
 );
 const module = await WebAssembly.compile(wasm);
 assert.deepEqual(WebAssembly.Module.imports(module), [], "application/Host calls must stay inside the linked module");

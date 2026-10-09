@@ -9,8 +9,8 @@ async fn callback_session_projects_the_turn_and_clears_after_unwind() {
 			let server = listen("127.0.0.1:0").await.unwrap();
 			let locator = server.locator().unwrap();
 			let (caller, accepted) = tokio::join!(connect(&locator, ConnectOptions::default()), server.accept());
-			let caller = caller.unwrap().with_gc();
-			let accepted = Rc::new(accepted.unwrap().with_gc());
+			let caller = caller.unwrap();
+			let accepted = Rc::new(accepted.unwrap());
 			let expected = accepted.clone();
 			let root = accepted
 				.publish("current", move |verb, _| {

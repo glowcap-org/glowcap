@@ -5,7 +5,10 @@ const records = @import("loam_access_records");
 const Row = @import("read.zig").Read.Row;
 
 pub fn put(store: *loam.Store, object: loam.ObjectId, schema: u64, payload: []const u8, edges: []const loam.Edge, expected: ?u64, rooted: bool) !void {
-    try store.putCopying(.{ .id = object, .revision = 0, .schema = schema, .payload = payload, .edges = edges, .rooted = rooted }, expected);
+    const version = for (records.profile.schemas) |entry| {
+        if (entry.id == schema) break entry.version;
+    } else return error.UnsupportedSchema;
+    try store.putCopying(.{ .id = object, .revision = 0, .schema = schema, .schema_version = version, .payload = payload, .edges = edges, .rooted = rooted }, expected);
 }
 
 pub fn putEncoded(store: *loam.Store, object: loam.ObjectId, schema: u64, value: anytype, edges: []const loam.Edge, expected: ?u64, rooted: bool) !void {

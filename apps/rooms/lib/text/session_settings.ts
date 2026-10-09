@@ -159,9 +159,9 @@ export const sessionDataMessagesApart = "Messages are kept separately, under Mes
 export const sessionDataExportTitle = "Export a copy";
 export const sessionDataIncludeCapabilities = "Include remembered capabilities";
 export function sessionDataIncludeCapabilitiesSaid(shared: boolean): string {
-	return `The file will also hold the links that grant access to rooms, operations, moderation, and any archive${
-		shared ? ", and this session's own capability" : ""
-	}. Anyone with the file could use them.`;
+	return `The file will also hold the selected links that grant access to rooms, operations, moderation, and any archive${
+		shared ? " in the shared workspace" : ""
+	}. Anyone with the file could use them. It does not include session management.`;
 }
 export const sessionDataExport = "Export state";
 export const sessionDataImportTitle = "Replace from a file";
@@ -169,13 +169,14 @@ export const sessionDataImportSharedHint =
 	"Importing replaces the shared session's rooms and settings once the file checks out, and this browser stays attached. A file that carries capabilities grants every one of them.";
 export const sessionDataImportLocalHint =
 	"Importing replaces this browser's rooms and settings once the file checks out. A file that carries capabilities grants every one of them.";
-export const sessionDataImport = "Import and reload";
+export const sessionDataImport = "Import state";
+export const sessionDataImported = (name: string) => `Imported ${name}.`;
 export const sessionDataClearSharedTitle = "Start the session over";
 export const sessionDataClearLocalTitle = "Start over";
 export const sessionDataClearSharedHint =
 	"Everyone attached starts again from no rooms and no settings. The session itself stays, and message archives are not erased.";
 export const sessionDataClearLocalHint =
-	"This browser forgets its rooms, settings, and remembered capabilities, then goes back to choosing a session. Rooms on servers and archives elsewhere are not erased.";
+	"This session forgets its rooms, settings, and remembered capabilities. This browser stays on the empty session. Rooms on servers and archives elsewhere are not erased.";
 export const sessionDataClearSharedLabel = "Reset the shared session";
 export const sessionDataClearLocalLabel = "Delete this browser's session";
 export const sessionDataClearSharedSay = "Every attached browser sees an empty session the moment this goes through.";
@@ -194,25 +195,22 @@ export function historyPeerUnavailableSaid(label: string): string {
 }
 export const historyTitle = "Message history";
 export const historyArchiveTitle = "Archive capability";
-export const historyOwnedSession = "Keeps this shared session's message history.";
-export const historyOwnedBrowser = "Keeps message history in this browser.";
+export const historyOwnedSession = "Keeps this session's message history.";
 export const historyUseSessionArchive = "Use session archive";
-export const historyUseBrowser = "Use this browser";
 export const historyChangePeerAsk = "Change archive peer…";
 export const historyUsePeerAsk = "Use an archive peer…";
 export const historyPeerTaken = "This archive peer keeps new history now.";
 export const historyPeerModalLead =
 	"A separate glowcap peer keeps your history. Rooms and message recipients never receive it.";
-export const historyPeerSessionRetains = "The shared session retains this for every attached view.";
-export const historyPeerRemember = "Remember in this browser";
-export const historyPeerRememberSaid = "Stores its bearer and reconnects after reload. Clear means this page only.";
+export const historyPeerSessionRetains =
+	"This session retains the archive capability across reloads and for every attached view.";
 export const historyPeerCommit = "Use archive peer";
 
 /** Holdings: the capabilities this session has. Its lead and the title of
  * its access well are `ops.ts`'s and `settings.ts`'s. */
 export const holdingsCopyHosted = "Copy the hosted session capability";
 export const holdingsCopyAttached = "Copy the attached session capability";
-export const holdingsManageAccessAsk = "Manage access…";
+export const sessionManageAccessAsk = "Manage access…";
 export const holdingsSavedTitle = "Saved bearer authority";
 export const holdingsSavedEmpty = "This session has saved no room authority.";
 export const holdingsEntryLink = "Entry link";

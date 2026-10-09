@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // Two browser tabs direct-message each other end to end on the page's default
 // DM transport: each advertises a `webrtc` locator, and the room carries only
 // the signaling (ADR-0089). Neither tab opens a listening socket, so neither
@@ -35,11 +36,10 @@ import { Buffer } from "node:buffer";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { inkContrast } from "../ink_contrast.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
-import { awaitBubble, confirmTitleLeave, fail, openDmTo } from "../page/harness.ts";
+import { awaitBubble, confirmTitleLeave, directOpened, fail, openDmTo } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, from one browser tab to another";
@@ -141,7 +141,7 @@ const roomPort = freePort();
 
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`), so the whole proof is deno-only.
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",
@@ -162,7 +162,7 @@ try {
 
 	// Alice dials Bob: opening the DM redeems the room's introduction, the
 	// directory carries the signaling, and the DataChannel session opens
-	// tab-to-tab. Her line lands on Bob's giftable `dm`.
+	// tab-to-tab. Her line lands on Bob's Host publication `dm`.
 	await openDmTo(alice.tab, "web-bob");
 	await send(alice.tab, DM_TEXT);
 
@@ -369,7 +369,7 @@ try {
 	// introduction, redeemed by a fresh dial, because the first line's
 	// connection is gone.
 	await again.click();
-	await alice.tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
+	await directOpened(alice.tab, "web-bob", 10_000);
 	// The reopened line stands on what this device kept of the first one: the
 	// remembered messages, then the divider saying where they came from.
 	await alice.tab.waitForSelector('.sys-line:has-text("Earlier messages, kept on this device")', {

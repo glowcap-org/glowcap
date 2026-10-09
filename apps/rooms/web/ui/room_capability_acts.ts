@@ -33,7 +33,7 @@ export function useRoomCapabilityActs(
 	const directoryOperatorPossessed = useRoomsState((state) => state.operator !== null && state.homeDir === conv.dir);
 	const directoryOperatorCanManage = directoryOperatorPossessed && authoritySource === "local";
 	const [managerPasted, setManagerPasted] = useState("");
-	const [takingManager, setTakingManager] = useState(false);
+	const [takingManager, setTakingManager] = useState<"take" | "recover" | null>(null);
 	const [managerSaid, setManagerSaid] = useState("");
 	const [pasted, setPasted] = useState("");
 	const [taking, setTaking] = useState<"claim" | "form" | null>(null);
@@ -47,11 +47,15 @@ export function useRoomCapabilityActs(
 	const [policyBusy, setPolicyBusy] = useState(false);
 	const [policySaid, setPolicySaid] = useState("");
 	const commit = useCommitSettling();
-	const authorityWorking = takingManager || taking !== null || linking || authorityBusy !== null;
+	// Every act here changes the same room's authority or access, so while one
+	// runs the others wait rather than race it.
+	const authorityWorking = takingManager !== null || taking !== null || linking || authorityBusy !== null ||
+		policyBusy;
 	const held = conv.grants.has("steward");
 	const managerHeld = conv.managerToken !== undefined;
 	const canRevoke = managerHeld || directoryOperatorCanManage;
 	const changePolicy = (next: RoomPreset) => {
+		if (authorityWorking) return;
 		setPolicyBusy(true);
 		setPolicySaid("");
 		void actionRefusal(() => session.setManagedRoomPolicy(conv.key, policyForRoomPreset(next))).then((refused) => {
@@ -70,7 +74,7 @@ export function useRoomCapabilityActs(
 	useChangeGroup(`room-capabilities:${conv.key}`, {
 		dirty: (managerTakeShown && managerPasted !== "") || (stewardTakeShown && pasted !== ""),
 		discard: () => {
-			if (takingManager || taking !== null || linking || authorityBusy !== null) {
+			if (authorityWorking) {
 				throw new Error(roomCapabilityWait);
 			}
 			setManagerPasted("");
@@ -97,22 +101,22 @@ export function useRoomCapabilityActs(
 	};
 	const takeManager = () => {
 		commit.begin();
-		setTakingManager(true);
+		setTakingManager("take");
 		setManagerSaid("");
 		void actionRefusal(() => session.managerRoom(conv.key, managerPasted)).then((refused) => {
 			setManagerSaid(locatorRefusal(refused, "room manager link"));
 			if (refused === "") setManagerPasted("");
 		}).finally(() => {
-			setTakingManager(false);
+			setTakingManager(null);
 			commit.finish();
 		});
 	};
 	const recoverManager = () => {
 		commit.begin();
-		setTakingManager(true);
+		setTakingManager("recover");
 		setManagerSaid("");
 		void actionRefusal(() => session.recoverRoomManager(conv.key)).then(setManagerSaid).finally(() => {
-			setTakingManager(false);
+			setTakingManager(null);
 			commit.finish();
 		});
 	};

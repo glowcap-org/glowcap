@@ -19,12 +19,14 @@ import { useHeldModal, useModalDialog } from "../modal.ts";
 import { ModalHead } from "../ModalHead.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Button } from "../Button.tsx";
+import { WorkingAction } from "../WorkingAction.tsx";
 import { StandingMenu } from "../Standing.tsx";
 import { CopyField } from "../Copy.tsx";
 import { Icon } from "../icons.tsx";
 import { DirectoryFacts, GrantedNameNote } from "./DirectoryFacts.tsx";
 import { Said } from "../Said.tsx";
 import { actionRefusal } from "../error_text.ts";
+import { useAsyncAction } from "../async_action.ts";
 import {
 	directoryAnd,
 	directoryLeaveAsk,
@@ -37,6 +39,7 @@ import {
 	directoryNothingOpen,
 	directoryRetry,
 	directoryRetrying,
+	directoryRetryStop,
 	directoryRoomsCount,
 	directoryThisCloses,
 	factCopyLocatorFor,
@@ -161,22 +164,21 @@ function DirectoryDialog(
 	// card's own Leave control still own the local answer. Closing must not
 	// rewrite that answer, or the exit transition would drop the question.
 	const [asking, setAsking] = useState(askingLeave);
-	const [retrying, setRetrying] = useState(false);
+	const leaving = useAsyncAction(() => session.leaveDirectory(dir.id));
 	const [retryWhy, setRetryWhy] = useState("");
+	// Reaching a directory can wait on the network, so the reader can stop it.
+	const retry = useAsyncAction(async (signal) => {
+		setRetryWhy("");
+		const why = await actionRefusal(() =>
+			session.reachDirectory(dir.locator, { kind: "exact", name: dir.requestedNick }, signal)
+		);
+		if (!signal.aborted) setRetryWhy(why);
+	});
 	useEffect(() => {
 		if (askingLeave) setAsking(true);
 		else if (open) setAsking(false);
 	}, [askingLeave, open]);
 	const name = directoryName(dir.id, homeDir);
-	const retry = (): void => {
-		if (retrying) return;
-		setRetrying(true);
-		setRetryWhy("");
-		void actionRefusal(() => session.reachDirectory(dir.locator, { kind: "exact", name: dir.requestedNick })).then(
-			setRetryWhy,
-		)
-			.finally(() => setRetrying(false));
-	};
 	return (
 		// `modal` is the layer; its ::backdrop uses the same `--cover` paint as
 		// the phone's `#cover`. `modal-card` is the panel that rises in it. Naming
@@ -264,21 +266,33 @@ function DirectoryDialog(
 								commit={directoryLeaveCommit}
 								keepId="dircardLeaveStay"
 								commitId="dircardLeave"
+								busy={leaving.busy}
 								onKeep={() => {
 									setAsking(false);
 									if (askingLeave) browser.aboutDirectory(dir.id);
 								}}
-								onCommit={() => session.leaveDirectory(dir.id)}
+								onCommit={() => void leaving.run()}
 							/>
 						)
 						: (
 							<div className="actions">
-								{dir.session === "disconnected" && (
-									<Button id="dircardRetry" onClick={retry} disabled={retrying}>
-										{retrying ? directoryRetrying : directoryRetry}
-									</Button>
+								{(dir.session === "disconnected" || retry.busy) && (
+									<WorkingAction
+										id="dircardRetry"
+										busy={retry.busy}
+										stopLabel={directoryRetryStop}
+										onStop={retry.cancel}
+										onClick={() => void retry.run()}
+									>
+										{retry.busy ? directoryRetrying : directoryRetry}
+									</WorkingAction>
 								)}
-								<Button id="dircardLeaveAsk" variant="quiet" onClick={() => setAsking(true)}>
+								<Button
+									id="dircardLeaveAsk"
+									variant="quiet"
+									disabled={retry.busy}
+									onClick={() => setAsking(true)}
+								>
 									{directoryLeaveDoor}
 								</Button>
 							</div>

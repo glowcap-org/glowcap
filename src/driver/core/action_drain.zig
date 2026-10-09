@@ -1,10 +1,8 @@
 //! Shared host-action drain: one `while (takeAction) switch` over every arm,
 //! with per-embedder behavior injected through a comptime executor.
-//! Both Zig embedders ride it — `driver.Bridge` at the loop tier and the
-//! owning `driver.HostRuntime` face at the blocking tier (ADR-0090) — supplying only
-//! the arms that differ; `need_gift_id` lives here so a new action kind is a
-//! compile error in every embedder, not a silent miss in one of N
-//! hand-rolled copies.
+//! `driver.HostRuntime` rides it and supplies only the arms that differ by
+//! embedder; `need_gift_id` lives here so a new action kind is a compile
+//! error in every embedder, not a silent miss in a hand-rolled copy.
 
 const Host = @import("host.zig").Host;
 const host_action = @import("host/action.zig");

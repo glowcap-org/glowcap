@@ -69,14 +69,6 @@ const budget_facts = [_]BudgetFact{
         },
     },
     .{
-        .label = "sealing completion-adapter state",
-        .source_path = "test/net/noise_relay_test.zig",
-        .decl = "const noise_connection_state_bytes: usize = ",
-        .quotes = &.{
-            .{ .path = "docs/ladder.md", .anchor = "| Sealing completion-adapter state (`noise-relay`) | exactly ", .suffix = " bytes per sealed leg, on top of the leg it wraps |" },
-        },
-    },
-    .{
         .label = "iroh completion-adapter row",
         .source_path = "test/net/iroh_resident_internal_test.zig",
         .decl = "const iroh_connection_state_bytes: usize = ",

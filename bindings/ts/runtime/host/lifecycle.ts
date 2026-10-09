@@ -106,7 +106,7 @@ export abstract class HostLifecycle extends HostState {
 		this._raw = NULL;
 		this._connectors.clear();
 		this._behaviorEntries.clear();
-		this._giftables.clear();
+		this._publications.clear();
 		this.hosted.clear();
 		this.clearVowRows();
 		try {
@@ -191,7 +191,7 @@ export abstract class HostLifecycle extends HostState {
 		this._gc.retire();
 		this._raw = NULL;
 		this._behaviorEntries.clear();
-		this._giftables.clear();
+		this._publications.clear();
 		this._connectors.clear();
 		this.hosted.clear();
 		await sessionRetirements;

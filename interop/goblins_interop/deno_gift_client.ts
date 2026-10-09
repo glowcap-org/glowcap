@@ -100,7 +100,7 @@ try {
 	// Publish the introducer host-wide. Two recursively placed occurrences of
 	// Bob's greeter force the binding's complete Value lowering path and the
 	// core's one-message/two-give transaction; neither is a top-level shortcut.
-	gifter.host.publishGiftable(
+	gifter.host.publish(
 		INTRODUCER_SWISS,
 		(verb) => (verb === "get-greeter" ? [greeter, [greeter]] : null),
 	);

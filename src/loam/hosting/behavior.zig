@@ -14,12 +14,34 @@ pub const Behavior = struct {
     context: ?*anyopaque = null,
     /// Borrowed configuration; preparation state belongs to the retained call.
     prepare: ?*const fn (*Call, []const u8, []const driver.Value) anyerror!Preparation = null,
+    /// Reply bytes and spines must remain valid and unchanged until the call
+    /// releases, including storage recovery and settlement retries. Use the
+    /// supplied arena, retained inputs or prepared portrait; copy mutable
+    /// callback-context data into that arena before returning it.
     invoke: *const fn (*Call, core.RecordView, []const u8, []const driver.Value) anyerror!driver.Value,
 };
 
 pub const Call = struct {
-    arena: std.mem.Allocator,
+    /// A continuation preserves its original source action while dispatching
+    /// a separately held target action. These borrows belong to this call's
+    /// immutable input owner, never to an application callback.
+    pub const Intent = struct { verb: []const u8, args: []const driver.Value };
+    pub const Memory = @import("call_memory.zig").Memory;
+    /// Each acquisition may grow held custody and allocate a one-element Host
+    /// retain spine, even when it acquires the same capability again.
+    pub fn heldAllocationBound(occurrences: usize) !@import("call_memory.zig").AllocationBound {
+        var bound: @import("call_memory.zig").AllocationBound = .{};
+        try bound.includeArrayGrowth(driver.Capability, occurrences);
+        try bound.include(@sizeOf(driver.Host.StagedCapabilityRetain), @alignOf(driver.Host.StagedCapabilityRetain), occurrences);
+        return bound;
+    }
+    memory: *Memory,
     attachment: *hosting.Attachment,
+    /// Borrowed only through this retained call's preparation. Child effects
+    /// remain admitted across Host finish; resident near calls own no lease.
+    /// One inline pointer per operation slot adds no allocation or owner;
+    /// the enclosing Operation keeps the actual lease stable until settlement.
+    work: ?*const driver.Host.PendingWorkLease = null,
     view: core.RecordView,
     context: ?*anyopaque = null,
     preparation: ?Preparation = null,
@@ -27,11 +49,18 @@ pub const Call = struct {
     transaction: ?Transaction = null,
     /// Materialize at the top-level Host boundary after staging, before write
     /// submission. Reserve custody here; expose no externally usable authority.
+    /// Returned data obeys the same retained lifetime as the invocation reply.
     result: ?*const fn (*Call) anyerror!driver.Value = null,
     /// Infallible activation after confirmed commit, before reply projection.
     /// Runs once even if settlement needs retry. Read-only results activate at
     /// settlement. Preparation.deinit must cancel any unconfirmed reservation.
-    confirmation: ?struct { context: *anyopaque, apply: *const fn (*anyopaque) void } = null,
+    confirmation: ?struct {
+        context: *anyopaque,
+        apply: *const fn (*anyopaque) void,
+        cancel: ?*const fn (*anyopaque) void = null,
+        requires_commit: bool = false,
+    } = null,
+    dispatch: ?Intent = null,
     /// A prepared dependent call dispatches once at the top-level boundary.
     /// The operation retains its answer until ordinary resolver settlement.
     forward: ?struct { target: driver.Capability, verb: []const u8, args: []const driver.Value } = null,
@@ -43,6 +72,10 @@ pub const Call = struct {
     held: std.ArrayList(driver.Capability) = .empty,
     disclosed_from: usize = unrestricted_reply,
     const unrestricted_reply = std.math.maxInt(usize);
+
+    pub fn arena(self: *Call) std.mem.Allocator {
+        return self.memory.working.allocator();
+    }
     pub const Transaction = struct {
         context: *anyopaque,
         /// Stage only into the attachment's open batch; never begin or commit.
@@ -59,7 +92,7 @@ pub const Call = struct {
     /// Keep the result inside this call until confirmed settlement.
     pub fn propose(self: *Call, id: core.ObjectId) !driver.Capability {
         if (self.attachment.store.phase != .staging) return error.WrongPhase;
-        try self.held.ensureUnusedCapacity(self.arena, 1);
+        try self.held.ensureUnusedCapacity(self.arena(), 1);
         const ref = try hosting.restoreEdge(self.attachment, id);
         self.adoptRetain(ref);
         return ref;
@@ -70,7 +103,7 @@ pub const Call = struct {
     pub fn restore(self: *Call, lease: core.Lease) !driver.Capability {
         const view = try self.attachment.store.currentView(lease);
         _ = try self.attachment.findBehavior(view);
-        try self.held.ensureUnusedCapacity(self.arena, 1);
+        try self.held.ensureUnusedCapacity(self.arena(), 1);
         const ref = try hosting.restoreEdge(self.attachment, view.id);
         self.adoptRetain(ref);
         return ref;
@@ -98,7 +131,7 @@ pub const Call = struct {
             const working = self.references orelse return error.ReferenceUnprepared;
             return @import("references.zig").hold(self, try working.restored(view, index));
         }
-        try self.held.ensureUnusedCapacity(self.arena, 1);
+        try self.held.ensureUnusedCapacity(self.arena(), 1);
         const ref = try hosting.restoreEdge(self.attachment, target.target);
         self.adoptRetain(ref);
         return ref;
@@ -110,7 +143,7 @@ pub const Call = struct {
     pub fn capture(self: *Call, ref: driver.Capability) !core.Edge {
         const captured = try self.attachment.capture(ref);
         for (self.held.items) |held| if (held.eql(ref)) return captured;
-        try self.held.ensureUnusedCapacity(self.arena, 1);
+        try self.held.ensureUnusedCapacity(self.arena(), 1);
         const actor = self.attachment.host.localActorFor(ref) orelse return error.NotDurable;
         self.adoptRetain(try self.attachment.host.retainLocalCapability(actor));
         return captured;
@@ -120,7 +153,7 @@ pub const Call = struct {
     /// stored target capability. It is deliberately not a durable record: its
     /// two held authorities are the only way to construct or keep it alive.
     pub fn projectDependent(self: *Call, target: driver.Capability) !driver.Capability {
-        try self.held.ensureUnusedCapacity(self.arena, 1);
+        try self.held.ensureUnusedCapacity(self.arena(), 1);
         const ref = try self.attachment.projectDependent(self.view.id, target);
         self.adoptRetain(ref);
         return ref;
@@ -140,9 +173,15 @@ pub const Call = struct {
 
     /// Declare exactly this held capability for the reply. Declaring a facet
     /// does not declare the capabilities it retains. No new retain is acquired.
-    /// Membership scans the held inventory once; retained-call arena bytes
-    /// bound that inventory. The declaration changes only its partition.
+    /// Freshly adopted custody sits at the end of the undisclosed prefix,
+    /// so immediate disclosure checks that slot in constant time. Other held
+    /// references scan the arena-bounded inventory. Only the partition changes.
     pub fn discloseHeld(self: *Call, ref: driver.Capability) !driver.Capability {
+        const end = if (self.disclosed_from == unrestricted_reply) self.held.items.len else self.disclosed_from;
+        if (end != 0 and self.held.items[end - 1].eql(ref)) {
+            if (self.disclosed_from != unrestricted_reply) self.disclosed_from -= 1;
+            return ref;
+        }
         for (self.held.items, 0..) |held, index| if (held.eql(ref)) {
             if (self.disclosed_from != unrestricted_reply and index < self.disclosed_from) {
                 self.disclosed_from -= 1;
@@ -161,6 +200,8 @@ pub const Call = struct {
     }
 
     pub fn release(self: *Call) void {
+        if (self.confirmation) |confirmation| if (confirmation.cancel) |cancel| cancel(confirmation.context);
+        self.confirmation = null;
         if (self.references) |working| working.deinit();
         self.references = null;
         for (self.held.items) |ref| self.attachment.host.releaseCapabilityTerminal(ref, null);

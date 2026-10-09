@@ -25,6 +25,7 @@ import {
 	sessionDataExport,
 	sessionDataExportTitle,
 	sessionDataImport,
+	sessionDataImported,
 	sessionDataImportLocalHint,
 	sessionDataImportSharedHint,
 	sessionDataImportTitle,
@@ -62,14 +63,17 @@ export function SessionDataModal(
 	const commitments = useCommitments();
 	const [includeCapabilities, setIncludeCapabilities] = useState(false);
 	const [file, setFile] = useState<{ name: string; text: string } | null>(null);
-	const [busy, setBusy] = useState<"import" | "clear" | null>(null);
+	const [busy, setBusy] = useState<"export" | "import" | "clear" | null>(null);
 	const [exported, setExported] = useState("");
 	const [exportError, setExportError] = useState("");
 	const [importError, setImportError] = useState("");
+	const [imported, setImported] = useState("");
 	const [clearError, setClearError] = useState("");
 	const [confirming, setConfirming] = useState(false);
 	const selection = useRef(0);
-	const operation = useRef<"import" | "clear" | null>(null);
+	// One data operation at a time: an export taken during an import or a
+	// clear would save a state that is in the middle of changing.
+	const operation = useRef<"export" | "import" | "clear" | null>(null);
 	const dataLabel = sharedSession ? sessionDataSharedTitle : sessionDataLocalTitle;
 	useChangeGroup("settings-session-data", {
 		dirty: file !== null,
@@ -86,11 +90,14 @@ export function SessionDataModal(
 		onClose();
 	};
 
-	const download = () => {
+	const download = async () => {
+		if (operation.current !== null) return;
+		operation.current = "export";
+		setBusy("export");
 		setExportError("");
 		setExported("");
 		try {
-			const blob = new Blob([session.exportRoomsState(includeCapabilities)], {
+			const blob = new Blob([await session.exportRoomsState(includeCapabilities)], {
 				type: "application/json",
 			});
 			const url = URL.createObjectURL(blob);
@@ -102,11 +109,15 @@ export function SessionDataModal(
 			setExported(`Saved ${STATE_FILE}.`);
 		} catch (cause) {
 			setExportError(cause instanceof Error ? cause.message : String(cause));
+		} finally {
+			operation.current = null;
+			setBusy(null);
 		}
 	};
 	const choose = (chosen: File | null) => {
 		const generation = ++selection.current;
 		setImportError("");
+		setImported("");
 		setFile(null);
 		if (chosen === null) {
 			return;
@@ -127,8 +138,15 @@ export function SessionDataModal(
 		operation.current = "import";
 		setBusy("import");
 		setImportError("");
+		setImported("");
 		try {
-			setImportError(await actionRefusal(() => session.importRoomsState(file.text)));
+			const refusal = await actionRefusal(() => session.importRoomsState(file.text));
+			setImportError(refusal);
+			if (refusal === "") {
+				selection.current += 1;
+				setFile(null);
+				setImported(sessionDataImported(file.name));
+			}
 		} finally {
 			operation.current = null;
 			setBusy(null);
@@ -183,7 +201,13 @@ export function SessionDataModal(
 					</label>
 				)}
 				<div className="actions">
-					<Button id="stateDownload" type="button" onClick={download}>
+					<Button
+						id="stateDownload"
+						type="button"
+						busy={busy === "export"}
+						disabled={busy !== null}
+						onClick={() => void download()}
+					>
 						{sessionDataExport}
 					</Button>
 				</div>
@@ -230,6 +254,7 @@ export function SessionDataModal(
 								{sessionDataImport}
 							</Button>
 						</div>
+						{imported !== "" && <Said id="stateImported" kind="success">{imported}</Said>}
 					</form>
 					<h3 className="well-title overline" id="stateClearLegend">
 						{sharedSession ? sessionDataClearSharedTitle : sessionDataClearLocalTitle}

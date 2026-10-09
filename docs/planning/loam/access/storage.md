@@ -44,7 +44,7 @@ implemented exact-context profile and capacity budgets.
 [Bounded owner cleanup](../../../loam/access.md#bounded-owner-cleanup) implements
 terminal payload reclamation, index pruning and publication retirement.
 [Held-authority reference recipes](../../../loam/references.md) implement local
-and foreign restoration. [LMDB maintenance](../../../loam.md#lmdb-capacity-and-measurements)
+and foreign restoration. [LMDB maintenance](../../../loam/lmdb.md)
 implements map growth, inspection and offline compaction; macOS validation
 remains maintainer-owned in the completion queue.
 The [glowcap memory and persistence research](../research/memory-persistence.md)

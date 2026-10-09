@@ -48,7 +48,9 @@ pub const MAX_READ: usize = 128;
 pub const MAX_RECORDS: usize = 5000;
 pub const MAX_ID_BYTES: usize = 128;
 pub const MAX_CONTEXT_BYTES: usize = 8192;
-pub const MAX_CONVERSATION_BYTES: usize = 512;
+// A UTF-16 unit occupies at most three UTF-8 bytes, including replacement of
+// lone surrogates. Preserve every admitted workspace identity in the archive.
+pub const MAX_CONVERSATION_BYTES: usize = 3 * crate::content::session::workspace::MAX_ID_UNITS;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
 	Record,

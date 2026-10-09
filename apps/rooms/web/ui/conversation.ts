@@ -61,6 +61,15 @@ export type Item =
 		mine: boolean;
 		at: number;
 		state?: SendState;
+		/** The managed send still owns its original receipt. An echo alone does
+		 * not settle upload completion or confirm its result acquisition. */
+		awaitingReceipt?: boolean;
+		/** A managed send recovers its exact receipt through the session owner.
+		 * A bubble cannot manufacture a new request from descriptive text. */
+		retryable?: boolean;
+		/** The existing session receipt for this submitted line. Recovery uses
+		 * this scalar identity even after the composer accepts a newer draft. */
+		operation?: string;
 		/** The action or notice this line's text carries, stamped by the store
 		 * when the line is made or its text changes. */
 		carried?: LineCarried;

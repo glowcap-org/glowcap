@@ -45,7 +45,7 @@ pub fn main(init: std.process.Init) !void {
     try pairs.pumpToQuiescence(&.{pair});
     const target = try root.require();
     store.evict();
-    if (server.giftables.count() != 0) return error.EagerRestore;
+    if (server.publications.count() != 0) return error.EagerRestore;
     const verifying = std.mem.startsWith(u8, mode, "verify-");
     if (!verifying and !std.mem.eql(u8, mode, "before") and !std.mem.eql(u8, mode, "after")) return error.InvalidArguments;
     var answer: actors.Capture = .{};

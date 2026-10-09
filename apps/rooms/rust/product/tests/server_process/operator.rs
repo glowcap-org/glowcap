@@ -56,15 +56,13 @@ async fn scenario() {
 			.find_map(|line| line.strip_prefix("ROOMS-OPERATOR "))
 			.unwrap()
 			.to_owned();
-		(process, glowcap::parse_locator(locator).unwrap(), operator)
+		let recipe = glowcap::parse_sturdyref(&operator, glowcap::CaptpVersion::V1_0).unwrap();
+		assert_eq!(recipe.locator, glowcap::parse_locator(locator).unwrap());
+		(process, recipe.locator, String::from_utf8(recipe.swissnum).unwrap())
 	};
 	let (mut process, locator, token) = start();
 	let client = runtime().await;
-	let session = client
-		.connect(&locator, ConnectOptions::default())
-		.await
-		.unwrap()
-		.with_gc();
+	let session = client.connect(&locator, ConnectOptions::default()).await.unwrap();
 	let operator = session.fetch(&token).await.unwrap();
 	// Page totals prove the fixture is present without materializing every row.
 	let args = ["links".into(), Argument::Integer(0), Argument::Integer(1)];
@@ -107,11 +105,7 @@ async fn scenario() {
 	process.signal("-TERM");
 	let (mut process, locator, restarted_token) = start();
 	assert_eq!(token, restarted_token);
-	let session = client
-		.connect(&locator, ConnectOptions::default())
-		.await
-		.unwrap()
-		.with_gc();
+	let session = client.connect(&locator, ConnectOptions::default()).await.unwrap();
 	let operator = session.fetch(&token).await.unwrap();
 	let after = top(session.send(&operator, "operatorSnapshot", &args).await.unwrap());
 	assert_eq!(after.last().unwrap().as_i64(), Some(0));

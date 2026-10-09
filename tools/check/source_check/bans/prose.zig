@@ -32,6 +32,27 @@ pub const prerelease_prose: []const Ban = prerelease_rows: {
     break :prerelease_rows rows;
 };
 
+/// Forward-looking status claims inside Zig comments rot silently: the
+/// compiler never reads a comment, and the surface ships without anyone
+/// revisiting the sentence. Scope is every first-party `src/**.zig`. Each
+/// needle is an exact phrase that shipped as a stale claim and was corrected;
+/// add the next stale phrase's exact wording when a new instance appears.
+pub const zig_status_claims: []const Ban = status_rows: {
+    const phrases = [_][]const u8{ "remains planned", "when hosting is implemented" };
+    var rows: []const Ban = &.{};
+    for (phrases) |phrase| {
+        rows = rows ++ &[_]Ban{.{
+            .where = .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
+            .kind = .forbid,
+            .needles = &.{phrase},
+            .insensitive = true,
+            .check = "zig-status-claims",
+            .why = "comments state the present shape; planned work belongs in planning docs, where it can be closed (prerelease rule)",
+        }};
+    }
+    break :status_rows rows;
+};
+
 /// Human first-read docs stay speech for people (doc-voice). ADRs and `.agents/**` are out of scope.
 pub const human_doc_voice: []const Ban = voice_rows: {
     const phrases = [_]struct { needle: []const u8, why: []const u8 }{

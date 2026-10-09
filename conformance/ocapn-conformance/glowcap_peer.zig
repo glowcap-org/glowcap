@@ -1,7 +1,6 @@
 //! Thin conformance host: canonical swiss-nums over the build-selected
-//! conformance transport, served by one `driver.core.Host` behind a
-//! `driver.Bridge` over a completion loop,
-//! the single-thread, many-session host tier (ADR-0076), not a thread per
+//! conformance transport, served by one `driver.core.Host` on a
+//! `driver.HostRuntime`: one thread serving many sessions, not a thread per
 //! connection.
 //!
 //! The Host owns every protocol-policy seam the suite exercises through the
@@ -42,8 +41,6 @@ const HostSession = driver.core.HostSession;
 const use_onion = peer_options.use_onion;
 const transport_name = conf_state.transport_name;
 const AddrTable = conf_state.AddrTable;
-const ConfLoop = conf_state.ConfLoop;
-const ConfBridge = conf_state.ConfBridge;
 const ConfCtx = conf_state.ConfCtx;
 const Shared = conf_state.Shared;
 const CAR_FACTORY_BUILDER = conf_state.CAR_FACTORY_BUILDER;
@@ -189,56 +186,86 @@ fn publishLocal(turn: *actors.Turn, ref: actors.Ref) !u64 {
     return export_position.int();
 }
 
-// ── Bridge hooks ─────────────────────────────────────────────────────────────
+// ── Session setup ────────────────────────────────────────────────────────────
 
-/// Publish the five bootstrap actors on every accepted session and allocate its
-/// conformance state. Runs at adoption, before any inbound frame is served, so
-/// a partner's first fetch cannot race the registration.
-fn publishConf(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
-    const shared: *Shared = @ptrCast(@alignCast(ctx.?));
-    const session: *HostSession = @fieldParentPtr("served", served);
-
+/// Publish the five bootstrap actors on an accepted session, decorate its serve
+/// policy, and only then attend it. The runtime holds the session's inbound at
+/// open until it is attended, so a partner's first fetch cannot race the
+/// registration.
+fn admitAccepted(shared: *Shared, session: *HostSession) !void {
     const conf = try shared.allocator.create(ConfCtx);
     errdefer shared.allocator.destroy(conf);
     conf.* = .{
         .shared = shared,
         .session = session,
-        .host_serve_options = served.serve_options,
+        .host_serve_options = session.served.serve_options,
     };
     try shared.confs.put(shared.allocator, session.peer_handle, conf);
 
     // Decorate, rather than replace, the Host's policy hook. Host.serveEvent
-    // drains every event still queued after the loop hands it the first event
-    // in a batch; an outer completion-loop serve wrapper therefore cannot see
-    // every event. Keeping the interceptors here makes batching irrelevant and
-    // preserves crossed-hellos, handoff, and trace policy in the saved hook.
+    // drains every event still queued after the runtime hands it the first
+    // event in a batch, so only a per-event hook sees every event. Keeping the
+    // interceptors here preserves crossed-hellos, handoff, and trace policy in
+    // the saved hook.
+    const served = &session.served;
     served.serve_options = .{
         .gc_stateless = true,
         .hook_ctx = conf,
         .before_serve = confBeforeServe,
     };
-
+    const vat = &session.host.vat;
     _ = try served.publish(vat, ECHO, Echo, .{});
     _ = try served.publish(vat, GREETER, Greeter, .{});
     _ = try served.publish(vat, CAR_FACTORY_BUILDER, CarFactoryBuilder, .{});
     _ = try served.publish(vat, PROMISE_RESOLVER, PromiseResolver, .{ .conf = conf });
     _ = try served.publish(vat, STURDYREF_ENLIVENER, InterceptedSturdyrefEnlivener, .{});
+    try shared.runtime.attendSession(session);
 }
 
-fn confFreeConnCtx(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {
-    const bridge: *ConfBridge = @ptrCast(@alignCast(ctx.?));
-    const shell: *ConfBridge.Slot = @ptrCast(@alignCast(conn_ctx orelse return));
-    const shared: *Shared = @ptrCast(@alignCast(bridge.publish_ctx.?));
-    if (shared.confs.fetchRemove(shell.session.peer_handle)) |kv| {
-        kv.value.resolver_map.deinit(shared.allocator);
-        shared.allocator.destroy(kv.value);
+/// Release every owned session whose wire has closed, with its conformance
+/// state.
+fn releaseClosed(shared: *Shared) void {
+    var i: usize = 0;
+    while (i < shared.owned.items.len) {
+        const session = shared.owned.items[i];
+        if (session.lifecyclePhase() == .active) {
+            i += 1;
+            continue;
+        }
+        _ = shared.owned.swapRemove(i);
+        if (shared.confs.fetchRemove(session.peer_handle)) |kv| {
+            kv.value.resolver_map.deinit(shared.allocator);
+            shared.allocator.destroy(kv.value);
+        }
+        shared.runtime.releaseWire(session) catch |err|
+            std.debug.print("glowcap-ocapn-peer: session release failed: {s}\n", .{@errorName(err)});
     }
-    ConfBridge.freeConnCtx(ctx, conn_ctx);
+}
+
+/// Everything a step classified but could not run under its callback latch:
+/// set up the sessions it opened, run the Host effects the interceptors
+/// deferred, and release the sessions it closed. A failed effect belongs to
+/// the session that raised it; the peer reports it and keeps serving.
+fn settleStep(shared: *Shared) void {
+    for (shared.accepted.items) |session| admitAccepted(shared, session) catch |err|
+        std.debug.print("glowcap-ocapn-peer: session setup failed: {s}\n", .{@errorName(err)});
+    shared.accepted.clearRetainingCapacity();
+    for (shared.dialed.items) |session| handoff.runPendingEnlivens(shared, session) catch |err|
+        std.debug.print("glowcap-ocapn-peer: gifter fetch failed: {s}\n", .{@errorName(err)});
+    shared.dialed.clearRetainingCapacity();
+    if (shared.callback_err) |err| {
+        std.debug.print("glowcap-ocapn-peer: interceptor failed: {s}\n", .{@errorName(err)});
+        handoff.discardDeferred(shared);
+        shared.callback_err = null;
+    }
+    handoff.drainDeferred(shared) catch |err|
+        std.debug.print("glowcap-ocapn-peer: deferred effect failed: {s}\n", .{@errorName(err)});
+    releaseClosed(shared);
 }
 
 /// Decorate the Host's per-event policy with the suite-only protocol actors.
 /// Claimed events never enter the Vat. Top-level effects are retained for
-/// `confServe`, after the enclosing Host dispatch opens its callback latch.
+/// `settleStep`, after the enclosing step unwinds.
 fn confBeforeServe(ctx: ?*anyopaque, served: *driver.core.Served, event: *engine.Event) anyerror!bool {
     const conf: *ConfCtx = @ptrCast(@alignCast(ctx.?));
     const host_options = conf.host_serve_options;
@@ -253,26 +280,24 @@ fn confBeforeServe(ctx: ?*anyopaque, served: *driver.core.Served, event: *engine
     return false;
 }
 
-/// Host.serveEvent may drain several queued events through `confBeforeServe`.
-/// Only after it returns is the callback latch open for the top-level effects
-/// those events classified.
-fn confServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
-    const shell: *ConfBridge.Slot = @ptrCast(@alignCast(conn_ctx.?));
-    const bridge = shell.bridge;
-    const shared: *Shared = @ptrCast(@alignCast(bridge.publish_ctx.?));
-    std.debug.assert(shared.deferred.items.len == 0);
-    ConfBridge.serve(conn_ctx, peer, event) catch |err| {
-        handoff.discardDeferred(shared);
-        return err;
-    };
-    if (shared.callback_err) |err| {
-        handoff.discardDeferred(shared);
-        shared.callback_err = null;
-        return err;
+/// Queue each accepted session for `settleStep`: the observer runs inside the
+/// step, where top-level Host verbs are refused.
+const AcceptQueue = struct {
+    fn opened(ctx: *anyopaque, _: u64, session: *HostSession) anyerror!void {
+        const shared: *Shared = @ptrCast(@alignCast(ctx));
+        try shared.owned.ensureUnusedCapacity(shared.allocator, 1);
+        try shared.accepted.append(shared.allocator, session);
+        shared.owned.appendAssumeCapacity(session);
     }
-    try handoff.drainDeferred(shared);
-    try bridge.drainActions();
-}
+
+    fn failed(_: *anyopaque, _: u64, failure: driver.OperationFailure) void {
+        std.debug.print("glowcap-ocapn-peer: listener failed: {s}\n", .{failure.primaryName()});
+    }
+
+    fn observer(shared: *Shared) driver.HostRuntime.SessionAcceptObserver {
+        return .{ .ctx = shared, .opened = opened, .failed = failed };
+    }
+};
 
 // ── Interceptors ─────────────────────────────────────────────────────────────
 
@@ -357,114 +382,117 @@ pub fn main(init: std.process.Init) !void {
     });
     defer host.deinit();
 
-    var shared = Shared{ .allocator = allocator, .host = &host, .bridge = undefined };
-    defer shared.deinit();
-
-    var loop: ConfLoop = undefined;
-    var bridge = ConfBridge.init(allocator, &host, io, &loop, .{
-        .publish = publishConf,
-        .publish_ctx = &shared,
-        .on_open = handoff.confOnOpen,
-        .on_open_ctx = &shared,
-    });
-    defer bridge.deinit();
-    shared.bridge = &bridge;
-
-    var loop_options = ConfBridge.hookOptions(net.completion.Options{
-        .max_conns = 256,
-        .listen = if (use_onion) 0 else port,
-    });
-    const backend_options: net.completion.BackendOptions = .{};
-    loop_options.serve = confServe;
-    loop_options.free_conn_ctx = confFreeConnCtx;
-
     var control_cookie: ?[]u8 = null;
     defer if (control_cookie) |bytes| allocator.free(bytes);
 
-    loop = if (use_onion) blk: {
-        const socks_text = requiredEnv(init.environ_map, "GLOWCAP_OCAPN_TOR_SOCKS") catch |err| {
-            std.debug.print("glowcap-ocapn-onion-peer: GLOWCAP_OCAPN_TOR_SOCKS is required (host:port)\n", .{});
-            return err;
-        };
-        const control_text = requiredEnv(init.environ_map, "GLOWCAP_OCAPN_TOR_CONTROL") catch |err| {
-            std.debug.print("glowcap-ocapn-onion-peer: GLOWCAP_OCAPN_TOR_CONTROL is required (host:port)\n", .{});
-            return err;
-        };
-        const socks_target = tcp.parseDesignator(socks_text) catch {
-            std.debug.print("glowcap-ocapn-onion-peer: invalid SOCKS endpoint '{s}'; expected host:port\n", .{socks_text});
-            return error.BadTorEndpoint;
-        };
-        const control_target = tcp.parseDesignator(control_text) catch {
-            std.debug.print("glowcap-ocapn-onion-peer: invalid control endpoint '{s}'; expected host:port\n", .{control_text});
-            return error.BadTorEndpoint;
-        };
+    // The runtime borrows the testing resident, so it outlives the runtime.
+    var testing_resident: TestingResident = undefined;
+    var testing_live = false;
+    defer if (testing_live) {
+        testing_resident.closeAndDrain(2_000) catch |err| std.debug.print("glowcap-ocapn-peer: resident drain failed: {s}\n", .{@errorName(err)});
+        testing_resident.deinit();
+    };
+    var registrations: [1]driver.HostRuntime.ProviderRegistration = undefined;
+    const transports: driver.Transports = if (use_onion) .{
+        .symbols = &.{.onion},
+        .onion = try onionConfig(io, allocator, init.environ_map, &control_cookie),
+    } else blk: {
+        testing_resident = try TestingResident.init(allocator, try net.Backend.init(allocator, 64, 16, frame_cap), .{});
+        testing_live = true;
+        registrations = .{.{
+            .profile = .{ .symbol = transport_name, .designator_scheme = .address },
+            .resident = testing_resident.resident(),
+        }};
+        break :blk .{ .residents = &registrations };
+    };
 
-        const password = init.environ_map.get("GLOWCAP_OCAPN_TOR_CONTROL_PASSWORD");
-        const cookie_file = init.environ_map.get("GLOWCAP_OCAPN_TOR_CONTROL_COOKIE_FILE");
-        if (password != null and cookie_file != null) {
-            std.debug.print("glowcap-ocapn-onion-peer: set at most one Tor control credential\n", .{});
-            return error.AmbiguousTorAuthentication;
-        }
-        const auth: onion.control.Auth = if (password) |value|
-            .{ .password = value }
-        else if (cookie_file) |path| cookie: {
-            control_cookie = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4096)) catch |err| {
-                std.debug.print("glowcap-ocapn-onion-peer: cannot read control cookie '{s}': {s}\n", .{ path, @errorName(err) });
-                return err;
-            };
-            if (control_cookie.?.len == 0) {
-                std.debug.print("glowcap-ocapn-onion-peer: Tor control cookie is empty\n", .{});
-                return error.BadTorCredential;
-            }
-            break :cookie .{ .cookie = control_cookie.? };
-        } else .none;
+    var runtime = try driver.HostRuntime.initWithCore(allocator, io, &host, transports, .{
+        .handshake = .{ .ms = 30_000 },
+        .settle = .{ .ms = 30_000 },
+    });
+    defer runtime.deinit();
 
-        // Apply the same pool options as `Loop.init` while constructing the
-        // configured adapter that `initWithBackend` requires.
-        const inner = try net.Backend.init(
-            allocator,
-            backend_options.queue_entries,
-            backend_options.read_buffers,
-            backend_options.read_buffer_bytes,
-        );
-        const backend = net.OnionBackend.initOnion(allocator, inner, .{
-            .socks = socks_target,
-            .control = control_target,
-            .auth = auth,
-        });
-        break :blk try ConfLoop.initWithBackend(
-            allocator,
-            backend,
-            ConfBridge.makePeer,
-            @ptrCast(&bridge),
-            loop_options,
-        );
-    } else try ConfLoop.init(allocator, ConfBridge.makePeer, @ptrCast(&bridge), loop_options);
-    defer loop.deinit();
+    var shared = Shared{ .allocator = allocator, .host = &host, .runtime = &runtime };
+    defer shared.deinit();
 
+    var bind_buf: [32]u8 = undefined;
+    const bind = if (use_onion) "" else try std.fmt.bufPrint(&bind_buf, "{s}:{d}", .{ host_ip, port });
+    var listener = try runtime.bindListener(transport_name, bind, .inherit);
+    var prepared = switch (runtime.prepareListenerLocatorOutcome(&listener)) {
+        .ready => |value| value,
+        .failed => |failure| {
+            if (runtime.closeListener(&listener)) |cleanup| runtime.noteTerminalOperationFailure(cleanup);
+            return failure.cause;
+        },
+    };
+    const listener_tag: u64 = 1;
     if (use_onion) {
-        const service_id = loop.listenerAddress().?;
-        try bridge.attach(.{
-            .symbol = transport_name,
-            .designator_scheme = .address,
-        }, &service_id, "");
-        std.debug.print("GLOWCAP-OCAPN-PEER-READY ocapn://{s}.onion\n", .{&service_id});
+        std.debug.print("GLOWCAP-OCAPN-PEER-READY ocapn://{s}.onion\n", .{prepared.value.designator});
     } else {
-        try bridge.attach(.{
-            .symbol = transport_name,
-            .designator_scheme = .address,
-        }, CAR_FACTORY_BUILDER, "");
-        const bound_port = loop.port().?;
         // The suite's `tcp-testing-only` designator is a bare uuid; glowcap
         // advertises the reused CAR_FACTORY_BUILDER swiss as its own, and its
         // address lives in the banner's host/port hints.
         std.debug.print(
             "GLOWCAP-OCAPN-PEER-READY ocapn://{s}.tcp-testing-only?host={s}&port={d}\n",
-            .{ CAR_FACTORY_BUILDER, host_ip, bound_port },
+            .{ CAR_FACTORY_BUILDER, host_ip, port },
         );
     }
+    try runtime.activateOwnedListener(&listener, &prepared, listener_tag, AcceptQueue.observer(&shared));
+    _ = try runtime.selectOwnedListener(listener_tag);
 
-    try loop.run(.forever);
+    while (true) {
+        _ = try runtime.stepAny(-1);
+        settleStep(&shared);
+    }
+}
+
+const TestingResident = net.completion_resident.Resident(net.Backend, conf_state.TestingPolicy(net.Backend));
+
+/// The Tor endpoints and control credential the onion build reads from its
+/// environment. `control_cookie` owns a cookie file's bytes for the run.
+fn onionConfig(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    environ_map: *std.process.Environ.Map,
+    control_cookie: *?[]u8,
+) !driver.Transports.OnionConfig {
+    const socks_text = requiredEnv(environ_map, "GLOWCAP_OCAPN_TOR_SOCKS") catch |err| {
+        std.debug.print("glowcap-ocapn-onion-peer: GLOWCAP_OCAPN_TOR_SOCKS is required (host:port)\n", .{});
+        return err;
+    };
+    const control_text = requiredEnv(environ_map, "GLOWCAP_OCAPN_TOR_CONTROL") catch |err| {
+        std.debug.print("glowcap-ocapn-onion-peer: GLOWCAP_OCAPN_TOR_CONTROL is required (host:port)\n", .{});
+        return err;
+    };
+    const socks_target = tcp.parseDesignator(socks_text) catch {
+        std.debug.print("glowcap-ocapn-onion-peer: invalid SOCKS endpoint '{s}'; expected host:port\n", .{socks_text});
+        return error.BadTorEndpoint;
+    };
+    const control_target = tcp.parseDesignator(control_text) catch {
+        std.debug.print("glowcap-ocapn-onion-peer: invalid control endpoint '{s}'; expected host:port\n", .{control_text});
+        return error.BadTorEndpoint;
+    };
+
+    const password = environ_map.get("GLOWCAP_OCAPN_TOR_CONTROL_PASSWORD");
+    const cookie_file = environ_map.get("GLOWCAP_OCAPN_TOR_CONTROL_COOKIE_FILE");
+    if (password != null and cookie_file != null) {
+        std.debug.print("glowcap-ocapn-onion-peer: set at most one Tor control credential\n", .{});
+        return error.AmbiguousTorAuthentication;
+    }
+    const auth: onion.control.Auth = if (password) |value|
+        .{ .password = value }
+    else if (cookie_file) |path| cookie: {
+        control_cookie.* = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4096)) catch |err| {
+            std.debug.print("glowcap-ocapn-onion-peer: cannot read control cookie '{s}': {s}\n", .{ path, @errorName(err) });
+            return err;
+        };
+        if (control_cookie.*.?.len == 0) {
+            std.debug.print("glowcap-ocapn-onion-peer: Tor control cookie is empty\n", .{});
+            return error.BadTorCredential;
+        }
+        break :cookie .{ .cookie = control_cookie.*.? };
+    } else .none;
+    return .{ .socks = socks_target, .control = control_target, .auth = auth };
 }
 
 fn requiredEnv(environ: *std.process.Environ.Map, name: []const u8) ![]const u8 {

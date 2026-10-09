@@ -108,7 +108,7 @@
      result
      (lambda (target method args) (run-turn target method args))
      ;; Wire path: map near-export positions to local actor-refs before the
-     ;; actor-ref? hop test. Giftable trampolines have no vat — identity.
+     ;; actor-ref? hop test. Host publication trampolines have no vat — identity.
      #:resolve-target (lambda (t) (if v (vat-resolve-target v t) t))))
   (cond
     [(forward-cycle? chased) (turn-break! turn FORWARD-CYCLE-MESSAGE)]
@@ -175,13 +175,13 @@
                         (lambda (method args)
                           (run-turn (actor-ref v actor-id) method args)))))
 
-;; The GlowcapHostBehavior for a host-wide giftable (`host-publish-giftable`):
+;; The GlowcapHostBehavior for a Host publication (`host-publish`):
 ;; one behavior closure hosted once under a Host-wide alias. It is bound to no
 ;; Racket vat; the core Host Vat projects it onto sessions as needed. The
 ;; behavior lives in a cell here so a `bcom` return still swaps it; a `forward`
 ;; return reaches only far targets (there is no Racket vat to resolve a local
 ;; one against).
-(define (make-giftable-trampoline behavior)
+(define (make-publication-trampoline behavior)
   (define cell (box behavior))
   (lambda (_ctx turn verb-ptr verb-len args-ptr args-len out-reply)
     (serve-foreign-call #f turn verb-ptr verb-len args-ptr args-len out-reply

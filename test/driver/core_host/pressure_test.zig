@@ -219,6 +219,9 @@ test "core host: committed relayed listeners resume after outbound pressure" {
     );
     try std.testing.expectEqual(@as(usize, 2), flushes);
     try std.testing.expect(!pair.b.isTerminating());
+    // Dirty work awaiting transport readiness must not wake persistence's
+    // surrounding action drain indefinitely.
+    try std.testing.expect(!host.hasRunnableWork());
 
     peer.outbound_budget = std.math.maxInt(usize);
     // Taking outbound is what marks the pressure actionable again; the empty

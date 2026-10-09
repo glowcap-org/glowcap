@@ -142,6 +142,8 @@ pub fn services(self: *Node, peer_handle: PeerHandle) engine.NodeServices {
     return engine.NodeServices.bind(self, peer_handle, &self.route_lowering_active, .{
         .lower = routes.lowerForConn,
         .stage_outbound = Internal.stageOutbound,
+        .staged_withdrawn = Internal.stagedWithdrawn,
+        .provisional_closed = Internal.provisionalClosed,
         .local_object_projection = Node.localObjectProjection,
         .gifter_session_resolver = Node.gifterSessionResolver,
         .pending_withdraw_added = Internal.addHandoffWaiter,

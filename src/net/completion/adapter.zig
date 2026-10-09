@@ -4,7 +4,7 @@
 //! runs each leg over one inner connection. Two facts about a leg are the
 //! same whatever the transport: which inner operations it currently has
 //! submitted, and where its inner descriptor stands in its own close. This
-//! leaf owns those two facts. The relay, sealing, and onion adapters compose
+//! leaf owns those two facts. The relay and onion adapters compose
 //! it; none restates it.
 
 const std = @import("std");

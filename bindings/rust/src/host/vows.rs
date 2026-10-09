@@ -155,6 +155,12 @@ struct VowRow {
 }
 
 impl HostShared {
+	/// A completed observation outranks a failure while driving unrelated work.
+	/// Register before driving so synchronous settlement cannot lose the result.
+	pub(crate) async fn observe_vow(self: &Rc<Self>, vow: u64) -> Result<Argument> {
+		let settled = self.await_vow(vow);
+		drive_observation(settled, self.kick_actions()).await
+	}
 	// ── The vow table ──────────────────────────────────────────────────────────
 
 	/// Record a freshly minted vow so the drain can route its completion. Must
@@ -162,10 +168,10 @@ impl HostShared {
 	/// can pop the completion first.
 	pub(crate) fn vow_minted(&self, vow: u64, gc_session: Option<&Rc<SessionShared>>) {
 		// Finalizer policy belongs to the operation that exposes the value, so
-		// sample the opt-in at mint rather than letting a later toggle rewrite
+		// sample the setting at mint rather than letting a later toggle rewrite
 		// an already-admitted outcome's ownership contract.
 		let gc_host = gc_session
-			.filter(|session| session.gc.get())
+			.filter(|session| session.host.release_on_drop.get())
 			.map(|session| Rc::downgrade(&session.host));
 		self.insert_vow(vow, gc_host);
 	}
@@ -227,9 +233,57 @@ impl HostShared {
 	}
 }
 
+async fn drive_observation(
+	settled: impl std::future::Future<Output = Result<Argument>>,
+	progress: impl std::future::Future<Output = Result<()>>,
+) -> Result<Argument> {
+	let mut settled = std::pin::pin!(settled);
+	if let Some(outcome) = std::future::poll_fn(|cx| {
+		std::task::Poll::Ready(match settled.as_mut().poll(cx) {
+			std::task::Poll::Ready(value) => Some(value),
+			std::task::Poll::Pending => None,
+		})
+	})
+	.await
+	{
+		return outcome;
+	}
+	let progress = progress.await;
+	if let Some(outcome) = std::future::poll_fn(|cx| {
+		std::task::Poll::Ready(match settled.as_mut().poll(cx) {
+			std::task::Poll::Ready(value) => Some(value),
+			std::task::Poll::Pending => None,
+		})
+	})
+	.await
+	{
+		return outcome;
+	}
+	progress?;
+	settled.await
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[tokio::test]
+	async fn completed_observation_precedes_unrelated_progress_failure() {
+		let (tx, rx) = oneshot::channel();
+		let observed = drive_observation(async { rx.await.unwrap() }, async {
+			tx.send(Ok(Argument::Integer(42))).unwrap();
+			Err(Error::broken("another action failed".into()))
+		})
+		.await;
+		assert_eq!(observed.unwrap().as_i64(), Some(42));
+		assert!(
+			drive_observation(std::future::pending(), async {
+				Err(Error::broken("drive failed".into()))
+			})
+			.await
+			.is_err()
+		);
+	}
 
 	fn row() -> VowRow {
 		VowRow {

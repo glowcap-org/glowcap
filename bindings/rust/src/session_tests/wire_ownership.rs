@@ -144,7 +144,7 @@ async fn serve_gc_tracking(server: tcp::Server) {
 	// The public server is intentional: its callbacks run under the native
 	// driver loop's Host bracket, so this proves turn->actual-Session recovery
 	// rather than only the simpler byte-fed Session bracket.
-	let session = server.accept().await.unwrap().with_gc();
+	let session = server.accept().await.unwrap();
 	let delegated = session.spawn(|_verb, _args| Ok(Argument::Void)).unwrap();
 	let delegated_reply = delegated.clone();
 	session
@@ -191,8 +191,7 @@ async fn exercise_gc_tracking(
 		None,
 	)
 	.await
-	.unwrap()
-	.with_gc();
+	.unwrap();
 	let factory = session.fetch("factory").await.unwrap();
 	let reply = session.send(&factory, "reply", &[]).await.unwrap();
 	assert!(matches!(

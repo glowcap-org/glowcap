@@ -7,19 +7,20 @@ Deno.test("the server capability block is accepted without its other output", ()
 	const parsed = parseOpsBundle(`
 rooms: ready
 ROOMS-TRACE-LISTENING ocapn://127.0.0.1.tcp/s/not-the-trace-swiss
-ROOMS-ADMIN-LISTENERS listeners-swiss
-ROOMS-DIAGNOSTICS diagnostics-swiss
-ROOMS-IRC irc-swiss
-ROOMS-OPERATOR operator-swiss
-ROOMS-PEERING peering-swiss
-ROOMS-TRACE trace-swiss
+ROOMS-ADMIN-LISTENERS ocapn://127.0.0.1%3A1234.tcp/s/listeners-swiss
+ROOMS-DIAGNOSTICS ocapn://127.0.0.1%3A1234.tcp/s/diagnostics-swiss
+ROOMS-IRC ocapn://127.0.0.1%3A1234.tcp/s/irc-swiss
+ROOMS-OPERATOR ocapn://127.0.0.1%3A1234.tcp/s/operator-swiss
+ROOMS-PEERING ocapn://127.0.0.1%3A1234.tcp/s/peering-swiss
+ROOMS-TRACE ocapn://127.0.0.1%3A1234.tcp/s/trace-swiss
 `);
 	assertEquals([...parsed.keys()].join(","), "listeners,diagnostics,irc,operator,peering,trace");
-	assertEquals(parsed.get("operator"), "operator-swiss");
+	assertEquals(parsed.get("operator"), "ocapn://127.0.0.1%3A1234.tcp/s/operator-swiss");
 });
 
 Deno.test("the capability bundle controls and text edit one canonical draft", () => {
-	const text = "ROOMS-DIAGNOSTICS diagnostics-swiss\nROOMS-OPERATOR operator-swiss";
+	const text =
+		"ROOMS-DIAGNOSTICS ocapn://127.0.0.1%3A1234.tcp/s/diagnostics-swiss\nROOMS-OPERATOR ocapn://127.0.0.1%3A1234.tcp/s/operator-swiss";
 	const draft = parseOpsBundleDraft(text);
 	assertEquals(formatOpsBundle(draft), text);
 	assertEquals(opsBundleReady(draft), true);
@@ -28,15 +29,24 @@ Deno.test("the capability bundle controls and text edit one canonical draft", ()
 	assertEquals(incomplete.get("operator"), "");
 	assertEquals(opsBundleReady(incomplete), false);
 	const unfinished = new Map([["operator" as const, "value with spaces"]]);
-	assertEquals(formatOpsBundle(unfinished), "ROOMS-OPERATOR value with spaces");
+	let refused = false;
+	try {
+		formatOpsBundle(unfinished);
+	} catch {
+		refused = true;
+	}
+	assertEquals(refused, true);
 	assertEquals(opsBundleReady(unfinished), false);
 });
 
 Deno.test("the editable capability bundle canonicalizes grammar whitespace without changing values", () => {
 	const draft = parseOpsBundleDraft(
-		"\n  ROOMS-DIAGNOSTICS   diagnostics-swiss  \n\tROOMS-OPERATOR\toperator-swiss\t\n",
+		"\n  ROOMS-DIAGNOSTICS   ocapn://127.0.0.1%3A1234.tcp/s/diagnostics-swiss  \n\tROOMS-OPERATOR\tocapn://127.0.0.1%3A1234.tcp/s/operator-swiss\t\n",
 	);
-	assertEquals(formatOpsBundle(draft), "ROOMS-DIAGNOSTICS diagnostics-swiss\nROOMS-OPERATOR operator-swiss");
+	assertEquals(
+		formatOpsBundle(draft),
+		"ROOMS-DIAGNOSTICS ocapn://127.0.0.1%3A1234.tcp/s/diagnostics-swiss\nROOMS-OPERATOR ocapn://127.0.0.1%3A1234.tcp/s/operator-swiss",
+	);
 });
 
 Deno.test("the editable capability bundle refuses text it would have to drop", () => {

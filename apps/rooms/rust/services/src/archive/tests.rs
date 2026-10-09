@@ -99,7 +99,7 @@ async fn scenario() {
 		.unwrap();
 	let locator = server.locator().unwrap();
 	let (connected, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let accepted = Rc::new(accepted.unwrap().with_gc());
+	let accepted = Rc::new(accepted.unwrap());
 	let service = accepted.clone();
 	let serving = tokio::task::spawn_local(async move { service.serve().await });
 	let client = Client::new(connected.unwrap(), HostPlatform);
@@ -161,7 +161,7 @@ async fn scenario() {
 		.unwrap();
 	let (connected2, accepted2) =
 		tokio::try_join!(runtime2.connect(&locator, ConnectOptions::default()), server.accept()).unwrap();
-	let accepted2 = Rc::new(accepted2.with_gc());
+	let accepted2 = Rc::new(accepted2);
 	assert!(!accepted.same_session(&accepted2));
 	let service2 = accepted2.clone();
 	let serving2 = tokio::task::spawn_local(async move { service2.serve().await });

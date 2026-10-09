@@ -36,7 +36,7 @@ pub fn run() {
 	// The directory's real nickname ceiling bounds retained control notices
 	// too, including astral characters that occupy two UTF-16 units each.
 	for (peer, accepted) in [("😀".repeat(16), true), ("😀".repeat(16) + "x", false)] {
-		let values = json!(["introducible", peer, "11111111-1111-4111-8111-111111111111"]);
+		let values = json!(["introducible", peer, "11111111-1111-4111-8111-111111111111", "opening"]);
 		let args: Vec<_> = values.as_array().unwrap().iter().map(from_fixture).collect();
 		assert_eq!(registration::notice("notify", |i| args.get(i)).is_ok(), accepted);
 	}
@@ -67,6 +67,7 @@ pub fn run() {
 		kind: Kind::Introducible,
 		peer: rooms_application::fields::Text::new("bob".into()).unwrap(),
 		registration: Id::parse("11111111-1111-4111-8111-111111111111").unwrap(),
+		opening: Some(rooms_application::fields::Text::new("opening".into()).unwrap()),
 	};
 	let mut events = registration::Events::default();
 	events.push(event()).unwrap();

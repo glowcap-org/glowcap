@@ -42,7 +42,9 @@ struct Slot<S> {
 	description: FileDescription,
 	source: RefCell<Option<Rc<S>>>,
 	reads: Cell<usize>,
+	leases: Cell<usize>,
 	prefix: Cell<usize>,
+	repeatable: bool,
 }
 /// An issued blob occurrence cannot be retargeted or revived after expiration.
 /// Holding metadata alone does not keep the backing source alive.
@@ -64,6 +66,26 @@ impl<S> Blob<S> {
 	}
 	pub fn expire(&self) {
 		self.slot.source.borrow_mut().take();
+	}
+	/// Protect live backing from pressure eviction through admission and
+	/// settlement. Explicit expiration, consumed coverage and pool teardown
+	/// still retire it; the lease cannot revive or retarget authority.
+	pub fn lease(&self) -> Lease<S> {
+		self.slot.leases.set(self.slot.leases.get() + 1);
+		Lease(self.clone())
+	}
+}
+/// A pressure pin in the existing bounded pool; it allocates no backing or
+/// registry row. Read custody remains independent of the sender's lease.
+pub struct Lease<S>(Blob<S>);
+impl<S> Lease<S> {
+	pub fn blob(&self) -> &Blob<S> {
+		&self.0
+	}
+}
+impl<S> Drop for Lease<S> {
+	fn drop(&mut self) {
+		self.0.slot.leases.set(self.0.slot.leases.get() - 1);
 	}
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -102,6 +124,20 @@ impl<S> Sources<S> {
 	/// Validate the whole batch before expiring or publishing any source. S is
 	/// already a validated platform backing source; nonempty inputs require one.
 	pub fn retain(&mut self, sources: Vec<(FileDescription, S)>) -> Result<Vec<Blob<S>>, Error> {
+		self.retain_with_reads(sources, false)
+	}
+	/// Managed line custody has independent receiver and archive readers. They
+	/// borrow the same backing; complete coverage by one cannot retire another.
+	/// Hosted leases pin these sources against pressure until custody is released.
+	/// The ordinary file/byte/read limits and explicit expiry still apply.
+	pub fn retain_repeatable(&mut self, sources: Vec<(FileDescription, S)>) -> Result<Vec<Blob<S>>, Error> {
+		self.retain_with_reads(sources, true)
+	}
+	fn retain_with_reads(
+		&mut self,
+		sources: Vec<(FileDescription, S)>,
+		repeatable: bool,
+	) -> Result<Vec<Blob<S>>, Error> {
 		if sources.len() > MAX_MESSAGE_FILES {
 			return Err(Error::Files);
 		}
@@ -115,7 +151,7 @@ impl<S> Sources<S> {
 		let (pinned_files, pinned_bytes) = self
 			.rows
 			.iter()
-			.filter(|r| r.reads.get() > 0)
+			.filter(|r| r.reads.get() > 0 || (r.leases.get() > 0 && r.source.borrow().is_some()))
 			.fold((0, 0), |(files, bytes), row| {
 				(files + 1, bytes + row.description.size())
 			});
@@ -127,7 +163,7 @@ impl<S> Sources<S> {
 			let row = self
 				.rows
 				.iter()
-				.find(|r| r.source.borrow().is_some())
+				.find(|r| r.reads.get() == 0 && r.leases.get() == 0 && r.source.borrow().is_some())
 				.expect("preflight found reclaimable sources");
 			row.source.borrow_mut().take();
 			usage = self.usage();
@@ -140,7 +176,9 @@ impl<S> Sources<S> {
 					description,
 					source: RefCell::new(if nonempty { Some(Rc::new(source)) } else { None }),
 					reads: Cell::new(0),
+					leases: Cell::new(0),
 					prefix: Cell::new(0),
+					repeatable,
 				});
 				if nonempty {
 					self.rows.push_back(slot.clone());

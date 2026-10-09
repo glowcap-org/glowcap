@@ -23,7 +23,6 @@ const use_onion = peer_options.use_onion;
 
 const ConfCtx = conf_state.ConfCtx;
 const Shared = conf_state.Shared;
-const ConfBridge = conf_state.ConfBridge;
 const GREETER = conf_state.GREETER;
 const STURDYREF_ENLIVENER = conf_state.STURDYREF_ENLIVENER;
 const transport_name = conf_state.transport_name;
@@ -78,11 +77,11 @@ pub fn drainDeferred(shared: *Shared) !void {
                 fetch.recipient_peer,
                 fetch.answer,
             ),
-            .dial => |designator| shared.bridge.dialOutbound(.{
+            .dial => |designator| shared.runtime.startDial(.{
                 .transport = transport_name,
                 .designator = designator,
                 .hints = model.Hints.emptyFalse(),
-            }),
+            }, .inherit, 0, dialObserver(shared)),
         };
         action.deinit(shared.allocator);
         try result;
@@ -90,12 +89,27 @@ pub fn drainDeferred(shared: *Shared) !void {
     shared.deferred.clearRetainingCapacity();
 }
 
-/// When a session opens, run any gifter enliven that was waiting for this
+/// A gifter dial's outcome. The open is queued, because the observer runs
+/// inside the runtime step where top-level Host verbs are refused.
+fn dialObserver(shared: *Shared) driver.HostRuntime.SessionOpenObserver {
+    return .{ .ctx = shared, .opened = dialOpened, .failed = dialFailed };
+}
+
+fn dialOpened(ctx: *anyopaque, _: u64, session: *HostSession) anyerror!void {
+    const shared: *Shared = @ptrCast(@alignCast(ctx));
+    try shared.owned.ensureUnusedCapacity(shared.allocator, 1);
+    try shared.dialed.append(shared.allocator, session);
+    shared.owned.appendAssumeCapacity(session);
+}
+
+fn dialFailed(_: *anyopaque, _: u64, failure: driver.OperationFailure) void {
+    std.debug.print("glowcap-ocapn-peer: gifter dial failed: {s}\n", .{failure.primaryName()});
+}
+
+/// When a gifter dial opens, run any enliven that was waiting for this
 /// exporter to become reachable.
-pub fn confOnOpen(ctx: ?*anyopaque, bridge: *ConfBridge, shell: *ConfBridge.Slot) anyerror!void {
-    _ = bridge;
-    const shared: *Shared = @ptrCast(@alignCast(ctx.?));
-    const designator = shell.session.served.port.peer.session_state.partnerDesignator() orelse return;
+pub fn runPendingEnlivens(shared: *Shared, session: *HostSession) !void {
+    const designator = session.served.port.peer.session_state.partnerDesignator() orelse return;
     var i: usize = 0;
     while (i < shared.pending.items.len) {
         const p = shared.pending.items[i];
@@ -103,7 +117,7 @@ pub fn confOnOpen(ctx: ?*anyopaque, bridge: *ConfBridge, shell: *ConfBridge.Slot
             _ = shared.pending.swapRemove(i);
             defer shared.allocator.free(p.exporter_uuid);
             defer shared.allocator.free(p.swiss);
-            try runGifterFetch(shared, shell.session, p.swiss, p.recipient_peer, p.answer);
+            try runGifterFetch(shared, session, p.swiss, p.recipient_peer, p.answer);
             continue;
         }
         i += 1;

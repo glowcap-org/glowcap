@@ -123,6 +123,8 @@ test "relay C accept publishes payload buffered by the registered listener" {
         transport.len,
         &designator,
         designator.len,
+        &designator,
+        designator.len,
         null,
         &result,
         &failure,
@@ -150,7 +152,7 @@ test "relay C accept publishes payload buffered by the registered listener" {
 
     _ = try harness.waitForEvent(io, table, conn, c.GLOWCAP_MULTIPLEXED_EV_READABLE);
     try std.testing.expectEqual(
-        c.GLOWCAP_MULTIPLEXED_WOULD_BLOCK,
+        c.GLOWCAP_TRANSPORT_WOULD_BLOCK,
         table.try_read.?(table.ctx, conn, &payload, payload.len),
     );
 

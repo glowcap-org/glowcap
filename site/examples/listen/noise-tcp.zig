@@ -4,10 +4,11 @@ const glowcap = @import("glowcap");
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
-    var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
     const server = try glowcap.driver.listen(
         allocator,
-        noise_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.noise_tcp} },
+        glowcap.ocapn.model.transport.noise_tcp,
         .{ .designator = "127.0.0.1:9099" },
         .{ .keyed = secret },
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -31,7 +32,7 @@ const Greeter = struct {
 };
 
 fn serve(server: *glowcap.driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
+    try server.publish("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();
         defer session.deinit();

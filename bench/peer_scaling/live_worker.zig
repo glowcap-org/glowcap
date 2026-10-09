@@ -1,15 +1,17 @@
 //! Child-process halves of the live peer-scaling measurement.
 //!
 //! The coordinator keeps server and load-side RSS distinct by spawning one
-//! process for each half. Both halves use a fixed number of production
-//! completion loops; no connection owns a thread. Server loops stay live until
-//! the coordinator samples them, while every client proves a signed handshake
-//! and bootstrap fetch before its shard reaches the barrier.
+//! process for each half, and neither gives a connection a thread of its own.
+//! The server half runs the product path: `driver.HostRuntime` shards serving
+//! TCP through a completion resident (ADR-0202). The load half drives raw
+//! `engine.Peer`s from `completion.Loop`s, because it measures nothing but must
+//! cost as little as possible. Server shards stay live until the coordinator
+//! samples them, while every client proves a signed handshake and bootstrap
+//! fetch before its shard reaches the barrier.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
 
-const actors = glowcap.actors;
 const driver = glowcap.driver;
 const engine = glowcap.ocapn.engine;
 const foundation = glowcap.foundation;
@@ -18,7 +20,7 @@ const net = glowcap.net;
 const tcp = net.tcp;
 
 const Host = driver.core.Host;
-const TcpBridge = driver.Bridge(net.TcpLoop);
+const TcpResident = net.completion_resident.Resident(net.Backend, tcp.CompletionPolicy(net.Backend));
 
 const frame_cap: usize = 4096;
 /// Keep dial admission behind the signed-handshake and bootstrap-fetch barrier.
@@ -29,15 +31,11 @@ const client_in_flight_per_shard: usize = 64;
 const greeting = "peer-scaling live";
 
 const Greeter = struct {
-    pub fn handle(_: *Greeter, _: *actors.Turn, msg: actors.Message) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+    pub fn handle(_: *Greeter, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+        if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         return .{ .string = greeting };
     }
 };
-
-fn publishGreeter(_: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
-    _ = try served.publish(vat, "greeter", Greeter, .{});
-}
 
 fn rootFor(role: u8, shard: usize) [32]u8 {
     var root: [32]u8 = @splat(role);
@@ -61,12 +59,6 @@ fn waitForRelease(io: std.Io) !void {
     _ = try reader.interface.takeDelimiterInclusive('\n');
 }
 
-fn pokeListener(io: std.Io, port: u16) void {
-    const address = std.Io.net.IpAddress.parse("127.0.0.1", port) catch return;
-    var stream = address.connect(io, .{ .mode = .stream }) catch return;
-    stream.close(io);
-}
-
 fn driveUntil(loop: *net.TcpLoop, done: *const std.atomic.Value(bool), out_err: *?anyerror) void {
     loop.runUntil(done, 0) catch |err| {
         out_err.* = err;
@@ -84,16 +76,30 @@ const ServerShared = struct {
     stop: std.atomic.Value(bool) = .init(false),
 };
 
+/// One `HostRuntime` over its own Host and TCP completion resident. Every
+/// shard shares the Host identity, as one service spread across cores would.
 const ServerShard = struct {
     host: Host,
-    bridge: TcpBridge,
-    loop: net.TcpLoop,
+    resident: TcpResident,
+    runtime: driver.HostRuntime,
     shared: *ServerShared,
+    port: u16,
     loop_error: ?anyerror = null,
 
-    fn onOpen(ctx: ?*anyopaque, _: *TcpBridge, _: *TcpBridge.Slot) anyerror!void {
-        const self: *ServerShard = @ptrCast(@alignCast(ctx.?));
+    const listener_tag: u64 = 1;
+
+    fn acceptObserver(self: *ServerShard) driver.HostRuntime.SessionAcceptObserver {
+        return .{ .ctx = self, .opened = opened, .failed = failed };
+    }
+
+    fn opened(ctx: *anyopaque, _: u64, _: *driver.core.HostSession) anyerror!void {
+        const self: *ServerShard = @ptrCast(@alignCast(ctx));
         _ = self.shared.opened.fetchAdd(1, .acq_rel);
+    }
+
+    fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
+        const self: *ServerShard = @ptrCast(@alignCast(ctx));
+        if (self.loop_error == null) self.loop_error = failure.cause;
     }
 
     fn init(
@@ -102,38 +108,63 @@ const ServerShard = struct {
         io: std.Io,
         shared: *ServerShared,
         shard: usize,
-        capacity: usize,
     ) !void {
         self.host = try initHost(allocator, 0x53, shard);
         errdefer self.host.deinit();
         self.shared = shared;
         self.loop_error = null;
-        self.bridge = TcpBridge.init(allocator, &self.host, io, &self.loop, .{
-            .publish = publishGreeter,
-            .on_open = onOpen,
-            .on_open_ctx = self,
+        self.resident = try TcpResident.init(allocator, try net.Backend.init(allocator, 256, 256, frame_cap), .{});
+        errdefer retireResident(&self.resident);
+        self.runtime = try driver.HostRuntime.initWithCore(allocator, io, &self.host, .{}, .{
+            .max_pending_opens = 2 * client_in_flight_per_shard,
+            .handshake = .{ .ms = 30_000 },
+            .settle = .{ .ms = 30_000 },
         });
-        errdefer self.bridge.deinit();
-        self.loop = try net.TcpLoop.initWithBackendOptions(
-            allocator,
-            .{ .read_buffer_bytes = frame_cap },
-            TcpBridge.makePeer,
-            @ptrCast(&self.bridge),
-            TcpBridge.hookOptions(.{ .max_conns = capacity + 1, .listen = 0 }),
-        );
-        errdefer self.loop.deinit();
-        var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-        const address = try tcp.parseHostPort("127.0.0.1", self.loop.port().?);
-        const designator = tcp.locatorFromAddress(&designator_buf, address).designator;
-        try self.bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
+        errdefer self.runtime.deinit();
+        _ = try self.runtime.addResident(model.transport.Known.tcp.metadata(), self.resident.resident());
+        try self.runtime.publish("greeter", Greeter, .{});
+
+        // Until activation takes them, the listener and its prepared locator
+        // are this function's to release.
+        var listener = try self.runtime.bindListener(model.transport.tcp, "127.0.0.1:0", .{});
+        var owns_listener = true;
+        errdefer if (owns_listener) {
+            if (self.runtime.closeListener(&listener)) |failure| self.runtime.noteTerminalOperationFailure(failure);
+        };
+        var prepared = switch (self.runtime.prepareListenerLocatorOutcome(&listener)) {
+            .ready => |value| value,
+            .failed => |failure| return failure.cause,
+        };
+        var owns_prepared = true;
+        defer if (owns_prepared) prepared.deinit(allocator);
+        self.port = (try tcp.parseDesignator(prepared.value.designator)).getPort();
+        try self.runtime.activateOwnedListener(&listener, &prepared, listener_tag, self.acceptObserver());
+        owns_listener = false;
+        owns_prepared = false;
+        if (!try self.runtime.selectOwnedListener(listener_tag)) return error.ListenerNotSelected;
+    }
+
+    fn run(self: *ServerShard) void {
+        while (!self.shared.stop.load(.acquire)) {
+            _ = self.runtime.stepAny(20) catch |err| {
+                self.loop_error = err;
+                return;
+            };
+        }
     }
 
     fn deinit(self: *ServerShard) void {
-        self.loop.deinit();
-        self.bridge.deinit();
+        self.runtime.deinit();
+        retireResident(&self.resident);
         self.host.deinit();
     }
 };
+
+/// The resident outlives its runtime and retires the operations it still owes.
+fn retireResident(resident: *TcpResident) void {
+    resident.closeAndDrain(5_000) catch |err| std.debug.panic("TCP completion resident drain failed: {t}", .{err});
+    resident.deinit();
+}
 
 const ClientConn = struct {
     shard: *ClientShard,
@@ -333,25 +364,22 @@ pub fn runServer(io: std.Io, allocator: std.mem.Allocator, total: usize, shard_c
     var shared = ServerShared{};
     const shards = try allocator.alloc(ServerShard, shard_count);
     defer allocator.free(shards);
-    const Future = @TypeOf(worker_io.concurrent(driveUntil, .{ &shards[0].loop, &shared.stop, &shards[0].loop_error }) catch unreachable);
+    const Future = @TypeOf(worker_io.concurrent(ServerShard.run, .{&shards[0]}) catch unreachable);
     const futures = try allocator.alloc(Future, shard_count);
     defer allocator.free(futures);
 
     var initialized: usize = 0;
     errdefer for (shards[0..initialized]) |*shard| shard.deinit();
     while (initialized < shard_count) : (initialized += 1) {
-        try shards[initialized].init(
-            allocator,
-            worker_io,
-            &shared,
-            initialized,
-            shardQuota(total, shard_count, initialized),
-        );
-        futures[initialized] = try worker_io.concurrent(driveUntil, .{
-            &shards[initialized].loop,
-            &shared.stop,
-            &shards[initialized].loop_error,
-        });
+        try shards[initialized].init(allocator, worker_io, &shared, initialized);
+    }
+    var started: usize = 0;
+    errdefer {
+        shared.stop.store(true, .release);
+        for (futures[0..started]) |*future| future.await(worker_io);
+    }
+    while (started < shard_count) : (started += 1) {
+        futures[started] = try worker_io.concurrent(ServerShard.run, .{&shards[started]});
     }
 
     var stdout_buf: [4096]u8 = undefined;
@@ -359,7 +387,7 @@ pub fn runServer(io: std.Io, allocator: std.mem.Allocator, total: usize, shard_c
     try stdout.interface.writeAll("PORTS ");
     for (shards, 0..) |*shard, i| {
         if (i != 0) try stdout.interface.writeByte(',');
-        try stdout.interface.print("{d}", .{shard.loop.port().?});
+        try stdout.interface.print("{d}", .{shard.port});
     }
     try stdout.interface.writeByte('\n');
     try stdout.interface.flush();
@@ -367,13 +395,12 @@ pub fn runServer(io: std.Io, allocator: std.mem.Allocator, total: usize, shard_c
     try waitForRelease(io);
     const opened_before_stop = shared.opened.load(.acquire);
     shared.stop.store(true, .release);
-    for (shards) |*shard| pokeListener(worker_io, shard.loop.port().?);
     for (futures) |*future| future.await(worker_io);
+    started = 0;
     for (shards) |*shard| if (shard.loop_error) |err| return err;
     if (opened_before_stop != total) return error.LiveConnectShortfall;
-
-    try awaitDrains(worker_io, shards);
     for (shards) |*shard| shard.deinit();
+    initialized = 0;
 }
 
 pub fn runClient(

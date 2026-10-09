@@ -29,8 +29,12 @@ pub const REFUSED_REASON: &str = "rooms trace: this endpoint requires its capabi
 pub const PRODUCER_LIMIT_CLOSE_CODE: u16 = 1013;
 pub const CAP_PARAM: &str = "cap";
 pub const PUBLISH_PATH: &str = "/publish";
+pub const CHANNEL_PATH: &str = "/captp";
+/// The exporter owns the exact producer route, including deployment prefixes.
+/// Credentials come only from the separately held publication token.
+pub use crate::web_channel::endpoint as producer_endpoint;
 /// What a non-upgrade request is told.
-pub const NOT_A_SOCKET: &str = "rooms trace: connect an OCapN websocket at / or publish telemetry at /publish, presenting the trace capability as ?cap=<swiss>\n";
+pub const NOT_A_SOCKET: &str = "rooms trace: connect an OCapN byte channel at /captp; / and /publish require the trace capability as ?cap=<swiss>\n";
 
 /// One producer's scope, assigned at admission and never claimed.
 pub type Scope = String;

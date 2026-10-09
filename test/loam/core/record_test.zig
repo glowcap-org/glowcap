@@ -18,6 +18,9 @@ test "loam records round trip bounded edges and reject every truncated envelope"
     defer std.testing.allocator.free(bytes);
     const decoded = try loam.records.View.decode(bytes, f.limits.records, &f.schemas);
     try std.testing.expectEqualStrings(record.payload, decoded.payload);
+    for (record.edges, 0..) |edge, index| try std.testing.expectEqualDeep(edge, try decoded.edgeAt(index));
+    try std.testing.expectError(error.NoSuchEdge, decoded.edgeAt(record.edges.len));
+    try std.testing.expectError(error.NoSuchEdge, decoded.edgeAt(std.math.maxInt(usize)));
     var edges = decoded.edges();
     try std.testing.expect(edges.next().?.target.eql(id));
     try std.testing.expectEqualDeep(record.edges[1], edges.next().?);
@@ -52,6 +55,35 @@ test "loam encoding refuses oversized records before allocating and uses one all
     try std.testing.expect(!fail.has_induced_failure);
 }
 
+test "loam schema size bounds match complete envelopes at scalar and decimal limits" {
+    const id: f.core.ObjectId = .{ .store = f.id, .incarnation = std.math.maxInt(u64), .sequence = std.math.maxInt(u64) };
+    var payload: [1000]u8 = @splat(0xab);
+    const edges = [_]loam.records.Edge{ .{ .target = id }, .{ .target = id, .strength = .weak, .restoration = .recipe } };
+    for ([_]usize{ 0, 1, 9, 10, 99, 100, 999, 1000 }) |length| {
+        for ([_]u64{ 1, 9, 10, std.math.maxInt(u64) }) |schema_id| {
+            const schema: loam.records.Schema = .{ .id = schema_id, .version = std.math.maxInt(u32), .max_payload = length, .max_edges = edges.len };
+            const bound = try schema.encodedSizeBound();
+            const record: loam.records.Record = .{ .id = id, .revision = std.math.maxInt(u64), .schema = schema.id, .schema_version = schema.version, .rooted = true, .payload = payload[0..length], .edges = &edges };
+            const limits: loam.records.Limits = .{ .max_record_bytes = bound, .max_edges = edges.len };
+            const bytes = try record.encodeAlloc(std.testing.allocator, limits, &.{schema});
+            defer std.testing.allocator.free(bytes);
+            try std.testing.expectEqual(bound, bytes.len);
+            _ = try loam.records.View.decode(bytes, limits, &.{schema});
+            var refusing = limits;
+            refusing.max_record_bytes -= 1;
+            var fail = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+            try std.testing.expectError(error.RecordTooLarge, record.encodeAlloc(fail.allocator(), refusing, &.{schema}));
+            try std.testing.expect(!fail.has_induced_failure);
+        }
+    }
+    var schema = f.schemas[0];
+    schema.max_payload = std.math.maxInt(usize);
+    try std.testing.expectError(error.Overflow, schema.encodedSizeBound());
+    schema.max_payload = 0;
+    schema.max_edges = std.math.maxInt(usize);
+    try std.testing.expectError(error.Overflow, schema.encodedSizeBound());
+}
+
 fn allocationFailures(allocator: std.mem.Allocator) !void {
     var fixture = try f.Fixture.init(allocator);
     defer fixture.deinit();
@@ -80,6 +112,22 @@ fn allocationFailures(allocator: std.mem.Allocator) !void {
 
 test "loam allocation failure unwinds staging backend writes and cache loads" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, allocationFailures, .{});
+}
+
+test "loam metadata selects bootstrap only on known absence and preserves existing state" {
+    const Metadata = f.core.Metadata;
+    const identity = f.id;
+    const fresh = try Metadata.select(identity, .bootstrap, null);
+    try std.testing.expectEqual(identity, fresh.store);
+    const committed: Metadata = .{ .store = identity, .incarnation = 9, .revision = 11, .objects = 2, .roots = 1 };
+    var encoded = committed.encode();
+    const restored = try Metadata.select(identity, .bootstrap, &encoded);
+    try std.testing.expectEqualDeep(committed, restored);
+    try std.testing.expectError(error.StoreMismatch, Metadata.select(@fromBackingInt(999), .bootstrap, &encoded));
+    try std.testing.expectError(error.AlreadyExists, Metadata.select(identity, .create, &encoded));
+    try std.testing.expectError(error.MissingStore, Metadata.select(identity, .open, null));
+    encoded[0] ^= 1;
+    try std.testing.expectError(error.Corrupt, Metadata.select(identity, .bootstrap, &encoded));
 }
 
 test "loam metadata detects corruption and refuses incarnation wrap" {

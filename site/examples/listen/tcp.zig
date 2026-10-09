@@ -2,10 +2,11 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    var tcp_resident = glowcap.net.tcp.Resident{ .io = io };
     const server = try glowcap.driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        glowcap.ocapn.model.transport.tcp,
         .{ .designator = "127.0.0.1:9099" },
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -29,7 +30,7 @@ const Greeter = struct {
 };
 
 fn serve(server: *glowcap.driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
+    try server.publish("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();
         defer session.deinit();

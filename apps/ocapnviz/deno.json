@@ -10,7 +10,7 @@
     "preview": "deno run -A npm:vite@8.3.1 preview",
     "test:live-browser": "deno task build && deno run -A browser/live-mode-production-test.ts",
     "typecheck": "deno check src/main.tsx scripts/*.ts",
-    "test": "deno test -A",
+    "test": "deno test -A --parallel",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check",
     "lint": "deno lint",

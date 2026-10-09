@@ -60,7 +60,7 @@ import { Said } from "../Said.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
-import { refusalText } from "../../../lib/text/failure.ts";
+import { useAsyncAction } from "../async_action.ts";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 
 export function SessionMoves(
@@ -72,7 +72,15 @@ export function SessionMoves(
 	const [open, setOpen] = useState(false);
 	const [asking, setAsking] = useState<"leave" | "local-copy" | "share" | null>(null);
 	const [leaveError, setLeaveError] = useState("");
-	const [sharing, setSharing] = useState(false);
+	// Each answer moves the whole browser, so one runs at a time and its
+	// question stays up, busy, until the move lands or says why it did not.
+	const move = useAsyncAction(async (_signal, act: () => Promise<string>) => {
+		setLeaveError("");
+		const why = await act();
+		setLeaveError(why);
+		if (why === "") setAsking(null);
+	});
+	const said = leaveError || move.why;
 	const sharedSession = sessionKind === "attached" || sessionKind === "hosted";
 	const hosting = sessionKind === "hosted";
 	return (
@@ -87,21 +95,9 @@ export function SessionMoves(
 							say={sessionShareSay}
 							keep={sessionKeepLocal}
 							commit={sessionShareLabel}
-							busy={sharing}
+							busy={move.busy}
 							onKeep={() => setAsking(null)}
-							onCommit={() =>
-								commitments.request(async () => {
-									setSharing(true);
-									try {
-										const why = await browser.shareRoomsSession();
-										setLeaveError(why);
-										if (why === "") setAsking(null);
-									} catch (error) {
-										setLeaveError(refusalText(error));
-									} finally {
-										setSharing(false);
-									}
-								})}
+							onCommit={() => commitments.request(() => move.run(() => browser.shareRoomsSession()))}
 						/>
 					)
 					: asking === "local-copy"
@@ -112,8 +108,9 @@ export function SessionMoves(
 							say={sessionGoLocalSay}
 							keep={sessionStayAttached}
 							commit={sessionContinueLocally}
+							busy={move.busy}
 							onKeep={() => setAsking(null)}
-							onCommit={() => commitments.request(() => setLeaveError(browser.useLocalRoomsSession()))}
+							onCommit={() => commitments.request(() => move.run(() => browser.useLocalRoomsSession()))}
 						/>
 					)
 					: asking === "leave"
@@ -131,8 +128,9 @@ export function SessionMoves(
 								: sharedSession
 								? sessionDetachBrowser
 								: sessionLeaveWorkspace}
+							busy={move.busy}
 							onKeep={() => setAsking(null)}
-							onCommit={() => commitments.request(() => setLeaveError(browser.leaveRoomsSession()))}
+							onCommit={() => commitments.request(() => move.run(() => browser.leaveRoomsSession()))}
 						/>
 					)
 					: (
@@ -205,7 +203,7 @@ export function SessionMoves(
 							</ul>
 						</>
 					)}
-				{leaveError !== "" && <Said kind="failure">{leaveError}</Said>}
+				{said !== "" && <Said kind="failure">{said}</Said>}
 			</div>
 			<AttachModal
 				open={open}

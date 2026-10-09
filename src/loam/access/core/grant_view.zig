@@ -109,29 +109,39 @@ pub const GrantView = struct {
     /// disclose a status alone, without ancestor identities or policy changes.
     /// The result is a snapshot, never admission for a later protected effect.
     pub fn describe(self: *GrantView, resources: *ResourceView, policy: *const Policy, id: identity.GrantId, target: identity.ResourceId) Error!Access {
-        const effective = self.effectivePolicy(resources, policy, id, target) catch |err| switch (err) {
+        const effective = self.effectivePolicy(resources, policy, id, target, false) catch |err| switch (err) {
             error.Paused => return .paused,
             error.Revoked => return .revoked,
             error.OutOfScope => return .out_of_scope,
             else => return err,
         };
         const own = try self.get(id);
-        return .{ .active = .{ .ceiling = own.ceiling.policy, .configured = own.configured.policy, .effective = effective, .delegation_depth = own.delegation_depth } };
+        return .{ .active = .{ .ceiling = own.ceiling.policy, .configured = own.configured.policy, .effective = effective.policy, .delegation_depth = own.delegation_depth } };
     }
 
     /// Checks the full grant path and current containment. No result is a
     /// reusable admission across mutation, asynchronous work, or disclosure.
     pub fn require(self: *GrantView, resources: *ResourceView, policy: *const Policy, id: identity.GrantId, target: identity.ResourceId, requirement: Policy.Requirement) Error!void {
-        const effective = try self.effectivePolicy(resources, policy, id, target);
-        if (!try policy.allows(effective, requirement)) return error.Denied;
+        const effective = try self.effectivePolicy(resources, policy, id, target, false);
+        if (!try policy.allowsSupported(effective.policy, effective.supported, requirement)) return error.Denied;
     }
 
-    fn effectivePolicy(self: *GrantView, resources: *ResourceView, policy: *const Policy, id: identity.GrantId, target: identity.ResourceId) Error!Policy.Value {
+    const Effective = struct { policy: Policy.Value, supported: u64 };
+
+    /// Management may recover an issued endpoint while its use is paused.
+    /// Revocation and current scope still refuse recovery; this grants no use.
+    pub fn requireRecovery(self: *GrantView, resources: *ResourceView, policy: *const Policy, id: identity.GrantId, target: identity.ResourceId) Error!void {
+        _ = try self.effectivePolicy(resources, policy, id, target, true);
+    }
+
+    fn effectivePolicy(self: *GrantView, resources: *ResourceView, policy: *const Policy, id: identity.GrantId, target: identity.ResourceId, recovering: bool) Error!Effective {
         self.missing = null;
         resources.missing = null;
         if (resources.version.owner != self.version.owner or resources.version.revision != self.version.revisions.resources) return error.RevisionConflict;
-        try self.requireActive(id);
-        _ = try resources.get(target);
+        if (recovering) {
+            if (try self.effectiveStatus(id) == .revoked) return error.Revoked;
+        } else try self.requireActive(id);
+        const target_record = try resources.get(target);
         var effective = (try self.get(id)).configured.policy;
         var path = self.ancestry(id);
         while (try path.next()) |record| {
@@ -140,6 +150,8 @@ pub const GrantView = struct {
                 effective = try policy.intersect(effective, terms.policy);
             }
         }
-        return effective;
+        const supported = try policy.supported(target_record.kind, false);
+        effective.permissions &= supported;
+        return .{ .policy = effective, .supported = supported };
     }
 };

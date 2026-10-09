@@ -80,6 +80,10 @@ pub fn Machines(
             pub fn borrowToken(index: u16) u32 {
                 return Namespace.borrowToken(index);
             }
+
+            pub fn promoteParked(backend: *Self, c: *RelayConn) void {
+                Operations.promoteParked(backend, c);
+            }
         };
         pub const Receive = receive_machine.Machine(Self, Types, ReceiveAccess);
 
@@ -209,6 +213,14 @@ pub fn Machines(
 
             pub fn serviceBuffered(backend: *Self, c: *RelayConn) !void {
                 try Receive.serviceBuffered(backend, c);
+            }
+
+            pub fn serviceParked(backend: *Self, c: *RelayConn) !void {
+                try Receive.serviceParked(backend, c);
+            }
+
+            pub fn isRegistrationLeg(backend: *const Self, id: ConnId) bool {
+                return Operations.isRegistrationLeg(backend, id);
             }
 
             pub fn fail(backend: *Self, c: *RelayConn) void {

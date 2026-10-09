@@ -33,7 +33,7 @@ async fn manager_client_validates_authority_and_executes_real_host_calls() {
 			let invalid = Rc::new(Cell::new(false));
 			let calls = Rc::new(RefCell::new(Vec::new()));
 			let seen = calls.clone();
-			host.publish_giftable("room", move || {
+			host.publish("room", move || {
 				let seen = seen.clone();
 				Box::new(move |verb, args| {
 					assert_eq!(verb, authority::MANAGED_IDENTITY);
@@ -51,7 +51,7 @@ async fn manager_client_validates_authority_and_executes_real_host_calls() {
 					steward_link.clone(),
 					correlator.clone(),
 				);
-				host.publish_giftable(name, move || {
+				host.publish(name, move || {
 					let (invalid, seen, room_link, steward_link, correlator) = (
 						invalid.clone(),
 						seen.clone(),
@@ -77,7 +77,7 @@ async fn manager_client_validates_authority_and_executes_real_host_calls() {
 							authority::SET_POLICY => {
 								assert_eq!(
 									args.iter().map(|v| v.as_str().unwrap()).collect::<Vec<_>>(),
-									["manager", "listed", "open", "moderated", "general"]
+									["listed", "open", "moderated", "general"]
 								);
 								Ok(Argument::List(if invalid.get() {
 									vec!["wrong".into()]
@@ -86,8 +86,7 @@ async fn manager_client_validates_authority_and_executes_real_host_calls() {
 								}))
 							}
 							authority::UNREGISTER_ROOM => {
-								assert_eq!(args.len(), 1);
-								assert_eq!(args[0].as_str(), Some("manager"));
+								assert!(args.is_empty());
 								Ok(Argument::List(vec![
 									"general".into(),
 									"secret".into(),

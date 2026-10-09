@@ -150,16 +150,13 @@ The checked measurements are:
 
 - a warmed local enqueue-and-drive batch performs zero general-purpose
   allocations;
-- `Vat` is 448 inline bytes;
+- the Vat is charged once per Host, independent of session count;
 - the fixed queue chunk is 4,152 bytes, below its 4,224-byte metadata ceiling;
 - the one Vat-wide spare retains at most 4,096 payload-arena bytes;
-- the per-session `HostSession` ceiling is 528 bytes: 464 when this decision
-  cut it from 768, plus 32 for ADR-0097's per-session signing seed, 8 for
-  the session-minted outbound high-water, and 8 for ADR-0107's
-  sealed-channel pointer. The
-  448-byte Vat is charged once per Host, not once per session. This decision
-  raised no footprint budget, and the headroom it removed was banked rather
-  than reassigned.
+- the per-session `HostSession` ceiling is 528 bytes.
+
+[The footprint table](../../ladder.md#2-performance-at-scale) records the current
+session and Host budgets.
 
 ## Scope (what this does not decide)
 

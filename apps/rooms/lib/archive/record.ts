@@ -9,6 +9,7 @@
 // binding in with it.
 
 import type { Argument } from "@glowcap/runtime";
+import { MAX_ARCHIVE_CONVERSATION_BYTES } from "../application_data.ts";
 import { MAX_LINE, nickRefusal, utf8Fits } from "../limits.ts";
 import type { ArchiveConversationKind } from "./scope.ts";
 import { type ArchivedAttachment, archivedAttachmentRows, parseArchivedAttachments } from "./record_attachments.ts";
@@ -19,7 +20,7 @@ export const MAX_ARCHIVE_ID_BYTES = 128;
 /** Directory locators and contextual conversation labels are data from
  * another peer. Bound them independently of the much smaller room vocabulary. */
 export const MAX_ARCHIVE_CONTEXT_BYTES = 8192;
-export const MAX_ARCHIVE_CONVERSATION_BYTES = 512;
+export { MAX_ARCHIVE_CONVERSATION_BYTES };
 const MAX_ARCHIVE_LINK_PREVIEWS = 5;
 const MAX_ARCHIVE_LINK_PREVIEW_URL_BYTES = 2_048;
 

@@ -327,13 +327,18 @@ const MultiplexedRuntime = struct {
         route_id: u64,
         transport: []const u8,
         requested_designator: []const u8,
+        identity_designator: []const u8,
     ) net.multiplexed_resident.MultiplexedResident.RawListenStartOutcome {
         const profile = profileForTransport(transport) orelse
             return .{ .failed = .init(error.InvalidAddress) };
-        const identity = crypto.PeerKey.fromDesignator(requested_designator) orelse
+        // The relay registers the Host's key; a requested designator must be
+        // that key.
+        const identity = crypto.PeerKey.fromDesignator(identity_designator) orelse
+            return .{ .failed = .init(error.InvalidAddress) };
+        if (requested_designator.len != 0 and !std.mem.eql(u8, requested_designator, identity_designator))
             return .{ .failed = .init(error.InvalidAddress) };
         const raw = self.resident(profile).listenRaw(self.allocator, .{
-            .designator = requested_designator,
+            .designator = identity_designator,
             .identity = identity,
         }) catch |err| return .{ .failed = .init(err) };
         const setup = self.allocator.create(ListenerSetup) catch {

@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // Closing a direct message and starting another one with the same person opens
 // a second connection, and the second one carries.
 //
@@ -42,13 +43,13 @@
 // Run: `deno run --allow-all apps/rooms/test/web/dm_reopen_proof.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { Buffer } from "node:buffer";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { connectTraceViewer, scrapeTraceSturdyref, traceMemorySeed } from "../trace/viewer.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { confirmTitleLeave, fail, openDmTo } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 
@@ -143,12 +144,9 @@ async function joinAs(
 	port: number,
 	query: string,
 	nick: string,
-	seed: { key: string; value: string },
+	trace: string,
 ): Promise<Page> {
 	const context = await browser.newContext();
-	// The endpoint admits only capability-presenting sockets; the tab holds
-	// the swiss the way a reader's "Remember on this device" would have.
-	await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), seed);
 	const tab = await context.newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	tab.on("console", (m) => {
@@ -156,6 +154,7 @@ async function joinAs(
 	});
 	await tab.goto(`http://127.0.0.1:${port}/${query}`);
 	await establishLocalSession(tab);
+	await acquireTraceCapability(tab, trace);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");
@@ -191,7 +190,7 @@ const tracePort = freePort();
 
 // The room server carries the live timeline endpoint, and serve.ts hands its own
 // environment to it, so each tab finds the endpoint by asking `/trace`.
-const web = spawnOwned(WEB, {
+const web = spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) },
@@ -206,12 +205,12 @@ let browser: Browser | null = null;
 try {
 	await waitForHttp(httpPort);
 	const timeline = await watch(await traceRef);
-	const seed = traceMemorySeed(httpPort, await traceRef);
+	const trace = await traceRef;
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	for (const mode of MODES) {
-		const opener = await joinAs(browser, httpPort, mode.query, mode.first, seed);
-		const other = await joinAs(browser, httpPort, mode.query, mode.second, seed);
+		const opener = await joinAs(browser, httpPort, mode.query, mode.first, trace);
+		const other = await joinAs(browser, httpPort, mode.query, mode.second, trace);
 
 		// The first conversation: the opener redeems the room's introduction, the
 		// line opens, and both directions carry.
@@ -264,10 +263,9 @@ try {
 		await say(other, `${mode.name}: second reply`);
 		await sees(opener, `${mode.name}: second reply`, mode.first);
 
-		// Then each side reopens in turn. Closing a borrowed reciprocal route
-		// leaves the other side's connection alive; the newly offered reply
-		// must replace that route. Reuse of the same connection is valid; a
-		// superseded connection must close once no route uses it.
+		// Then each side reopens in turn. Closing its final local route ends
+		// the connection. The peer may retain a closed conversation for history;
+		// the newly offered reply must establish the replacement live route.
 		for (
 			const [sender, receiver, nick] of [
 				[other, opener, mode.second],
@@ -275,9 +273,13 @@ try {
 			] as const
 		) {
 			await confirmTitleLeave(sender);
-			await sender.waitForFunction(() => document.querySelectorAll("#dmList .dm-open").length === 0, undefined, {
-				timeout: 20_000,
-			});
+			await sender.waitForFunction(
+				() => document.querySelectorAll("#dmList li:not(.closed) .dm-open").length === 0,
+				undefined,
+				{
+					timeout: 20_000,
+				},
+			);
 			await openDmTo(sender, sender === other ? mode.first : mode.second);
 			const message = `${mode.name}: ${nick} reopened`;
 			await say(sender, message);
@@ -290,6 +292,96 @@ try {
 			);
 			await say(receiver, `${message}: reply`);
 			await sees(sender, `${message}: reply`, nick);
+		}
+
+		// A fresh page Host cannot restore a previous live DM route. Its saved
+		// row stays closed until an explicit reconnect to the same registration.
+		const rows = await opener.locator("#dmList .dm-open").count();
+		await opener.fill("#line", `${mode.name}: saved reload draft`);
+		// Export reads accepted session state. Establish draft commitment before
+		// killing the Host, instead of racing a keystroke against page unload.
+		await opener.click("#settingsBtn");
+		await opener.click("#sessionTab");
+		await opener.click("#sessionDataOpen");
+		const downloaded = opener.waitForEvent("download", { timeout: 20_000 });
+		await opener.click("#stateDownload");
+		const savedPath = await (await downloaded).path();
+		if (savedPath == null) fail("draft commitment export was unavailable");
+		const saved = JSON.parse(await Deno.readTextFile(savedPath!));
+		if (!saved.conversations.some((row: { draft: string }) => row.draft === `${mode.name}: saved reload draft`)) {
+			fail("the accepted workspace did not contain the saved direct draft");
+		}
+		await opener.goto(`http://127.0.0.1:${httpPort}/ops/nope${mode.query}`);
+		await opener.waitForSelector("#opsNotFound", { timeout: 20_000 });
+		await opener.locator("#dmList .dm-open").last().click();
+		await opener.waitForSelector("#dmReconnect", { timeout: 20_000 });
+		if (!await opener.locator("#line").isDisabled()) fail("a cold direct route presented a sendable composer");
+		if (await opener.inputValue("#line") !== `${mode.name}: saved reload draft`) {
+			fail("reload lost the direct draft");
+		}
+		await opener.click("#dmReconnect");
+		await opener.waitForSelector("#line:not([disabled])", { timeout: 20_000 });
+		if (await opener.locator("#dmList .dm-open").count() !== rows) {
+			fail("reconnect duplicated the saved conversation");
+		}
+		if (await opener.inputValue("#line") !== `${mode.name}: saved reload draft`) {
+			fail("reconnect replaced the saved draft");
+		}
+		await say(opener, `${mode.name}: after reload`);
+		// Submit a file while the text receipt can still be settling. The next
+		// gesture owns its source independently of the previous draft clear.
+		await opener.setInputFiles("#filePick", {
+			name: "reconnect-file.txt",
+			mimeType: "text/plain",
+			buffer: Buffer.from("reconnect attachment bytes"),
+		});
+		await opener.click("#sendBtn");
+		// The reloaded sender has a fresh directory registration. Its peer must
+		// select that new identity, keeping the old sender's history separate.
+		await other.locator(`#dmList li:not(.closed) .dm-open:has(.rname:text-is("${mode.first}"))`).click({
+			timeout: 20_000,
+		});
+		await other.waitForSelector("#line:not([disabled])", { timeout: 20_000 });
+		await sees(other, `${mode.name}: after reload`, mode.second);
+		await other.waitForSelector('.attach-file:has(.name:text-is("reconnect-file.txt"))', { timeout: 20_000 });
+		if (await other.locator(`.bubble:has-text("${mode.name}: first line")`).count() !== 0) {
+			fail("a replacement sender registration inherited the previous sender's history");
+		}
+		await say(other, `${mode.name}: reload reply`);
+		await sees(opener, `${mode.name}: reload reply`, mode.first);
+		// Closing a saved entry is dismissal, not another close of its dead wire.
+		await opener.reload();
+		await opener.waitForSelector("#boot", { state: "detached", timeout: 20_000 });
+		const closedRow = opener.locator("#dmList li.closed").last();
+		await closedRow.waitFor({ timeout: 20_000 });
+		await closedRow.hover();
+		await closedRow.locator(".room-leave").click();
+		await opener.waitForFunction(
+			(count) => document.querySelectorAll("#dmList .dm-open").length === count - 1,
+			rows,
+			{ timeout: 20_000 },
+		);
+		// The receiver holds separate conversations for the sender's old and
+		// replacement registrations, even though both rows wear the same name.
+		// Every saved closed entry can be dismissed independently and stays gone.
+		await other.reload();
+		await other.waitForSelector("#boot", { state: "detached", timeout: 20_000 });
+		const savedRows = await other.locator("#dmList li.closed").count();
+		if (savedRows < 2) fail("the receiver did not retain the separate sender registrations");
+		for (let remaining = savedRows; remaining > 0; remaining--) {
+			const savedRow = other.locator("#dmList li.closed").first();
+			await savedRow.hover();
+			await savedRow.locator(".room-leave").click();
+			await other.waitForFunction(
+				(count) => document.querySelectorAll("#dmList .dm-open").length === count,
+				remaining - 1,
+				{ timeout: 20_000 },
+			);
+		}
+		await other.reload();
+		await other.waitForSelector("#boot", { state: "detached", timeout: 20_000 });
+		if (await other.locator("#dmList .dm-open").count() !== 0) {
+			fail("dismissed closed entries returned after reload");
 		}
 
 		console.log(

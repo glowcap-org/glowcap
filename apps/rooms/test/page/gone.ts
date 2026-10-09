@@ -12,13 +12,10 @@
 // one notice the page had for all of them and erase an outage that was still
 // true.
 //
-// What a session takes with it is the other half. A line in flight is not sent
-// and says so, and it keeps the way to send it again, because a session is a
-// thing that comes back. A file offered over that connection and the reference
-// the room answered a line with do not come back, so the controls that spend
-// them go rather than staying to refuse. Then the server is stood back up and
-// the retry is pressed, because a control that draws and cannot be reached is a
-// failure this page has had before.
+// A line in flight preserves its uncertain delivery receipt after connection
+// loss. Reconnection cannot authorize a new post from the old message text.
+// Files already recorded in the archive retain their bytes; live line-edit
+// authority retires with its connection. Both are checked after restart.
 //
 // The last phase of the two-directories conversation, run by `leaving.ts` with
 // that page's state. It ends the second server for good, and returns the one it
@@ -57,6 +54,7 @@ function railStandings(tab: Page) {
 export async function run(
 	tab: Page,
 	foreignRoom: Deno.ChildProcess,
+	foreignState: string,
 	foreignRoomPort: number,
 	homeRoomPort: number,
 	aboutOf: (room: string) => Locator,
@@ -156,11 +154,37 @@ export async function run(
 		inFlight,
 		{ timeout: 30_000 },
 	).catch(() => fail("a line said to a server that had stopped answering was never even drawn"));
+	// The optimistic bubble precedes durable admission. Require the receipt and
+	// its retained executor before killing the server. The recovery notice hides
+	// running work, so without an older failure it opens only after the bounded
+	// observation stops. That receipt says unknown but remains resumable through
+	// the exact execution; neither state permits another dispatch.
+	await tab.click("#sessionEffectReview");
+	await tab.getByRole("dialog", { name: /^Unfinished change/ }).waitFor();
+	const retainedExecution =
+		'dialog[open] [data-operation][data-resumable="true"]:is([data-status="pending"], [data-status="unknown"])';
+	await tab.waitForSelector(retainedExecution, { timeout: 30_000 })
+		.catch(() => fail("the send to the stopped server never retained an admitted execution"));
+	const originalPending = await tab.locator(retainedExecution).last()
+		.getAttribute("data-operation");
+	if (originalPending == null) fail("the admitted send lost its receipt identity");
+	const originalReceipt = tab.locator(`dialog[open] [data-operation="${originalPending}"]`);
+	const observationStopped = await originalReceipt.getAttribute("data-status") === "unknown";
 	try {
 		foreignRoom.kill("SIGKILL");
 	} catch {
 		// already gone
 	}
+	// Resume only the retained observation when its bounded worker has stopped.
+	// Its old execution must now settle terminally without dispatching a new post.
+	if (observationStopped) await originalReceipt.getByRole("button", { name: "Pick back up", exact: true }).click();
+	await tab.waitForSelector(
+		`dialog[open] [data-operation="${originalPending}"][data-status="unknown"][data-resumable="false"]`,
+		{
+			timeout: 30_000,
+		},
+	).catch(() => fail("the open recovery dialog never reported the original send's unknown outcome"));
+	await tab.keyboard.press("Escape");
 	// Back to the room on this page's own directory. Pressing the room you are
 	// already in is how a reader puts the rail away, so leaving the tab in this
 	// one would turn the next press on its row — the one below, which expects to
@@ -371,8 +395,18 @@ export async function run(
 	}
 	const priorViewport = tab.viewportSize();
 	await tab.setViewportSize({ width: 390, height: 720 });
-	await tab.waitForSelector("#composerAvailability.said-more", { timeout: 60_000 })
-		.catch(() => fail("a long directory failure did not offer its dynamically measured detail from the composer"));
+	await tab.waitForFunction(
+		() => {
+			const status = document.getElementById("composerAvailability");
+			const text = status?.querySelector(".said-clamp");
+			if (text == null || text.clientHeight === 0) return false;
+			const clipped = text.scrollHeight > text.clientHeight + 1 || text.scrollWidth > text.clientWidth + 1;
+			return status?.classList.contains("said-more") === clipped;
+		},
+		undefined,
+		{ timeout: 10_000 },
+	)
+		.catch(() => fail("the composer detail control did not match the failure text's actual clipping"));
 	const availabilityBounds = await tab.evaluate(() => {
 		const status = document.querySelector<HTMLElement>(".composer-status");
 		const availability = document.getElementById("composerAvailability");
@@ -419,64 +453,18 @@ export async function run(
 	).catch(() => fail("returning from the directory did not put the room back"));
 
 	{
-		// The line that was in flight when the server went. It is not sent, it says
-		// so, and — unlike one typed into a conversation that closed for good — it
-		// carries the way to send it again, because a session is a thing that comes
-		// back.
-		const unsent = await tab.waitForSelector(".delivery-failure", { timeout: 60_000 })
-			.catch(async () => {
-				// What the log holds instead. A line that was confirmed before the
-				// server went and a line that vanished are different failures, and
-				// this used to report neither.
-				const shown = await tab.evaluate(() => ({
-					mine: [...document.querySelectorAll(".row.mine .bubble")].map((bubble) =>
-						(bubble.textContent ?? "").slice(0, 60)
-					),
-					rail: [...document.querySelectorAll("#roomList li")].map((row) =>
-						(row.querySelector(".rname")?.textContent ?? "?") + " " +
-						(row.querySelector(".rwhere-how")?.textContent ?? "-")
-					),
-				}));
-				fail(
-					`a line in flight when its server went was never marked unsent: ${inFlight}; ` +
-						`the log holds ${JSON.stringify(shown)}`,
-				);
-			});
-		// Named by the line it is about. A conversation can hold more than one
-		// unsent message, and they do not all carry the same answer: this one is
-		// a line a session took with it, and the file beside it is a transfer
-		// nothing can resume.
-		const carried = await tab.evaluate((text) => {
-			const row = [...document.querySelectorAll(".row.mine")]
-				.find((candidate) => (candidate.textContent ?? "").includes(text));
-			const failure = row?.querySelector(".delivery-failure");
-			return failure == null ? null : {
-				said: failure.textContent?.trim() ?? "",
-				retries: failure.querySelectorAll("button").length,
-			};
-		}, inFlight);
-		if (carried === null || carried.retries !== 1) {
-			fail(`a line that could be sent again offers ${JSON.stringify(carried)} rather than one retry`);
+		// A lost reply is unknown delivery. Only the original receipt may recover
+		// it; a new membership cannot prove that the previous post was absent.
+		const pendingRow = tab.locator(`.row.mine:has-text("${inFlight}")`);
+		await pendingRow.locator(".delivery-failure:has-text('Not confirmed')").waitFor({ timeout: 60_000 });
+		if (await pendingRow.locator(".delivery-failure button").count() !== 0) {
+			fail("an unknown delivery offered a fresh resend");
 		}
-		void unsent;
-
-		// Pressed while the server is still away. The control is live — it is in
-		// the bubble, not in the composer the directory disables — so a reader can
-		// and will press it, and it cannot work yet. What it must not do is
-		// nothing: a press that changes nothing reads as a broken button rather
-		// than as a room that is not back.
-		await tab.click(".delivery-failure button");
-		await tab.waitForFunction(
-			() => (document.getElementById("log")?.textContent ?? "").includes("Not in this room at the moment"),
-			undefined,
-			{ timeout: 30_000 },
-		).catch(async () => {
-			const log = await tab.evaluate(() => (document.getElementById("log")?.textContent ?? "").slice(-200));
-			fail(`retrying before the room was back said nothing: ${JSON.stringify(log)}`);
-		});
-		if (await tab.locator(".delivery-failure").count() !== 1) {
-			fail("a retry that could not go left the message looking sent");
-		}
+		await tab.click("#sessionEffectReview");
+		await tab.getByRole("dialog", { name: /^Unfinished change/ }).waitFor();
+		await tab.waitForSelector('dialog[open] [data-operation][data-status="unknown"]', { timeout: 30_000 });
+		const originalReceipts = await unknownReceipts(tab);
+		await tab.keyboard.press("Escape");
 
 		// The file that was posted before the server went was also retained by this
 		// session's archive. Its live occurrence died with the connection, but the
@@ -527,7 +515,7 @@ export async function run(
 		// that draws and cannot be reached is the failure this page has had before,
 		// and only a press tells the two apart.
 		spawnOwned(SERVER, {
-			args: ["--transport=tcp", `--port=${foreignRoomPort}`],
+			args: ["--transport=tcp", `--port=${foreignRoomPort}`, `--state=${foreignState}`],
 			cwd: ROOT,
 			stdout: "null",
 			stderr: "inherit",
@@ -535,9 +523,8 @@ export async function run(
 		// The page dials on its own with a backoff, and re-enters the rooms it
 		// holds. Waited for by the room's own roster line rather than by the composer
 		// coming back: the composer answers for the directory, which reconnects
-		// first, and a retry pressed in that gap has no membership to post
-		// through. What this is here to prove is that a reader who waits and then
-		// presses gets their line sent, so it presses when the room is back.
+		// first. Reopening must use the original persisted server authority and
+		// preserve uncertainty about the old send after membership returns.
 		await tab.waitForFunction(
 			() => ((document.getElementById("log")?.textContent ?? "").match(/in the room\./g) ?? []).length >= 2,
 			undefined,
@@ -565,23 +552,50 @@ export async function run(
 				}`,
 			);
 		}
-		await tab.click(".delivery-failure button");
-		await tab.waitForFunction(
-			(text) => {
-				const failed = document.querySelector(".delivery-failure");
-				const drawn = [...document.querySelectorAll(".bubble")].some((b) =>
-					(b.textContent ?? "").includes(text)
-				);
-				return failed === null && drawn;
-			},
-			inFlight,
-			{ timeout: 60_000 },
-		).catch(async () => {
-			const state = await tab.evaluate(() => ({
-				failure: document.querySelector(".delivery-failure")?.textContent?.trim() ?? "(none)",
-				log: (document.getElementById("log")?.textContent ?? "").slice(-160),
-			}));
-			fail(`pressing retry did not send the line: ${JSON.stringify(state)}`);
-		});
+		await pendingRow.locator(".delivery-failure:has-text('Not confirmed')").waitFor();
+		if (await pendingRow.locator(".delivery-failure button").count() !== 0) {
+			fail("reconnection changed unknown delivery into permission to resend");
+		}
+		await tab.click("#sessionEffectReview");
+		await tab.waitForSelector('dialog[open] [data-operation][data-status="unknown"]', { timeout: 30_000 });
+		const recoveredReceipts = await unknownReceipts(tab);
+		if (originalReceipts.length === 0 || !originalReceipts.every((id) => recoveredReceipts.includes(id))) {
+			fail("reconnection lost or replaced the original unknown post receipt");
+		}
+		// Letting a receipt go is the reader's explicit answer: the row leaves for
+		// good, and the line stays not confirmed with no way to resend it. A new
+		// admission can evict a terminal receipt from the bounded window, so pick
+		// a row only once the list has stopped changing.
+		let listed = "";
+		for (let quiet = 0; quiet < 5;) {
+			const now = (await tab.locator("dialog[open] [data-operation]").evaluateAll((rows) =>
+				rows.map((row) =>
+					`${row.getAttribute("data-operation")}:${row.getAttribute("data-status")}`
+				)
+			)).join();
+			quiet = now === listed ? quiet + 1 : 0;
+			listed = now;
+			await tab.waitForTimeout(200);
+		}
+		const released = await tab.locator("dialog[open] [data-operation]:has(button:text-is('Let go…'))").first()
+			.getAttribute("data-operation", { timeout: 5_000 })
+			.catch(() => fail("no unfinished change offered to be let go"));
+		const releasedRow = tab.locator(`dialog[open] [data-operation="${released}"]`);
+		await releasedRow.getByRole("button", { name: "Let go…" }).click();
+		await releasedRow.getByRole("button", { name: "Let go", exact: true }).click();
+		await releasedRow.waitFor({ state: "detached", timeout: 30_000 })
+			.catch(() => fail("letting an unknown receipt go left it on the recovery card"));
+		await pendingRow.locator(".delivery-failure:has-text('Not confirmed')").waitFor();
+		if (await pendingRow.locator(".delivery-failure button").count() !== 0) {
+			fail("a receipt the reader let go still offered a resend");
+		}
+		if (await tab.locator("dialog[open]").count() !== 0) await tab.keyboard.press("Escape");
 	}
+}
+
+/** The operations the open recovery card reports with an unknown outcome. */
+function unknownReceipts(tab: Page): Promise<string[]> {
+	return tab.locator('dialog[open] [data-operation][data-status="unknown"]').evaluateAll((rows) =>
+		rows.map((row) => row.getAttribute("data-operation") ?? "")
+	);
 }

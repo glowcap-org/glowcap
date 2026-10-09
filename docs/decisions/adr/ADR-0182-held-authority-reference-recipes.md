@@ -7,7 +7,7 @@ decision: "Save exact held authority through checked local dependencies or estab
 supersedes: []
 superseded_by: []
 amends: [ADR-0102, ADR-0162, ADR-0163, ADR-0172, ADR-0173, ADR-0177]
-amended_by: [ADR-0188]
+amended_by: [ADR-0188, ADR-0203, ADR-0204, ADR-0205]
 ---
 
 # ADR-0182 Held authority and reference recipes

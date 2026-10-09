@@ -9,6 +9,7 @@ const OwnerId = identity.OwnerId;
 const ResourceId = identity.ResourceId;
 const KindId = identity.KindId;
 const Revision = identity.Revision;
+const Policy = @import("policy.zig").Policy;
 
 const Node = struct {
     kind: KindId,
@@ -46,7 +47,7 @@ pub const Graph = struct {
         max_depth: u32 = 64,
     };
 
-    pub const Error = ResourceView.Error || error{
+    pub const Error = ResourceView.Error || Policy.Error || error{
         InvalidLimits,
         CapacityExceeded,
         RevisionExhausted,
@@ -150,9 +151,10 @@ pub const Graph = struct {
 
     /// Trusted structural mutation. Callers compose it with their content and
     /// authority transaction; the expected revision prevents stale writes.
-    pub fn create(self: *Graph, base: Revision, kind: KindId, parent: ?ResourceId) Error!ResourceId {
+    pub fn create(self: *Graph, base: Revision, policy: *const Policy, kind: KindId, parent: ?ResourceId) Error!ResourceId {
         const next_revision = try self.nextRevision(base);
         const parent_index = if (parent) |id| try self.indexOf(id) else null;
+        try policy.validatePlacement(kind, if (parent_index) |index| self.slots[index].node.?.kind else null);
         const depth = try self.childDepth(parent_index);
         const index = self.free_head orelse return error.CapacityExceeded;
         const slot = &self.slots[index];
@@ -168,10 +170,11 @@ pub const Graph = struct {
     /// Move a whole owned subtree. Validation covers every descendant's new
     /// depth before modifying any edge. Reparenting to the same parent is a
     /// validated no-op and does not advance the revision.
-    pub fn reparent(self: *Graph, base: Revision, id: ResourceId, parent: ?ResourceId) Error!void {
+    pub fn reparent(self: *Graph, base: Revision, policy: *const Policy, id: ResourceId, parent: ?ResourceId) Error!void {
         try self.checkWritable(base);
         const index = try self.indexOf(id);
         const parent_index = if (parent) |p| try self.indexOf(p) else null;
+        try policy.validatePlacement(self.slots[index].node.?.kind, if (parent_index) |index_| self.slots[index_].node.?.kind else null);
         if (self.slots[index].node.?.parent == parent_index) return;
         const next_revision = try self.nextRevision(base);
         var resources = self.readView();

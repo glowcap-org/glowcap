@@ -22,7 +22,7 @@ const identity = @import("identity.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 
-const CapabilityLoweringReceipt = union(enum) {
+pub const CapabilityLoweringReceipt = union(enum) {
     local: struct {
         session: *HostSession,
         actor_id: u64,
@@ -84,9 +84,17 @@ pub const PreparedValues = struct {
     values: []model.Argument,
     receipts: CapabilityLoweringReceipts,
     committed: bool = false,
+    /// `holdForTurn` reserved room for these receipts in the running turn.
+    turn_held: bool = false,
 
     pub fn commit(self: *PreparedValues) []model.Argument {
         self.committed = true;
+        if (self.turn_held) {
+            const receipts = self.receipts.items();
+            self.host.turn_receipts.held.appendSliceAssumeCapacity(receipts);
+            self.host.turn_receipts.reserved -= receipts.len;
+            self.turn_held = false;
+        }
         return self.values;
     }
 
@@ -106,9 +114,70 @@ pub const PreparedValues = struct {
 
     pub fn deinit(self: *PreparedValues) void {
         if (!self.committed) rollbackCapabilityLowerings(self.host, self.receipts.items());
+        if (self.turn_held) self.host.turn_receipts.reserved -= self.receipts.items().len;
         self.* = undefined;
     }
 };
+
+/// Lowering receipts of sends made in the running turn, and the room
+/// `holdForTurn` reserved for receipts not yet committed.
+pub const TurnReceipts = struct {
+    held: std.ArrayListUnmanaged(CapabilityLoweringReceipt) = .empty,
+    reserved: usize = 0,
+
+    pub fn deinit(self: *TurnReceipts, allocator: std.mem.Allocator) void {
+        self.held.deinit(allocator);
+    }
+};
+
+/// Keep `prepared`'s receipts until the running turn's outcome when its send
+/// is made inside a turn (ADR-0194). Call before the send: enrollment and
+/// room are the fallible steps, so `commit` then moves the receipts without
+/// allocating. Outside a turn this does nothing.
+pub fn holdForTurn(self: *Host, prepared: *PreparedValues) !void {
+    if (self.vat.turn_depth == 0) return;
+    const count = prepared.receipts.items().len;
+    if (count == 0) return;
+    try self.vat.enrollTurn(.{ .ctx = self, .commit = commitTurnReceipts, .abort = abortTurnReceipts });
+    try self.turn_receipts.held.ensureUnusedCapacity(self.allocator, self.turn_receipts.reserved + count);
+    self.turn_receipts.reserved += count;
+    prepared.turn_held = true;
+}
+
+fn commitTurnReceipts(ctx: *anyopaque, vat: *actors.Vat) void {
+    _ = vat;
+    const self: *Host = @ptrCast(@alignCast(ctx));
+    self.turn_receipts.held.clearRetainingCapacity();
+}
+
+/// The Port has already retracted the failed turn's sends, which returned each
+/// projection they named to its baseline. Roll back the projections those
+/// sends minted that no surviving message names. Node staging withdraws its
+/// carriers, gifts and leases. A committed foreign enrollment stays as the
+/// Session import's canonical route memo, with no additional import retain;
+/// a reentrant surviving turn may already name it. Import retirement owns it.
+fn abortTurnReceipts(ctx: *anyopaque, vat: *actors.Vat, reason: []const u8) void {
+    _ = vat;
+    _ = reason;
+    const self: *Host = @ptrCast(@alignCast(ctx));
+    const receipts = self.turn_receipts.held.items;
+    var i = receipts.len;
+    while (i != 0) {
+        i -= 1;
+        switch (receipts[i]) {
+            .local => |local| if (unshared(local.session, local.position))
+                local.session.served.port.rollbackExport(&self.vat, .{ .local = local.actor_id }, local.position),
+            .deferred_projection => |projection| if (unshared(projection.session, projection.export_position.int()))
+                capability_promise.rollbackProjection(self, projection.promise_id, projection.session, projection.export_position),
+            .foreign => {},
+        }
+    }
+    self.turn_receipts.held.clearRetainingCapacity();
+}
+
+fn unshared(session: *HostSession, position: u64) bool {
+    return session.served.port.peer.session_state.exportRefcount(.from(position)) == 1;
+}
 
 /// One extra Host retain accompanying a capability occurrence while an
 /// owning-tier message crosses into the engine. An inline-Passable batch marks

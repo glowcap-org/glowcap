@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 /// <reference lib="dom" />
 // What the visualizer draws, all the way through a member's life in a room.
 //
@@ -36,12 +37,12 @@
 // Run: `zig build rooms-web-trace-lifecycle`.
 
 import { type Browser, chromium } from "playwright";
-import { connectTraceViewer, scrapeTraceSturdyref, traceMemorySeed } from "../trace/viewer.ts";
+import { connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
 import { endConversation, openConv } from "../trace/drive.ts";
 import { fail } from "../support/fail.ts";
 import { joinAs } from "../support/join.ts";
 import { awaitBubble, openDmTo, say } from "../page/harness.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 /** One record off the endpoint, as the converter takes it, and the shape of
  * one event it produces. Both are open records here: this file states no
@@ -131,7 +132,6 @@ function endpointPeer(ev: StageEvent, side: "a" | "b"): string | null {
 	return null;
 }
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "general";
 const NICK1 = "nick1";
@@ -363,7 +363,7 @@ const httpPort = freePort();
 const roomPort = freePort();
 const tracePort = freePort();
 
-const web = spawnOwned(WEB, {
+const web = spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) },
@@ -380,12 +380,12 @@ try {
 	const picture = await watch(await traceRef);
 	// The endpoint admits only capability-presenting sockets, so each tab is
 	// seeded with the remembered trace swiss a reader would have kept.
-	const seed = traceMemorySeed(httpPort, await traceRef);
+	const trace = await traceRef;
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	// ── Two members in one room: three peers, two sessions ──
-	const tab1 = await joinAs(browser, httpPort, NICK1, { room: ROOM, seed });
-	const tab2 = await joinAs(browser, httpPort, NICK2, { room: ROOM, seed });
+	const tab1 = await joinAs(browser, httpPort, NICK1, { room: ROOM, trace });
+	const tab2 = await joinAs(browser, httpPort, NICK2, { room: ROOM, trace });
 	await settles(
 		picture,
 		"two members in a room are three peers and two sessions",
@@ -525,34 +525,38 @@ try {
 		"the room line travelled on the room sessions",
 		(p) => {
 			const since = p.messages.slice(beforeRoom);
-			return since.some((m) => m.op === "postRetained" && m.session === roomEdge1) &&
+			return since.some((m) => m.op === "post" && m.session === roomEdge1) &&
 				since.some((m) => m.op === "notify" && m.session === roomEdge2);
 		},
 	);
 
-	// ── Leaving the room keeps the session and changes the name ──
+	// Directory registration and room membership have independent lifetimes.
+	// Leaving the room keeps the registered name and both held connections.
 	await endConversation(tab2, `.room-open:has-text("${ROOM}")`);
 	await settles(
 		picture,
-		"leaving the room kept the session to the room server and dropped the nickname",
+		"leaving the room kept its directory registration and both connections",
 		(p) =>
 			p.labels.size === 3 &&
 			p.edges.size === 3 &&
-			p.labels.get(peer2) !== NICK2 &&
+			p.labels.get(peer2) === NICK2 &&
 			p.labels.has(peer2) &&
 			p.edges.has(roomEdge2) &&
 			p.edges.has(dmEdge),
 	);
 
-	// ── The adopted side releases its line; the owning side closes the session ──
+	// Either member can end the direct conversation. Its final local user closes
+	// the connection, while both independent directory registrations stay held.
 	await endConversation(tab2, `.dm-open:has-text("${NICK1}")`);
-	await pause();
-	if (!picture.edges.has(dmEdge)) {
-		fail("closing the adopted direct line closed the shared incoming session");
-	}
-	// Put the adopted member back in the room before the opener closes its copy.
-	// Once both the room membership and the direct row are gone, the interface has
-	// no remaining authority-shaped surface from which to name that peer again.
+	await settles(
+		picture,
+		"closing the received direct conversation left only the directory connections",
+		(p) =>
+			p.labels.size === 3 && p.edges.size === 2 && !p.edges.has(dmEdge) &&
+			p.edges.has(roomEdge1) && p.edges.has(roomEdge2),
+	);
+	// Put the receiving member back in the room before the opener releases its closed row.
+	// The still-held directory registration supplies the same nickname.
 	await tab2.fill("#nick", NICK2);
 	await tab2.fill("#room", ROOM);
 	await tab2.click("#joinBtn");
@@ -560,13 +564,13 @@ try {
 	await tab2.waitForSelector("#line:not([disabled])", { timeout: 30_000 });
 	await settles(
 		picture,
-		"the adopted member rejoined before the owning line closed",
-		(p) => p.labels.get(peer2) === NICK2 && p.edges.has(roomEdge2) && p.edges.has(dmEdge),
+		"the receiving member rejoined through its retained directory connection",
+		(p) => p.labels.get(peer2) === NICK2 && p.edges.has(roomEdge2) && !p.edges.has(dmEdge),
 	);
 	await endConversation(tab1, `.dm-open:has-text("${NICK2}")`);
 	await settles(
 		picture,
-		"closing the owning direct message closed its session, leaving three peers and two sessions",
+		"releasing the opener's closed row preserved three peers and the two directory sessions",
 		(p) => p.labels.size === 3 && p.edges.size === 2 && !p.edges.has(dmEdge),
 	);
 

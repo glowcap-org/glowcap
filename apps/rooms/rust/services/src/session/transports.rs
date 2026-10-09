@@ -1,7 +1,6 @@
 //! The peer's transport composition: one listener the browser attaches to, and
 //! the dial providers its intended directories and direct partners need.
 use super::{config::Transport, error::Error};
-use crate::session_state::SessionView;
 use glowcap::{Host, Locator, PendingWork, Runtime, RuntimeConfig, Session, iroh, tcp};
 use rooms_platform::serving::{Listener, iroh_config};
 use std::{collections::BTreeSet, rc::Rc};
@@ -16,20 +15,8 @@ pub enum Family {
 	Onion,
 }
 
-impl Family {
-	fn of(transport: &str) -> Option<Self> {
-		Some(match transport {
-			glowcap::TRANSPORT_TCP | glowcap::TRANSPORT_KEYED_TCP | glowcap::TRANSPORT_NOISE_TCP => Self::Tcp,
-			glowcap::TRANSPORT_IROH => Self::Iroh,
-			glowcap::TRANSPORT_KEYED_RELAY | glowcap::TRANSPORT_NOISE_RELAY => Self::Relay,
-			glowcap::TRANSPORT_ONION => Self::Onion,
-			_ => return None,
-		})
-	}
-}
-
-/// What the peer must be able to dial. Read from the committed checkpoint once
-/// at startup: the directory locators name the families, and a relay URL adds
+/// What the peer must be able to dial. Declared by deployment before
+/// restoration, independent of persisted capabilities. A relay URL adds
 /// the relay family for browser members reachable only by rendezvous.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Needs {
@@ -38,19 +25,17 @@ pub struct Needs {
 }
 
 impl Needs {
-	pub fn from_checkpoint(view: &SessionView, relay_url: Option<String>) -> Result<Self, Error> {
+	pub fn configured(transports: &[String], relay_url: Option<String>) -> Result<Self, Error> {
 		let mut families = BTreeSet::new();
-		view.read(|state| {
-			for directory in state.checkpoint()?.directories() {
-				let Some(text) = directory.locator.text().as_str() else {
-					continue;
-				};
-				if let Some(family) = rooms_glowcap::routes::locator(text).and_then(|l| Family::of(&l.transport)) {
-					families.insert(family);
-				}
-			}
-			Ok::<_, Error>(())
-		})??;
+		for transport in transports {
+			let family = match transport.as_str() {
+				"tcp" => Family::Tcp,
+				"iroh" => Family::Iroh,
+				"onion" => Family::Onion,
+				_ => return Err(Error::invalid("unknown configured dial transport")),
+			};
+			families.insert(family);
+		}
 		if relay_url.is_some() {
 			families.insert(Family::Relay);
 		}
@@ -130,11 +115,11 @@ impl Transports {
 	pub fn locator(&self) -> &Locator {
 		&self.locator
 	}
-	pub fn dial(&self) -> Rc<Runtime> {
-		self.dial.clone()
-	}
 	pub async fn accept(&self) -> Result<Session, rooms_platform::serving::TransportError> {
 		self.listener.accept().await
+	}
+	pub(super) fn runtime(&self) -> Rc<Runtime> {
+		self.dial.clone()
 	}
 	/// Stop accepting, then retire the dial runtime and, with it, the Host.
 	pub async fn close(self) -> Result<(), Error> {

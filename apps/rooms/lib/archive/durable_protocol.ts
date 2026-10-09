@@ -3,8 +3,12 @@
 import { type Argument, type Behavior } from "@glowcap/runtime";
 import { type ArchiveFacet, type ArchiveFacetIssuer } from "./facet.ts";
 import { type ArchiveFilter } from "./scope.ts";
-import { RoomsSessionGrantIdSchema, RoomsSessionGrantLabelSchema } from "../session/grants.ts";
+import { boundedText } from "../schema.ts";
+import { MAX_SESSION_GRANT_LABEL } from "../limits.ts";
 import * as z from "zod/mini";
+
+const shareId = z.string().check(z.regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/));
+const shareLabel = boundedText(MAX_SESSION_GRANT_LABEL).check(z.refine((label) => label.trim() !== ""));
 
 export const ARCHIVE_SHARE = "share";
 export const ARCHIVE_REVOKE_SHARE = "revokeShare";
@@ -55,9 +59,9 @@ export function dispatchArchiveDurableShare(
 	if (args.length !== 3 || typeof args[0] !== "string" || typeof args[1] !== "string") {
 		throw new Error("archive share takes an id, label, and filter");
 	}
-	const id = z.safeParse(RoomsSessionGrantIdSchema, args[0]);
+	const id = z.safeParse(shareId, args[0]);
 	if (!id.success) throw new Error("archive share id must be a UUID");
-	const label = z.safeParse(RoomsSessionGrantLabelSchema, args[1]);
+	const label = z.safeParse(shareLabel, args[1]);
 	if (!label.success) throw new Error("archive share label is invalid");
 	return shares.issue(id.data, label.data, parseFilter(args[2]));
 }

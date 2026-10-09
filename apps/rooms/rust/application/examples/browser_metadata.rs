@@ -97,6 +97,7 @@ fn main() {
 		("MAX_ROOM_ATTACHMENT_BYTES", file_limits.room_bytes),
 		("MAX_ROOM_ATTACHMENTS", file_limits.room_files),
 		("MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES", archive::blobs::MAX_STAGED_BYTES),
+		("MAX_ARCHIVE_CONVERSATION_BYTES", archive::MAX_CONVERSATION_BYTES),
 		("MAX_SERVER_ATTACHMENT_BYTES", file_limits.held_bytes),
 		("MAX_SERVER_PENDING_BYTES", file_limits.pending_bytes),
 		("UPLOAD_IDLE_MS", files::UPLOAD_IDLE_MS as usize),

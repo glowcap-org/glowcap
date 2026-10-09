@@ -44,6 +44,10 @@ services:
       # worktree identity, so local build state stays isolated.
       ZIG_LOCAL_CACHE_DIR: /home/vscode/.cache/glowcap-dev-zig-work/zig-local
       ZIG_LOCAL_PKG_DIR: /home/vscode/.cache/glowcap-dev-zig-work/zig-pkg
+      # Cargo separates intermediate state from final outputs. Workspace path
+      # hashing keeps independent manifests apart inside this worktree volume.
+      CARGO_BUILD_BUILD_DIR: /home/vscode/.cache/glowcap-dev-zig-work/cargo/{workspace-path-hash}
+      CARGO_BUILD_JOBS: 4
     volumes:
       # Workspace bind — required when using dockerComposeFile.
       - ..:/workspaces/glowcap:cached

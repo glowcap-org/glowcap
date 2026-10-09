@@ -61,7 +61,7 @@ and authored context survive same-owner reorganization. Placement and branch
 provenance are separate records. Moving content requires source/destination
 authority and explicit management of audience changes. Structural and content
 effects commit with managed access stamps in one bounded transaction. Larger
-atomic selections refuse rather than expose a hidden partial migration.
+atomic selections refuse rather than expose a partial result.
 Cross-owner placement uses separately acknowledged insertion and removal of
 the exact retained capability; ownership transfer is not supplied by this act.
 
@@ -73,13 +73,11 @@ version 1 replaces unreleased formats without a compatibility reader.
 
 ## Amendments
 
-ADR-0137 keeps persist-before-publication, stable reference identity,
-idempotent issuance, exact lost-reply recovery, current per-call enforcement
-and status-only suspension. Its standalone grants.json ledger, three policy
-tiers, session-specific link derivation and 256-lifetime-row cap are replaced
-by shared records, exact endpoint publications, typed grouped permissions and
-bounded retirement charged to owner/service quotas. The existing 32-active
-limit remains implementation history, not the new owner profile.
+ADR-0137 uses persist-before-publication, stable reference identity, idempotent
+issuance, exact lost-reply recovery, current per-call enforcement and status-only
+suspension. Shared records, exact endpoint publications and typed grouped
+permissions govern session grants. Owner/service quotas charge their bounded
+retirement.
 
 ADR-0139 keeps room identity separate from discovery, explicit seat custody,
 receipt competition, generation-sensitive entrances, and the distinction

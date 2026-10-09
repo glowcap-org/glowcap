@@ -126,7 +126,9 @@ pub fn register(
     // load time. Bind both Cargo's resolver and the test process to the archives
     // this step installed.
     const dogfood_lib_dir = common.rootPath(b, "zig-out/lib");
-    dogfood_runs[0].setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
+    // Pin every runtime to these installed archives. Otherwise a language's
+    // ordinary cold-cache resolver may select an older versioned package first.
+    for (dogfood_runs) |run| run.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
     rust_dogfood_compile.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
     rust_binding_lint.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
     switch (builtin.os.tag) {
@@ -254,7 +256,7 @@ pub fn register(
 
     // Glowcap-only three-party handoff: glowcap is exporter, gifter, and
     // recipient over loopback TCP. A broker introduces a recipient to an
-    // exporter's node-giftable object; the recipient transparently redeems the
+    // exporter's Host publication; the recipient transparently redeems the
     // give and messages the exporter *directly*, the broker never relays. Proves
     // the gifter half (ADR-0009) and the engine's swiss re-resolution end to end
     // through the binding, with no Goblins or manual export bookkeeping.

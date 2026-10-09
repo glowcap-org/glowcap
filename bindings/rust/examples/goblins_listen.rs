@@ -20,7 +20,7 @@ async fn scene() -> Result<(), String> {
 		.map_err(|error| error.to_string())?;
 	server
 		.host()
-		.publish_giftable(ACTOR_SWISS, || Box::new(greeter))
+		.publish(ACTOR_SWISS, || Box::new(greeter))
 		.map_err(|error| error.to_string())?;
 	println!(
 		"GOBLINS-LISTENER-READY {}",

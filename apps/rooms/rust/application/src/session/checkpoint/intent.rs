@@ -162,9 +162,6 @@ impl Checkpoint {
 			})
 		})
 	}
-	pub fn trace_override(&self) -> &str {
-		self.0.trace_override.text().as_str().unwrap_or("")
-	}
 	pub fn directories(&self) -> impl ExactSizeIterator<Item = DirectoryIntent<'_>> {
 		self.0.directories.0.iter().map(|directory| DirectoryIntent {
 			home: directory.home,

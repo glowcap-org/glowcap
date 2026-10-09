@@ -65,7 +65,7 @@ pub(crate) fn list<A: ListArgument, T, const N: usize>(
 	}
 	Ok(List::new(out).expect("bounded operator page"))
 }
-fn stewardship<A: ListArgument>(value: &A) -> Result<Stewardship, Refusal> {
+pub fn read_stewardship<A: ListArgument>(value: &A) -> Result<Stewardship, Refusal> {
 	let [name, label, visible, generation, issued, steward] = tuple(value)?;
 	let row = Stewardship {
 		name: text(&name)?,
@@ -122,7 +122,7 @@ fn room<A: ListArgument>(value: &A) -> Result<Room, Refusal> {
 }
 fn rows<A: ListArgument>(category: Category, value: &A) -> Result<PageRows, Refusal> {
 	Ok(match category {
-		Category::Stewardships => PageRows::Stewardships(list(value, stewardship)?),
+		Category::Stewardships => PageRows::Stewardships(list(value, read_stewardship)?),
 		Category::Links => PageRows::Links(list(value, |value| {
 			let [name, label, visible] = tuple(value)?;
 			Ok(Link {

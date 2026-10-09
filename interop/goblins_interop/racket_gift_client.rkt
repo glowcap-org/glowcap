@@ -57,7 +57,7 @@
 ;; stalls the deposit and the whole handoff times out. The captured text is
 ;; printed only on failure.
 (define-values (bob bob-out bob-in bob-err)
-  (subprocess #f #f #f RACKET EXPORTER-SCRIPT HOST (number->string PORT)))
+  (subprocess #f #f #f RACKET "-y" EXPORTER-SCRIPT HOST (number->string PORT)))
 (track-child! bob)
 (close-output-port bob-in)
 (define bob-err-sink (open-output-string))
@@ -107,7 +107,7 @@
 
   ;; Two recursively placed occurrences force the binding's complete Value
   ;; lowering path and the core's one-message/two-give transaction.
-  (host-publish-giftable gifter-host INTRODUCER-SWISS
+  (host-publish gifter-host INTRODUCER-SWISS
                             (methods [(get-greeter) (list greeter (list greeter))]))
   (printf "racket-goblins-gift: glowcap publishing introducer swiss=~a on ~a:~a\n"
           INTRODUCER-SWISS HOST gifter-port)
@@ -115,7 +115,7 @@
   ;; Spawn Carol (the Goblins recipient): she dials glowcap's introducer, asks
   ;; for both greeters, redeems both gives, and calls Bob directly.
   (define-values (carol carol-out carol-in carol-err)
-    (subprocess #f #f #f RACKET RECIPIENT-SCRIPT
+    (subprocess #f #f #f RACKET "-y" RECIPIENT-SCRIPT
                 (tcp-address-designator HOST gifter-port) INTRODUCER-SWISS
                 (number->string (+ PORT 1)) "nested"))
   (track-child! carol)

@@ -42,8 +42,8 @@ async fn runtime() -> Runtime {
 		.await
 		.unwrap()
 }
-fn notice(id: &str) -> [Argument; 3] {
-	["introducible".into(), "bob".into(), id.into()]
+fn notice(id: &str) -> [Argument; 4] {
+	["introducible".into(), "bob".into(), id.into(), "opening".into()]
 }
 #[tokio::test]
 async fn introduction_waits_match_registration_and_remain_bounded() {
@@ -60,7 +60,7 @@ async fn waiting() {
 	let runtime = runtime().await;
 	let locator = server.locator().unwrap();
 	let (client, peer) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let peer = Rc::new(peer.unwrap().with_gc());
+	let peer = Rc::new(peer.unwrap());
 	let serving = serve(peer.clone());
 	let platform = Platform::default();
 	let client = Client::new(client.unwrap(), platform.clone());
@@ -98,7 +98,7 @@ async fn waiting() {
 				service
 					.tell(observer, "notify", &["registered".into(), "alice".into(), ID.into()])
 					.unwrap();
-				Ok(named.clone().into())
+				Ok(Argument::List(vec![args[0].clone(), ID.into(), named.clone().into()]))
 			}
 			"memberRegistration" => {
 				assert_eq!(args[0].as_str(), Some("bob"));
@@ -106,7 +106,7 @@ async fn waiting() {
 				Ok(ID.into())
 			}
 			"introduce" => {
-				assert_eq!(args.len(), 2);
+				assert_eq!(args.len(), 3);
 				assert_eq!(args[0].as_str(), Some("bob"));
 				assert_eq!(args[1].as_str(), Some(ID));
 				tx.try_send(()).unwrap();
@@ -132,7 +132,7 @@ async fn waiting() {
 	let mut registration = directory.registration();
 	registration.register("alice", "ocapn://alice.id", None).await.unwrap();
 	let target = callback.borrow().clone().unwrap();
-	let plain = directory.introduce("bob", None).await.unwrap();
+	let plain = directory.introduce_opening("bob", None, "opening").await.unwrap();
 	assert_eq!(plain.registration, id);
 	assert_eq!(queries.get(), 1);
 	assert_eq!(
@@ -142,21 +142,21 @@ async fn waiting() {
 	arrivals.recv().await.unwrap();
 	early.set(true);
 	refusals.set(1);
-	let introduced = directory.introduce("bob", Some(&id)).await.unwrap();
+	let introduced = directory.introduce_opening("bob", Some(&id), "opening").await.unwrap();
 	arrivals.recv().await.unwrap();
 	arrivals.recv().await.unwrap();
 	assert_eq!(queries.get(), 1);
 	assert_eq!(introduced.registration, id);
 	hard.set(true);
 	assert!(matches!(
-		directory.introduce("bob", Some(&id)).await,
+		directory.introduce_opening("bob", Some(&id), "opening").await,
 		Err(Error::Binding(_))
 	));
 	arrivals.recv().await.unwrap();
 	hard.set(false);
 	*answer.borrow_mut() = Argument::List(vec![dm.clone().into()]);
 	assert!(matches!(
-		directory.introduce("bob", Some(&id)).await,
+		directory.introduce_opening("bob", Some(&id), "opening").await,
 		Err(Error::Introduction(policy::Error::Capability))
 	));
 	arrivals.recv().await.unwrap();
@@ -165,7 +165,7 @@ async fn waiting() {
 	// An unrelated registration cannot wake this caller. Cancellation removes
 	// its wait; a later correct signal remains available to the next caller.
 	refusals.set(1);
-	let mut pending = Box::pin(directory.introduce("bob", Some(&id)));
+	let mut pending = Box::pin(directory.introduce_opening("bob", Some(&id), "opening"));
 	tokio::select! { r=arrivals.recv()=>r.unwrap(),_=&mut pending=>panic!("early introduction") };
 	peer.send(&target, "notify", &notice("22222222-2222-4222-8222-222222222222"))
 		.await
@@ -174,20 +174,20 @@ async fn waiting() {
 	drop(pending);
 	peer.send(&target, "notify", &notice(ID)).await.unwrap();
 	refusals.set(1);
-	directory.introduce("bob", Some(&id)).await.unwrap();
+	directory.introduce_opening("bob", Some(&id), "opening").await.unwrap();
 	arrivals.recv().await.unwrap();
 	arrivals.recv().await.unwrap();
 
 	platform.expire_wait.set(true);
 	refusals.set(1);
 	assert!(matches!(
-		directory.introduce("bob", Some(&id)).await,
+		directory.introduce_opening("bob", Some(&id), "opening").await,
 		Err(Error::Introduction(policy::Error::Pending))
 	));
 	arrivals.recv().await.unwrap();
 	refusals.set(policy::MAX_OUTSTANDING);
 	let mut work: Vec<_> = (0..policy::MAX_OUTSTANDING)
-		.map(|_| Box::pin(directory.introduce("bob", Some(&id))))
+		.map(|_| Box::pin(directory.introduce_opening("bob", Some(&id), "opening")))
 		.collect();
 	poll_fn(|cx| {
 		for future in &mut work {
@@ -197,7 +197,7 @@ async fn waiting() {
 	})
 	.await;
 	assert!(matches!(
-		directory.introduce("bob", Some(&id)).await,
+		directory.introduce_opening("bob", Some(&id), "opening").await,
 		Err(Error::Introduction(policy::Error::Full))
 	));
 	for _ in 0..policy::MAX_OUTSTANDING {
@@ -205,10 +205,10 @@ async fn waiting() {
 	}
 	drop(work);
 	refusals.set(0);
-	directory.introduce("bob", Some(&id)).await.unwrap();
+	directory.introduce_opening("bob", Some(&id), "opening").await.unwrap();
 	arrivals.recv().await.unwrap();
 	refusals.set(1);
-	let mut waiting = Box::pin(directory.introduce("bob", Some(&id)));
+	let mut waiting = Box::pin(directory.introduce_opening("bob", Some(&id), "opening"));
 	tokio::select! { r=arrivals.recv()=>r.unwrap(),_=&mut waiting=>panic!("early introduction") };
 	// The marker confirms the refusal crossed the wire before closing the
 	// client; the introduction itself is still waiting for its notification.
@@ -253,7 +253,7 @@ async fn handoff() {
 	let received_messages = messages.clone();
 	exporter
 		.host()
-		.publish_giftable("dm", move || {
+		.publish("dm", move || {
 			let received = received.clone();
 			let messages = received_messages.clone();
 			Box::new(direct::receiver(move |notice, session| {
@@ -285,7 +285,7 @@ async fn handoff() {
 	let accept_task = tokio::task::spawn_local(async move {
 		let mut serving = Vec::new();
 		for _ in 0..2 {
-			let peer = Rc::new(accepting.accept().await.unwrap().with_gc());
+			let peer = Rc::new(accepting.accept().await.unwrap());
 			connections.borrow_mut().push(peer.clone());
 			serving.push(serve(peer));
 		}
@@ -301,8 +301,7 @@ async fn handoff() {
 	let to_exporter = gifter_runtime
 		.connect(&exporter.locator().unwrap(), ConnectOptions::default())
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	to_exporter
 		.set_exporter_locator(Some(&exporter.locator().unwrap()))
 		.unwrap();
@@ -310,7 +309,7 @@ async fn handoff() {
 	let handed = dm.clone();
 	gifter
 		.host()
-		.publish_giftable("directory", move || {
+		.publish("directory", move || {
 			let handed = handed.clone();
 			Box::new(move |verb, args| {
 				assert_eq!(verb, "introduce");
@@ -322,7 +321,7 @@ async fn handoff() {
 	let recipient = runtime().await;
 	let locator = gifter.locator().unwrap();
 	let (connected, accepted) = tokio::join!(recipient.connect(&locator, ConnectOptions::default()), gifter.accept());
-	let accepted = Rc::new(accepted.unwrap().with_gc());
+	let accepted = Rc::new(accepted.unwrap());
 	let serving = serve(accepted.clone());
 	let client = Client::new(connected.unwrap(), HostPlatform);
 	let directory = Directory::fetch(client.clone()).await.unwrap();

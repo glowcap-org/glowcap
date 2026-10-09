@@ -14,8 +14,12 @@ pub const ObservationRecord = struct {
     key: [32]u8,
     started: u64 = 0,
     publications: [2]?loam.ObjectId = @splat(null),
+    /// A trusted hosting marker fences a runtime observer. Durable observers
+    /// omit this field; their capabilities survive Store and Host restart.
+    lifetime: ?Lifetime = null,
+    pub const Lifetime = struct { marker: loam.ObjectId, revision: u64 };
     pub const max_encoded_bytes = 256;
-    pub const max_edges = 4;
+    pub const max_edges = 5;
 
     pub fn encodeAlloc(self: ObservationRecord, allocator: std.mem.Allocator) ![]u8 {
         if (self.target) |target| if (target.generation == 0) return error.InvalidRecord;
@@ -34,6 +38,10 @@ pub const ObservationRecord = struct {
             buffer[count] = .{ .target = id };
             count += 1;
         };
+        if (self.lifetime) |lifetime| {
+            buffer[count] = .{ .target = lifetime.marker };
+            count += 1;
+        }
         return buffer[0..count];
     }
 
@@ -61,6 +69,10 @@ pub const ObservationRecord = struct {
         for (&result.publications) |*publication| if (try s.readBool(bytes, &cursor)) {
             publication.* = try edge(&edges_it, view.id.store);
         };
+        if (try s.readBool(bytes, &cursor)) {
+            result.lifetime = .{ .marker = try edge(&edges_it, view.id.store), .revision = try s.readPositiveInt(bytes, &cursor) };
+            if (result.descriptor == null or result.lifetime.?.revision == 0) return error.InvalidRecord;
+        }
         if (edges_it.next() != null) return error.InvalidRecord;
         try s.readByte(bytes, &cursor, '>');
         try s.expectEnd(bytes, cursor);
@@ -83,6 +95,8 @@ pub const ObservationRecord = struct {
         try s.writeBytes(sink, &self.key);
         try s.writePositiveInt(sink, self.started);
         for (self.publications) |publication| try s.writeBool(sink, publication != null);
+        try s.writeBool(sink, self.lifetime != null);
+        if (self.lifetime) |lifetime| try s.writePositiveInt(sink, lifetime.revision);
         try s.endRecord(sink);
     }
 };

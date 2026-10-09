@@ -283,12 +283,12 @@ Each item names what carries it, or says plainly that nothing does yet.
 5. **A substituted key is refused.** A relay that answers with its own static
    key fails the handshake rather than establishing a session it could read.
    Held by
-   [`test/net/noise_relay_test.zig`](../../../test/net/noise_relay_test.zig).
+   [`test/driver/sealed_channel_test.zig`](../../../test/driver/sealed_channel_test.zig).
 6. **The relay sees ciphertext.** The forwarded bytes contain no CapTP frame
    preamble, asserted against the relay's own view rather than inferred. The
-   dial-side mock pipe and the live registered-resident scenario in
-   [`test/net/noise_relay_test.zig`](../../../test/net/noise_relay_test.zig)
-   both hold this for their plaintext probes. The C driver repeats the live
+   live registered-resident scenario in
+   [`test/driver/host_runtime_multiplexed/relay_resident_test.zig`](../../../test/driver/host_runtime_multiplexed/relay_resident_test.zig)
+   holds this for its plaintext probe. The C driver repeats the live
    registered-provider path in
    [`test/c_abi/driver_loop/archive_test.zig`](../../../test/c_abi/driver_loop/archive_test.zig).
 Items 2 and 4 are the load-bearing identity claims: the channel reports a

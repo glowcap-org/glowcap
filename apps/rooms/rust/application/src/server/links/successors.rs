@@ -257,6 +257,7 @@ impl Authority {
 		next.managers.clear();
 		next.managed.clear();
 		next.managed_by_name.clear();
+		next.publications.clear();
 		next.topics.retain(|_, (name, _)| !RecoveryKey::accepts(name));
 		next
 	}

@@ -147,7 +147,7 @@ become an unrelated later call's error. Cancelling the causal session may close
 an admitted local call before its answer is projected.
 
 `spawn_owned` gives an actor a shared Rust-owned local root: the last `Ref` clone
-queues its release, independently of `with_gc`. Remote exports retain their own
+queues its release, independently of distributed GC. Remote exports retain their own
 roots. Ordinary `spawn` keeps the existing explicit-release contract.
 
 Each transport module's `listen` and `Server::accept` provide the hosting side.

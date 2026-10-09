@@ -24,6 +24,7 @@ use rooms_platform::HostPlatform;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 type Line = Message<String, glowcap::Ref>;
+mod public_membership;
 
 async fn next(messages: &mut Messages) -> Line {
 	tokio::time::timeout(Duration::from_secs(5), messages.next())
@@ -135,6 +136,7 @@ async fn rooms() {
 	// A line said, heard, edited, and kept.
 	let posted = alice_room.say("hello").await.unwrap().expect("a line capability");
 	let heard = next_said(&mut bob_lines).await;
+	assert_eq!(posted.id(), heard.marker.map(|marker| marker.id));
 	assert_eq!((heard.from.as_str(), heard.text.as_str()), ("Alice", "hello"));
 	assert!(matches!(heard.marker, Some(marker) if marker.kind == ChangeKind::Said && marker.id.get() == 1));
 	next_said(&mut alice_lines).await;
@@ -146,6 +148,11 @@ async fn rooms() {
 	let kept = bob_room.history().await.unwrap();
 	assert_eq!(kept.len(), 1);
 	assert_eq!((kept[0].from.as_str(), kept[0].text.as_str()), ("Alice", "hi there"));
+
+	assert_eq!(alice_seen.borrow().as_slice(), ["policy Open"]);
+	assert_eq!(bob_seen.borrow().as_slice(), ["policy Open"]);
+	alice_seen.borrow_mut().clear();
+	bob_seen.borrow_mut().clear();
 
 	// Typing, away, and the topic are the room's own word.
 	alice_room.typing(true).unwrap();
@@ -193,6 +200,7 @@ async fn rooms() {
 	upload.write(vec![1, 2, 3, 4, 5]).await.unwrap();
 	assert!(upload.complete());
 	let with_file = next_said(&mut bob_lines).await;
+	assert_eq!(posted_file.id(), with_file.marker.map(|marker| marker.id));
 	assert_eq!(with_file.text, "pic.png");
 	assert_eq!(with_file.attachments.len(), 1);
 	let attachment = with_file.attachments.into_iter().next().unwrap();
@@ -323,6 +331,30 @@ async fn rooms() {
 	assert!(matches!(next_presence(&mut alice_lines).await, Presence::Leave { name } if name == "Bob"));
 	carol_room.leave().await.unwrap();
 	next_presence(&mut alice_lines).await;
+	// Use the exact raw subscribe result to exercise duplicate wire retirement,
+	// independently of the higher-level client's cached goodbye result.
+	let inbox = bob.session().spawn_owned(|_, _| Ok(glowcap::Argument::Void)).unwrap();
+	let mut seats = Vec::new();
+	for _ in 0..2 {
+		let result = bob
+			.session()
+			.send(
+				bob_room.reference(),
+				"subscribe",
+				&["Retirement".into(), inbox.clone().into()],
+			)
+			.await
+			.unwrap();
+		let seat = glowcap::Ref::try_from(&result.as_list().unwrap()[0]).unwrap();
+		for old in &seats {
+			bob.session().send(old, "leave", &[]).await.unwrap();
+		}
+		bob.session().send(&seat, "membershipKind", &[]).await.unwrap();
+		bob.session().send(&seat, "leave", &[]).await.unwrap();
+		bob.session().send(&seat, "leave", &[]).await.unwrap();
+		assert!(bob.session().send(&seat, "typing", &[true.into()]).await.is_err());
+		seats.push(seat);
+	}
 	drop((
 		bob_secret,
 		secret_room,

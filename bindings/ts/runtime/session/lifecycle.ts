@@ -180,7 +180,7 @@ export abstract class SessionLifecycle {
 	/** The session's shared host, its retained identity and handoff router.
 	 * Shared by every session of one host, so the gifter half of a handoff
 	 * can reach a sibling session's session keys. An application reads it to
-	 * publish host-giftables (`Host.publishGiftable`), share one identity
+	 * publish host-publications (`Host.publish`), share one identity
 	 * across dials, or set the redeem posture. */
 	get host(): Host {
 		return this.#host;

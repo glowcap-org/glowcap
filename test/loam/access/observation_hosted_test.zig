@@ -1,6 +1,48 @@
 //! Observation registration, replay and waiting through the product CapTP path.
 const h = @import("hosting_fixture.zig");
 
+test "access observation parked receive retires on session cancellation without cancelling registration" {
+    const std = @import("std");
+    const f = @import("sharing_fixture.zig");
+    const d = @import("description_fixture.zig");
+    const o = @import("observation_fixture.zig");
+    var backend = try h.loam.Volatile.init(h.a, h.f.store_id, 16 * 1024 * 1024);
+    defer backend.deinit();
+    var store = try h.loam.core.Store.init(h.a, try backend.open(), &h.schemas, h.limits);
+    defer store.deinit() catch unreachable;
+    const data = try h.seed(&store, &backend);
+    var server: h.Hosted = undefined;
+    try server.init(&store, &backend, data);
+    defer server.deinit();
+    var client: f.Client = .{ .host = undefined, .pair = undefined, .parent = undefined };
+    try client.init(&server);
+    defer client.deinit();
+    var memory = std.heap.ArenaAllocator.init(h.a);
+    defer memory.deinit();
+    var registration: d.Capture = .{ .arena = memory.allocator() };
+    try client.send(client.parent, "mutate", &.{ .{ .integer = 1 }, .{ .string = "observe" } }, &registration);
+    try server.drain(&backend);
+    try client.pump();
+    const fronts = try o.Fronts.from(try registration.require());
+    var first: d.Capture = .{ .arena = memory.allocator() };
+    try client.send(fronts.receiver, "poll", &.{}, &first);
+    try server.drain(&backend);
+    try client.pump();
+    const cursor = try o.cursor(try first.require());
+    var waiting: d.Capture = .{ .arena = memory.allocator() };
+    try client.send(fronts.receiver, "receive", &.{.{ .bytes = &cursor }}, &waiting);
+    try @import("observation_hosted_cases.zig").driveWaiting(&server, &backend);
+    try std.testing.expect(server.attached.hasPendingWork());
+    const revision = store.metadata.revision;
+    try server.host.beginSessionClose(client.pair.b, .cancel, 0);
+    try server.host.progressSessionCloses(0);
+    try std.testing.expect(!server.host.vat.hasIngress(client.pair.b.served.port.ingress));
+    try server.drain(&backend);
+    try std.testing.expect(!server.attached.hasPendingWork());
+    try std.testing.expectEqual(revision, store.metadata.revision);
+    try std.testing.expectEqual(@as(u32, 3), server.host.publications.count());
+}
+
 test "access observation hosted registration replay waiting and independent cancellation" {
     var backend = try h.loam.Volatile.init(h.a, h.f.store_id, 16 * 1024 * 1024);
     defer backend.deinit();
@@ -35,7 +77,7 @@ test "access observation hosted registration rolls back both fronts and refuses 
         try client.pump();
         try std.testing.expectEqualStrings(if (pressure) "EndpointCapacity" else "InjectedAbort", refused.reason_buf[0..refused.reason_len]);
         try std.testing.expectEqual(revision, store.metadata.revision);
-        try std.testing.expectEqual(@as(u32, 1), server.host.giftables.count());
+        try std.testing.expectEqual(@as(u32, 1), server.host.publications.count());
         try std.testing.expectEqual(@as(usize, 0), server.caps.operations);
         var next: h.Answer = .{};
         try client.send(client.parent, "mutation-sequence", &.{}, &next);

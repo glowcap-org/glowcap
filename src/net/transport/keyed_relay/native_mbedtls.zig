@@ -33,6 +33,28 @@ pub const InitOutcome = union(enum) {
     failed: InitFailure,
 };
 
+pub const TlsOwnerOutcome = union(enum) {
+    ready: struct { owner: net.tls.runtime_owner.Owner, trust: TrustSummary },
+    failed: InitFailure,
+};
+
+/// The native TLS runtime a completion relay backend leases
+/// (`RelayOptions.tls_owner`). The caller releases the owner after every
+/// backend holding a lease has retired.
+pub fn initTlsOwner(io: std.Io, allocator: std.mem.Allocator, trust: Trust) TlsOwnerOutcome {
+    const initialized = switch (native_tls.init(io, allocator, trust)) {
+        .ready => |ready| ready,
+        .failed => |failure| return .{ .failed = .{ .tls = failure } },
+    };
+    var runtime = initialized.runtime;
+    const owner = net.tls.runtime_owner.Owner.init(allocator, &runtime) catch |err| {
+        var failure = foundation.FailureChain.init(err);
+        if (runtime.deinitOutcome()) |cleanup| failure.noteChain(cleanup);
+        return .{ .failed = .{ .relay = failure } };
+    };
+    return .{ .ready = .{ .owner = owner, .trust = initialized.trust } };
+}
+
 /// One address-stable native owner for both relay profiles, their carrier,
 /// and the immutable trust snapshot below them.
 pub const Provider = struct {

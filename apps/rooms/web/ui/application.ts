@@ -2,7 +2,6 @@
 // choices. This module adapts its JSON projection to existing presentation
 // types; it owns no protocol calls, validation rules, or Host.
 import type { InitInput } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
-import type { RoomsSessionState, RoomsWorkspaceState } from "../../lib/rooms_state.ts";
 import type { RoomsErrorCode, RoomsFailureRetry } from "../../lib/error_codes.ts";
 import { type DirId, dirId } from "./types.ts";
 
@@ -25,12 +24,6 @@ export function applicationModule(): Application {
 	return loaded;
 }
 
-export function readSavedWorkspace(raw: string | null): RoomsWorkspaceState | null {
-	if (raw == null) return null;
-	const encoded = applicationModule().readWorkspace(raw);
-	return encoded == null ? null : JSON.parse(encoded) as RoomsWorkspaceState;
-}
-
 export function directoryId(locator: string): DirId | null {
 	const authority = applicationModule().directoryAuthority(locator);
 	return authority == null ? null : dirId(authority);
@@ -38,6 +31,10 @@ export function directoryId(locator: string): DirId | null {
 
 export function directConversationId(directory: string, registration: string): string {
 	return applicationModule().directConversationId(directory, registration);
+}
+
+export function directHistoryId(directory: string, registration: string): string {
+	return applicationModule().directHistoryId(directory, registration);
 }
 
 /** Display facts from the shared Rooms route reader. They hold no live capability. */
@@ -60,14 +57,6 @@ export function inspectCapability(value: string): RoomsAddress | null {
 
 export function roomAuthorityToken(sturdyref: string): string {
 	return applicationModule().roomAuthorityToken(sturdyref);
-}
-
-export function emptyRoomsSessionState(): RoomsSessionState {
-	return JSON.parse(applicationModule().emptySessionCheckpoint()) as RoomsSessionState;
-}
-
-export function workspaceStorageKey(): string {
-	return applicationModule().workspaceStorageKey();
 }
 
 export type RustNicknameAvailability =

@@ -47,7 +47,7 @@ Passing Linux checks cannot establish macOS behavior.
 Pick a ready item, read its linked implementation and owning contract, and
 implement a complete Zig API and storage path. Preserve the shared evaluator, Store
 transaction path, and Host/Vat custody. Do not add a second runtime, authority
-engine, custom pager, prerelease migration reader, or compatibility alias.
+engine, custom pager, prerelease format reader, or compatibility alias.
 
 Each item states a verified gap, dependencies, and a deletion criterion.
 Dependencies refer to mechanisms: if an item has been removed, check its

@@ -156,11 +156,12 @@ budget and 32 active captures. When either limit is full, or the selected
 backend keeps no bytes, the record keeps the file's metadata and notes that
 its bytes were not kept, and the completion says which case applied.
 
-Turning history off obliges the session to erase it. The checkpoint that
-disables history records that intent, so it can be recovered. The erase runs
-through the same queue with a fair share of its capacity, and no later
-checkpoint may reach disk until the erase has finished. If the process stops
-first, the next start clears what remains before reporting ready.
+Turning history off commits a pending erasure identity with disabled recording.
+The managed worker erases that recorder source's records and bytes before
+settling its receipt. History cannot be re-enabled while that barrier remains,
+and unrelated workspace changes keep their own commit path. A restart recovers
+the original erasure without repeating completed deletion. Other recorder
+owners and shared blob references remain intact.
 
 ## Evidence
 

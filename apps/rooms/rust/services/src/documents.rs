@@ -1,74 +1,15 @@
 //! Exclusive session-directory custody and cancellable observation of disk work.
 use rooms_application::documents::WriteFailure;
 mod atomic;
-mod state;
-pub use state::StateDocuments;
 #[cfg(test)]
 mod tests;
 
 use rooms_application::documents::SessionDocument;
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 use tokio::task::JoinHandle;
 
 use rooms_platform::storage::Directory;
 pub use rooms_platform::storage::StorageError;
-
-/// Acquiring writable state claims the directory before any initial reads.
-/// Handles cannot be cloned: each document has exactly one mutation owner.
-pub struct SessionDocuments {
-	pub checkpoint: DocumentFile,
-	pub effects: DocumentFile,
-	pub bridge_secrets: DocumentFile,
-	grants: Option<DocumentFile>,
-}
-
-/// Typed transfer of the directory's independent application owners.
-pub struct SessionOwners {
-	pub state: crate::session_state::DurableSession,
-	pub grants: Option<crate::grants::DurableGrants>,
-	pub bridge_secrets: DocumentFile,
-}
-
-impl SessionDocuments {
-	#[cfg(feature = "processes")]
-	pub(crate) fn listener_keys(&self) -> rooms_platform::serving::onion::KeyFile {
-		rooms_platform::serving::onion::KeyFile(Some(self.checkpoint.directory.clone()))
-	}
-	pub fn into_owners(self) -> SessionOwners {
-		SessionOwners {
-			state: crate::session_state::DurableSession::new(
-				StateDocuments::new(self.checkpoint, self.effects),
-				rooms_platform::OsEntropy,
-			),
-			grants: self.grants.map(crate::grants::DurableGrants::new),
-			bridge_secrets: self.bridge_secrets,
-		}
-	}
-
-	pub async fn open(directory: impl AsRef<Path>) -> Result<Self, StorageError> {
-		let path = directory.as_ref().to_owned();
-		let directory = Arc::new(
-			tokio::task::spawn_blocking(move || Directory::open(path, ".rooms-session.lock"))
-				.await
-				.map_err(|e| StorageError::Worker(e.to_string()))??,
-		);
-		let file = |document| DocumentFile {
-			directory: directory.clone(),
-			document,
-			pending: None,
-		};
-		Ok(Self {
-			checkpoint: file(SessionDocument::Checkpoint),
-			effects: file(SessionDocument::Effects),
-			bridge_secrets: file(SessionDocument::BridgeSecrets),
-			grants: Some(file(SessionDocument::Grants)),
-		})
-	}
-	/// Transfer grant-document custody once to its policy owner.
-	pub fn take_grants(&mut self) -> Option<crate::grants::DurableGrants> {
-		self.grants.take().map(crate::grants::DurableGrants::new)
-	}
-}
 
 pub type Completion = rooms_runtime::documents::Completion<StorageError>;
 
@@ -84,6 +25,15 @@ pub struct DocumentFile {
 }
 
 impl DocumentFile {
+	/// Reuse the managed startup lease for independent private documents.
+	/// This constructor never opens retired session authority or takes a second lock.
+	pub fn bridge_secrets(directory: Arc<Directory>) -> Self {
+		Self {
+			directory,
+			document: SessionDocument::BridgeSecrets,
+			pending: None,
+		}
+	}
 	pub fn document(&self) -> SessionDocument {
 		self.document
 	}

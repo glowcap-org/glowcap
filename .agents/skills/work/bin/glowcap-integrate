@@ -38,6 +38,17 @@ if [[ -n $(git status --porcelain --untracked-files=normal) ]]; then
 	die "working tree is not clean; commit only your owned paths before integration"
 fi
 
+require_unchecked_dev() {
+	[[ ${mode} == publish ]] || return 0
+	local worktrees
+	worktrees=$(git worktree list --porcelain) || die "cannot inspect worktree branches"
+	if grep -Fxq 'branch refs/heads/dev' <<<"${worktrees}"; then
+		die "dev is checked out; switch that checkout off dev before publishing so its index and files cannot become stale"
+	fi
+}
+
+require_unchecked_dev
+
 # `main` and `dev` can advance between any two commands because every worktree
 # shares the refs. Absorb both observed integration lines, then publish by
 # fast-forwarding `dev` only if it still equals that observation. A failed
@@ -97,6 +108,7 @@ for attempt in {1..16}; do
 	elif [[ -n ${subject} ]]; then
 		die "one commit publishes as written; drop -m"
 	fi
+	require_unchecked_dev
 	if git update-ref refs/heads/dev "${publish}" "${dev_tip}" 2>/dev/null; then
 		# The squash has the branch's exact tree, so moving the branch onto it
 		# leaves every file in place.

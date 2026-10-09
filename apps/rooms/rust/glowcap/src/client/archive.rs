@@ -8,26 +8,42 @@ use rooms_application::{
 };
 use std::sync::Arc;
 mod blobs;
+mod combined;
 mod shares;
 pub use blobs::Blob;
+pub use combined::KeptRecord;
 pub use shares::ShareView;
 pub(crate) use shares::read_share_views;
 pub struct Archive<D> {
-	client: Client<D>,
+	caller: Caller<D>,
 	reference: Ref,
 }
 impl<D: Deadline> Archive<D> {
+	pub(crate) fn through(caller: Caller<D>, reference: Ref) -> Self {
+		Self { caller, reference }
+	}
 	pub fn new(client: Client<D>, reference: Ref) -> Self {
-		Self { client, reference }
+		Self {
+			caller: Caller::Remote(client),
+			reference,
+		}
+	}
+	/// Local callers retain the same upstream actor through the existing Host.
+	/// This creates no publication, loopback session or additional authority.
+	pub fn local(host: glowcap::Host, platform: D, reference: Ref) -> Self {
+		Self {
+			caller: Caller::Local { host, platform },
+			reference,
+		}
 	}
 	pub async fn put(&self, record: &Record) -> Result<u64, Error> {
 		let pending = {
 			let args = [wire::record_row(record)];
-			self.client
+			self.caller
 				.call(&self.reference, protocol::PUT, &args, "the archive did not answer put")
 		};
 		let reply = pending.await?;
-		acknowledgement(&reply.0)
+		acknowledgement(&reply)
 	}
 	pub async fn read(&self, filter: &Filter, after: u64, limit: usize) -> Result<Page, Error> {
 		if SafeInteger::<false>::new(after).is_none() || limit == 0 {
@@ -40,7 +56,7 @@ impl<D: Deadline> Archive<D> {
 				Argument::Integer(after as i64),
 				Argument::Integer(limit as i64),
 			];
-			self.client.call(
+			self.caller.call(
 				&self.reference,
 				protocol::READ,
 				&args,
@@ -48,7 +64,7 @@ impl<D: Deadline> Archive<D> {
 			)
 		};
 		let reply = pending.await?;
-		Ok(protocol::page(&Value(&reply.0), filter, after, limit)?)
+		Ok(protocol::page(&Value(&reply), filter, after, limit)?)
 	}
 	/// Charge every remote row, including repeated keys, and expose only a
 	/// complete account. A peer cannot keep this scan alive by revising one key.
@@ -72,7 +88,7 @@ impl<D: Deadline> Archive<D> {
 					Access::ReadWrite => "read-write".into(),
 				},
 			];
-			self.client.call(
+			self.caller.call(
 				&self.reference,
 				protocol::NARROW,
 				&args,
@@ -80,10 +96,13 @@ impl<D: Deadline> Archive<D> {
 			)
 		};
 		let reply = pending.await?;
-		let Argument::Reference(reference) = reply.0 else {
+		let Argument::Reference(reference) = reply else {
 			return Err(archive::Error::Access.into());
 		};
-		Ok(Self::new(self.client.clone(), reference))
+		Ok(Self {
+			caller: self.caller.clone(),
+			reference,
+		})
 	}
 }
 

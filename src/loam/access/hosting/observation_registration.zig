@@ -13,6 +13,7 @@ pub const Registration = struct {
     config: *service.Service,
     endpoint: *const records.EndpointRecord,
     mutation: *Mutation,
+    live: bool = false,
     registration: ?*storage.ObservationRegistration = null,
     key: [32]u8 = undefined,
     initialized: bool = false,
@@ -20,7 +21,10 @@ pub const Registration = struct {
     replay: ?driver.Value = null,
     fronts: [2]loam.ObjectId = undefined,
     publications: [2]loam.ObjectId = undefined,
-    leases: [5]?loam.Lease = @splat(null),
+    // Existing replay custody plus one lifetime marker and two stale names.
+    // The bounded call owns them until staging, replay or refusal retires.
+    leases: [8]?loam.Lease = @splat(null),
+    expired_publications: [2]?loam.ObjectId = @splat(null),
     pending: ?loam.Ticket = null,
     reservations: [2]?driver.Host.DurableReservation = @splat(null),
     pub const Step = union(enum) { ready, read: loam.Read, waiting, more };
@@ -49,15 +53,30 @@ pub const Registration = struct {
                 }
                 self.initialized = true;
             }
-            if (self.registration == null) self.registration = storage.ObservationRegistration.init(source, if (self.endpoint.content) |content| content.resource else null, self.key) catch |err| {
-                if (err == error.RecordUnloaded) return .more;
-                return err;
+            if (self.registration == null) {
+                const target = if (self.endpoint.content) |content| @as(?@import("loam_access_core").ResourceId, content.resource) else null;
+                const lifetime: ?records.ObservationRecord.Lifetime = if (self.live) lifetime: {
+                    const scope = self.call.attachment.options.live_scope orelse return error.LiveScopeRequired;
+                    const epoch = scope.epoch orelse return error.LiveScopeNotStarted;
+                    if (try self.load(5, epoch.object)) |step| return step;
+                    try epoch.check(self.store(), self.leases[5].?);
+                    break :lifetime .{ .marker = epoch.object, .revision = (try self.store().currentView(self.leases[5].?)).revision };
+                } else null;
+                self.registration = (if (lifetime) |value| storage.ObservationRegistration.initLifetime(source, target, self.key, value) else storage.ObservationRegistration.init(source, target, self.key)) catch |err| {
+                    if (err == error.RecordUnloaded) return .more;
+                    return err;
+                };
+            }
+            switch (try self.registration.?.advance()) {
+                .ready => {},
+                .waiting => return .waiting,
+                .read => |request| return .{ .read = request },
+            }
+            self.expired_publications = try self.registration.?.expiredPublications();
+            for (self.expired_publications, 0..) |publication, index| if (publication) |id| {
+                if (try self.load(6 + index, id)) |step| return step;
             };
-            return switch (try self.registration.?.advance()) {
-                .ready => .ready,
-                .waiting => .waiting,
-                .read => |request| .{ .read = request },
-            };
+            return .ready;
         }
         if (self.replay == null) {
             const replay = try self.mutation.replay();
@@ -76,6 +95,10 @@ pub const Registration = struct {
             if (try self.load(2, endpoint.context)) |step| return step;
             const context = try records.ObservationRecord.decode(try self.store().currentView(self.leases[2].?));
             if (context.descriptor == null) return error.ObservationClosed;
+            if (context.lifetime) |lifetime| {
+                if (try self.load(5, lifetime.marker)) |step| return step;
+                if ((try self.store().currentView(self.leases[5].?)).revision != lifetime.revision) return error.ObservationClosed;
+            }
             if (!context.descriptor.?.eql(self.endpoint.descriptor) or !std.meta.eql(context.target, if (self.endpoint.content) |content| @as(?@import("loam_access_core").ResourceId, content.resource) else null)) return error.InvalidRecord;
             self.key = context.key;
             self.publications[index] = context.publications[index] orelse return error.InvalidRecord;
@@ -142,9 +165,9 @@ fn stage(context: *anyopaque, store: *loam.Store) !void {
         front.* = try store.allocateId();
         publication.* = try hosting.publication.stageTarget(store, entropyFor(self.key, index), front.*);
     }
-    const id = try self.registration.?.stage(.{ self.publications[0], self.publications[1] });
+    const id = try self.registration.?.stageWithRetirement(.{ self.publications[0], self.publications[1] }, .{ .context = self, .stage = retire });
     for (self.fronts, 0..) |front, index| {
-        const payload = try (records.ObservationEndpointRecord{ .context = id, .role = if (index == 0) .receive else .cancel }).encodeAlloc(self.call.arena);
+        const payload = try (records.ObservationEndpointRecord{ .context = id, .role = if (index == 0) .receive else .cancel }).encodeAlloc(self.call.arena());
         try store.putCopying(.{ .id = front, .revision = 0, .schema = records.profile.observation_endpoint, .payload = payload, .edges = &.{.{ .target = id }} }, null);
     }
     self.proposed = true;
@@ -152,7 +175,7 @@ fn stage(context: *anyopaque, store: *loam.Store) !void {
 fn reply(call: *hosting.Call) !driver.Value {
     const self = backing(call.confirmation.?.context);
     if (self.proposed) call.requireDisclosedReply();
-    const values = try call.arena.alloc(driver.Value, 2);
+    const values = try call.arena().alloc(driver.Value, 2);
     for (values, 0..) |*value, index| {
         const ref = if (self.proposed) try call.propose(self.fronts[index]) else self.replay.?.list[index].capability;
         value.* = .{ .capability = try call.discloseHeld(ref) };
@@ -168,6 +191,14 @@ fn reply(call: *hosting.Call) !driver.Value {
 fn confirm(context: *anyopaque) void {
     const self = backing(context);
     for (&self.reservations) |*reservation| reservation.*.?.commit();
+}
+fn retire(context: *anyopaque, publications: [2]?loam.ObjectId) !void {
+    const self = backing(context);
+    for (publications, 0..) |publication, index| if (publication) |id| {
+        const lease = self.leases[6 + index] orelse return error.NotPrepared;
+        if (!(try self.store().currentView(lease)).id.eql(id)) return error.NotPrepared;
+        try hosting.publication.stageRetirement(self.call.attachment, lease);
+    };
 }
 fn entropyFor(key: [32]u8, index: usize) driver.Host.DurableSwiss.Entropy {
     var hash: [32]u8 = undefined;

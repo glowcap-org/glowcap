@@ -383,7 +383,7 @@ fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateLoam(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, cl, "include/glowcap_loam.h", "// Portable Loam extern projection.\n", "use super::layouts::*;\nuse crate::sys::host::GlowcapHost;\nuse crate::sys::ocapn::GlowcapContext;\nuse crate::sys::{GlowcapArgument, GlowcapReference};\nuse core::ffi::{c_int, c_uchar, c_uint, c_void};\n", &.{ .{ .T = cl.GlowcapLoamEntropyFn, .spelling = "Option<GlowcapLoamEntropyFn>" }, .{ .T = cl.GlowcapLoamKvFn, .spelling = "Option<GlowcapLoamKvFn>" } });
+    return renderArchive(gpa, cl, "include/glowcap_loam.h", "// Portable Loam extern projection.\n", "use super::layouts::*;\nuse crate::sys::host::{GlowcapHost, GlowcapHostSession};\nuse crate::sys::ocapn::GlowcapContext;\nuse crate::sys::{GlowcapArgument, GlowcapReference};\nuse core::ffi::{c_int, c_uchar, c_uint, c_void};\n", &.{ .{ .T = cl.GlowcapLoamEntropyFn, .spelling = "Option<GlowcapLoamEntropyFn>" }, .{ .T = cl.GlowcapLoamKvFn, .spelling = "Option<GlowcapLoamKvFn>" } });
 }
 fn generateLoamLmdb(gpa: std.mem.Allocator) ![]u8 {
     return renderArchive(gpa, cln, "include/glowcap_loam_lmdb.h", "// LMDB Loam extern projection.\n", "use super::layouts::*;\nuse crate::sys::GlowcapReference;\nuse core::ffi::{c_int, c_uchar, c_uint};\n", &.{});

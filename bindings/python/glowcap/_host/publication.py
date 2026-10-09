@@ -180,6 +180,24 @@ class _PublicationMixin(HostMixinBase):
             _host.glowcap_host_set_session_limits(self.raw, ctypes.byref(options))
         )
 
+    def set_ingress_limits(
+        self, *, max_pending_turns: int, max_pending_bytes: int, max_chunk_bytes: int
+    ) -> None:
+        """Configure queue bounds before any session or eventual send.
+
+        Byte bounds include message spines and queue rows. Configuration
+        allocates no payload storage.
+        """
+        values = (max_pending_turns, max_pending_bytes, max_chunk_bytes)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not 0 < value <= 0xFFFFFFFF
+            for value in values
+        ):
+            raise ValueError("ingress limits must be positive uint32 integers")
+        _check_host(_host.glowcap_host_set_ingress_limits(self.raw, *values))
+
     def designator(self) -> str:
         """The canonical key designator (64 lowercase hex digits) for this
         node's identity seed — what a keyed-tcp locator names as its
@@ -189,13 +207,13 @@ class _PublicationMixin(HostMixinBase):
         _check_host(_host.glowcap_host_designator_from_seed(ptr, 32, out, 64))
         return bytes(out).decode("ascii")
 
-    def publish_giftable(self, name: str, behavior: Behavior) -> None:
+    def publish(self, name: str, behavior: Behavior) -> None:
         """Host ``behavior`` once and bind ``name`` as a Host-wide alias.
 
         Fetch lazily projects the actor onto a session. A deposited gift keeps
         that exact actor when a recipient later withdraws over its own exporter
         session (ADR-0009)."""
-        # A giftable is bound to no single session: its forwards always go
+        # A Host publication is bound to no single session: its forwards always go
         # through the host, and a turn it runs belongs to whichever session
         # the deliver arrived on.
         ctx = self._register_behavior(_BehaviorEntry(run=behavior, resolve_local=None))
@@ -217,14 +235,36 @@ class _PublicationMixin(HostMixinBase):
             # must drop it here or the registry pins the behavior forever.
             self._unregister_behavior(ctx)
             raise
-        prior = self._giftables.get(name)
+        prior = self._publications.get(name)
         if prior is not None:
             # Replacement moves discovery only. Existing capabilities and
             # deposited gifts can still call the old actor.
-            self._displaced_giftables.append(prior)
-        self._giftables[name] = ctx
+            self._displaced_publications.append(prior)
+        self._publications[name] = ctx
 
-    def unpublish_giftable(self, name: str) -> bool:
+    def publish_reference(self, reference: Ref, entropy: Optional[bytes] = None) -> str:
+        """Publish the exact held reference, preserving its original authority.
+
+        The publication owns an independent root until ``remove_durable``.
+        After removal, the same entropy restores the name; live collisions refuse.
+        """
+        entropy_bytes = secrets.token_bytes(_abi.HOST_DURABLE_ENTROPY_LEN) if entropy is None else bytes(entropy)
+        if len(entropy_bytes) != _abi.HOST_DURABLE_ENTROPY_LEN:
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "invalid durable entropy length")
+        c_ref = _ref_to_c(reference._live())
+        ebuf, eptr = _byte_buf(entropy_bytes)
+        out = (ctypes.c_ubyte * _abi.HOST_DURABLE_SWISS_LEN)()
+        written = _host.glowcap_host_publish_reference(
+            self.raw, ctypes.byref(c_ref), eptr, len(entropy_bytes), out, len(out)
+        )
+        if written <= 0:
+            _check_host(written)
+        if written != len(out):
+            raise GlowcapError(_abi.ERR_INTERNAL, "publication returned an invalid name length")
+        self.schedule_kick()
+        return bytes(out).decode("ascii")
+
+    def unpublish(self, name: str) -> bool:
         """Remove the Host-wide alias ``name`` (alias-only).
 
         A later fetch misses on every session, while issued refs and deposited
@@ -238,9 +278,9 @@ class _PublicationMixin(HostMixinBase):
         _check_host(rc)
         # The alias is gone but the actor is not: its trampoline row moves to
         # the displaced list, exactly as a replacement displaces one.
-        prior = self._giftables.pop(name, None)
+        prior = self._publications.pop(name, None)
         if prior is not None:
-            self._displaced_giftables.append(prior)
+            self._displaced_publications.append(prior)
         self.schedule_kick()
         return True
 
@@ -291,7 +331,7 @@ class _PublicationMixin(HostMixinBase):
             self._unregister_behavior(ctx)
             raise
         name = bytes(out[:written]).decode("ascii")
-        self._giftables[name] = ctx
+        self._publications[name] = ctx
         self.schedule_kick()
         return name
 
@@ -318,9 +358,9 @@ class _PublicationMixin(HostMixinBase):
         if rc == _abi.ERR_NOT_FOUND:
             return False
         _check_host(rc)
-        prior = self._giftables.pop(swiss, None)
+        prior = self._publications.pop(swiss, None)
         if prior is not None:
-            self._displaced_giftables.append(prior)
+            self._displaced_publications.append(prior)
         self.schedule_kick()
         return True
 

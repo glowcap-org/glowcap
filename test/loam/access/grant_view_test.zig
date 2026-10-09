@@ -1,6 +1,7 @@
 //! Faulting grant sources exercise the same authority rules as the ledger.
 //! Regression guards were checked by removing reply-version validation and
 //! pending-demand reset separately; each reached its intended assertion.
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");
 const core = f.core;
@@ -11,7 +12,7 @@ const a = std.testing.allocator;
 test "access descriptions share admission intersection and hide inactive policy" {
     var graph = try f.graphInit(a);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var resources = graph.readView();
     const policy = try core.Policy.init(f.descriptor);
     var source = Source.init(&graph, try f.terms(.{ .object = resource }, &.{ f.read, f.post }, null));
@@ -92,7 +93,7 @@ const Source = struct {
 test "access grant demand cannot skip unloaded or revoked ancestors" {
     var graph = try f.graphInit(a);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var resources = graph.readView();
     const policy = try core.Policy.init(f.descriptor);
     var source = Source.init(&graph, try f.terms(.{ .object = resource }, &.{f.read}, null));
@@ -116,7 +117,7 @@ test "access grant demand cannot skip unloaded or revoked ancestors" {
 test "access grant snapshots refuse absent stale malformed and cyclic records" {
     var graph = try f.graphInit(a);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
     for (0..3) |mode| {
         var source = Source.init(&graph, terms);
@@ -151,9 +152,9 @@ test "access grant snapshots refuse absent stale malformed and cyclic records" {
 test "access grant evaluation rejects revision changes during ancestry and resource moves" {
     var graph = try f.graphInit(a);
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), f.kind, null);
-    const other = try graph.create(graph.revision(), f.kind, null);
-    const resource = try graph.create(graph.revision(), f.kind, root);
+    const root = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const other = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, root);
     var source = Source.init(&graph, try f.terms(.{ .owned_subtree = root }, &.{f.read}, null));
     var grants = source.view();
     var resources = graph.readView();
@@ -163,7 +164,7 @@ test "access grant evaluation rejects revision changes during ancestry and resou
     try std.testing.expectError(error.RevisionConflict, grants.require(&resources, &policy, id(1), resource, req));
     grants = source.view();
     try grants.require(&resources, &policy, id(1), resource, req);
-    try graph.reparent(graph.revision(), resource, other);
+    try graph.reparent(graph.revision(), &structural_policy, resource, other);
     try std.testing.expectError(error.RevisionConflict, grants.require(&resources, &policy, id(1), resource, req));
     resources = graph.readView();
     try std.testing.expectError(error.RevisionConflict, grants.require(&resources, &policy, id(1), resource, req));
@@ -175,7 +176,7 @@ test "access grant evaluation rejects revision changes during ancestry and resou
 test "access grant plan stages child parent and event without publishing or allocating lifecycle edits" {
     var graph = try f.graphInit(a);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
     var source = Source.init(&graph, terms);
     var grants = source.view();
@@ -210,7 +211,7 @@ test "access grant plan stages child parent and event without publishing or allo
 test "access grant preparation refuses unloaded ancestors and persisted child counts over limit" {
     var graph = try f.graphInit(a);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
     var source = Source.init(&graph, terms);
     var grants = source.view();
@@ -230,7 +231,7 @@ test "access grant preparation refuses unloaded ancestors and persisted child co
 test "access retries expose only the current grant or resource demand" {
     var graph = try f.graphInit(a);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
     var source = Source.init(&graph, terms);
     source.loaded[0] = false;

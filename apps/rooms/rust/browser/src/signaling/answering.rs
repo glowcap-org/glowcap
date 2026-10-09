@@ -44,17 +44,24 @@ impl Pending {
 /// readiness barrier; serve drives only offers that arrive after publication.
 pub struct Listener<D: Tasks> {
 	host: Host,
-	directory: Directory<D>,
+	directory: Route<D>,
 	inbox: rooms_glowcap::client::directory::signaling::Inbox<D>,
 	handshake: Duration,
 }
+/// Admission failure and retirement have different recovery owners. A denied
+/// source is activity feedback; joined peers still establish a clean barrier.
+pub(crate) struct ServeReport {
+	pub activity: Result<(), Error>,
+	pub retirement: Result<(), Error>,
+}
 impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
-	pub async fn open(directory: Directory<D>, handshake: Duration) -> Result<Self, Error> {
+	pub async fn open(directory: Route<D>, handshake: Duration) -> Result<Self, Error> {
 		if handshake.is_zero() {
 			return Err(Error::Admission("Rooms WebRTC requires a finite handshake budget"));
 		}
+		directory.check().await?;
 		let inbox = directory.signaling_inbox().await?;
-		let host = directory.client().session().host();
+		let host = directory.host();
 		Ok(Self {
 			host,
 			directory,
@@ -70,8 +77,20 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 		self,
 		configuration: impl Fn() -> F,
 		shutdown: impl Future<Output = ()>,
-		mut accepted: impl FnMut(Result<Session, Error>),
+		accepted: impl FnMut(Result<Session, Error>),
 	) -> Result<(), Error> {
+		let report = self.serve_report(configuration, shutdown, accepted).await;
+		match report.activity {
+			Ok(()) => report.retirement,
+			Err(error) => Err(error.retain(report.retirement)),
+		}
+	}
+	pub(crate) async fn serve_report<F: Future<Output = Result<RtcConfiguration, Error>> + 'static>(
+		self,
+		configuration: impl Fn() -> F,
+		shutdown: impl Future<Output = ()>,
+		mut accepted: impl FnMut(Result<Session, Error>),
+	) -> ServeReport {
 		let Self {
 			host,
 			directory,
@@ -93,7 +112,9 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 					Some(Err(_)) => break Err(Error::Admission("Rooms WebRTC answering worker failed")),
 					None => unreachable!("nonempty answering workers"),
 				},
-				event = inbox.next() => match event {
+				event = inbox.next() => {
+					if let Err(error) = directory.check().await { break Err(error.into()); }
+					match event {
 					Err(error) => break Err(error.into()),
 					Ok(None) => break Ok(()),
 					Ok(Some(policy::Incoming::Offer { id, description })) => {
@@ -123,6 +144,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 							attempt.candidate(candidate);
 						}
 					},
+					}
 				}
 			}
 		};
@@ -137,7 +159,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 				}
 			});
 		}
-		let mut outcome = outcome;
+		let mut retirement: Result<(), Error> = Ok(());
 		while let Some(ended) = workers.join_next().await {
 			let result = match ended {
 				Ok((_, Ok(Some(session)))) => session.close(glowcap::PendingWork::Cancel).await.map_err(Error::from),
@@ -146,13 +168,16 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 				Err(_) => Err(Error::Admission("Rooms WebRTC answering worker failed during shutdown")),
 			};
 			if let Err(error) = result {
-				outcome = Err(match outcome {
+				retirement = Err(match retirement {
 					Ok(()) => error,
 					Err(primary) => primary.retain(Err(error)),
 				});
 			}
 		}
-		outcome
+		ServeReport {
+			activity: outcome,
+			retirement,
+		}
 	}
 }
 
@@ -176,7 +201,7 @@ struct Offer {
 
 async fn answer<D: Deadline + Tasks + Clone + 'static>(
 	host: &Host,
-	directory: &Directory<D>,
+	directory: &Route<D>,
 	offer: Offer,
 	config: impl Future<Output = Result<RtcConfiguration, Error>>,
 	handshake: Duration,
@@ -201,6 +226,7 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 					peer.set_remote_offer(description.as_str()).await?;
 					directory.signal_answer(&id, &policy::Description::parse(&peer.create_answer().await?)?)?;
 					peer.wait_open().await?;
+					directory.check().await?;
 					Ok(())
 				} => result,
 				result = async {
@@ -221,7 +247,7 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 		};
 		tokio::select! { biased;
 			reason = stopped(&mut stop) => Err(match reason { Stop::Shutdown => Error::Stopped, Stop::Refused(reason) => Error::Admission(reason) }),
-			result = directory.client().platform().within(policy::TIMEOUT_MS, work) => result.unwrap_or(Err(Error::Timeout)),
+			result = directory.platform().within(policy::TIMEOUT_MS, work) => result.unwrap_or(Err(Error::Timeout)),
 		}
 	};
 	if let Err(error) = prepared {
@@ -256,6 +282,9 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 		Some(handshake),
 	)
 	.await?;
+	if let Err(error) = directory.check().await {
+		return Err(Error::from(error).retain(accepted.close(glowcap::PendingWork::Cancel).await.map_err(Error::from)));
+	}
 	let stopping = *stop.borrow();
 	if let Some(reason) = stopping {
 		return cancelled(

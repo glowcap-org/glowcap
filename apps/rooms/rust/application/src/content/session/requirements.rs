@@ -19,7 +19,11 @@ pub enum Target {
 	DirectoryIntroduction,
 	DirectoryCreation,
 	DirectoryPublication,
+	DirectoryAdmission,
 	RoomAdmission,
+	MembershipInbox,
+	MembershipPresence,
+	MembershipRetirement,
 	AcceptedOffer,
 	DirectAccess,
 	HeldRoomShare,
@@ -59,6 +63,7 @@ impl Target {
 			Self::ConversationPost | Self::RoomBridgeSubmission => &[&[Post]],
 			Self::ConversationUpload => &[&[Post, Upload]],
 			Self::RoomTopic => &[&[SetTopic]],
+			Self::MembershipPresence => &[&[Receive]],
 			Self::RoomModeration => &[&[Moderate]],
 			Self::RoomBridgeInspection => &[&[Receive]],
 			Self::ExactLineEdit => &[&[EditOwn], &[EditContent]],
@@ -67,7 +72,10 @@ impl Target {
 			Self::RoomPublicOffer => &[&[ManagePublicOffer]],
 			Self::ArchiveRead => &[&[ReadArchive]],
 			Self::ArchiveFile => &[&[ReadArchive, ReadFile]],
-			Self::RoomAdmission
+			Self::DirectoryAdmission
+			| Self::RoomAdmission
+			| Self::MembershipInbox
+			| Self::MembershipRetirement
 			| Self::AcceptedOffer
 			| Self::DirectAccess
 			| Self::HeldRoomShare
@@ -169,9 +177,11 @@ pub const fn command(route: Route) -> Option<Requirements> {
 	let (workspace, targets, conditional): (&'static [Permission], &'static [Target], &'static [Conditional]) =
 		match route {
 			Route::Checkpoint(command) => match command {
+				Command::ClearWorkspace => (&[ReplaceWorkspace, ManageCustody], &[], &[]),
 				Command::SetDraft
 				| Command::Select
 				| Command::SetStanding
+				| Command::ChooseDirectoryNickname
 				| Command::SetDirectoryStanding
 				| Command::SetRoomStanding
 				| Command::SetEffectiveStanding
@@ -184,14 +194,18 @@ pub const fn command(route: Route) -> Option<Requirements> {
 				| Command::LeaveConversation
 				| Command::CloseDirect => (&[InteractWorkspace], &[], &[]),
 				Command::JoinDirectory | Command::SetDirectoryNick => (&[InteractWorkspace], &[DirectoryPresence], &[]),
-				Command::JoinRoom => (&[InteractWorkspace], &[RoomAdmission], &[]),
+				Command::JoinRoom => (&[InteractWorkspace], &[RoomAdmission, MembershipInbox], &[]),
 				Command::StartDirect => (&[InteractWorkspace], &[DirectoryIntroduction], &[]),
 				Command::OpenDirect => (&[InteractWorkspace], &[DirectAccess], &[]),
 				Command::AcceptInvitation => (&[InteractWorkspace], &[AcceptedOffer], &[Conditional::ImportsAuthority]),
 				Command::ReceiveRoomLinkInvitation => {
 					(&[InteractWorkspace], &[HeldRoomShare], &[Conditional::ImportsAuthority])
 				}
-				Command::PublishPeeredRoom => (&[InteractWorkspace], &[DirectoryPublication, HeldRoomShare], &[]),
+				Command::PublishPeeredRoom => (
+					&[InteractWorkspace, UseOperations],
+					&[DirectoryPublication, HeldRoomShare],
+					&[],
+				),
 				Command::RevokePeeredRoom => (&[InteractWorkspace], &[ExactLeaseRevoke], &[]),
 				Command::ReplaceOperationsCapabilities
 				| Command::ReplaceOperationsBundle
@@ -210,10 +224,23 @@ pub const fn command(route: Route) -> Option<Requirements> {
 				results::Command::LinkRoom => return None,
 			},
 			Route::Effect(effect) => match effect {
+				Effect::EnterRoom => (&[InteractWorkspace], &[DirectoryAdmission], &[]),
 				Effect::OfferRoom => (&[InteractWorkspace], &[HeldRoomShare], &[]),
+				Effect::ShareArchiveHistory => (
+					&[InteractWorkspace, ReadArchive, ReadFile],
+					&[ArchiveRead, DirectAccess],
+					&[],
+				),
+				Effect::OfferDurableArchive => (&[InteractWorkspace], &[ArchiveIssue, DirectAccess], &[]),
+				Effect::RevokeIssuedArchiveShare => (&[InteractWorkspace], &[ArchiveRevoke], &[]),
 				Effect::SetRoomTopic => (&[InteractWorkspace], &[RoomTopic], &[]),
+				Effect::SetRoomAway => (&[InteractWorkspace], &[MembershipPresence], &[]),
+				Effect::RetireRoomMembership => (&[InteractWorkspace], &[MembershipRetirement], &[]),
 				Effect::KickRoomMember => (&[InteractWorkspace], &[RoomModeration], &[]),
+				Effect::IssueRoomModerator => (&[InteractWorkspace, ManageCustody], &[ExactRoomIssue], &[]),
 				Effect::Say => (&[InteractWorkspace], &[ConversationPost], &[]),
+				Effect::DirectReady => (&[InteractWorkspace], &[DirectAccess], &[]),
+				Effect::OfferDirectInbox => (&[InteractWorkspace], &[DirectoryIntroduction], &[]),
 				Effect::EditLine => (&[InteractWorkspace], &[ExactLineEdit], &[]),
 				Effect::WithdrawLine => (&[InteractWorkspace], &[ExactLineWithdraw], &[]),
 				Effect::RevokeManagedRoomAuthority => (&[InteractWorkspace], &[RoomRevoke], &[]),

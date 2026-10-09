@@ -1,6 +1,7 @@
 //! Prepared grant writes expose only committed authority until a matching
 //! completion. The tests use a fake storage boundary, not a persistent backend.
 
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");
 const core = f.core;
@@ -9,7 +10,7 @@ const Ledger = core.GrantLedger;
 test "access prepared grants stay private until their exact storage completion" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .object = resource }, &.{ f.read, f.post }, null);
@@ -18,8 +19,8 @@ test "access prepared grants stay private until their exact storage completion" 
     try std.testing.expectEqualDeep(before, ledger.version());
     try std.testing.expectEqual(@as(u32, 0), ledger.count());
     try std.testing.expectError(error.Busy, ledger.issueRootCopying(before, f.issue(terms, 0)));
-    try std.testing.expectError(error.Busy, graph.create(graph.revision(), f.kind, null));
-    try std.testing.expectError(error.Busy, graph.reparent(graph.revision(), resource, null));
+    try std.testing.expectError(error.Busy, graph.create(graph.revision(), &structural_policy, f.kind, null));
+    try std.testing.expectError(error.Busy, graph.reparent(graph.revision(), &structural_policy, resource, null));
     try std.testing.expectError(error.Busy, graph.destroy(graph.revision(), resource));
     try std.testing.expectError(error.Busy, graph.deinit());
     try std.testing.expectError(error.Busy, ledger.deinit());
@@ -36,13 +37,13 @@ test "access prepared grants stay private until their exact storage completion" 
     try std.testing.expectEqualDeep(write.record, try ledger.get(completion.committed.grant));
     try ledger.require(completion.committed.grant, resource, .{ .permissions = &.{f.read} });
     try std.testing.expectError(error.InvalidTransaction, ledger.finishWrite(ticket, .committed));
-    _ = try graph.create(graph.revision(), f.kind, null);
+    _ = try graph.create(graph.revision(), &structural_policy, f.kind, null);
 }
 
 test "access prepared child writes include the atomic parent inventory update" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
@@ -62,7 +63,7 @@ test "access prepared child writes include the atomic parent inventory update" {
 test "access unchanged storage and pre-write cancellation preserve authority" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
@@ -90,7 +91,7 @@ test "access uncertain writes fence use and keep storage memory until resolved" 
     for ([_]Ledger.Resolution{ .committed, .unchanged }) |resolution| {
         var graph = try f.graphInit(std.testing.allocator);
         defer graph.deinit() catch unreachable;
-        const resource = try graph.create(graph.revision(), f.kind, null);
+        const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
         var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
         defer f.deinitLedger(&ledger);
         const terms = try f.terms(.{ .objects = &.{resource} }, &.{f.read}, null);
@@ -127,7 +128,7 @@ test "access uncertain writes fence use and keep storage memory until resolved" 
 test "access storage tickets reject changed owner sequence and base" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);

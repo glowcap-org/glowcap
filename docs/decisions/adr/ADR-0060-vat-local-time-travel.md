@@ -7,7 +7,7 @@ decision: "The Vat gains opt-in, local-only time-travel. Actor state moves behin
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0096, ADR-0101]
+amended_by: [ADR-0096, ADR-0101, ADR-0191]
 ---
 
 # ADR-0060 Vat local time-travel
@@ -92,7 +92,8 @@ snapshots.
   actors worth rewinding, so snapshot/restore are permitted there; the far-ref
   caveat is documented, not enforced.
 - **No general transactional turns.** `become`'s discard-on-error is the only
-  rollback shaped here. A general "run a mutable turn against a copy and discard
+  state rollback shaped here; ADR-0191 makes a turn's local sends commit with
+  it. A general "run a mutable turn against a copy and discard
   on failure" is not implemented.
 - **No C ABI exposure.** This is the native Zig `Vat` surface. Surfacing
   snapshot/restore over the C ABI is separate work.

@@ -294,6 +294,16 @@ enum Target {
 	Local(Endpoint),
 	Iroh(Locator),
 }
+impl std::fmt::Display for Target {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Rendezvous(identity) => write!(f, "rendezvous peer {identity}"),
+			Self::Local(Endpoint::Tcp { host, port }) => write!(f, "{host}:{port}"),
+			Self::Local(Endpoint::Unix { path }) => write!(f, "{}", path.display()),
+			Self::Iroh(locator) => write!(f, "{}.iroh", locator.designator),
+		}
+	}
+}
 async fn run_relay(
 	upgrading: hyper::upgrade::OnUpgrade,
 	target: Target,
@@ -302,8 +312,11 @@ async fn run_relay(
 ) -> Result<(), String> {
 	let ws = super::upgrade::accept(upgrading, stop.clone()).await?;
 	let mut ws = WsBytes::new(ws).bounded(glowcap::BINDING_RELAY_MAX_BYTES_PER_SESSION, Duration::from_secs(120));
+	let destination = target.to_string();
 	let result = connect_and_pump(&mut ws, target, stop, registry).await;
-	retire_websocket(&mut ws, result).await
+	retire_websocket(&mut ws, result)
+		.await
+		.map_err(|cause| format!("{destination}: {cause}"))
 }
 async fn connect_and_pump(
 	ws: &mut (impl AsyncRead + AsyncWrite + Unpin),

@@ -54,10 +54,12 @@ explicitly:
 | Warm protocol state | at most 2 KiB |
 | Completion-loop slot beyond its embedded peer | exactly 144 bytes |
 | Completion-backed keyed-relay adapter state | exactly 272 bytes per relay leg |
-| Sealing completion-adapter state (`noise-relay`) | exactly 952 bytes per sealed leg, on top of the leg it wraps |
 | iroh completion-adapter row | exactly 64 bytes per loop connection |
 | WebRTC completion-adapter row | exactly 104 bytes per open DataChannel |
-| Host session shell | at most 528 bytes |
+| Completion-resident connection row (stream wires on HostRuntime) | exactly 152 bytes per connection, holding no buffer while idle |
+| Host session shell | at most 528 bytes, including indexed listeners for cancellable bulk failure |
+| Shared enliven index | 24 bytes per Host; sessions gain none |
+| Turn failure notifications | 40 bytes per Host plus 16-byte answer slots, retaining at most 4 KiB after a turn |
 | Host session locator identity | one owned transport/designator block per session |
 | Warm local Vat queue batch | zero general-purpose allocations |
 | Retained queue spare in the Host-owned Vat | one chunk per Host: its row array within one 4 KiB list page plus a small header, its payload arena at most 4 KiB |
@@ -80,7 +82,10 @@ limits, not portable benchmark results.
 
 `zig build bench-peer-scaling -- --live` measures real loopback sockets at
 increasing connection counts. Its server and load generator are separate
-processes, each with 32 completion-loop shards and no connection-owned thread.
+processes with 32 shards each and no connection-owned thread. The server runs
+the product path: each shard is a `HostRuntime` serving TCP through a
+completion resident
+([ADR-0202](decisions/adr/ADR-0202-stream-transports-join-hostruntime-as-a-completion-resident.md)).
 Every client has a unique signed session identity and must fetch the server's
 published capability before the barrier opens; all sessions remain open while
 RSS is sampled.
@@ -99,10 +104,24 @@ The host's connection-tracking table was capped below the target, so the run
 used an isolated user/network namespace and exempted its loopback traffic from
 connection tracking. The benchmark itself spreads the clients over 32
 listeners so one ephemeral-port range is not mistaken for session capacity.
-Each listener is its own Host on the completion loop (`Bridge(TcpLoop)`), and
-all 32 share one identity key. The connections are plain TCP: each handshake
-is signed, but the bytes are not encrypted. `driver.Session`, `HostRuntime`,
-and the bindings run a different loop, which this run does not measure.
+Each listener was its own Host on the completion loop (`Bridge(TcpLoop)`),
+the server this run used, and all 32 shared one identity key. The connections
+are plain TCP: each handshake is signed, but the bytes are not encrypted.
+HostRuntime has not yet run at this size.
+
+On a 16-CPU, 7 GiB Linux container with io_uring, the two servers measured
+side by side in ReleaseSafe:
+
+| Server | Live sessions | Server RSS after | Microseconds per round trip |
+| --- | --- | --- | --- |
+| `Bridge(TcpLoop)` | 50,000 | 526,872 KiB | 42.1 |
+| `HostRuntime` + TCP completion resident | 50,000 | 503,408 KiB | 43.8 |
+| `Bridge(TcpLoop)` | 100,000 | 995,036 KiB | 41.9 |
+| `HostRuntime` + TCP completion resident | 100,000 | 950,304 KiB | 43.8 |
+
+The HostRuntime server holds about 4.5% less memory at 100,000 sessions, with
+no read buffer and no send staging on an idle wire, and each round trip takes
+about 4.5% longer.
 
 ```sh
 unshare -Urn sh -eu -c '
@@ -150,7 +169,7 @@ WebRTC, and onion (the standardized Tor netlayer). TCP, iroh, WebRTC, and
 outbound keyed-relay have Host completion-loop integrations. The WebRTC path
 adopts signaled peers through a completion backend
 (`zig build webrtc-loop`). Native three-party redeem over a bare `webrtc`
-give is proved by `zig build webrtc-bridge-redeem`.
+give is proved by `zig build webrtc-redeem`.
 
 The remaining work covers native Session provider setup, managed WebRTC
 adapters, deployment evidence, and operating systems. A native peer cold-dials a Chromium-hosted actor

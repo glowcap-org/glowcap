@@ -188,52 +188,92 @@ fn startAcceptedConn(
 
 /// Drain a resident connection until the runtime window refuses, feeding each
 /// chunk. A drained ready record is consumed, so bytes left unread here would
-/// wait for a future readiness transition instead of the next wait.
+/// wait for a future readiness transition instead of the next wait. A resident
+/// that lends its received bytes feeds the core from the loan; any other
+/// copies into the runtime's one read scratch.
 pub fn readAndFeed(self: *HostRuntime, wire: *Wire) !usize {
-    const rl = &wire.link.resident;
+    const rl = &wire.link;
     const resident = self.residents.items[rl.index].resident;
     var total: usize = 0;
+    if (resident.vtable.borrowed_read) |borrowed| {
+        while (true) switch (borrowed.lend(resident.ctx, rl.conn)) {
+            .would_block => return total,
+            .end_of_stream => return endOfStream(wire),
+            .dead => return error.ConnectionLost,
+            .bytes => |chunk| {
+                defer borrowed.release(resident.ctx, rl.conn);
+                if (chunk.len == 0) return error.ConnectionLost;
+                const was_open = wire.session.served.port.peer.sessionIsOpen();
+                try feedChunk(self, wire, chunk);
+                total += chunk.len;
+                if (stopAtOpen(wire, was_open)) return total;
+            },
+        };
+    }
     while (true) {
-        const got = resident.tryRead(rl.conn, rl.read_buf);
+        const scratch = self.resident_read_scratch;
+        const got = resident.tryRead(rl.conn, scratch);
         if (got == net.multiplexed_resident.would_block) return total;
-        if (got == 0) {
-            return if (wire.session.feed_tail.isActive()) error.TruncatedFrame else error.EndOfStream;
-        }
+        if (got == 0) return endOfStream(wire);
         if (got < 0) return error.ConnectionLost;
-        if (@as(usize, @intCast(got)) > rl.read_buf.len) return error.ConnectionLost;
-        const chunk = rl.read_buf[0..@intCast(got)];
-        if (!wire.attended) {
-            switch (wire.session.wire_framing) {
-                .byte_stream => {
-                    if (rl.parked.items.len + chunk.len > unattended_parked_cap_bytes)
-                        return error.ConnectionLost;
-                    try rl.parked.appendSlice(self.allocator, chunk);
-                },
-                .message => {
-                    if (rl.parked_packet_bytes + chunk.len > unattended_parked_cap_bytes)
-                        return error.ConnectionLost;
-                    const packet = try self.allocator.dupe(u8, chunk);
-                    errdefer self.allocator.free(packet);
-                    try rl.parked_packets.append(self.allocator, packet);
-                    rl.parked_packet_bytes += packet.len;
-                },
-            }
-            total += chunk.len;
-            continue;
+        if (@as(usize, @intCast(got)) > scratch.len) return error.ConnectionLost;
+        const chunk = scratch[0..@intCast(got)];
+        const was_open = wire.session.served.port.peer.sessionIsOpen();
+        try feedChunk(self, wire, chunk);
+        total += chunk.len;
+        if (stopAtOpen(wire, was_open)) return total;
+    }
+}
+
+/// The core pauses a chunk at the frame that opens its session so the
+/// embedder can publish before the partner's first frames dispatch, but a
+/// later chunk would dispatch at once. A stream wire reads one chunk per
+/// step, so the open commits in between; a resident read stops here for the
+/// same reason and defers the rest, because its drained record will not be
+/// reported again.
+fn stopAtOpen(wire: *Wire, was_open: bool) bool {
+    if (was_open or !wire.session.served.port.peer.sessionIsOpen()) return false;
+    wire.link.read_deferred = true;
+    return true;
+}
+
+fn endOfStream(wire: *Wire) error{ TruncatedFrame, EndOfStream } {
+    return if (wire.session.feed_tail.isActive()) error.TruncatedFrame else error.EndOfStream;
+}
+
+/// Park `chunk` for an unattended wire, or feed it to the core, which keeps
+/// no borrow of it past the call.
+fn feedChunk(self: *HostRuntime, wire: *Wire, chunk: []const u8) !void {
+    const rl = &wire.link;
+    if (!wire.attended) {
+        switch (wire.session.wire_framing) {
+            .byte_stream => {
+                if (rl.parked.items.len + chunk.len > unattended_parked_cap_bytes)
+                    return error.ConnectionLost;
+                try rl.parked.appendSlice(self.allocator, chunk);
+            },
+            .message => {
+                if (rl.parked_packet_bytes + chunk.len > unattended_parked_cap_bytes)
+                    return error.ConnectionLost;
+                const packet = try self.allocator.dupe(u8, chunk);
+                errdefer self.allocator.free(packet);
+                try rl.parked_packets.append(self.allocator, packet);
+                rl.parked_packet_bytes += packet.len;
+            },
         }
-        self.core.feedTransportPacket(wire.session, chunk) catch |err| {
-            const failure = net.classifyApplyError(err);
-            self.drainActions() catch |drain_err| {
-                Internal.closeWire(self, wire, failure);
-                return drain_err;
-            };
-            Internal.writeOutbound(self, wire) catch |write_err| {
-                Internal.closeWire(self, wire, write_err);
-                return failure;
-            };
+        return;
+    }
+    self.core.feedTransportPacket(wire.session, chunk) catch |err| {
+        const failure = net.classifyApplyError(err);
+        self.drainActions() catch |drain_err| {
             Internal.closeWire(self, wire, failure);
+            return drain_err;
+        };
+        Internal.writeOutbound(self, wire) catch |write_err| {
+            Internal.closeWire(self, wire, write_err);
             return failure;
         };
-        total += chunk.len;
-    }
+        Internal.closeWire(self, wire, failure);
+        return failure;
+    };
 }

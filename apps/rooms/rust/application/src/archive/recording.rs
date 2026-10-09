@@ -147,6 +147,10 @@ impl Identity for Probe<'_> {
 	}
 }
 impl Standings {
+	pub fn clear_source(&mut self, source: &DocumentText) {
+		self.keys.retain(|key| &key.0.coordinates().source != source);
+		self.bytes = self.keys.iter().map(|key| key.0.retained_bytes()).sum();
+	}
 	/// Build only an uncached room standing. The caller remembers it after the
 	/// write succeeds, and clears this memo when that account is erased.
 	pub fn prepare(&self, line: &Record, nick: &str) -> Result<Option<Record>, Error> {

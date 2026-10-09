@@ -4,7 +4,7 @@ const common = @import("common.zig");
 const root = @import("../../build.zig");
 const execution = @import("execution.zig");
 const Gates = @import("gates.zig").Registered;
-pub const Registered = struct { portable: *std.Build.Module, storage: *std.Build.Module };
+pub const Registered = struct { portable: *std.Build.Module, storage: *std.Build.Module, native_installs: [2]*std.Build.Step };
 pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, modules: []*std.Build.Module, host: *std.Build.Module, lmdb: *std.Build.Module, gates: Gates) Registered {
     const imports = [_]common.AbiImport{
         .{ .name = "loam_core", .module = modules[root.layerIndex("loam_core")] },
@@ -16,7 +16,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     };
     const portable = common.transportAbiModule(b, target, optimize, "src/c_abi/loam/mod.zig", &imports);
     const archive = common.transportAbiModule(b, target, optimize, "src/c_abi/loam/archive.zig", &imports);
-    _ = common.installArchive(b, "glowcap_loam", archive, version);
+    const portable_archive = common.installArchive(b, "glowcap_loam", archive, version);
     const storage_imports = [_]common.AbiImport{
         .{ .name = "loam_core", .module = modules[root.layerIndex("loam_core")] },
         .{ .name = "loam_lmdb", .module = lmdb },
@@ -25,16 +25,18 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     };
     const storage = common.transportAbiModule(b, target, optimize, "src/c_abi/loam_lmdb/mod.zig", &storage_imports);
     const storage_archive = common.transportAbiModule(b, target, optimize, "src/c_abi/loam_lmdb/archive.zig", &storage_imports);
-    _ = common.installArchive(b, "glowcap_loam_lmdb", storage_archive, version);
+    const lmdb_archive = common.installArchive(b, "glowcap_loam_lmdb", storage_archive, version);
     const test_mod = b.createModule(.{ .root_source_file = b.path("test/c_abi/loam_test.zig"), .target = target, .optimize = optimize });
     test_mod.addImport("c_abi_loam", portable);
     test_mod.addImport("c_abi", modules[root.layerIndex("c_abi")]);
     test_mod.addImport("loam_core", modules[root.layerIndex("loam_core")]);
     test_mod.addImport("loam_access", modules[root.layerIndex("loam_access")]);
+    test_mod.addImport("loam_hosting", modules[root.layerIndex("loam_hosting")]);
     test_mod.addImport("driver_core", modules[root.layerIndex("driver_core")]);
     const counting = b.createModule(.{ .root_source_file = b.path("test/support/c_abi_counting_alloc.zig"), .target = target, .optimize = optimize });
     counting.addImport("c_abi", modules[root.layerIndex("c_abi")]);
     test_mod.addImport("support_c_abi_counting_alloc", counting);
+    test_mod.addImport("support_alloc_metrics", b.createModule(.{ .root_source_file = b.path("test/support/alloc_metrics.zig"), .target = target, .optimize = optimize }));
     test_mod.addImport("c_abi_loam_lmdb", storage);
     test_mod.addImport("c_abi_host", host);
     test_mod.addImport("c_abi_shared", modules[root.layerIndex("c_abi_shared")]);
@@ -66,5 +68,5 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     rust_step.dependOn(&rust.step);
     gates.runtime_gate.add(rust_step);
     @import("loam_browser.zig").register(b, gates);
-    return .{ .portable = portable, .storage = storage };
+    return .{ .portable = portable, .storage = storage, .native_installs = .{ &portable_archive.static_install.step, &lmdb_archive.static_install.step } };
 }

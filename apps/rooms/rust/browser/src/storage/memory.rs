@@ -33,6 +33,12 @@ impl Memory {
 		state.files.clear();
 		state.bytes = 0;
 	}
+	pub fn clear_source(&self, source: &rooms_application::text::DocumentText) {
+		let mut state = self.0.borrow_mut();
+		state.index.clear_source(source);
+		state.files.retain(|address, _| &address.coordinates().source != source);
+		state.bytes = state.files.values().map(|blob| blob.size() as usize).sum();
+	}
 	pub fn put(&self, record: Record, staged: Vec<Staged>) -> Result<u64, Error> {
 		let mut state = self.0.borrow_mut();
 		let mut record = state.index.prepare_put(record);

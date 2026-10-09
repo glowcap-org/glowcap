@@ -183,9 +183,8 @@ fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
 /// The stateless-GC policy after one served event: a deliver gc-collects the
 /// argument exports it introduced, a resolve gc-collects its settled answer.
 /// The single
-/// home for which event kind triggers which emit, both the per-connection
-/// `BlockingSession` and the loop bridges (`driver.Bridge`) call this so the
-/// policy cannot drift between them.
+/// home for which event kind triggers which emit: every `Served` session calls
+/// this, so the policy cannot drift between drivers.
 pub fn emitStatelessAfter(peer: *engine.Peer, event: *engine.Event) !void {
     switch (event.kind()) {
         .deliver => try emitExportsForDeliver(peer, event),

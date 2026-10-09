@@ -9,14 +9,8 @@
 // place the proofs connect, so the contract has one consumer shape to drift
 // against.
 
-import { originTraceUrl } from "../../lib/trace_publish.ts";
-import { traceCapOf } from "../../lib/trace_view.ts";
-import {
-	DEFAULT_ROOMS_VIEW_STATE,
-	emptyRoomsSessionState,
-	WORKSPACE_STATE_KEY,
-	WORKSPACE_STATE_VERSION,
-} from "../../lib/rooms_state.ts";
+import type { Page } from "playwright";
+import { takeCapability } from "../page/capability_set.ts";
 
 // The viewer contract itself is shared with the `rooms-trace-tail` tool, so it
 // lives beside the publishing half rather than under the proofs. What stays
@@ -55,36 +49,10 @@ export function scrapeTraceSturdyref(stderr: ReadableStream<Uint8Array>): Promis
 	return found;
 }
 
-/** The localStorage row that arms a rooms tab's publishing from first load:
- * the remembered-swiss auto-redeem is production code, and a proof seeds it
- * the way a reader who checked "Remember on this device" would have.
- *
- * `pagePort` is the port the tab is served from, not the endpoint's own. A
- * browser reaches the timeline through `/trace` and `/publish` on the server
- * that served it, so the endpoint's port is not a name a tab ever holds, and
- * the row it looks up is keyed by that proxied address. Both halves of the
- * key come from the modules that read it rather than being written out here,
- * because a seed under a key nothing reads is silent: the tab arms nothing,
- * joins and chats as usual, and the proof fails much later at the endpoint
- * having heard from one producer. */
-export function traceMemorySeed(pagePort: number, sturdyref: string): { key: string; value: string } {
-	const endpoint = originTraceUrl({ protocol: "http:", host: `127.0.0.1:${pagePort}` });
-	return {
-		key: WORKSPACE_STATE_KEY,
-		value: JSON.stringify({
-			version: WORKSPACE_STATE_VERSION,
-			controller: { kind: "local" },
-			session: {
-				...emptyRoomsSessionState(),
-				capabilities: {
-					operations: [{ capability: "trace", scope: endpoint, swiss: traceCapOf(sturdyref) }],
-					archivePeer: null,
-				},
-			},
-			view: {
-				...DEFAULT_ROOMS_VIEW_STATE,
-				opsPane: "trace",
-			},
-		}),
-	};
+/** Acquire the announced trace capability through the production Holdings form. */
+export async function acquireTraceCapability(page: Page, sturdyref: string): Promise<void> {
+	await page.click("#settingsBtn");
+	await page.click("#holdingsTab");
+	await takeCapability(page, "#opsTraceToggle", sturdyref);
+	await page.click("#settingsClose");
 }

@@ -7,12 +7,81 @@ const hosts = @import("../../support/core_host.zig");
 const pairs = @import("../../support/host_pair.zig");
 const CapturedRef = @import("../../support/capture.zig").CapturedRef;
 
+test "loam publication own key cold enliven coalesces public and owned fetches and cancels exact custody" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    _ = try stage(&fixture, 0x51);
+    try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 3 });
+    const designator = fixture.host.node.publicKey().toDesignator();
+    const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x51));
+    const sturdy: @import("glowcap").ocapn.model.SturdyRef = .{
+        .peer = .{ .transport = "webrtc", .designator = &designator },
+        .swissnum = swiss.slice(),
+    };
+    const first = try fixture.host.enlivenCapability(std.testing.allocator, sturdy);
+    defer first.deinit();
+    const canceled = try fixture.host.enlivenCapability(std.testing.allocator, sturdy);
+    const public = try fixture.host.enlivenSelectOrDial(sturdy);
+    try std.testing.expect((try fixture.host.nextAction()) == null);
+    const lookup = (try fixture.attached.nextWork()).?.lookup;
+    try std.testing.expect((try fixture.attached.nextWork()) == null);
+    canceled.deinit();
+    try std.testing.expectEqual(@as(usize, 2), fixture.host.pending_enliven_count);
+    try fixture.attached.completeLookup(lookup.ticket, fixture.data.backend.lookup(lookup));
+    try drain(&fixture);
+    const action = (try fixture.host.nextAction()).?;
+    defer fixture.host.freeAction(action);
+    try std.testing.expect(action == .settled);
+    try std.testing.expectEqual(public, action.settled.vow_id);
+    try std.testing.expectEqual(null, action.settled.peer_handle);
+    try std.testing.expect(action.settled.value.capability.eql(first.result().ready.capability));
+    try std.testing.expectEqual(.verified, first.result().ready.provenance);
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.sessions.count());
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.publications.count());
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.pending_enliven_count);
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.pending_operations);
+    try std.testing.expectEqual(@as(u64, 1), fixture.attached.stats.loads);
+}
+
 fn stage(fixture: *f.Fixture, byte: u8) !f.loam.core.ObjectId {
     try fixture.data.store.begin();
     const id = try f.hosting.publication.stage(fixture.attached, @splat(byte), fixture.root);
     try records.commit(&fixture.data.store, &fixture.data.backend);
     fixture.data.store.evict();
     return id;
+}
+
+test "loam publication own key cold enliven is canceled by Host shutdown while submitted storage drains" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    _ = try stage(&fixture, 0x52);
+    try f.hosting.publication.listen(fixture.attached, .{});
+    const designator = fixture.host.node.publicKey().toDesignator();
+    const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x52));
+    const sturdy: @import("glowcap").ocapn.model.SturdyRef = .{
+        .peer = .{ .transport = "webrtc", .designator = &designator },
+        .swissnum = swiss.slice(),
+    };
+    const first = try fixture.host.enlivenCapability(std.testing.allocator, sturdy);
+    defer first.deinit();
+    const public = try fixture.host.enlivenSelectOrDial(sturdy);
+    const lookup = (try fixture.attached.nextWork()).?.lookup;
+    fixture.host.beginClose(.cancel, 0);
+    const action = (try fixture.host.takeAction()).?;
+    try std.testing.expect(first.result() == .failed);
+    try std.testing.expectEqual(.closed, first.result().failed.kind);
+    try std.testing.expect(action == .failed);
+    try std.testing.expectEqual(public, action.failed.vow_id);
+    try std.testing.expectEqual(.closed, action.failed.failure);
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.pending_enliven_count);
+    try std.testing.expectEqual(@as(usize, 1), fixture.host.pending_operations);
+    fixture.host.freeAction(action);
+    try fixture.attached.completeLookup(lookup.ticket, fixture.data.backend.lookup(lookup));
+    try drain(&fixture);
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.pending_operations);
+    try std.testing.expect((try fixture.host.nextAction()) == null);
 }
 
 fn drain(fixture: *f.Fixture) !void {
@@ -48,7 +117,7 @@ test "loam publication cold fetch coalesces names and preserves exact authority 
     try drain(&fixture);
     try pairs.pumpToQuiescence(&.{pair});
     try std.testing.expectEqual(try captured[0].require(), try captured[1].require());
-    try std.testing.expectEqual(@as(usize, 0), fixture.host.giftables.count());
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.publications.count());
     try std.testing.expectEqual(@as(u64, 1), fixture.attached.stats.loads);
     var answer: f.Capture = .{};
     try client.vowOn(try client.send(pair.a, try captured[0].require(), .{ .verb = "get", .args = &.{} }), .{ .ctx = &answer, .func = f.Capture.record });
@@ -148,7 +217,7 @@ test "loam publication retirement races cold lookup and unknown outcomes fail cl
         try pairs.pumpToQuiescence(&.{pair});
         try std.testing.expectEqualStrings("RecoveryRequired", captured.reason_buf[0..captured.reason_len]);
         try fixture.attached.resolve(batch.ticket, try fixture.data.backend.recover(try fixture.attached.recoveryBatch()));
-        try std.testing.expectEqual(@as(usize, 0), fixture.host.giftables.count());
+        try std.testing.expectEqual(@as(usize, 0), fixture.host.publications.count());
         if (committed) try records.collect(&fixture.data.store, &fixture.data.backend);
         var retry: CapturedRef = .{};
         try client.vowOn(try client.fetch(pair.a, swiss.slice()), .{ .ctx = &retry, .func = CapturedRef.record });
@@ -214,7 +283,7 @@ test "loam publication cold population does not create startup endpoints or scan
     }
     fixture.data.store.evict();
     try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 1 });
-    try std.testing.expectEqual(@as(usize, 0), fixture.host.giftables.count());
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.publications.count());
     try std.testing.expectEqual(@as(usize, 0), fixture.data.store.cache.allocated_bytes);
     try std.testing.expectEqual(@as(u64, 0), fixture.attached.stats.loads);
     var client = hosts.init(std.testing.allocator, @splat(0x87), f.driver.Host.Options.withFrameCap(4096));
@@ -228,7 +297,7 @@ test "loam publication cold population does not create startup endpoints or scan
     try pairs.pumpToQuiescence(&.{pair});
     _ = try captured.require();
     try std.testing.expectEqual(@as(u64, 1), fixture.attached.stats.loads);
-    try std.testing.expectEqual(@as(usize, 0), fixture.host.giftables.count());
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.publications.count());
 }
 
 fn allocationFailure(allocator: std.mem.Allocator) !void {

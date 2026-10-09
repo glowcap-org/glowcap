@@ -15,6 +15,7 @@ const model = @import("model");
 
 const boxed = @import("boxed.zig");
 const turn_mod = @import("turn.zig");
+const turn_commit = @import("turn_commit.zig");
 const vat_mod = @import("mod.zig");
 
 const Error = vat_mod.Error;
@@ -110,56 +111,58 @@ fn serveDeliver(
     // valid until the next outermost turn, exactly as documented.
     const args = try deliver.args.toOwnedSlice(arena);
     var turn = Turn{ .vat = self, .port = port, .self_ref = .{ .local = local_id }, .ingress = ingress, .arena = arena, .origin = .{ .served = answer } };
-    if (box.handle(box.ptr, &turn, messageFor(args))) |value| {
-        if (turn.pending_become) |pending| boxed.promoteBecome(self, pending);
-        // A moved reply (`Turn.moveOut`) needs nothing here: the vat
-        // already holds its bytes, and `resolveFulfill` copies the
-        // reply onto the wire inside this turn, before the deferred
-        // free. The wire copy is mandatory regardless, so the move
-        // saves nothing on the serve path — it only avoids
-        // `callLocal`'s sever-copy on the near path.
-        // A forwarding actor handed its answer to another send's
-        // vow; that vow resolves it, not this return.
-        if (turn.forwarded) return true;
-        // The interceptor runs inside the turn (`turn_depth >= 1`), so
-        // any top-level turn it opens is nested and never resets the
-        // arena `value` may live in — the value is turn-borrowed,
-        // exactly like a handler's own reply.
-        if (port.resolve_interceptor) |interceptor| {
-            if (answer) |ans| {
-                const outcome = interceptor.func(interceptor.ctx, ans, value) catch |err| {
-                    try resolveBreak(port, answer, @errorName(err));
+    switch (box.handle(box.ptr, &turn, messageFor(args))) {
+        .returned => |value| {
+            if (turn.pending_become) |pending| boxed.promoteBecome(self, pending);
+            // The turn's local sends are queued before its reply (ADR-0191).
+            // Promotion may run a discarded state's destructor and stage sends.
+            if (self.turn_depth == 1) turn_commit.commit(self);
+            // A moved reply (`Turn.moveOut`) needs nothing here: the vat
+            // already holds its bytes, and `resolveFulfill` copies the
+            // reply onto the wire inside this turn, before the deferred
+            // free. The wire copy is mandatory regardless, so the move
+            // saves nothing on the serve path — it only avoids
+            // `callLocal`'s sever-copy on the near path.
+            // A forwarding actor handed its answer to another send's
+            // vow; that vow resolves it, not this return.
+            if (turn.forwarded) return true;
+            // The interceptor runs inside the turn (`turn_depth >= 1`), so
+            // any top-level turn it opens is nested and never resets the
+            // arena `value` may live in — the value is turn-borrowed,
+            // exactly like a handler's own reply.
+            if (port.resolve_interceptor) |interceptor| {
+                if (answer) |ans| {
+                    const intercepted = interceptor.func(interceptor.ctx, ans, value);
+                    // The handler already committed. Finish nested callback
+                    // effects before handling either its result or refusal.
+                    if (self.turn_depth == 1) turn_commit.commit(self);
+                    const outcome = intercepted catch |err| {
+                        try resolveBreak(port, answer, @errorName(err));
+                        return true;
+                    };
+                    switch (outcome) {
+                        // The interceptor resolved the answer itself
+                        // (an originated give); the vat sends nothing.
+                        .claimed => {},
+                        // Resolve with what it returned — the original
+                        // value, or a token rewritten to its wire
+                        // reference.
+                        .resolve => |reply| try resolveFulfill(port, answer, reply),
+                    }
                     return true;
-                };
-                switch (outcome) {
-                    // The interceptor resolved the answer itself
-                    // (an originated give); the vat sends nothing.
-                    .claimed => {},
-                    // Resolve with what it returned — the original
-                    // value, or a token rewritten to its wire
-                    // reference.
-                    .resolve => |reply| try resolveFulfill(port, answer, reply),
                 }
-                return true;
             }
-        }
-        try resolveFulfill(port, answer, value);
-        return true;
-    } else |err| {
-        if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
-        try resolveBreak(port, answer, @errorName(err));
-        return true;
-    }
-}
-
-/// The no-listener drop shared by the two far-settle spines: remember the
-/// answer (bounded) so a late `on` for this vow is refused
-/// `AlreadySettled` instead of parking forever. Allocation refusal propagates:
-/// forgetting this answer would let a later listener park on a vow that can
-/// never settle.
-fn noteServedDrop(port: *Port, answer: model.AnswerPosition) Error!void {
-    if (port.served_dropped_far.count() < vat_mod.max_served_dropped_far_answers) {
-        try port.served_dropped_far.put(port.allocator, answer, {});
+            try resolveFulfill(port, answer, value);
+            return true;
+        },
+        .refused => |failure| {
+            if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
+            if (self.turn_depth == 1) self.turn_failure = failure.name;
+            // Forwarding or an explicit break already owns this answer.
+            if (turn.forwarded) return true;
+            try resolveBreak(port, answer, failure.name);
+            return true;
+        },
     }
 }
 
@@ -190,14 +193,16 @@ fn fireFulfilledFar(self: *Vat, port: *Port, answer: model.AnswerPosition, liste
         try model.cloneArgument(arena, value)
     else
         try value.toOwned(arena);
-    std.debug.assert(port.far_listeners.fetchRemove(answer) != null);
+    std.debug.assert(port.far_listeners.fetchSwapRemove(answer) != null);
+    port.peer.session_state.consumeOutboundAnswerNotification(answer);
     listener.func(listener.ctx, .{ .fulfilled = owned });
 }
 
 /// The broken-arm sibling: remove-before-fire, reason borrowed for the
 /// call.
 fn fireBrokenFar(port: *Port, answer: model.AnswerPosition, listener: Listener, reason: []const u8) void {
-    std.debug.assert(port.far_listeners.fetchRemove(answer) != null);
+    std.debug.assert(port.far_listeners.fetchSwapRemove(answer) != null);
+    port.peer.session_state.consumeOutboundAnswerNotification(answer);
     listener.func(listener.ctx, .{ .broken = reason });
 }
 
@@ -216,7 +221,7 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
     // fires, preserving the remove-before-fire order a listener that
     // registers a new far vow relies on.
     const listener = port.far_listeners.get(resolve.answer) orelse {
-        try noteServedDrop(port, resolve.answer);
+        port.peer.session_state.consumeOutboundAnswerNotification(resolve.answer);
         return false;
     };
     switch (resolve.resolution) {
@@ -235,7 +240,8 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
                 if (projected.bytes()) |give_bytes| {
                     if (projected.locator == .uri) {
                         const locator_uri = projected.locator.uri;
-                        std.debug.assert(port.far_listeners.fetchRemove(resolve.answer) != null);
+                        std.debug.assert(port.far_listeners.fetchSwapRemove(resolve.answer) != null);
+                        port.peer.session_state.consumeOutboundAnswerNotification(resolve.answer);
                         listener.func(listener.ctx, .{ .give = .{
                             .give_bytes = give_bytes,
                             .exporter_locator_uri = locator_uri,
@@ -259,16 +265,15 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
 /// the resolve arm of `serve`, minus the wire event. The fulfilled value is
 /// cloned into the settle arena for the listener call, under the same depth
 /// guard as `serveResolve`'s fulfilled arm; a broken reason is borrowed for
-/// the call. With no listener parked, the answer is recorded into
-/// `served_dropped_far` (bounded), the same contract as a wire resolve
-/// served with no listener, so a late `on` is refused `AlreadySettled`
+/// the call. With no listener parked, the application notification is consumed
+/// on the answer row, so a late `on` is refused `AlreadySettled`
 /// instead of parking forever. The parameter admits no `.give`: the
 /// executor that calls this exists to redeem gives before the vat sees
 /// them, and the narrower type makes that contract unrepresentable rather
 /// than a runtime trap an external caller could hit.
 pub fn settleFar(self: *Vat, port: *Port, answer: model.AnswerPosition, outcome: FarOutcome) Error!void {
     const listener = port.far_listeners.get(answer) orelse {
-        try noteServedDrop(port, answer);
+        port.peer.session_state.consumeOutboundAnswerNotification(answer);
         return;
     };
     switch (outcome) {
@@ -277,32 +282,28 @@ pub fn settleFar(self: *Vat, port: *Port, answer: model.AnswerPosition, outcome:
     }
 }
 
-/// Break every outstanding far vow with `message`, firing each
-/// listener's break path synchronously, before this returns, a
-/// stack-bound listener context is safe because nothing fires later. A far vow settles only when the partner's resolution
-/// arrives over the wire, so once the connection is gone those resolutions can
-/// never come. A driver calls this on disconnect, so an awaiting `on`
-/// listener settles broken instead of waiting forever. `message` is borrowed
-/// for the duration of the calls, so a static string is the norm. Ordinary
-/// local turns remain live; local answers forwarded onto these far vows
-/// receive the same break through their continuations.
+/// Break outstanding far-vow listeners and those registered by their callbacks.
+/// Each listener is removed immediately before invocation. Other pending
+/// listeners remain cancellable, so their owners may retire them during a
+/// callback. All answers minted before return become unobservable, including
+/// sends without listeners. No notification allocation is needed.
+///
+/// A driver uses this on disconnect, or to break current requests without
+/// closing the Peer. Fresh sends after return may still be observed. Local
+/// turns stay live, and local vows forwarded to these far vows receive the
+/// break through their continuations. `message` is borrowed for the calls.
 pub fn breakFarVows(port: *Port, message: []const u8) void {
-    // Swap the whole map out before any fire: a listener may react by
-    // registering another far vow, which lands in the fresh (live)
-    // map and can never invalidate the drained iterator — the same
-    // remove-before-fire strength as removing entries one at a time,
-    // without the O(n × capacity) fresh key scan per entry. The outer
-    // while re-checks, so vows registered during the break also fire
-    // broken: once the connection is gone, no resolution can ever come.
-    while (port.far_listeners.count() > 0) {
-        var taken = port.far_listeners;
-        port.far_listeners = .{};
-        defer taken.deinit(port.allocator);
-        var it = taken.valueIterator();
-        while (it.next()) |listener| {
-            listener.func(listener.ctx, .{ .broken = message });
-        }
+    // Keep pending listeners at their cancellation owner. Pop copies the
+    // listener and removes its row before callbacks can resize or drain the
+    // map. Each iteration also consumes all answers minted so far, preventing
+    // a callback from observing an old vow again. Fresh sends remain usable.
+    while (port.far_listeners.pop()) |entry| {
+        port.far_broken_before = port.peer.session_state.next_outbound_answer;
+        entry.value.func(entry.value.ctx, .{ .broken = message });
     }
+    port.far_broken_before = port.peer.session_state.next_outbound_answer;
+    port.far_listeners.deinit(port.allocator);
+    port.far_listeners = .{};
 }
 
 /// Bind an already-spawned local actor to export `position` so a partner's

@@ -18,7 +18,10 @@ export async function proveSharedRoomAuthorityRotation(page: Page): Promise<void
 	await page.click("#convcardRoomLinkRevokeAsk");
 	await page.getByRole("button", { name: "Revoke room authority" }).click();
 	await page.waitForSelector("#convcardCreateRoomLink", { timeout: 30_000 })
-		.catch(() => fail("revoking an attached room entry link did not expose manager-backed reissue"));
+		.catch(async () => {
+			console.error("ROTATION-VIEW", await page.locator("body").innerText());
+			fail("revoking an attached room entry link did not expose manager-backed reissue");
+		});
 	await page.click("#convcardCreateRoomLink");
 	await page.waitForSelector("#convcardRoomLink", { timeout: 30_000 });
 	const reissuedLink = (await page.textContent("#convcardRoomLink"))?.trim() ?? "";
@@ -27,6 +30,12 @@ export async function proveSharedRoomAuthorityRotation(page: Page): Promise<void
 	}
 	await page.click("#convcardStewardClaim");
 	await page.waitForSelector("#convcardSteward", { timeout: 30_000 })
-		.catch(() => fail("the attached room manager did not recreate moderation after entry-link rotation"));
+		.catch(async () =>
+			fail(
+				`the attached room manager did not recreate moderation after entry-link rotation; ${await page.locator(
+					"body",
+				).innerText()}`,
+			)
+		);
 	await page.click("#convcardClose");
 }

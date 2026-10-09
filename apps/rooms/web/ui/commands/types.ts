@@ -43,6 +43,9 @@ export interface HeldDirectory {
  * across adapters return a boolean, and the catalog names it. */
 export type CommandResult<T> = T | Promise<T>;
 
+/** A completed command's own refusal belongs to its originating conversation. */
+export class CommandRefused extends Error {}
+
 export interface CommandPowers {
 	/** Say something back where the command was typed. Not sent to anyone. */
 	say(text: string, conversationKey?: string): void;

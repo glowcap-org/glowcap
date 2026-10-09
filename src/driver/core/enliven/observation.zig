@@ -19,11 +19,19 @@ pub const Enliven = struct {
     state: union(enum) {
         starting,
         dialing: struct { id: u64, ticket: engine.Node.PendingId },
-        fetching: struct { id: u64, peer: engine.PeerHandle, provenance: host_mod.PeerProvenance },
+        lookup: u64,
+        fetching: struct { id: u64, peer: engine.PeerHandle, provenance: host_mod.PeerProvenance, observer: actors.Listener },
         ready: struct { capability: capability.Ref, provenance: host_mod.PeerProvenance },
         failed: struct { kind: action.VowFailure, text: FailureText },
         taken,
     } = .starting,
+
+    comptime {
+        // The exact listener fits beneath the existing inline failure arm;
+        // cancellation adds neither operation bytes nor allocation.
+        const State = @FieldType(Enliven, "state");
+        std.debug.assert(@sizeOf(@FieldType(State, "fetching")) <= @sizeOf(@FieldType(State, "failed")));
+    }
 
     pub const Result = union(enum) {
         pending,
@@ -35,7 +43,7 @@ pub const Enliven = struct {
     /// capability keeps its original Host identity and current session lifetime.
     pub fn result(self: *const Enliven) Result {
         return switch (self.state) {
-            .dialing, .fetching => .pending,
+            .dialing, .fetching, .lookup => .pending,
             .ready => |ready| .{ .ready = .{ .capability = ready.capability, .provenance = ready.provenance } },
             .failed => |*failed| .{ .failed = .{ .kind = failed.kind, .message = failed.text.message() } },
             .starting, .taken => unreachable,
@@ -47,7 +55,7 @@ pub const Enliven = struct {
     pub fn take(self: *Enliven) !capability.Ref {
         const ready = switch (self.state) {
             .ready => |ready| ready,
-            .dialing, .fetching => return error.EnlivenPending,
+            .dialing, .fetching, .lookup => return error.EnlivenPending,
             .failed => return error.EnlivenFailed,
             .starting, .taken => return error.AlreadyConsumed,
         };
@@ -61,8 +69,12 @@ pub const Enliven = struct {
     pub fn deinit(self: *Enliven) void {
         self.host.refuseReentry() catch unreachable;
         switch (self.state) {
+            .lookup => |id| {
+                const lookup = self.host.publication_lookup orelse unreachable;
+                lookup.cancel(lookup.context, .{ .origin = .{ .local = id } });
+            },
             .dialing => |dialing| self.cancelDialing(dialing.id, dialing.ticket),
-            .fetching => |fetching| release.cancelObserved(self.host, fetching.id, self.listener()),
+            .fetching => |fetching| release.cancelObserved(self.host, fetching.id, fetching.observer),
             .ready => |ready| self.host.releaseCapabilityTerminal(ready.capability, null),
             .failed, .taken => {},
             .starting => unreachable,
@@ -135,15 +147,39 @@ pub const Recipient = union(enum) {
     action,
     observed: *Enliven,
 
+    pub fn pendingLocal(self: Recipient, id: u64) void {
+        if (self == .observed) self.observed.state = .{ .lookup = id };
+    }
+
+    /// Transfer one actual local capability retain, without a wire projection.
+    pub fn foundLocal(self: Recipient, host: *Host, id: u64, reference: capability.Ref) void {
+        switch (self) {
+            .action => host.actions.pushReserved(.{ .settled = .{ .peer_handle = null, .vow_id = id, .value = .{ .capability = reference } } }),
+            .observed => |owned| owned.state = .{ .ready = .{ .capability = reference, .provenance = .verified } },
+        }
+    }
+
+    pub fn failedLocal(self: Recipient, host: *Host, id: u64, kind: action.VowFailure, reason: []const u8) void {
+        switch (self) {
+            .action => host.actions.pushReserved(.{ .failed = .{ .peer_handle = null, .vow_id = id, .failure = kind, .message = action.retainFailureMessage(host.allocator, reason) } }),
+            .observed => |owned| owned.fail(kind, reason),
+        }
+    }
+
     pub fn park(self: Recipient, id: u64, ticket: engine.Node.PendingId) void {
         if (self == .observed) self.observed.state = .{ .dialing = .{ .id = id, .ticket = ticket } };
     }
 
     pub fn observe(self: Recipient, host: *Host, session: *HostSession, row: *settlement.VowRow, provenance: host_mod.PeerProvenance) !void {
         if (self == .action) return;
-        row.observer_release = try session.served.port.peer.reserveAnswerRelease();
-        row.inner = self.observed.listener();
-        self.observed.state = .{ .fetching = .{ .id = row.id, .peer = session.peer_handle, .provenance = provenance } };
+        if (row.answer_release == .peer_visible)
+            row.observer_release = try session.served.port.peer.reserveAnswerRelease();
+        // A pending dial can resume in another native archive's code image.
+        // Retain the installed listener rather than reconstructing its address
+        // in the archive that later destroys this operation.
+        const observer = self.observed.listener();
+        row.inner = observer;
+        self.observed.state = .{ .fetching = .{ .id = row.id, .peer = session.peer_handle, .provenance = provenance, .observer = observer } };
         std.debug.assert(self.observed.host == host);
     }
 

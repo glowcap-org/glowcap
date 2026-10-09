@@ -73,7 +73,7 @@ fn tryRead(ctx: ?*anyopaque, conn: u64, buf: ?[*]u8, cap: usize) callconv(.c) is
     const peer = payload.peers.get(@intCast(conn)) orelse return -1;
     if (!peer.provider_claimed) return -1;
     const n = peer.peer.tryReceivePacket(dest[0..cap]) catch |err| {
-        if (err == error.WouldBlock) return c.multiplexed_transport.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+        if (err == error.WouldBlock) return c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK;
         if (err == error.Closed) return 0;
         if (c.transport_provider.providerFailureEmpty(peer.failure))
             c.transport_provider.setProviderFailure(&peer.failure, GLOWCAP_ERR_IO, err);
@@ -88,7 +88,7 @@ fn tryWrite(ctx: ?*anyopaque, conn: u64, bytes: ?[*]const u8, len: usize) callco
     const peer = payload.peers.get(@intCast(conn)) orelse return -1;
     if (!peer.provider_claimed) return -1;
     const n = peer.peer.trySendPacket(src[0..len]) catch |err| {
-        if (err == error.WouldBlock) return c.multiplexed_transport.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+        if (err == error.WouldBlock) return c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK;
         if (c.transport_provider.providerFailureEmpty(peer.failure))
             c.transport_provider.setProviderFailure(&peer.failure, GLOWCAP_ERR_IO, err);
         return -1;

@@ -31,6 +31,7 @@ const model = @import("model");
 const poll_wait = @import("../poll.zig");
 const socket_tcp = @import("socket_tcp.zig");
 const tcp_keepalive = @import("tcp_keepalive.zig");
+const Listeners = @import("uring_listeners.zig").Listeners;
 
 comptime {
     if (builtin.os.tag != .linux) @compileError("the io_uring completion backend is Linux-only");
@@ -74,27 +75,10 @@ pub const Backend = struct {
     buffers: []u8,
     buf_bytes: u32,
     buf_count: u16,
-    /// The local IPv4 address used by the one listener. The port remains loop
+    /// The local IPv4 address every listener binds. The port remains loop
     /// policy and arrives later through `openListener`.
     listener_ip4: [4]u8,
-    /// The one listener and accept request this backend may own. A listening
-    /// socket cannot rely on `shutdown(2)` to cancel an io_uring accept, so
-    /// listener close targets the request by its exact user_data instead.
-    listener_fd: ?Fd = null,
-    listener_accept_ud: ?u64 = null,
-    listener_cancel: ?struct {
-        fd: Fd,
-        close_ud: u64,
-        phase: enum { cancel_pending, waiting_target } = .cancel_pending,
-    } = null,
-    /// A synthetic listener-close completion that did not fit beside the
-    /// accept CQE which made an `-EALREADY` cancellation safe to finish.
-    listener_close_ready: ?u64 = null,
-
-    /// Backend-private completion identity. Loop user_data always has a valid
-    /// three-bit `Op` tag (0...5), so an all-one value cannot be emitted by the
-    /// Loop or by an adapter preserving that payload.
-    const listener_cancel_ud = std.math.maxInt(u64);
+    listeners: Listeners = .{},
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -167,8 +151,7 @@ pub const Backend = struct {
     }
 
     pub fn deinit(self: *Backend) void {
-        std.debug.assert(self.listener_cancel == null);
-        std.debug.assert(self.listener_close_ready == null);
+        self.listeners.deinit(self.allocator);
         IoUring.free_buf_ring(self.ring.fd, self.buf_ring, self.buf_count, buf_group_id);
         self.allocator.free(self.buffers);
         self.ring.deinit();
@@ -188,13 +171,34 @@ pub const Backend = struct {
         };
     }
 
+    /// Hand queued submissions to the kernel without reaping. Until then a
+    /// submitted operation cannot complete, so `readinessFd` cannot report it.
+    pub fn flush(self: *Backend) !void {
+        _ = self.ring.submit() catch |err| switch (err) {
+            error.SignalInterrupt => return,
+            else => return err,
+        };
+    }
+
+    /// Nothing here waits on a timer: every completion arrives through the
+    /// descriptor.
+    pub fn waitBoundMs(_: *const Backend, requested_ms: i32) i32 {
+        return requested_ms;
+    }
+
+    /// The descriptor that turns readable when `poll` has completions to
+    /// return, once `flush` has run after the last submission. A resident
+    /// that hands the loop's readiness to another waiter polls on it
+    /// (`net.completion_resident`).
+    pub fn readinessFd(self: *const Backend) Fd {
+        return self.ring.fd;
+    }
+
     pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void {
-        std.debug.assert(self.listener_fd == listen_fd);
-        std.debug.assert(self.listener_accept_ud == null);
         const sqe = try self.getSqe();
         sqe.prep_accept(listen_fd, null, null, 0);
         sqe.user_data = user_data;
-        self.listener_accept_ud = user_data;
+        self.listeners.noteAccept(listen_fd, user_data);
     }
 
     /// Start an outbound TCP connect: open a socket, submit connect, return the
@@ -229,6 +233,16 @@ pub const Backend = struct {
         sqe.user_data = user_data;
     }
 
+    /// The CQE result is the ready event mask, which is non-negative.
+    pub fn submitPoll(self: *Backend, user_data: u64, fd: Fd, interest: completion.Interest) !void {
+        const sqe = try self.getSqe();
+        sqe.prep_poll_add(fd, switch (interest) {
+            .readable => linux.POLL.IN,
+            .writable => linux.POLL.OUT,
+        });
+        sqe.user_data = user_data;
+    }
+
     pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         const sqe = try self.getSqe();
         sqe.prep_send(fd, bytes, 0);
@@ -248,17 +262,12 @@ pub const Backend = struct {
     }
 
     pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
-        if (self.listener_fd == fd) {
-            if (self.listener_accept_ud) |accept_ud| {
-                std.debug.assert(self.listener_cancel == null);
-                const sqe = try self.getSqe();
-                sqe.prep_cancel(accept_ud, 0);
-                sqe.user_data = listener_cancel_ud;
-                self.listener_cancel = .{ .fd = fd, .close_ud = user_data };
-                return;
-            }
-        }
         const sqe = try self.getSqe();
+        if (self.listeners.beginClose(fd, user_data)) |accept_ud| {
+            sqe.prep_cancel(accept_ud, 0);
+            sqe.user_data = Listeners.cancelUd(fd);
+            return;
+        }
         sqe.prep_close(fd);
         sqe.user_data = user_data;
     }
@@ -301,11 +310,10 @@ pub const Backend = struct {
     /// completion; a non-negative value waits at most that many milliseconds and
     /// returns 0 when nothing completes in time.
     pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
-        if (self.listener_close_ready) |user_data| {
-            if (out.len == 0) return 0;
-            self.listener_close_ready = null;
-            out[0] = .{ .user_data = user_data, .result = 0 };
-            return 1;
+        if (self.listeners.close_ready.items.len != 0) {
+            var produced: usize = 0;
+            self.listeners.emitClosed(out, &produced);
+            return produced;
         }
         if (timeout_ms >= 0) {
             _ = self.ring.submit() catch |err| switch (err) {
@@ -330,34 +338,20 @@ pub const Backend = struct {
         const n = try self.ring.copy_cqes(cqes[0..want], 0);
         if (n == 0) return null;
         var produced: usize = 0;
-        // The synthetic listener-close completion is emitted only after the
-        // CQE loop. Emitting it mid-batch would shift every later CQE one
-        // slot right, and a full batch would then write past `out`; after the
-        // loop, `finishListenerClose` appends into remaining room or parks in
-        // `listener_close_ready` for the next poll.
-        var listener_close_due = false;
+        // Synthetic listener-close completions are emitted only after the CQE
+        // loop. Emitting one mid-batch would shift every later CQE one slot
+        // right, and a full batch would then write past `out`; after the loop,
+        // `emitClosed` fills remaining room and the rest wait for the next
+        // poll.
         for (cqes[0..n]) |cqe| {
-            if (cqe.user_data == listener_cancel_ud) {
-                const disposition = classifyListenerCancel(cqe.res);
-                switch (disposition) {
-                    .resolved => listener_close_due = true,
-                    .wait_for_target => {
-                        const pending = &(self.listener_cancel orelse unreachable);
-                        pending.phase = .waiting_target;
-                        // The accept CQE may have won the race and appeared
-                        // earlier in this same batch. In that order both halves
-                        // are retired once this batch finishes.
-                        if (self.listener_accept_ud == null)
-                            listener_close_due = true;
-                    },
-                }
+            if (Listeners.cancelTarget(cqe.user_data)) |listen_fd| {
+                if (self.listeners.cancelSettled(listen_fd, classifyListenerCancel(cqe.res) == .resolved))
+                    self.finishListenerClose(listen_fd);
                 continue;
             }
-            const listener_accept = self.listener_accept_ud == cqe.user_data;
-            if (listener_accept)
-                self.listener_accept_ud = null;
+            const accepted = self.listeners.retireAccept(cqe.user_data);
             var comp: completion.Completion = .{ .user_data = cqe.user_data, .result = cqe.res };
-            if (listener_accept and cqe.res >= 0 and !socket_tcp.setNodelay(tcp_os, cqe.res)) {
+            if (accepted != null and cqe.res >= 0 and !socket_tcp.setNodelay(tcp_os, cqe.res)) {
                 // Same policy as the kqueue accept path: a connection whose
                 // socket options cannot be set is refused; the loop's accept
                 // re-arm recovers.
@@ -365,8 +359,10 @@ pub const Backend = struct {
                 comp.result = -1;
                 comp.failure = error.SocketConfigurationFailed;
             }
+            // A CQE carries the negated errno itself. `std.posix.errno` would
+            // read the thread's libc `errno` instead whenever libc is linked.
             if (cqe.res < 0 and cqe.res != enobufs_res)
-                comp.failure = completion.failureFromErrno(std.posix.errno(
+                comp.failure = completion.failureFromErrno(linux.errno(
                     @as(usize, @bitCast(@as(isize, cqe.res))),
                 ));
             if (cqe.flags & linux.IORING_CQE_F_BUFFER != 0) {
@@ -384,29 +380,15 @@ pub const Backend = struct {
             }
             out[produced] = comp;
             produced += 1;
-            if (listener_accept) {
-                if (self.listener_cancel) |pending| {
-                    if (pending.phase == .waiting_target)
-                        listener_close_due = true;
-                }
-            }
+            if (accepted) |listener| if (listener.close_due) self.finishListenerClose(listener.fd);
         }
-        if (listener_close_due) self.finishListenerClose(out, &produced);
+        self.listeners.emitClosed(out, &produced);
         return produced;
     }
 
-    fn finishListenerClose(self: *Backend, out: []completion.Completion, produced: *usize) void {
-        const pending = self.listener_cancel orelse unreachable;
-        self.listener_cancel = null;
-        _ = linux.close(pending.fd);
-        self.listener_fd = null;
-        if (produced.* < out.len) {
-            out[produced.*] = .{ .user_data = pending.close_ud, .result = 0 };
-            produced.* += 1;
-        } else {
-            std.debug.assert(self.listener_close_ready == null);
-            self.listener_close_ready = pending.close_ud;
-        }
+    fn finishListenerClose(self: *Backend, fd: Fd) void {
+        _ = linux.close(fd);
+        self.listeners.finishClose(fd);
     }
 
     fn bufferSlice(self: *Backend, buffer_id: u16) []u8 {
@@ -416,13 +398,26 @@ pub const Backend = struct {
 
     const enobufs_res: i32 = -@as(i32, @backingInt(linux.E.NOBUFS));
 
+    /// The interface every listener binds; `openListener` chooses only the
+    /// port.
+    pub fn listenerIp4(self: *const Backend) [4]u8 {
+        return self.listener_ip4;
+    }
+
+    /// The port a listener binds on the construction-time interface.
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
+    }
+
     pub fn openListener(self: *Backend, port: u16) !Fd {
-        std.debug.assert(self.listener_fd == null);
+        try self.listeners.reserve(self.allocator);
         const fd = try socket_tcp.openListener(tcp_os, .{
             .bytes = self.listener_ip4,
             .port = port,
         });
-        self.listener_fd = fd;
+        self.listeners.open(fd);
         return fd;
     }
 
@@ -443,7 +438,7 @@ pub const Backend = struct {
     }
 
     pub fn closeFd(self: *Backend, fd: Fd) void {
-        if (self.listener_fd == fd) self.listener_fd = null;
+        self.listeners.forget(fd);
         _ = linux.close(fd);
     }
 
@@ -482,6 +477,8 @@ fn classifyListenerCancel(result: i32) ListenerCancelDisposition {
 /// Narrow test seam for the listener-cancel race classifier. Empty in every
 /// production build so platform internals do not become library surface.
 pub const white_box = if (builtin.is_test) struct {
+    pub const TestBackend = Backend;
+
     pub fn initFailureFor(err: anyerror) anyerror {
         return classifyInitFailure(err);
     }

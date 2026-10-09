@@ -6,6 +6,8 @@ tags: [gc, bindings, memory]
 decision: "A binding may opt a session into finalizer-driven distributed GC: every capability occurrence projected into application data by that session owns one Host release unit, and its language finalizer returns that unit through glowcap_host_ref_release; the feature is off by default, failure stays at the Host barrier, and the wire-delta core remains runtime-neutral."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0192]
 ---
 
 # ADR-0063 Finalizer-driven distributed GC

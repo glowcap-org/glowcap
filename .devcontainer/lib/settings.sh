@@ -79,9 +79,15 @@ glowcap_devcontainer_host_state_rows() {
         .serena:/home/vscode/.serena
 }
 
-# Download and language-manager caches are shared with the host. Zig's local
-# build cache is separate because host-bind atomic-file semantics vary by
-# Docker host; docker-compose.yml owns its per-worktree volume.
+# Container build defaults shared by the front and checked against Compose.
+glowcap_devcontainer_build_env_rows() {
+    printf '%s\n' \
+        "CARGO_BUILD_BUILD_DIR:${ZIG_WORK_CACHE_DIR}/cargo/{workspace-path-hash}" \
+        'CARGO_BUILD_JOBS:4'
+}
+
+# Downloads are shared with the host; intermediate builds use the worktree's
+# Docker volume, where filesystem operations stay local to the daemon.
 glowcap_devcontainer_host_cache_rows() {
     printf '%s\n' \
         .cache/glowcap:/home/vscode/.cache/glowcap

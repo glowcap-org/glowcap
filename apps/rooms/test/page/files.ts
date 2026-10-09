@@ -152,9 +152,14 @@ export async function run(
 		undefined,
 		{ timeout: 10_000 },
 	).catch(() => fail("a large picture did not open fitted inside the stage"));
-	if (await second.locator("#viewerZoom").isDisabled()) {
-		fail("a picture larger than the stage did not offer actual size");
-	}
+	// The stage measures the picture after layout, through its load event or
+	// a resize observation, so the button can enable a frame after the fitted
+	// picture appears.
+	await second.waitForFunction(
+		() => document.querySelector<HTMLButtonElement>("#viewerZoom")?.disabled === false,
+		undefined,
+		{ timeout: 10_000 },
+	).catch(() => fail("a picture larger than the stage did not offer actual size"));
 	// Clicking the fitted picture is one handle on the toggle; the bar's
 	// button, pressed further down, is the other. Forced, because Playwright's
 	// stability heuristic refuses a picture this large while the dialog's open

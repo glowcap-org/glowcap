@@ -23,6 +23,7 @@
   ENTER
   LIST-PUBLICATIONS
   WATCH-PUBLICATIONS
+  UNWATCH-PUBLICATIONS
   REGISTER
   INTRODUCE
   MEMBER-REGISTRATION
@@ -73,6 +74,7 @@
 (define ENTER 'enter)
 (define LIST-PUBLICATIONS 'listPublications)
 (define WATCH-PUBLICATIONS 'watchPublications)
+(define UNWATCH-PUBLICATIONS 'unwatchPublications)
 (define REGISTER 'register)
 (define INTRODUCE 'introduce)
 (define MEMBER-REGISTRATION 'memberRegistration)

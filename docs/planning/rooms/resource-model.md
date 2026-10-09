@@ -172,19 +172,20 @@ checks. Possession of an ID still cannot substitute for a capability.
 
 A resource may have several actor-backed access paths and may outlive their
 runtime instances. Ordinary actors need no resource record. The architecture
-sketch owns that relationship and the native/foreign implementation boundary;
+sketch owns that relationship and the Zig/binding implementation boundary;
 the [API sketch](../loam/access/api.md) illustrates the consumer contract.
 
-The current code has a Rooms content owner and a standalone managed access resource,
-policy, and local grant core. Their application integration remains unimplemented.
+The managed session integrates Rooms content with shared Loam resources,
+policy and grant state. Recursive room and directory resources remain in the
+[ordered integration plan](access-grants.md#ordered-implementation-and-exit-criteria).
 The [application crate](../../../apps/rooms/rust/application/src/lib.rs) owns
 [message identities](../../../apps/rooms/rust/application/src/room/message.rs),
 [line behavior](../../../apps/rooms/rust/application/src/room/line.rs), files,
 archives, and session models. Its
 [checkpoint conversation type](../../../apps/rooms/rust/application/src/session/checkpoint/model.rs)
 describes workspace conversations, not the complete recursive resource model.
-Its [grant ledger](../../../apps/rooms/rust/application/src/grants.rs) is explicitly
-session-specific, including session rights and document bounds.
+The [managed workspace](../../../apps/rooms/rust/application/src/content/session/workspace.rs)
+stores session intent and typed custody; shared Loam owns its grant policy.
 
 The [Rust binding](../../../bindings/rust/src/session.rs) already exposes
 `Session::caretaker` and `Session::attenuate` for revocable forwarding and
@@ -194,16 +195,14 @@ or restrictions on every capability returned by an application method.
 The new library owns those application-level decisions without copying CapTP
 reference tables or adding resource policy to the binding or Zig protocol core.
 
-Establish the coherent content module within the existing application crate
-while replacing those contracts. Extract reusable resource/access behavior
-into `access`; remove session-specific policy and document assumptions
-from that behavior. The Zig layer and its binding replace the generic Rust
-grant machinery while the existing application crate retains content ownership.
+Extend the content module within the existing application crate to recursive
+resources. Shared Loam and its binding own reusable resource/access behavior;
+the application crate retains content ownership.
 A separate content crate would need an independent consumer or dependency constraint that
 the existing application boundary cannot serve.
 
 Portable contract tests use typed fixtures with no Rooms imports, including a
-non-chat resource, and run natively and in Wasm. Application tests
+non-chat resource, and run on Linux and in Wasm. Application tests
 prove concrete permission meanings and content mutations. Runtime tests prove
 that actual held facets enforce those decisions. Dependency checks forbid
 Rooms dependencies anywhere in the library and binding/host dependencies in

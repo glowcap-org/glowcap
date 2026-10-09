@@ -5,7 +5,7 @@ use rooms_application::{
 	room::attachment::Attachment,
 };
 pub struct Blob<D> {
-	client: Client<D>,
+	caller: Caller<D>,
 	reference: Ref,
 }
 impl<D: Deadline> Blob<D> {
@@ -17,7 +17,7 @@ impl<D: Deadline> Blob<D> {
 			return Err(archive::Error::Blob.into());
 		}
 		let reply = self
-			.client
+			.caller
 			.call(
 				&self.reference,
 				rooms_application::protocol_data::READ,
@@ -25,7 +25,7 @@ impl<D: Deadline> Blob<D> {
 				"the archive did not answer reading file bytes",
 			)
 			.await?;
-		match reply.0 {
+		match reply {
 			Argument::Bytes(bytes) if bytes.len() <= maximum => Ok(bytes),
 			_ => Err(archive::Error::Blob.into()),
 		}
@@ -49,15 +49,28 @@ impl<D: Deadline> Archive<D> {
 		if sources.is_empty() {
 			return Err(archive::Error::Blob.into());
 		}
-		let reply = pool
-			.send_scoped(
-				&self.client,
-				&self.reference,
-				admission::PUT_FILES,
-				vec![wire::record_row(record)],
-				sources,
-			)
-			.await?;
+		let reply = match &self.caller {
+			Caller::Remote(client) => {
+				pool.send_scoped(
+					client,
+					&self.reference,
+					admission::PUT_FILES,
+					vec![wire::record_row(record)],
+					sources,
+				)
+				.await?
+			}
+			Caller::Local { host, .. } => {
+				pool.send_scoped_local(
+					host,
+					&self.reference,
+					admission::PUT_FILES,
+					vec![wire::record_row(record)],
+					sources,
+				)
+				.await?
+			}
+		};
 		acknowledgement(&reply)
 	}
 	pub async fn put_files(&self, record: &Record, attachments: &[Attachment<Ref>]) -> Result<u64, Error> {
@@ -71,14 +84,14 @@ impl<D: Deadline> Archive<D> {
 			for attachment in attachments {
 				super::super::files::append_attachment(&mut args, &attachment.description, &attachment.blob);
 			}
-			self.client.call(
+			self.caller.call(
 				&self.reference,
 				admission::PUT_FILES,
 				&args,
 				"the archive did not answer retaining file bytes",
 			)
 		};
-		acknowledgement(&pending.await?.0)
+		acknowledgement(&pending.await?)
 	}
 	pub async fn attachment(&self, record: &Record, index: usize) -> Result<Blob<D>, Error>
 	where
@@ -90,14 +103,14 @@ impl<D: Deadline> Archive<D> {
 			.ok_or(archive::Error::Blob)?;
 		let pending = {
 			let args = [wire::record_row(record), Argument::Integer(index as i64)];
-			self.client.call(
+			self.caller.call(
 				&self.reference,
 				admission::ATTACHMENT,
 				&args,
 				"the archive did not answer attachment",
 			)
 		};
-		self.blob_reply(pending.await?.0)
+		self.blob_reply(pending.await?)
 	}
 	pub async fn blob(&self, digest: &str) -> Result<Blob<D>, Error>
 	where
@@ -109,7 +122,7 @@ impl<D: Deadline> Archive<D> {
 		}
 		.validate()?;
 		let reply = self
-			.client
+			.caller
 			.call(
 				&self.reference,
 				admission::BLOB,
@@ -117,7 +130,7 @@ impl<D: Deadline> Archive<D> {
 				"the archive did not answer blob",
 			)
 			.await?;
-		self.blob_reply(reply.0)
+		self.blob_reply(reply)
 	}
 	fn blob_reply(&self, reply: Argument) -> Result<Blob<D>, Error>
 	where
@@ -127,7 +140,7 @@ impl<D: Deadline> Archive<D> {
 			return Err(archive::Error::Blob.into());
 		};
 		Ok(Blob {
-			client: self.client.clone(),
+			caller: self.caller.clone(),
 			reference,
 		})
 	}

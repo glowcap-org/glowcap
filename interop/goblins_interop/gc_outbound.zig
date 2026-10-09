@@ -8,10 +8,9 @@ const driver = glowcap.driver;
 const tcp = glowcap.net.tcp;
 
 pub fn prove(io: std.Io, allocator: std.mem.Allocator, port: u16) !void {
-    var resident = tcp.Resident{ .io = io };
     var locator_buf: [tcp.designator_buf_len]u8 = undefined;
     const address = try tcp.parseHostPort("127.0.0.1", port);
-    var session = try driver.connect(allocator, &.{resident.netlayer()}, tcp.locatorFromAddress(&locator_buf, address), .ephemeral, .{
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&locator_buf, address), .ephemeral, .{
         .handshake = .{ .ms = 5_000 },
         .settle = .{ .ms = 5_000 },
     });

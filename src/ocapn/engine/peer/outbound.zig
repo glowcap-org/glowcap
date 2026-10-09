@@ -13,6 +13,8 @@ const model = @import("model");
 const semantic = @import("../outbound.zig");
 const engine = @import("../mod.zig");
 const budget = @import("outbound/budget.zig");
+const provisional = @import("provisional.zig");
+const BatchId = @import("../node/passable.zig").BatchId;
 
 const Peer = engine.Peer;
 
@@ -20,6 +22,9 @@ const Peer = engine.Peer;
 pub const PendingOutbound = struct {
     item: semantic.Outbound,
     charge: usize,
+    /// Pushed inside an open provisional window, so a failed turn retracts it
+    /// (`peer/provisional.zig`).
+    provisional: bool = false,
 };
 
 pub const PendingReservation = struct { charge: usize };
@@ -66,18 +71,40 @@ pub fn reservePending(self: *Peer, item: semantic.Outbound) !PendingReservation 
 }
 
 /// Reserve the POD carrier that will relinquish one application answer after
-/// an in-process observer fires. The answer value is supplied only at commit;
-/// its fixed charge and queue seat are the resources this preparation owns.
+/// its caller releases it or an in-process observer fires. Commit supplies the
+/// answer. This preparation owns its fixed charge and queue seat.
 pub fn reserveAnswerRelease(self: *Peer) !PendingReservation {
     return reservePending(self, .{ .answer_release = .from(0) });
 }
 
+/// Transfer release responsibility to the pending queue. A staged send carries
+/// the claim into its Session row, so a late reply cannot cause a second release.
 pub fn publishAnswerRelease(
     self: *Peer,
     reservation: PendingReservation,
     answer: model.AnswerPosition,
 ) void {
+    if (self.session_state.outbound_answers.getPtr(answer)) |_| {
+        claimQueuedRelease(self, answer);
+    } else {
+        for (self.pending_send.pending()) |*row| switch (row.item) {
+            .staged => |*staged| if (staged.answer == answer) {
+                std.debug.assert(!staged.release_queued);
+                staged.release_queued = true;
+                break;
+            },
+            else => {},
+        } else unreachable;
+    }
     pushPendingAssume(self, reservation, .{ .answer_release = answer });
+}
+
+fn claimQueuedRelease(self: *Peer, answer: model.AnswerPosition) void {
+    if (!self.session_state.outboundAnswerReleaseClaimed(answer)) {
+        const claimed = self.session_state.claimOutboundAnswerRelease(answer);
+        std.debug.assert(claimed);
+    }
+    self.session_state.consumeOutboundAnswerNotification(answer);
 }
 
 /// Admit a complete carrier while Node projects its foreign Passable tree.
@@ -126,7 +153,11 @@ pub fn pushPendingAssume(
 ) void {
     std.debug.assert(self.pending_send_reservations != 0);
     self.pending_send_reservations -= 1;
-    self.pending_send.pushAssumeCapacity(.{ .item = item, .charge = reservation.charge });
+    self.pending_send.pushAssumeCapacity(.{
+        .item = item,
+        .charge = reservation.charge,
+        .provisional = self.provisional and provisional.retractable(item),
+    });
 }
 
 pub fn cancelPendingReservation(self: *Peer, reservation: PendingReservation) void {
@@ -146,6 +177,110 @@ pub fn transferPendingChargeToAnswerStore(
     store_charge: usize,
 ) void {
     budget.transferPendingToAnswerStore(self, reservation, store_charge);
+}
+
+/// Hold the queue position of a carrier the Node starts staging. The row is
+/// free: the carrier's bytes stay charged to its staging reservation.
+pub fn reserveStagedRow(self: *Peer) !PendingReservation {
+    try ensurePendingCapacity(self, 1);
+    self.pending_send_reservations += 1;
+    return .{ .charge = 0 };
+}
+
+/// Whether a send still owns an unconsumed application notification. The
+/// Session row owns the usual case. Only sends awaiting Node preparation need
+/// the pending-queue walk, before their row exists. No completed-answer cache
+/// is needed, and a retracted or released answer cannot acquire a new observer.
+pub fn canObserveAnswer(self: *Peer, answer: model.AnswerPosition) bool {
+    if (self.session_state.outbound_answers.getPtr(answer)) |row|
+        return !row.application_notification_consumed;
+    for (self.pending_send.pending()) |row| switch (row.item) {
+        .staged => |staged| if (staged.answer == answer) return !staged.release_queued,
+        else => {},
+    };
+    return false;
+}
+
+fn stagedRowIndex(self: *Peer, batch: BatchId) ?usize {
+    for (self.pending_send.pending(), 0..) |row, index| switch (row.item) {
+        .staged => |staged| if (staged.batch == batch) return index,
+        else => {},
+    };
+    return null;
+}
+
+/// Move the carrier a finished batch just appended into the row its send
+/// reserved. `appended` is how many rows the batch's send pushed: none when
+/// the carrier needed no row, so the reservation is simply removed.
+pub fn fillStagedRow(self: *Peer, batch: BatchId, appended: usize) void {
+    std.debug.assert(appended <= 1);
+    const index = stagedRowIndex(self, batch) orelse unreachable;
+    const staged = self.pending_send.pending()[index].item.staged;
+    if (staged.release_queued) claimQueuedRelease(self, staged.answer.?);
+    if (appended == 0) return self.pending_send.removePending(index);
+    const filled = self.pending_send.popBack() orelse unreachable;
+    const rows = self.pending_send.pending();
+    rows[index] = .{
+        .item = filled.item,
+        .charge = filled.charge,
+        // The carrier belongs to the turn that made the send, not to
+        // whichever window is open when its gift ids arrive.
+        .provisional = rows[index].provisional and provisional.retractable(filled.item),
+    };
+}
+
+pub const StagedRowRemoval = enum {
+    /// A retracted window or a closed session already removed it.
+    absent,
+    removed,
+    /// It was the head and a sendable carrier waits behind it, so the Peer
+    /// can step.
+    unblocked,
+};
+
+/// Remove the row of a staged carrier that will never be sent.
+pub fn removeStagedRow(self: *Peer, batch: BatchId) StagedRowRemoval {
+    const index = stagedRowIndex(self, batch) orelse return .absent;
+    self.pending_send.removePending(index);
+    if (self.pending_send_reservations == 0 and self.pending_send.isEmpty())
+        self.pending_send.trimDrained(self.allocator);
+    const sendable = !self.pending_send.isEmpty() and !blockedOnStaging(self);
+    return if (index == 0 and sendable) .unblocked else .removed;
+}
+
+/// Whether the row a staged carrier reserved belongs to an open provisional
+/// window, so the carrier and everything its batch commits retract with it.
+pub fn stagedRowProvisional(self: *Peer, batch: BatchId) bool {
+    const index = stagedRowIndex(self, batch) orelse return false;
+    return self.pending_send.pending()[index].provisional;
+}
+
+/// Withdraw a queued `op:listen` that never reached the wire, undoing what
+/// recording it did. The Node's promise proxy queued it inside a turn that
+/// failed; nothing steps a Peer while its turn runs, so it is still here.
+pub fn withdrawQueuedListen(self: *Peer, listener: model.ExportPosition) void {
+    for (self.pending_send.pending(), 0..) |row, index| switch (row.item) {
+        .message => |message| if (message == .listen and message.listen.listener == .near and
+            message.listen.listener.near.export_position == listener)
+        {
+            self.pending_send.removePending(index);
+            std.debug.assert(self.pending_send_bytes >= row.charge);
+            self.pending_send_bytes -= row.charge;
+            self.session_state.retractPreparedListen(message);
+            row.item.deinit(self);
+            if (self.pending_send_reservations == 0 and self.pending_send.isEmpty())
+                self.pending_send.trimDrained(self.allocator);
+            return;
+        },
+        else => {},
+    };
+    unreachable;
+}
+
+/// Whether the next carrier is still being staged, so nothing can be sent yet.
+pub fn blockedOnStaging(self: *const Peer) bool {
+    const head = self.pending_send.peek() orelse return false;
+    return head.item == .staged;
 }
 
 /// Dequeue one semantic carrier and retire its pending accounting charge.

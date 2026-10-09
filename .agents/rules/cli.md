@@ -25,10 +25,19 @@ zig build check-external       # outside protocol authority and shipped browser 
 
 - A gate passes by its exit code. Never pipe a gate through `tail`/`grep` and
   read the pipe's status; a green log can still echo `failed command:` stderr.
-- Iterate on the narrowest step (`zig build test -Dtest-filter=<name>`), then
-  combine compatible final gates in one invocation. Record command, exit
-  status, scope, and environment limits. Evidence stays valid until its inputs
-  change; do not rerun a broad suite because a review phase started.
+- Iterate on the narrowest step. `-Dtest-filter=<name>` also skips
+  analysis: code reached only by unmatched tests is never compiled, so a
+  filtered green says nothing about their callers. It accepts one literal
+  substring, not a comma-separated list; no matching tests is no evidence.
+  `-Dtest-layer=<layer>[,<layer>]` compiles only those layers' tests, so a
+  changed signature needs every layer that implements it. Run the bare suite
+  once before the final gate, then combine compatible final gates
+  in one invocation. Before running, name the changed boundary and which prior
+  evidence it invalidates. Record command, exit status, scope, and environment
+  limits in the handoff. Reuse successful evidence for unchanged inputs across
+  reviews, compaction, and gate failures: rerun the affected step, preserving
+  successful sibling evidence. A prose-only edit needs `source-check`; an
+  executable example also needs its owning check.
 - A failure gets a focused reproduction before another aggregate run (the
   [debugging skill](../skills/debugging/SKILL.md)).
 - Bound CapTP and socket work with a deadline of tens of seconds. A silent hang
@@ -64,7 +73,12 @@ Never committed; `source-check` holds each against `.gitignore` and the index:
 Committed FFI tiers and headers are generated; their first lines name the
 `gen-*` step that writes them. A C signature change edits the Zig export, its
 `symbols.zig` row, and the header prose in both the doc comment and
-`tools/gen/header/*.zig`, then runs that archive's `gen-*` step.
+`tools/gen/header/*.zig`, then runs that archive's `gen-*` step. Every
+archive fingerprint reflects the shared layouts, so a change under
+`src/c_abi/shared` also stales the binding constants, the Rust layouts and
+every header that embeds a fingerprint. Run all the `gen-*-check` steps that
+`docs/build-steps.md` lists in one invocation, then regenerate each one that
+fails.
 
 ## Git Posture
 

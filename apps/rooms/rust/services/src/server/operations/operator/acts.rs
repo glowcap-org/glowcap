@@ -90,7 +90,9 @@ fn immediate(state: &mut State, act: Act) -> Result<(), String> {
 				.policy
 				.release_offered(&nick, &peer)
 				.ok_or("that retained reference is no longer present")?;
-			state.give_back(release.connection, release.capability);
+			for held in release {
+				state.give_back(held.connection, held.capability);
+			}
 			state.changed();
 			Ok(())
 		}

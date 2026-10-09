@@ -105,6 +105,7 @@ const errors = @import("errors.zig");
 const ingress_mod = @import("ingress.zig");
 const port_mod = @import("port.zig");
 const turn_mod = @import("turn.zig");
+const turn_commit = @import("turn_commit.zig");
 const vows_mod = @import("vows.zig");
 
 /// The per-turn handler context (see `turn.Turn`).
@@ -126,12 +127,6 @@ pub const steady_settle_arena_bytes = 4096;
 /// Backing bound for plain ArrayLists such as `moved_replies`, and the target
 /// size of one queue chunk's fixed row array.
 pub const steady_list_bytes = 4096;
-/// Cap on `served_dropped_far`: the count of resolve-before-`on` drops the
-/// vat remembers to refuse a late `on`. Empty in the normal flow; the cap
-/// bounds a pathological stream of unclaimed drops (past it a late `on`
-/// parks, as before the guard).
-pub const max_served_dropped_far_answers = 256;
-
 const Cell = boxed.Cell;
 const StateBox = boxed.StateBox;
 const releaseBox = boxed.releaseBox;
@@ -202,59 +197,8 @@ pub const ResolverPair = struct {
 /// its own rows first and make the cross-layer commit allocation-free.
 pub const ResolverPairReservation = struct {};
 
-/// A message to an actor: a verb (method selector) and its arguments. From the
-/// handler's side the verb and args are borrowed for the duration of the turn:
-/// a handler never frees them, and one that keeps a value past its turn copies
-/// it first.
-pub const Message = struct {
-    verb: []const u8,
-    args: []const model.Argument = &.{},
-
-    /// What an argument accessor refuses. A handler returns these like any
-    /// other error, and the vat turns a handler error into the partner's
-    /// `op:resolve` break, so a malformed call breaks its own answer instead
-    /// of reaching the host.
-    pub const ArgError = error{ MissingArgument, WrongArgumentType };
-
-    /// The argument at `i`, or `MissingArgument`.
-    ///
-    /// Arity is the *partner's* choice: `serve` peels the leading symbol as the
-    /// verb and hands the rest through, so a deliver carrying only a verb
-    /// arrives with no arguments at all. An unchecked index on that is a safety
-    /// panic in a safe build and an out-of-bounds read otherwise, which on a
-    /// multi-session host takes down every other session with it. The typed
-    /// accessors below are shorter to write than the unwrap they replace, so
-    /// there is no cheaper wrong path left; `msg.args` is still there for a
-    /// handler that has already checked `args.len`.
-    pub fn arg(self: Message, i: usize) ArgError!model.Argument {
-        if (i >= self.args.len) return error.MissingArgument;
-        return self.args[i];
-    }
-
-    /// The `bytes` argument at `i`.
-    pub fn argBytes(self: Message, i: usize) ArgError![]const u8 {
-        return switch (try self.arg(i)) {
-            .bytes => |b| b,
-            else => error.WrongArgumentType,
-        };
-    }
-
-    /// The `string` argument at `i`.
-    pub fn argString(self: Message, i: usize) ArgError![]const u8 {
-        return switch (try self.arg(i)) {
-            .string => |s| s,
-            else => error.WrongArgumentType,
-        };
-    }
-
-    /// The `integer` argument at `i`.
-    pub fn argInt(self: Message, i: usize) ArgError!i64 {
-        return switch (try self.arg(i)) {
-            .integer => |n| n,
-            else => error.WrongArgumentType,
-        };
-    }
-};
+pub const Message = @import("behavior.zig").Message;
+pub const OpaqueMessage = @import("behavior.zig").OpaqueMessage;
 
 pub const IngressId = ingress_mod.IngressId;
 pub const QueueLimits = ingress_mod.QueueLimits;
@@ -312,22 +256,7 @@ pub const Listener = struct {
     func: *const fn (ctx: ?*anyopaque, resolution: Resolution) void,
 };
 
-/// A *hosted* actor: state and behavior the vat does not own, invoked on each
-/// deliver (ADR-0071). This is how a non-Zig consumer hosts an actor over the C
-/// ABI — it hands the vat an opaque `ctx` and a thunk. The `handle` receives the
-/// full `Turn`, so a hosted actor sends and spawns exactly like a native one;
-/// only vat-owned time-travel is out of reach, since the vat cannot clone `ctx`
-/// (a vat holding a hosted actor is not snapshottable, `NotSnapshottable`).
-pub const HostedActor = struct {
-    /// The consumer's state, opaque to the vat, passed back to `handle`/`free`.
-    ctx: *anyopaque,
-    /// Invoked on each deliver. Returns the reply — borrowed for the turn, the
-    /// vat clones it onto the wire or a listener — or an error (settled broken).
-    handle: *const fn (ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument,
-    /// Release `ctx` when the actor's box drops (vat `deinit`, or a failed
-    /// spawn). Null when the consumer keeps ownership of `ctx`.
-    free: ?*const fn (ctx: *anyopaque) void = null,
-};
+pub const HostedActor = @import("behavior.zig").HostedActor;
 
 pub const Error = errors.Error;
 pub const IngressCancellationError = errors.IngressCancellationError;
@@ -338,6 +267,20 @@ pub fn ensureFreshId(next: u64) Error!void {
 
 /// One CapTP session's projection of this Vat.
 pub const Port = port_mod.Port;
+
+/// One layer's stake in an outermost turn (ADR-0194). `commit` runs in
+/// enrollment order and `abort` in reverse, so a later layer undoes its effect
+/// before an earlier one releases what that effect used.
+/// Abort restores state without notifying observers. Optional `abort_notify`
+/// runs after every participant has aborted, when listeners may reenter.
+pub const TurnParticipant = struct {
+    ctx: *anyopaque,
+    commit: *const fn (ctx: *anyopaque, vat: *Vat) void,
+    abort: *const fn (ctx: *anyopaque, vat: *Vat, reason: []const u8) void,
+    abort_notify: ?*const fn (ctx: *anyopaque, vat: *Vat, reason: []const u8) void = null,
+};
+
+pub const TurnBreak = struct { port: *Port, answer: model.AnswerPosition };
 
 /// One single-threaded container of local objects, the Goblins-shaped layer
 /// above the engine. Spawn objects, near-call them with `near` (`$`),
@@ -354,6 +297,9 @@ pub const Vat = struct {
     tearing_down: bool = false,
     actors: std.AutoHashMapUnmanaged(u64, Cell) = .{},
     queue_limits: QueueLimits = .{},
+    /// A trusted adapter copy cannot drive or change queue admission while
+    /// its preflight owns unpublished capacity.
+    queue_copy_active: bool = false,
     local_ingress: IngressState = .{ .id = .local },
     /// Non-local ingress rows are heap-pinned so the intrusive runnable ring
     /// stays pointer-stable while the hash map grows inside a running turn.
@@ -364,6 +310,11 @@ pub const Vat = struct {
     /// chunk per idle ingress. Every additional completed chunk is freed.
     spare_chunk: ?*QueueChunk = null,
     listeners: std.AutoHashMapUnmanaged(u64, Listener) = .{},
+    /// One installed callback identity for Vat-owned forwarding contexts.
+    /// Native archives compile distinct function addresses; retaining this
+    /// address costs one word per Vat, avoiding a tag on every listener and
+    /// allowing exact teardown and iterative settlement across code images.
+    forward_listener: @FieldType(Listener, "func"),
     /// Local vows whose turns are still pending. Fair ingress rotation can
     /// settle vow ids out of global numeric order, so the old FIFO high-water
     /// mark is unsound; this index makes late-listener refusal independent of
@@ -398,6 +349,17 @@ pub const Vat = struct {
     /// drive; the runnable ring is Vat-owned so nested drives continue from the
     /// fair rotation point rather than re-running the active turn.
     drive_depth: u32 = 0,
+    /// The running outermost turn's staged local sends, per ingress (ADR-0191).
+    staged: std.ArrayListUnmanaged(ingress_mod.StagedIngress) = .empty,
+    /// Set when the outermost turn fails, so its close drops the held sends.
+    turn_failure: ?[]const u8 = null,
+    /// Layers that recorded an effect in the running outermost turn and wait
+    /// for its outcome (ADR-0194), in enrollment order.
+    participants: std.ArrayListUnmanaged(TurnParticipant) = .empty,
+    /// Answer slots reserved by far sends before their effect. Listeners stay
+    /// at their Port until notification, so cancellation keeps its usual owner.
+    turn_breaks: std.ArrayListUnmanaged(TurnBreak) = .empty,
+    turn_break_reservations: usize = 0,
     next_ingress: u32 = 1,
     /// Scratch for local and far fulfilled-listener calls. Queue chunks may
     /// reclaim independently, so settlement has one depth-guarded arena that a
@@ -440,6 +402,7 @@ pub const Vat = struct {
     pub fn initWithOptions(allocator: std.mem.Allocator, options: Options) Vat {
         return .{
             .allocator = allocator,
+            .forward_listener = @import("forwarding.zig").forwardListener,
             .queue_limits = options.queue_limits,
             .turn_arena = std.heap.ArenaAllocator.init(allocator),
             .settle_arena = std.heap.ArenaAllocator.init(allocator),
@@ -447,6 +410,7 @@ pub const Vat = struct {
     }
 
     pub fn deinit(self: *Vat) void {
+        std.debug.assert(!self.queue_copy_active);
         self.tearing_down = true;
         var it = self.actors.valueIterator();
         while (it.next()) |cell| {
@@ -456,6 +420,9 @@ pub const Vat = struct {
             releaseBox(self.allocator, cell.box);
         }
         self.actors.deinit(self.allocator);
+        turn_commit.discard(self);
+        self.participants.deinit(self.allocator);
+        self.turn_breaks.deinit(self.allocator);
         ingress_mod.freeIngressQueue(self, &self.local_ingress);
         var ingress_it = self.ingresses.valueIterator();
         while (ingress_it.next()) |state_ptr| {
@@ -472,7 +439,7 @@ pub const Vat = struct {
         // `ForwardContext` whose only free path is the listener firing, which a
         // never-drained queue at teardown skips. Every other listener context is
         // caller-owned (an `on` caller's stack state), so it must be left alone.
-        vows_mod.freeOwnedForwardContexts(self.allocator, &self.listeners);
+        vows_mod.freeOwnedForwardContexts(self, &self.listeners);
         self.listeners.deinit(self.allocator);
         self.pending_local_vows.deinit(self.allocator);
         self.resolver_vows.deinit(self.allocator);
@@ -494,6 +461,7 @@ pub const Vat = struct {
     /// box it handed over).
     fn registerBox(self: *Vat, box: *StateBox) Error!Ref {
         errdefer releaseBox(self.allocator, box);
+        try self.admitMutation();
         try ensureFreshId(self.next_actor);
         const id = self.next_actor;
         // Actor registration is the fallible seam that escrows its eventual
@@ -540,9 +508,29 @@ pub const Vat = struct {
     /// A turn or queue drive owns execution, including retired-state cleanup.
     /// Adapters may enqueue effects here, but defer an independent drive until
     /// the outer boundary returns.
-    pub fn isExecuting(self: *const Vat) bool {
-        return self.turn_depth != 0 or self.drive_depth != 0;
+    /// Enroll `participant` in the running outermost turn, once per `ctx`. It
+    /// receives `commit` inside the frame before the reply leaves, or `abort`
+    /// after the frame closes, exactly once. Observer callbacks belong in
+    /// `abort_notify`, after all cleanup. Enrollment is fallible, so a layer
+    /// enrolls before it records the effect it will undo.
+    pub fn enrollTurn(self: *Vat, participant: TurnParticipant) !void {
+        std.debug.assert(self.turn_depth != 0);
+        for (self.participants.items) |existing| if (existing.ctx == participant.ctx) return;
+        try self.participants.append(self.allocator, participant);
     }
+
+    /// Refuse execution and publication while an adapter copy owns unpublished
+    /// admission, or after teardown has begun. Custody release remains legal.
+    pub fn admitMutation(self: *const Vat) error{ ReenteredAdmission, VatReleased }!void {
+        if (self.tearing_down) return error.VatReleased;
+        if (self.queue_copy_active) return error.ReenteredAdmission;
+    }
+
+    pub fn isExecuting(self: *const Vat) bool {
+        return self.queue_copy_active or self.turn_depth != 0 or self.drive_depth != 0;
+    }
+
+    pub const hasRetiredState = turn_mod.hasRetiredState;
 
     /// Add one explicit root to a live actor row (ADR-0101). Tolerant of an
     /// absent row: a rooting relationship can outlive a row `restore` removed,
@@ -579,6 +567,7 @@ pub const Vat = struct {
     }
 
     pub fn nearFromPort(self: *Vat, port: ?*Port, ingress: IngressId, target: Ref, msg: Message) anyerror!model.Argument {
+        try self.admitMutation();
         const state = try ingress_mod.ingressState(self, ingress);
         state.active_turns += 1;
         defer state.active_turns -= 1;
@@ -589,10 +578,14 @@ pub const Vat = struct {
     }
 
     pub const openIngress = ingress_mod.openIngress;
+    pub const hasIngress = ingress_mod.hasIngress;
     pub const closeIngress = ingress_mod.closeIngress;
     pub const discardFreshIngress = ingress_mod.discardFreshIngress;
     pub const cancelIngress = ingress_mod.cancelIngress;
+    pub const cancelLocalIngress = ingress_mod.cancelLocalIngress;
     pub const send = ingress_mod.send;
+    pub const sendOpaqueFromIngress = ingress_mod.sendOpaqueFromIngress;
+    pub const tellOpaqueFromIngress = ingress_mod.tellOpaqueFromIngress;
     pub const sendFromIngress = ingress_mod.sendFromIngress;
     pub const sendObservedFromIngress = ingress_mod.sendObservedFromIngress;
     pub const tell = ingress_mod.tell;
@@ -606,6 +599,7 @@ pub const Vat = struct {
     pub const spawnReservedVow = vows_mod.spawnReservedVow;
     pub const fulfillVow = vows_mod.fulfillVow;
     pub const breakVow = vows_mod.breakVow;
+    pub const breakVowTerminal = vows_mod.breakVowTerminal;
     pub const on = vows_mod.on;
     pub const takeListener = vows_mod.takeListener;
 

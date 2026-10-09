@@ -120,8 +120,7 @@ async fn walk(peer_uri: String, dead_uri: String) {
 	let session = expect_value(
 		"dial the peer",
 		runtime.connect(&partner, ConnectOptions::default()).await,
-	)
-	.with_gc();
+	);
 	let spine = expect_value("fetch spine", session.fetch("spine").await);
 	mark("dial-ok", &peer_uri);
 

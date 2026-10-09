@@ -55,3 +55,25 @@ test "loam mutation receipt value decoder rejects oversized counts scalar length
     defer std.testing.allocator.free(bytes);
     try std.testing.expectError(error.UndeclaredCapability, Codec.decode(Value, std.testing.allocator, bytes, &context));
 }
+
+test "loam receipt topology bounds actual mixed encodings and empty key tag prefixes" {
+    var context: Context = .{};
+    const value: Value = .{ .tagged = .{ .tag = "", .value = &.{
+        .{ .@"struct" = &.{.{ .key = "", .value = .{ .bytes = "" } }} },
+        .{ .integer = std.math.minInt(i64) },
+        .{ .float64 = 1.5 },
+        .{ .big_integer = .{ .negative = false, .digits = "12345678901234567890" } },
+        .{ .@"error" = .{ .message = "refused" } },
+    } } };
+    const bytes = try Codec.encode(std.testing.allocator, value, &context);
+    defer std.testing.allocator.free(bytes);
+    const bound = try Codec.encodedSizeBound(Value, 7, 1, 27, 0);
+    try std.testing.expect(bytes.len <= bound);
+    try std.testing.expect(bound < Codec.max_bytes);
+    const Receipt = g.loam.access.records.MutationRecord;
+    const receipt = try (Receipt{ .intent = bytes, .result = bytes }).encodeAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(receipt);
+    try std.testing.expectEqual(receipt.len, try Receipt.encodedSizeBound(bytes.len, bytes.len));
+    try std.testing.expectError(error.Overflow, Codec.encodedSizeBound(Value, std.math.maxInt(usize), 0, 0, 0));
+    try std.testing.expectError(error.Overflow, Receipt.encodedSizeBound(std.math.maxInt(usize), 0));
+}

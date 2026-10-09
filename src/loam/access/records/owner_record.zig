@@ -65,6 +65,21 @@ pub const OwnerRecord = struct {
             mask.* = std.mem.readInt(u64, encoded[0..8], .big);
         }
         try s.readByte(b, &c, ']');
+        try s.readByte(b, &c, '[');
+        var kinds: [core.Policy.max_kinds]core.Policy.KindRule = undefined;
+        var kind_count: usize = 0;
+        while (c < b.len and b[c] != ']') {
+            if (kind_count == kinds.len) return error.PolicyLimit;
+            const encoded = try s.readBytesLimited(b, &c, b.len);
+            if (encoded.len != 24) return error.InvalidRecord;
+            kinds[kind_count] = .{
+                .kind = @fromBackingInt(std.mem.readInt(u64, encoded[0..8], .big)),
+                .permissions = std.mem.readInt(u64, encoded[8..16], .big),
+                .subtree_permissions = std.mem.readInt(u64, encoded[16..24], .big),
+            };
+            kind_count += 1;
+        }
+        try s.readByte(b, &c, ']');
         var constraints: [core.Policy.max_constraints]core.Policy.Constraint = undefined;
         const count = try s.readPositiveInt(b, &c);
         if (count > constraints.len) return error.InvalidRecord;
@@ -75,7 +90,7 @@ pub const OwnerRecord = struct {
         const vocabulary = try core.Policy.init(.{ .id = schema, .permissions = keys[0..@intCast(key_count)], .constraints = constraints[0..@intCast(count)] });
         var result: OwnerRecord = .{
             .owner = owner,
-            .policy = try vocabulary.withPrerequisiteMasks(prerequisite_masks),
+            .policy = try (try vocabulary.withPrerequisiteMasks(prerequisite_masks)).withKinds(kinds[0..kind_count]),
             .version = .{ .resources = @fromBackingInt(try s.readPositiveInt(b, &c)), .grants = @fromBackingInt(try s.readPositiveInt(b, &c)) },
             .control_revision = try s.readPositiveInt(b, &c),
             .next_resource = try s.readPositiveInt(b, &c),
@@ -115,9 +130,9 @@ pub const OwnerRecord = struct {
         if (self.next_resource > max_slots or self.next_grant > max_slots or self.next_identity > max_slots) return error.InvalidRecord;
         if ((self.next_resource == 0 and self.resources != null) or (self.next_grant == 0 and self.grants != null) or (self.next_identity == 0 and self.identities != null)) return error.InvalidRecord;
         // Validate active descriptor fields rather than serializing in-memory arrays.
-        if (self.policy.permission_count > core.Policy.max_permissions or self.policy.constraint_count > core.Policy.max_constraints) return error.InvalidRecord;
+        if (self.policy.permission_count > core.Policy.max_permissions or self.policy.constraint_count > core.Policy.max_constraints or self.policy.kind_count > core.Policy.max_kinds) return error.InvalidRecord;
         const vocabulary = try core.Policy.init(.{ .id = self.policy.id, .permissions = self.policy.permission_keys[0..self.policy.permission_count], .constraints = self.policy.constraint_fields[0..self.policy.constraint_count] });
-        _ = try vocabulary.withPrerequisiteMasks(self.policy.prerequisite_masks);
+        _ = try (try vocabulary.withPrerequisiteMasks(self.policy.prerequisite_masks)).withKinds(self.policy.kind_rules[0..self.policy.kind_count]);
     }
 
     fn write(sink: anytype, self: OwnerRecord) !void {
@@ -132,6 +147,15 @@ pub const OwnerRecord = struct {
         for (self.policy.prerequisite_masks[0..self.policy.permission_count]) |mask| {
             var bytes: [8]u8 = undefined;
             std.mem.writeInt(u64, &bytes, mask, .big);
+            try s.writeBytes(sink, &bytes);
+        }
+        try s.endList(sink);
+        try s.beginList(sink);
+        for (self.policy.kind_rules[0..self.policy.kind_count]) |rule| {
+            var bytes: [24]u8 = undefined;
+            std.mem.writeInt(u64, bytes[0..8], @backingInt(rule.kind), .big);
+            std.mem.writeInt(u64, bytes[8..16], rule.permissions, .big);
+            std.mem.writeInt(u64, bytes[16..24], rule.subtree_permissions, .big);
             try s.writeBytes(sink, &bytes);
         }
         try s.endList(sink);

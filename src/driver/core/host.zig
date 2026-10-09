@@ -17,9 +17,9 @@
 //! `settled`/`failed` completion the embedder routes by vow id, so one drain
 //! hears every outcome. An in-process Zig consumer may instead register a
 //! borrowed one-shot listener with `vowOn`, which keeps that vow's settlement
-//! zero-copy and off the queue. The `driver.Bridge` is one such embedder (a
-//! completion loop over this core, ADR-0076); the C ABI's `libglowcap_host`
-//! is another (byte-fed from a binding-owned loop).
+//! zero-copy and off the queue. `driver.HostRuntime` is one such embedder (its
+//! transport residents over this core, ADR-0193); the C ABI's
+//! `libglowcap_host` is another (byte-fed from a binding-owned loop).
 //!
 //! One thread drives one host. The node tables, the CapTP session map, the vow
 //! map, and the crossed-hellos table are unsynchronized by contract, which is
@@ -186,7 +186,9 @@ pub const Host = struct {
     transport_profiles: std.StringHashMapUnmanaged(model.transport.Metadata) = .empty,
     /// Host-wide bootstrap aliases. A fetch performs one keyed discovery lookup
     /// and lazily projects the actor onto the requesting Port.
-    giftables: std.StringHashMapUnmanaged(publish_mod.Publication) = .empty,
+    publications: std.StringHashMapUnmanaged(publish_mod.Publication) = .empty,
+    /// Lowering receipts held until the running turn's outcome (ADR-0194).
+    turn_receipts: host_capability_lower.TurnReceipts = .{},
     publication_lookup: ?*const @import("publication_lookup.zig").Lookup = null,
     /// The embedder-facing action FIFO; `nextAction` drains it.
     actions: engine.ActionFifo(HostAction) = .{},
@@ -229,6 +231,7 @@ pub const Host = struct {
     /// call that asked. The ticket index makes settlement proportional to the
     /// callers sharing that dial; each group stores its first row inline.
     pending_enlivens: enliven_mod.PendingEnlivenMap = .empty,
+    enliven_groups: @import("enliven/group.zig").Map = .empty,
     /// Total parked rows; the map's own count is ticket groups. Keeping this
     /// scalar makes action reservation and close admission O(1).
     pending_enliven_count: usize = 0,
@@ -289,19 +292,7 @@ pub const Host = struct {
     pub const InitError = host_configuration.InitError;
     pub const Options = host_configuration.Options;
 
-    pub const WorkLane = enum(u2) {
-        session,
-        node,
-        handoff,
-
-        pub fn next(self: WorkLane) WorkLane {
-            return switch (self) {
-                .session => .node,
-                .node => .handoff,
-                .handoff => .session,
-            };
-        }
-    };
+    pub const WorkLane = @import("host/pump/schedule.zig").WorkLane;
 
     const SessionCloseTiming = host_close.SessionCloseTiming;
     pub const RuntimeAdoptionError = host_ownership.RuntimeAdoptionError;
@@ -330,6 +321,7 @@ pub const Host = struct {
     pub const lifecyclePhase = host_close.lifecyclePhase;
 
     pub const setSessionLimits = host_configuration.setSessionLimits;
+    pub const setIngressLimits = host_configuration.setIngressLimits;
 
     pub const init = host_ownership.init;
     pub const deinit = host_ownership.deinit;
@@ -378,9 +370,12 @@ pub const Host = struct {
     pub const sendCapability = host_delivery.sendCapability;
     pub const queueSendCapability = host_delivery.queueSendCapability;
     pub const sendValues = host_delivery.sendValues;
+    pub const sendApplicationValues = host_delivery.sendApplicationValues;
+    pub const tellApplicationValues = host_delivery.tellApplicationValues;
     pub const queueSendValues = host_delivery.queueSendValues;
     pub const Call = @import("host/owned_call.zig").Call;
     pub const callCapability = @import("host/owned_call.zig").callCapability;
+    pub const callLocalCapability = @import("host/local_delivery.zig").callLocalCapability;
 
     pub const tell = host_delivery.tell;
     pub const tellCapability = host_delivery.tellCapability;
@@ -405,6 +400,7 @@ pub const Host = struct {
     // an indirection. This table is the index of the split.
 
     pub const setTrace = host_trace.setTrace;
+    pub const replayTrace = host_trace.replayTrace;
 
     /// Emit the open fact for `session` once, the first time it is observed
     /// open. Called from the serve path (the accepting side opens during a
@@ -443,8 +439,8 @@ pub const Host = struct {
     pub const dialedSessionFor = sessions_mod.dialedSessionFor;
     const helloAndEnroll = sessions_mod.helloAndEnroll;
     pub const releaseSession = sessions_mod.releaseSession;
-    pub const publish = sessions_mod.publish;
-    pub const publishHosted = sessions_mod.publishHosted;
+    pub const sessionPublish = sessions_mod.publish;
+    pub const sessionPublishHosted = sessions_mod.publishHosted;
     pub const spawn = sessions_mod.spawn;
     pub const spawnHosted = sessions_mod.spawnHosted;
     pub const cancelSessionIngress = sessions_mod.cancelSessionIngress;
@@ -471,6 +467,7 @@ pub const Host = struct {
     pub const resolverFulfill = vow_resolvers.fulfill;
     pub const resolverFulfillValue = vow_resolvers.fulfillValue;
     pub const resolverBreak = vow_resolvers.breakVow;
+    pub const resolverReject = vow_resolvers.reject;
     pub const resolverAbandon = vow_resolvers.abandon;
     pub const vowSend = vows_mod.vowSend;
     pub const queueVowSend = vows_mod.queueVowSend;
@@ -490,11 +487,11 @@ pub const Host = struct {
     pub const commitVowWithListener = vows_mod.commitVowWithListener;
     pub const fireVow = vow_settlement.fireVow;
 
-    /// Publication (`publish.zig`): the giftable and durable name registries
+    /// Publication (`publish.zig`): the Host and durable name registries
     /// and the resolver a fetch consults.
     pub const DurableSwiss = publish_mod.DurableSwiss;
-    pub const publishGiftable = publish_mod.publishGiftable;
-    pub const publishHostedGiftable = publish_mod.publishHostedGiftable;
+    pub const publish = publish_mod.publish;
+    pub const publishHosted = publish_mod.publishHosted;
     pub const unpublish = publish_mod.unpublish;
     pub const publishDurable = publish_mod.publishDurable;
     pub const publishHostedDurable = publish_mod.publishHostedDurable;
@@ -509,6 +506,7 @@ pub const Host = struct {
     /// The action queue (`host/action.zig`): the payload shapes and the
     /// borrowed/owned pops over the Host-owned FIFO.
     pub const nextAction = host_action.nextAction;
+    pub const hasRunnableWork = host_action.hasRunnableWork;
     pub const retryBorrowedAction = host_action.retryBorrowedAction;
     pub const peekAction = host_action.peekAction;
     pub const takeAction = host_action.takeAction;
@@ -573,6 +571,7 @@ pub const Host = struct {
     pub const beginSessionOperation = host_admission.beginSessionOperation;
     pub const finishSessionOperation = host_admission.finishSessionOperation;
     pub const admitPendingWork = host_admission.admitPendingWork;
+    pub const sendLocalValues = @import("host/local_completion.zig").send;
     const beginOperation = host_admission.beginOperation;
     const finishOperation = host_admission.finishOperation;
     pub const admitApplicationOperation = host_admission.admitApplicationOperation;
@@ -593,6 +592,7 @@ pub const Host = struct {
     pub const retainReservedLocalCapability = host_capability_identity.retainReservedLocalCapability;
     pub const adoptReservedLocalCapability = host_capability_identity.adoptReservedLocalCapability;
     pub const capabilityFromRaw = host_capability_identity.capabilityFromRaw;
+    pub const settledCapability = host_capability_identity.settledCapability;
     pub const localActorFor = host_capability_identity.localActorFor;
     pub const capabilitySession = host_capability_identity.capabilitySession;
     pub const releaseCapability = host_capability_identity.releaseCapability;
@@ -626,6 +626,9 @@ pub const Host = struct {
     pub const projectValues = host_capability_lift.projectValues;
     pub const ProjectedCompletion = @import("host/capabilities/completion.zig").ProjectedCompletion;
     pub const projectCompletion = @import("host/capabilities/completion.zig").projectCompletion;
+    /// Project a stable owned result with independent occurrence retains;
+    /// refusal rolls back those grants without changing the result owner.
+    pub const projectOwnedValue = @import("host/capabilities/completion.zig").projectOwnedValue;
     pub const liftValues = host_capability_lift.liftValues;
 
     // Raw/opaque target routing and the bounded foreign-Argument policy.

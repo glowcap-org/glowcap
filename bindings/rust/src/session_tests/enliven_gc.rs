@@ -13,7 +13,7 @@ async fn gc_releases_fresh_and_cached_enliven_occurrences_independently() {
 				ready.send(()).unwrap();
 				session.serve().await.unwrap();
 			});
-			let session = connect(&locator, ConnectOptions::default()).await.unwrap().with_gc();
+			let session = connect(&locator, ConnectOptions::default()).await.unwrap();
 			started.await.unwrap();
 			let link = crate::format_sturdyref(&locator, b"authority", crate::CaptpVersion::V1_0).unwrap();
 			let first = session.enliven(&link).await.unwrap();

@@ -1,5 +1,8 @@
 //! Private command front behind the Zig argv catalog. This composes local
 //! requests and session startup; the shared application owns Rooms effects.
+mod acquisition;
+mod admission;
+use admission::command;
 mod bootstrap;
 mod listen;
 mod options;
@@ -28,9 +31,17 @@ pub(crate) fn operation() -> Result<String, Failure> {
 	Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 async fn request(state: &Path, request: Value) -> Result<Value, Failure> {
+	request_encoded(
+		state,
+		request["verb"].as_str().unwrap_or("control request"),
+		&serde_json::to_vec(&request)?,
+	)
+	.await
+}
+async fn request_encoded(state: &Path, verb: &str, encoded: &[u8]) -> Result<Value, Failure> {
 	let result = tokio::time::timeout(Duration::from_secs(40), async {
 		let mut stream = UnixStream::connect(state.join("control.sock")).await?;
-		let mut bytes = serde_json::to_vec(&request)?;
+		let mut bytes = encoded.to_vec();
 		bytes.push(b'\n');
 		if bytes.len() > 1024 * 1024 {
 			return Err(Failure::exhausted("control request exceeds 1 MiB"));
@@ -65,32 +76,22 @@ async fn request(state: &Path, request: Value) -> Result<Value, Failure> {
 		Ok(reply)
 	})
 	.await;
-	result.map_err(|_| Failure::uncertain("control deadline expired; inspect status before retrying"))?
-}
-async fn command(options: &Options, name: &str, args: Vec<String>) -> Result<Value, Failure> {
-	let id = options
-		.get("operation")
-		.map(str::to_owned)
-		.map(Ok)
-		.unwrap_or_else(operation)?;
-	request(
-		&options.state,
-		json!({"verb":"command", "id":id, "name":name, "args":args}),
-	)
-	.await
-	.map_err(|mut error| {
-		error.message = format!("operation {id}: {}", error.message);
-		error
-	})
+	result
+		.map_err(|_| Failure::uncertain("control deadline expired; inspect status before retrying"))?
+		.map_err(|mut error: Failure| {
+			error.message = format!("{verb}: {}", error.message);
+			error
+		})
 }
 async fn execute(options: &Options) -> Result<Value, Failure> {
 	match options.verb.as_str() {
 		"start" => supervise::start(options).await,
 		"join" => workspace::join(options).await,
+		"recover" => acquisition::recover(options).await,
 		"tick" => {
 			request(
 				&options.state,
-				json!({"verb":"tick", "wait":options.number("wait",30)?}),
+				json!({"verb":"tick", "wait":options.number("wait",30)?, "after_id":options.number("after-id",0)?}),
 			)
 			.await
 		}

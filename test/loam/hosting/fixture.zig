@@ -18,7 +18,7 @@ pub fn counter(call: *hosting.Call, view: loam.core.RecordView, verb: []const u8
     if (std.mem.eql(u8, verb, "add") or std.mem.eql(u8, verb, "fail")) {
         if (args.len != 1 or args[0] != .integer) return error.InvalidArguments;
         const next = try std.math.add(i64, number, args[0].integer);
-        const bytes = try call.arena.alloc(u8, 8);
+        const bytes = try call.arena().alloc(u8, 8);
         std.mem.writeInt(i64, bytes[0..8], next, .little);
         call.replace(bytes);
         if (std.mem.eql(u8, verb, "fail")) return error.Refused;

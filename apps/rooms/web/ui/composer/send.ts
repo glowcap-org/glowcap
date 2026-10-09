@@ -24,6 +24,12 @@ export function composerLineRefusal(conv: Conv, text: string): string | null {
 	return applicationModule().composerLineRefusal(text, conv.type === "room" ? conv.lineBytes : undefined) ?? null;
 }
 
+export type ComposerPlan =
+	| { kind: "nothing" }
+	| { kind: "refused"; why: string }
+	| Extract<PreparedComposerSend, { kind: "send" }>
+	| { kind: "command"; plan: Effect; original: string };
+
 type Prepared =
 	| { kind: "nothing" }
 	| { kind: "refused"; why: string }
@@ -35,6 +41,11 @@ export function prepareComposerSend(
 	draft: ComposerDraft,
 	powers: CommandPowers,
 ): PreparedComposerSend {
+	return applyComposerPlan(planComposerSend(conv, draft, powers), conv, powers);
+}
+
+/** Interpret without executing. A queued gesture owns this bounded plan. */
+export function planComposerSend(conv: Conv | null, draft: ComposerDraft, powers: CommandPowers): ComposerPlan {
 	const original = draft.text;
 	const files = [...draft.files];
 	const prepared = JSON.parse(
@@ -55,10 +66,7 @@ export function prepareComposerSend(
 	) as Prepared;
 	if (prepared.kind === "nothing" || prepared.kind === "refused") return prepared;
 	if (prepared.kind === "command") {
-		const outcome = applyCommandPlan(prepared.plan, powers, conv);
-		if (outcome.kind === "refused") return outcome;
-		if (outcome.kind !== "done") throw new Error("A Rust command gesture unexpectedly produced a message");
-		return { kind: "handled", original, retires: outcome.retires, completion: outcome.completion };
+		return { ...prepared, original };
 	}
 	return {
 		kind: "send",
@@ -67,4 +75,12 @@ export function prepareComposerSend(
 		files,
 		previewUrls: draft.previews.filter((preview) => preview.state !== "removed").map((preview) => preview.url),
 	};
+}
+
+export function applyComposerPlan(plan: ComposerPlan, conv: Conv | null, powers: CommandPowers): PreparedComposerSend {
+	if (plan.kind !== "command") return plan;
+	const outcome = applyCommandPlan(plan.plan, powers, conv);
+	if (outcome.kind === "refused") return outcome;
+	if (outcome.kind !== "done") throw new Error("A Rust command gesture unexpectedly produced a message");
+	return { kind: "handled", original: plan.original, retires: outcome.retires, completion: outcome.completion };
 }

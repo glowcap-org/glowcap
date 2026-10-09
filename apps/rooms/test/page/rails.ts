@@ -15,12 +15,17 @@ export async function run(tab: Page, browser: Browser, httpPort: number): Promis
 	// never get one for yourself. The name is long on purpose.
 	const second = await browser.newPage();
 	second.on("pageerror", (e) => console.error("  [page error, second peer]", e.message));
+	second.on("console", (message) => {
+		if (message.type() === "error") console.error("  [second peer]", message.text());
+	});
 	await second.goto(`http://127.0.0.1:${httpPort}/`);
 	await establishLocalSession(second);
 	await second.fill("#nick", "bartholomew-longname");
 	await second.fill("#room", "lobby");
 	await second.click("#joinBtn");
-	await second.waitForSelector("#line:not([disabled])", { timeout: 60_000 });
+	await second.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () => {
+		fail(`the second peer did not join lobby: ${await second.locator("body").innerText()}`);
+	});
 	await tab.waitForFunction(
 		() => document.querySelectorAll("#members li .dm-btn").length > 0,
 		undefined,

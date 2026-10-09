@@ -52,7 +52,10 @@ test "access stored loaded checks allocate nothing and operation quotas recover"
     try std.testing.expect(failing.allocated_bytes - reference_bytes <= f.limits.records.max_record_bytes + 96);
     const operation_bytes = failing.allocated_bytes;
     const op = try use.begin(4);
-    try std.testing.expect(failing.allocated_bytes - operation_bytes <= 32 * 1024);
+    // Independent Issue and Edit ceilings each retain 256 selected IDs in
+    // fixed decoder storage. The second selection adds 12 KiB on 64-bit;
+    // metadata and the embedded grant-read scratch fit the remaining bound.
+    try std.testing.expect(failing.allocated_bytes - operation_bytes <= 48 * 1024);
     const req: c.core.Policy.Requirement = .{ .permissions = &.{f.vocabulary.read} };
     try c.require(op, backend, resource, req);
     const count = failing.alloc_index;

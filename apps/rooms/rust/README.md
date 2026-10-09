@@ -14,7 +14,7 @@ tab.
 | --- | --- | --- |
 | `rooms-application` | Portable policy with no platform dependencies: documents and their bounds, the room protocol, files, the archive, the session, the server, the wire vocabularies | nothing |
 | `rooms-glowcap` | The view over the Rust binding's decoded values, and the clients that speak the Rooms protocol over a session | `rooms-application`, the Rust binding |
-| `rooms-runtime` | Shared execution over platform adapters: session commands, directory supervision, rooms, direct messages, media, archives, grants | `rooms-application`, `rooms-glowcap`, the Rust binding |
+| `rooms-runtime` | Shared execution over platform adapters: managed receipt execution, source-dependent supervision, direct messages, media and archives | `rooms-application`, `rooms-glowcap`, the Rust binding |
 | `rooms-platform` | The host side of those adapters: Tokio, operating-system entropy, leased filesystem storage, listeners, TLS trust, WebSocket byte channels | the three above, the Rust binding |
 | `rooms-services` | The room server, the session peer, the archive peer, the IRC bridge and front, the web front, and the interactive client | the four above |
 | `rooms-product` | Private executable entry points, workspace and roster supervision, and process proofs | `rooms-services` and its lower layers |
@@ -40,10 +40,6 @@ record the boundary.
   Markdown tree gives both the rendered document and the link candidates,
   and a preview selection is a validated subset carried without trusting a
   web site's metadata.
-- `grants` is the grant ledger: validation, revocation tombstones, the access
-  a link is read for on every call, and the HMAC derivation of published
-  names. Its storage adapter replaces the document atomically, and the
-  ledger commits only after the write is acknowledged.
 - `room` is the room protocol: the three access policies, line edit, refile,
   and withdraw, membership and stewardship, invitations, the inbox reader,
   and the client's view of history.
@@ -52,11 +48,11 @@ record the boundary.
   before it takes a file.
 - `archive` is the member archive: records and their identity, filters,
   blob digests, retention, merging across keepers, and shares.
-- `session` is the shared session. It holds the checkpoint and what each
-  access level may see of it, and the durable state with its effect ledger
-  and result recovery. It also owns command admission, the facts that keep the
-  checkpoint and the live rooms in agreement, and the snapshot an attached
-  view receives.
+- `content::session` declares managed workspace, custody and effect schemas,
+  permission requirements, presets and typed result routing. Shared Loam owns
+  grant semantics; `rooms-runtime::session::managed` owns receipt execution and
+  worker supervision. The [session guide](../../../docs/rooms/session.md) maps
+  the production consumers.
 - `bridge`, `direct`, `directory`, and `signaling` are the wire vocabularies,
   each with its bounded reader and writer.
 - `server` is what a Rooms server hosts:
@@ -158,6 +154,16 @@ The devcontainer image installs the wasm target and the `wasm-bindgen` the
 browser build needs. `zig build rooms-browser-build` produces the application
 module and its JavaScript glue, and every web launch and
 deployment preparation depends on it.
+Browser checks use the workspace's `browser-proof` profile for Wasm and native
+fixtures, with optimization level 1, no LTO, and 16 codegen units. Native
+fixtures have a separate Cargo target directory and install as
+`zig-out/libexec/rooms-web-proof` and `rooms-server-proof`. Their sibling layout
+preserves shared-library discovery. Managed room and
+sharing journeys link `rooms-browser` directly; fixture contracts link their
+own module. Each has separate generated glue and artifacts. Deployment builds
+keep the `release` profile, while native tests consume libraries without unused
+shared-library links. Channel proofs supply their module and start the native
+web front with browser asset preparation disabled.
 
 Running a test binary by hand needs glowcap's shared libraries on the
 loader path: from `apps/rooms/rust`,

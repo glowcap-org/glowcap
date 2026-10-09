@@ -8,7 +8,9 @@ import { RegistrationIdSchema } from "./directory_publications.ts";
 import { parseRoomsSturdyref, roomsLocator } from "./locator.ts";
 import { roomsPeerAuthority } from "./routes.ts";
 import { boundedText as boundedSchemaText, nonemptyText as nonemptySchemaText } from "./schema.ts";
-import { traceOverrideRefusal } from "./trace_publish.ts";
+import { RoomsViewStateSchema } from "./view_state.ts";
+export { DEFAULT_ROOMS_VIEW_STATE, RoomsViewStateSchema } from "./view_state.ts";
+export type { RoomsSettingsTab, RoomsViewState } from "./view_state.ts";
 
 export const WORKSPACE_STATE_KEY = "rooms.workspace-state";
 export const WORKSPACE_STATE_VERSION = 1;
@@ -200,7 +202,6 @@ const RoomsSessionStateShapeSchema = z.strictObject({
 	keepHistory: z.boolean(),
 	join: z.strictObject({ room: boundedText(), locator: boundedText(), nick: boundedText() }),
 	dmMode: z.enum(["webrtc", "relay"]),
-	traceOverride: boundedText(),
 	capabilities: z.strictObject({
 		operations: WorkspaceOperationCredentialsSchema,
 		archivePeer: z.nullable(sturdyrefText),
@@ -212,17 +213,7 @@ type RoomsSessionStateShape = z.infer<typeof RoomsSessionStateShapeSchema>;
 
 export const RoomsSessionStateSchema = RoomsSessionStateShapeSchema.check(
 	z.refine(hasValidSessionRelations),
-	z.refine((state) => traceOverrideRefusal(state.traceOverride) == null),
 );
-
-export const RoomsViewStateSchema = z.strictObject({
-	theme: z.enum(["light", "dark"]),
-	notifyOn: z.boolean(),
-	railOpen: z.boolean(),
-	rosterOpen: z.boolean(),
-	settingsTab: z.enum(["session", "holdings", "reachability"]),
-	opsPane: operationsCapability,
-});
 
 const RoomsWorkspaceStateShapeSchema = z.strictObject({
 	version: z.literal(WORKSPACE_STATE_VERSION),
@@ -366,7 +357,6 @@ function sturdyrefAuthority(sturdyref: string): string | null {
 
 export const RoomsWorkspaceStateSchema = RoomsWorkspaceStateShapeSchema;
 
-export type RoomsSettingsTab = z.infer<typeof RoomsViewStateSchema>["settingsTab"];
 export type WorkspaceOperationCredential = z.infer<typeof WorkspaceOperationCredentialSchema>;
 export type WorkspaceDirectory = z.infer<typeof WorkspaceDirectorySchema>;
 export type WorkspaceRoomConversation = z.infer<typeof WorkspaceRoomConversationSchema>;
@@ -384,7 +374,6 @@ export type SharedRoomsControllerSelection = Extract<
 >;
 export type RoomsWorkspaceState = z.infer<typeof RoomsWorkspaceStateSchema>;
 export type RoomsSessionState = z.infer<typeof RoomsSessionStateSchema>;
-export type RoomsViewState = z.infer<typeof RoomsViewStateSchema>;
 
 export { sharedRoomsSession } from "./workspace_view.ts";
 
@@ -392,19 +381,6 @@ export function parseWorkspaceOperationCredentials(raw: unknown): WorkspaceOpera
 	const parsed = z.safeParse(WorkspaceOperationCredentialsSchema, raw);
 	return parsed.success ? parsed.data : null;
 }
-
-export const DEFAULT_ROOMS_VIEW_STATE: RoomsViewState = {
-	/* Syrup, the same face a reader who has never touched the switch opens on.
-	   A workspace that carries no view section is answering the same question
-	   a first visit asks, so it has to give the same answer: light here would
-	   mean importing an old document quietly turned the page over. */
-	theme: "dark",
-	notifyOn: false,
-	railOpen: true,
-	rosterOpen: true,
-	settingsTab: "session",
-	opsPane: "listeners",
-};
 
 export function emptyRoomsSessionState(): RoomsSessionState {
 	return {
@@ -418,7 +394,6 @@ export function emptyRoomsSessionState(): RoomsSessionState {
 		keepHistory: true,
 		join: { room: "", locator: "", nick: "" },
 		dmMode: "webrtc",
-		traceOverride: "",
 		capabilities: { operations: [], archivePeer: null },
 		peering: [],
 	};

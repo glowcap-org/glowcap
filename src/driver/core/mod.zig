@@ -5,8 +5,8 @@
 //! failure here, exactly as they are in `engine`. It gives the serve core the
 //! same I/O ban `engine.Node` already has, so the boundary the driver stands on
 //! is enforced by the build, not by convention (ADR-0072). The I/O bindings —
-//! `BlockingSession`, `driver.Bridge` (the completion-loop embedder over this
-//! layer's `Host`), the transport constructors — live above it in `driver`.
+//! `BlockingSession`, `driver.HostRuntime` (the transport-resident embedder over
+//! this layer's `Host`), the transport constructors — live above it in `driver`.
 
 const served = @import("served.zig");
 const builtin = @import("builtin");
@@ -59,7 +59,7 @@ pub const Publish = served.Publish;
 pub const default_loop_local_turn_budget = served.default_loop_local_turn_budget;
 
 // The byte-fed multi-session CapTP host core (ADR-0072): the node's decisions
-// executed with no socket (see `host.zig`). `driver.Bridge` and
+// executed with no socket (see `host.zig`). `driver.HostRuntime` and
 // the C ABI's `libglowcap_host` are its embedders.
 pub const Host = host.Host;
 pub const HostSession = host.HostSession;
@@ -91,6 +91,8 @@ pub const Capability = capability.Ref;
 pub const CapabilityIdIssuer = capability.IdIssuer;
 /// The owning tier's passable value and reply (see `value.zig`): data arms
 /// mirror `model.Argument`, capability mentions are opaque.
+pub const copyValue = @import("value_copy.zig").copy;
+pub const valueCopyBytes = @import("value_copy.zig").measureSlice;
 pub const Value = value.Value;
 pub const Reply = value.Reply;
 /// The Value-shaped hosted-behavior adapter and its per-delivery window

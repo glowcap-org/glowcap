@@ -7,6 +7,9 @@ import {
 	reducer,
 	toolsForMode,
 } from "./app-state.ts";
+import { installMemoryStorage } from "./memory-storage.ts";
+
+installMemoryStorage();
 
 // A minimal seed state for tests. Skip pane-size geometry; only
 // the mode-related fields exercise the reducer.
@@ -103,7 +106,7 @@ Deno.test("the current persisted mode and live sturdyref survive reload", () => 
 		tool: "select" as const,
 		firstPickNodeId: null,
 	};
-	globalThis.localStorage?.setItem(
+	localStorage.setItem(
 		APP_STATE_STORAGE_KEY,
 		JSON.stringify(stored),
 	);
@@ -112,6 +115,6 @@ Deno.test("the current persisted mode and live sturdyref survive reload", () => 
 		assertEquals(init.mode, "build");
 		assertEquals(init.liveSturdyref, "ocapn://x.tcp/s/trace");
 	} finally {
-		globalThis.localStorage?.removeItem(APP_STATE_STORAGE_KEY);
+		localStorage.removeItem(APP_STATE_STORAGE_KEY);
 	}
 });

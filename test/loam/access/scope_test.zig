@@ -1,6 +1,7 @@
 //! Managed access scope semantics: exact selection, future descendants, and current graph
 //! coverage. These assertions do not claim grant or capability enforcement.
 
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const core = @import("glowcap").loam.access.core;
 const Graph = core.Graph;
@@ -10,7 +11,7 @@ const kind: core.KindId = @fromBackingInt(@intCast(7));
 test "access exact access cannot authorize future descendants" {
     var graph = try Graph.init(std.testing.allocator, @fromBackingInt(@intCast(1)), .{ .capacity = 4 });
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), kind, null);
+    const root = try graph.create(graph.revision(), &structural_policy, kind, null);
     const exact: Scope = .{ .object = root };
     const subtree: Scope = .{ .owned_subtree = root };
     const selected: Scope = .{ .objects = &.{root} };
@@ -18,7 +19,7 @@ test "access exact access cannot authorize future descendants" {
     try std.testing.expect(try exact.isSubsetOf(&resources, subtree));
     try std.testing.expect(!try subtree.isSubsetOf(&resources, exact));
     try std.testing.expect(!try subtree.isSubsetOf(&resources, selected));
-    const child = try graph.create(graph.revision(), kind, root);
+    const child = try graph.create(graph.revision(), &structural_policy, kind, root);
     resources = graph.readView();
     try std.testing.expect(try subtree.contains(&resources, child));
     try std.testing.expect(!try exact.contains(&resources, child));
@@ -28,9 +29,9 @@ test "access exact access cannot authorize future descendants" {
 test "access scope coverage changes with containment without retargeting exact IDs" {
     var graph = try Graph.init(std.testing.allocator, @fromBackingInt(@intCast(1)), .{ .capacity = 5 });
     defer graph.deinit() catch unreachable;
-    const a = try graph.create(graph.revision(), kind, null);
-    const b = try graph.create(graph.revision(), kind, null);
-    const child = try graph.create(graph.revision(), kind, a);
+    const a = try graph.create(graph.revision(), &structural_policy, kind, null);
+    const b = try graph.create(graph.revision(), &structural_policy, kind, null);
+    const child = try graph.create(graph.revision(), &structural_policy, kind, a);
     const child_scope: Scope = .{ .owned_subtree = child };
     const a_scope: Scope = .{ .owned_subtree = a };
     const b_scope: Scope = .{ .owned_subtree = b };
@@ -38,7 +39,7 @@ test "access scope coverage changes with containment without retargeting exact I
     var resources = graph.readView();
     try std.testing.expect(try child_scope.isSubsetOf(&resources, a_scope));
     try std.testing.expect(!try child_scope.isSubsetOf(&resources, b_scope));
-    try graph.reparent(graph.revision(), child, b);
+    try graph.reparent(graph.revision(), &structural_policy, child, b);
     resources = graph.readView();
     try std.testing.expect(!try child_scope.isSubsetOf(&resources, a_scope));
     try std.testing.expect(try child_scope.isSubsetOf(&resources, b_scope));
@@ -49,8 +50,8 @@ test "access scope coverage changes with containment without retargeting exact I
 test "access selected scopes are bounded canonical and fully validated" {
     var graph = try Graph.init(std.testing.allocator, @fromBackingInt(@intCast(1)), .{ .capacity = 4 });
     defer graph.deinit() catch unreachable;
-    const a = try graph.create(graph.revision(), kind, null);
-    const b = try graph.create(graph.revision(), kind, null);
+    const a = try graph.create(graph.revision(), &structural_policy, kind, null);
+    const b = try graph.create(graph.revision(), &structural_policy, kind, null);
     const selection: Scope = .{ .objects = &.{ a, b } };
     var resources = graph.readView();
     try std.testing.expect(try selection.contains(&resources, a));
@@ -74,11 +75,11 @@ test "access selected scopes are bounded canonical and fully validated" {
 test "access scope cannot revive access when a destroyed slot is reused" {
     var graph = try Graph.init(std.testing.allocator, @fromBackingInt(@intCast(1)), .{ .capacity = 1 });
     defer graph.deinit() catch unreachable;
-    const old = try graph.create(graph.revision(), kind, null);
+    const old = try graph.create(graph.revision(), &structural_policy, kind, null);
     const exact: Scope = .{ .object = old };
     const subtree: Scope = .{ .owned_subtree = old };
     try graph.destroy(graph.revision(), old);
-    const fresh = try graph.create(graph.revision(), kind, null);
+    const fresh = try graph.create(graph.revision(), &structural_policy, kind, null);
     var resources = graph.readView();
     try std.testing.expectError(error.Gone, exact.contains(&resources, fresh));
     try std.testing.expectError(error.Gone, subtree.contains(&resources, fresh));

@@ -59,16 +59,6 @@ test "Linux completion status survives native loop adapter stacks" {
     );
     defer relay.deinit();
     try std.testing.expectEqualDeep(expected, net.tcpBackendStatus(&relay));
-
-    var noise = try net.NoiseRelayLoop.initWithBackend(
-        std.testing.allocator,
-        try net.NoiseRelayBackend.init(std.testing.allocator, 1, 1, 64),
-        unusedMakePeer,
-        null,
-        .{ .max_conns = 0 },
-    );
-    defer noise.deinit();
-    try std.testing.expectEqualDeep(expected, net.tcpBackendStatus(&noise));
 }
 
 fn unusedMakePeer(_: ?*anyopaque, _: std.mem.Allocator) anyerror!glowcap.Peer {

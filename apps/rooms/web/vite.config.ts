@@ -147,7 +147,10 @@ export default defineConfig(({ command }) => {
 		// Keep them in the terminal across startup and configuration reloads.
 		clearScreen: false,
 		logLevel: development ? "info" : "warn",
-		plugins: [externalApplicationWasm(), deno(), react(), roomsDevelopment()],
+		// Startup owns the Host and React root for one document lifetime. It
+		// cannot be replaced as a component: a refresh would open a second Host
+		// and leave the rendered controls holding the previous projection.
+		plugins: [externalApplicationWasm(), deno(), react({ exclude: /\/ui\/main\.tsx$/ }), roomsDevelopment()],
 		build: {
 			// Mobile Safari on iOS 26 is the oldest supported JavaScript engine.
 			// Current Chrome and Firefox implement this floor or a newer one.

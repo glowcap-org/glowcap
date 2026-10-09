@@ -322,7 +322,7 @@ fn iroh_provider_dials_live() {
 		// accept task would race it.
 		server
 			.host()
-			.publish_giftable("greeter", || Box::new(|_verb, _args| Ok(Argument::Symbol("hi".into()))))
+			.publish("greeter", || Box::new(|_verb, _args| Ok(Argument::Symbol("hi".into()))))
 			.unwrap();
 		let accept_server = Rc::clone(&server);
 		let accept_task = tokio::task::spawn_local(async move {

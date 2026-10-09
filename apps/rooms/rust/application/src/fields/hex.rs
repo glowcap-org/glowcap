@@ -26,6 +26,16 @@ pub fn lower_hex(bytes: &[u8]) -> String {
 /// this same document grammar as digests, but never appear in Debug output.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Hex<const N: usize>(pub(crate) [u8; N]);
+impl<const N: usize> Hex<N> {
+	/// Borrow the validated fixed identity at a storage or protocol boundary.
+	pub fn bytes(&self) -> &[u8; N] {
+		&self.0
+	}
+	/// Explicit scalar encoding for independently owned document keys.
+	pub fn encode(&self) -> String {
+		lower_hex(&self.0)
+	}
+}
 impl<const N: usize> Serialize for Hex<N> {
 	fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
 		s.collect_str(&LowerHex(&self.0))

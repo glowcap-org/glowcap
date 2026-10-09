@@ -231,11 +231,11 @@
 ;; #f when nothing is published there.
 ;;
 ;; `session-publish` returns its own capability, so this is for the other
-;; publisher: `host-publish-giftable` hosts one actor under a Host-wide alias
+;; publisher: `host-publish` hosts one actor under a Host-wide alias
 ;; and returns nothing. Reading its Host identity lazily projects it onto this
 ;; session so an application can pass it as an ordinary capability argument.
 ;;
-;; A giftable is a bare trampoline closure here rather than a vat actor, so the
+;; A Host publication is a bare trampoline closure here rather than a vat actor, so the
 ;; result is for handing to a partner: unlike a `session-spawn` capability, a
 ;; local send to it is not composed in Racket.
 (define (session-published-ref c name)
@@ -558,6 +558,17 @@
       (define-values (rc resolver-id) (glowcap_host_turn_defer (turn-context-turn t)))
       (check/host rc)
       (resolver m resolver-id))))
+
+;; Calls retain one-shot settlement custody; tells create no resolver.
+(define (host-defer-turn-if-answer m)
+  (define t (current-turn))
+  (unless (and t (eq? (turn-context-host t) m))
+    (error 'host-defer-turn-if-answer "call it inside a behavior of this host"))
+  (call-with-host m
+    (lambda ()
+      (define-values (rc resolver-id) (glowcap_host_turn_defer_if_answer (turn-context-turn t)))
+      (check/host rc)
+      (and (not (zero? resolver-id)) (resolver m resolver-id)))))
 
 ;; Settle the deferred answer fulfilled with the capability-free `value`.
 (define (resolver-fulfill! r value)

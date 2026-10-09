@@ -60,7 +60,7 @@ impl<S> Read<S> {
 		if self.range.start <= self.slot.prefix.get() {
 			self.slot.prefix.set(self.slot.prefix.get().max(self.range.end));
 		}
-		if self.slot.prefix.get() == self.slot.description.size() {
+		if !self.slot.repeatable && self.slot.prefix.get() == self.slot.description.size() {
 			self.slot.source.borrow_mut().take();
 		}
 		Ok(())

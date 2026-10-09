@@ -45,7 +45,7 @@ fn card(call_state: *hosting.Call, state: core.RecordView, verb: []const u8, arg
     const moves = std.mem.readInt(i64, state.payload[0..8], .little);
     if (std.mem.eql(u8, verb, "moves")) return .{ .integer = moves };
     if (std.mem.eql(u8, verb, "move")) {
-        const next = try call_state.arena.alloc(u8, 8);
+        const next = try call_state.arena().alloc(u8, 8);
         std.mem.writeInt(i64, next[0..8], moves + 1, .little);
         call_state.replace(next);
         return .{ .integer = moves + 1 };

@@ -9,14 +9,18 @@ const profile = @import("profile.zig");
 const Window = @import("retry_window.zig").RetryWindow;
 
 pub const EndpointRecord = struct {
+    pub const Binding = struct { resource: core.ResourceId, object: loam.ObjectId };
     descriptor: loam.ObjectId,
-    content: ?struct { resource: core.ResourceId, object: loam.ObjectId } = null,
+    content: ?Binding = null,
+    /// Exact durable content authority administered by a control. This field
+    /// never makes the endpoint usable; role admission remains in its descriptor.
+    administration: ?Binding = null,
     publication: ?loam.ObjectId = null,
     derivations: Window = .{},
     mutations: Window = .{},
     pub const max_receipts = Window.capacity;
-    pub const version = 1;
-    pub const max_edges = 3 + 2 * max_receipts;
+    pub const version = 2;
+    pub const max_edges = 4 + 2 * max_receipts;
     pub const max_encoded_bytes = 256;
 
     pub fn encodeAlloc(self: EndpointRecord, allocator: std.mem.Allocator) ![]u8 {
@@ -24,6 +28,9 @@ pub const EndpointRecord = struct {
         try self.mutations.validate();
         if (self.content) |content| {
             if (content.resource.generation == 0 or content.object.store != self.descriptor.store) return error.InvalidRecord;
+        }
+        if (self.administration) |binding| {
+            if (self.content != null or binding.resource.generation == 0 or binding.object.store != self.descriptor.store) return error.InvalidRecord;
         }
         if (self.publication) |id| if (id.store != self.descriptor.store) return error.InvalidRecord;
         for ([_]Window{ self.derivations, self.mutations }) |window| {
@@ -50,6 +57,13 @@ pub const EndpointRecord = struct {
             if (resource.generation == 0) return error.InvalidRecord;
             result.content = .{ .resource = resource, .object = edge.target };
         }
+        if (try s.readBool(b, &c)) {
+            if (result.content != null) return error.InvalidRecord;
+            const edge = try nextEdge(&iterator, descriptor.target);
+            const resource = try fields.readId(core.ResourceId, b, &c);
+            if (resource.generation == 0) return error.InvalidRecord;
+            result.administration = .{ .resource = resource, .object = edge.target };
+        }
         if (try s.readBool(b, &c)) result.publication = (try nextEdge(&iterator, descriptor.target)).target;
         result.derivations = try Window.read(b, &c, &iterator, descriptor.target.store);
         result.mutations = try Window.read(b, &c, &iterator, descriptor.target.store);
@@ -65,6 +79,8 @@ pub const EndpointRecord = struct {
         try s.writePositiveInt(sink, version);
         try s.writeBool(sink, self.content != null);
         if (self.content) |content| try fields.writeId(sink, content.resource);
+        try s.writeBool(sink, self.administration != null);
+        if (self.administration) |binding| try fields.writeId(sink, binding.resource);
         try s.writeBool(sink, self.publication != null);
         try self.derivations.write(sink);
         try self.mutations.write(sink);
@@ -76,6 +92,10 @@ pub const EndpointRecord = struct {
         buffer[0] = .{ .target = self.descriptor };
         if (self.content) |content| {
             buffer[n] = .{ .target = content.object };
+            n += 1;
+        }
+        if (self.administration) |binding| {
+            buffer[n] = .{ .target = binding.object };
             n += 1;
         }
         if (self.publication) |id| {

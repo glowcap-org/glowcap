@@ -59,6 +59,11 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	// room with an IRC badge. Its second line remains directory context, the
 	// same as every other room on that directory.
 	await tab.click("#newRoomBtn");
+	// Operations has no selected conversation. Its rail names the first held
+	// directory, which can be foreign; explicitly choose the gateway's home.
+	await tab.click("#newRoomElsewhere");
+	await tab.waitForSelector("#locator");
+	await tab.fill("#locator", "");
 	await tab.fill("#newRoomInput", "deadnet");
 	await tab.waitForSelector('#newRoomOffers .complete-row:has-text("deadnet/#nowhere")', { timeout: 10_000 })
 		.catch(() => fail("the rail field does not offer the bridged channel's name"));
@@ -105,7 +110,7 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	});
 	await tab.click("#convcardCapabilitiesTab");
 	if (await tab.locator("#convcardManagerTake").count() !== 0) {
-		fail("the IRC bridge exposed a native room-manager form it cannot satisfy");
+		fail("the IRC bridge exposed a room-manager form it cannot satisfy");
 	}
 	const bridgeAuthority = (await tab.locator('[aria-label="Room capabilities"]').textContent()) ?? "";
 	if (!bridgeAuthority.includes("IRC bridge owns entry and moderator authority")) {

@@ -240,6 +240,8 @@ pub const InvalidMultiplexedResident = struct {
         _: usize,
         _: ?[*]const u8,
         _: usize,
+        _: ?[*]const u8,
+        _: usize,
         _: ?*const cshared.GlowcapTransportOperationOptions,
         out_result: ?*cdrv.GlowcapListenResult,
         out_failure: ?*cdrv.GlowcapProviderFailure,
@@ -336,13 +338,13 @@ pub const InvalidMultiplexedResident = struct {
 
     pub fn tryRead(ctx: ?*anyopaque, _: u64, _: ?[*]u8, _: usize) callconv(.c) isize {
         const self: *InvalidMultiplexedResident = @ptrCast(@alignCast(ctx.?));
-        return self.read_result orelse cdrv.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+        return self.read_result orelse cdrv.GLOWCAP_TRANSPORT_WOULD_BLOCK;
     }
 
     pub fn tryWrite(ctx: ?*anyopaque, _: u64, _: ?[*]const u8, len: usize) callconv(.c) isize {
         const self: *InvalidMultiplexedResident = @ptrCast(@alignCast(ctx.?));
         if (self.write_result) |result| return result;
-        return if (self.connect_io) @intCast(len) else cdrv.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+        return if (self.connect_io) @intCast(len) else cdrv.GLOWCAP_TRANSPORT_WOULD_BLOCK;
     }
 
     pub fn remoteKey(_: ?*anyopaque, _: u64, _: ?[*]u8) callconv(.c) i32 {
@@ -436,12 +438,12 @@ pub const MalformedImmediateStream = struct {
         return c.GLOWCAP_OK;
     }
 
-    pub fn read(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]u8, _: usize) callconv(.c) isize {
+    pub fn tryRead(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]u8, _: usize) callconv(.c) isize {
         return -1;
     }
 
-    pub fn writeAll(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]const u8, _: usize) callconv(.c) i32 {
-        return c.GLOWCAP_ERR_IO;
+    pub fn tryWrite(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]const u8, _: usize) callconv(.c) isize {
+        return -1;
     }
 
     pub fn closeConnection(_: ?*anyopaque, _: ?*anyopaque, _: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
@@ -466,8 +468,8 @@ pub const MalformedImmediateStream = struct {
             .listener_restoration_state = null,
             .accept = accept,
             .listener_close = closeListener,
-            .read = read,
-            .write_all = writeAll,
+            .try_read = tryRead,
+            .try_write = tryWrite,
             .conn_close = closeConnection,
             .conn_take_failure = noStreamConnectionFailure,
         };
@@ -529,11 +531,11 @@ pub const AsyncFailureResident = struct {
     }
 
     pub fn tryRead(_: ?*anyopaque, _: u64, _: ?[*]u8, _: usize) callconv(.c) isize {
-        return cdrv.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+        return cdrv.GLOWCAP_TRANSPORT_WOULD_BLOCK;
     }
 
     pub fn tryWrite(_: ?*anyopaque, _: u64, _: ?[*]const u8, _: usize) callconv(.c) isize {
-        return cdrv.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+        return cdrv.GLOWCAP_TRANSPORT_WOULD_BLOCK;
     }
 
     pub fn connClose(_: ?*anyopaque, _: u64, _: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {

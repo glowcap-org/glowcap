@@ -72,6 +72,12 @@ const ScriptBackend = struct {
         self.* = .{ .pool_free = 0 };
     }
 
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
+    }
+
     pub fn openListener(self: *@This(), port: u16) !Fd {
         _ = self;
         _ = port;
@@ -334,6 +340,12 @@ const HeldSendBackend = struct {
     pub fn deinit(self: *HeldSendBackend) void {
         if (self.held) |held| self.allocator.free(held.snapshot);
         self.* = .{ .allocator = self.allocator, .pool_free = 0 };
+    }
+
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
     }
 
     pub fn openListener(self: *@This(), port: u16) !Fd {

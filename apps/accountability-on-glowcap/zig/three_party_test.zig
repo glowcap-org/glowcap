@@ -46,7 +46,7 @@ const ExporterArgs = struct {
 /// C publishes once, then serves both A's fetch/deposit session and B's later
 /// withdrawal/invocation session from the Server's one owning HostRuntime.
 fn serveExporter(args: ExporterArgs) !void {
-    try args.server.publishGiftable(affordance.AFFORDANCE_NAME, affordance.HostAffordance, .{
+    try args.server.publish(affordance.AFFORDANCE_NAME, affordance.HostAffordance, .{
         .state = .{
             .store = args.store,
             .served = args.served,
@@ -72,37 +72,28 @@ fn serveExporter(args: ExporterArgs) !void {
 }
 
 const GifterArgs = struct {
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    netlayers: []const net.netlayer.Netlayer,
+    server: *driver.Server,
     exporter_designator: []const u8,
-    listener: net.netlayer.Listener,
     done: *std.atomic.Value(bool),
 };
 
 /// A holds C's capability on one session and publishes an introducer to B on
 /// another. Returning the opaque capability is the entire handoff operation.
 fn serveGifter(args: GifterArgs) !void {
-    const advertised = try args.listener.localLocator(args.allocator);
-    defer model.freePeerLocator(args.allocator, advertised);
-
-    var runtime = try driver.HostRuntime.init(args.allocator, args.io, args.netlayers, .ephemeral, opts);
-    defer runtime.deinit();
-    try runtime.core.setAdvertisedLocator(advertised);
+    const runtime = args.server.runtime;
 
     var exporter_addr_buf: [tcp.designator_buf_len]u8 = undefined;
     const exporter_session = try runtime.connectLocator(tcp.locatorFromAddress(
         &exporter_addr_buf,
         try tcp.parseDesignator(args.exporter_designator),
     ), .inherit);
-    const exporter = try driver.Session.adopt(&runtime, exporter_session);
+    const exporter = try driver.Session.adopt(runtime, exporter_session);
     defer exporter.deinit();
     const target = try exporter.fetch(affordance.AFFORDANCE_NAME);
 
-    const accepted = try runtime.acceptWire(args.listener, args.listener.transportName());
-    const recipient = try driver.Session.adopt(&runtime, accepted);
+    try args.server.publish("introducer", Introducer, .{ .target = target });
+    const recipient = try args.server.accept();
     defer recipient.deinit();
-    _ = try recipient.publish("introducer", Introducer, .{ .target = target });
 
     while (!args.done.load(.acquire)) {
         _ = recipient.stepReadable(20) catch |err| switch (err) {
@@ -153,13 +144,13 @@ test "three-party TCP handoff: C attributes B, not introducer A" {
     var served: usize = 0;
     var last_subject: [said.SAID_LEN]u8 = @splat(0);
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
     var done = std.atomic.Value(bool).init(false);
 
     var exporter = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -169,24 +160,17 @@ test "three-party TCP handoff: C attributes B, not introducer A" {
     const exporter_designator = try allocator.dupe(u8, try exporter.localDesignator(&exporter_buf));
     defer allocator.free(exporter_designator);
 
-    var gifter_listen = switch (tcp_resident.netlayer().listen(
+    var gifter = try driver.listen(
         allocator,
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
-    )) {
-        .admitted => |result| result,
-        .failed => |failure| return failure.cause,
-    };
-    var gifter_listener = switch (gifter_listen.requireReady()) {
-        .ready => |listener| listener,
-        .failed => |failure| return failure.cause,
-    };
-    var gifter_listener_closed = false;
-    defer if (!gifter_listener_closed) {
-        if (gifter_listener.close()) |failure|
-            std.debug.print("accountability gifter listener cleanup failed: {s}\n", .{@errorName(failure.cause)});
-    };
-    const gifter_locator = try gifter_listener.localLocator(allocator);
-    defer model.freePeerLocator(allocator, gifter_locator);
+        .ephemeral,
+        opts,
+    );
+    defer gifter.deinit();
+    const gifter_locator = try gifter.advertisedLocator();
 
     var exporter_future = try io.concurrent(serveExporter, .{ExporterArgs{
         .server = exporter,
@@ -196,11 +180,8 @@ test "three-party TCP handoff: C attributes B, not introducer A" {
         .done = &done,
     }});
     var gifter_future = try io.concurrent(serveGifter, .{GifterArgs{
-        .allocator = allocator,
-        .io = io,
-        .netlayers = &netlayers,
+        .server = gifter,
         .exporter_designator = exporter_designator,
-        .listener = gifter_listener,
         .done = &done,
     }});
     var hosts_joined = false;
@@ -214,7 +195,8 @@ test "three-party TCP handoff: C attributes B, not introducer A" {
 
     const recipient = try driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.tcp} },
         gifter_locator,
         .ephemeral,
         opts,
@@ -240,9 +222,7 @@ test "three-party TCP handoff: C attributes B, not introducer A" {
     try exporter_future.await(io);
     hosts_joined = true;
 
-    const listener_close = gifter_listener.close();
-    gifter_listener_closed = true;
-    if (listener_close) |failure| return failure.cause;
+    if (gifter.close()) |failure| return failure.cause;
     if (exporter.close()) |failure| return failure.cause;
 
     try std.testing.expectEqual(@as(usize, 1), served);

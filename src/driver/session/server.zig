@@ -110,9 +110,9 @@ pub const Server = struct {
     /// Publish one Host-Vat actor under `name`. Any accepted Port can discover
     /// it lazily; exact gifts retain that actor independently of later name
     /// changes.
-    pub fn publishGiftable(self: *Server, name: []const u8, comptime Behavior: type, initial: Behavior) !void {
+    pub fn publish(self: *Server, name: []const u8, comptime Behavior: type, initial: Behavior) !void {
         try self.ensureOpen();
-        return self.runtime.publishGiftable(name, Behavior, initial);
+        return self.runtime.publish(name, Behavior, initial);
     }
 
     /// Remove the Host-wide alias `name` (see `HostRuntime.unpublish`): a later
@@ -311,46 +311,16 @@ pub const Server = struct {
     }
 };
 
-/// Bind a listener on `netlayer` and return the owning `Server`, whose every
-/// accept shares one host identity. `identity` is the responder signing
-/// posture (`.ephemeral` fresh random, `.keyed` a caller-held key). A
-/// netlayer whose transport reports no pollable fd is refused at accept
-/// (`Error.TransportNotPollable`), the same poll boundary `connect` holds.
+/// Bind a listener for `transport` over the transports `transports` names
+/// and return the owning `Server`, whose every accept shares one host
+/// identity. `identity` is the responder signing posture (`.ephemeral` fresh
+/// random, `.keyed` a caller-held key). The same runtime redeems a give an
+/// accepted session receives, so whatever `transports` borrows outlives the
+/// Server and every Session it yields.
 pub fn listen(
     allocator: std.mem.Allocator,
-    netlayer: net.netlayer.Netlayer,
-    config: net.netlayer.ListenConfig,
-    identity: driver.AcceptIdentity,
-    opts: SessionOptions,
-) !*Server {
-    // A transport with no pollable fd cannot back a multiplexed blocking wait;
-    // refuse it by its own name rather than as an entropy failure.
-    const io = netlayer.io() orelse return Error.TransportNotPollable;
-    const shared = try allocator.create(SharedRuntime);
-    errdefer allocator.destroy(shared);
-    // The server's own transport is its immutable dial table: an accepted
-    // session that receives a give naming a third peer redeems it there.
-    shared.* = SharedRuntime.init(
-        allocator,
-        try host_runtime.HostRuntime.init(
-            allocator,
-            io,
-            &.{netlayer},
-            acceptToIdentity(identity),
-            opts,
-        ),
-    );
-    errdefer shared.runtime.deinit();
-
-    return finishListen(shared, netlayer.transportName(), config, identity);
-}
-
-/// Bind through borrowed stream or multiplexed providers. Provider contexts
-/// outlive the Server and every Session it yields, including after close.
-pub fn listenProviders(
-    allocator: std.mem.Allocator,
     io: std.Io,
-    providers: []const host_runtime.HostRuntime.ProviderRegistration,
+    transports: host_runtime.HostRuntime.Transports,
     transport: []const u8,
     config: net.netlayer.ListenConfig,
     identity: driver.AcceptIdentity,
@@ -358,7 +328,7 @@ pub fn listenProviders(
 ) !*Server {
     const shared = try allocator.create(SharedRuntime);
     errdefer allocator.destroy(shared);
-    shared.* = SharedRuntime.init(allocator, try host_runtime.HostRuntime.initProviders(allocator, io, providers, acceptToIdentity(identity), opts));
+    shared.* = SharedRuntime.init(allocator, try host_runtime.HostRuntime.init(allocator, io, transports, acceptToIdentity(identity), opts));
     errdefer shared.runtime.deinit();
     return finishListen(shared, transport, config, identity);
 }

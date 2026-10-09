@@ -6,8 +6,6 @@
 import type { DirId } from "../types.ts";
 
 import type {
-	DiagnosticRow,
-	ListenerRow,
 	OperatorCategory,
 	OperatorLinkRow,
 	OperatorReferenceKind,
@@ -84,10 +82,7 @@ export interface TracePublishState {
 	readonly refusal: string | null;
 }
 
-/** What this tab holds while the IRC gateway capability is in hand: the
- * gateway's whole description, as the bridge behind it drew it. Possession is
- * this being non-null, the same rule as its siblings. It is a generic bridge
- * gateway; IRC is the one bridge that fills it today. */
+/** The gateway's last description. Custody intent separately owns possession. */
 export type IrcGatewayState = BridgeGateway;
 
 /** One bridged room a room operator administers: the connection and lease it
@@ -131,13 +126,7 @@ export interface RoomsOperatorState {
  * session-fetched capabilities, the endpoint URL for the visualizer. */
 export type OpsScope = DirId | string;
 
-/** Which operations capabilities this tab holds now.
- *
- * Never stored: possession's one authority is whether each capability's rows
- * are in the store, which the data layer sets on take and clears on drop or
- * reconnect. The Holdings toggles, the Operations control, and the modal's
- * panes are all derived from this, so none of them can disagree with the
- * capability actually being in hand. */
+/** Scalar possession projected from the managed workspace's custody intent. */
 export interface OpsHeld {
 	readonly listeners: boolean;
 	readonly diagnostics: boolean;
@@ -145,25 +134,6 @@ export interface OpsHeld {
 	readonly operator: boolean;
 	readonly peering: boolean;
 	readonly trace: boolean;
-}
-
-/** Derive possession from the four row fields. */
-export function opsHeldOf(
-	listeners: readonly ListenerRow[] | null,
-	diagnostics: readonly DiagnosticRow[] | null,
-	irc: IrcGatewayState | null,
-	operator: RoomsOperatorState | null,
-	peering: PeeringState | null,
-	trace: TracePublishState | null,
-): OpsHeld {
-	return {
-		listeners: listeners !== null,
-		diagnostics: diagnostics !== null,
-		irc: irc !== null,
-		operator: operator !== null,
-		peering: peering !== null,
-		trace: trace !== null,
-	};
 }
 
 /** Whether any operations capability is held. This one answer controls its

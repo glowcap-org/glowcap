@@ -19,7 +19,6 @@ pub(super) struct State {
 	#[serde(deserialize_with = "crate::fields::object")]
 	pub join: Join,
 	pub dm_mode: DmMode,
-	pub trace_override: Field,
 	#[serde(deserialize_with = "crate::fields::object")]
 	pub capabilities: Capabilities,
 	#[serde(deserialize_with = "crate::fields::object_list")]
@@ -247,7 +246,6 @@ impl State {
 				nick: Text("".into()),
 			},
 			dm_mode: DmMode::Webrtc,
-			trace_override: Text("".into()),
 			capabilities: Capabilities {
 				operations: List(alloc::vec::Vec::new()),
 				archive_peer: Nullable::Null,

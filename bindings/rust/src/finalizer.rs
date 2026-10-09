@@ -6,6 +6,7 @@
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::mem::ManuallyDrop;
 use std::rc::Rc;
 
 use crate::context::ContextInner;
@@ -23,6 +24,11 @@ enum PendingRelease {
 	LoamWork {
 		owner: Rc<crate::loam::AttachmentInner>,
 		raw: *mut crate::sys::loam::GlowcapLoamWork,
+	},
+	#[cfg(feature = "loam")]
+	LoamEffectExecution {
+		owner: Rc<crate::loam::AttachmentInner>,
+		raw: *mut crate::sys::loam::GlowcapLoamEffectExecution,
 	},
 	#[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
 	LoamStore(*mut crate::sys::loam::GlowcapLoamLmdb),
@@ -46,6 +52,7 @@ enum PendingRelease {
 	},
 	#[cfg(test)]
 	Test {
+		owner: Option<tests::RetainedOwner>,
 		attempts: Rc<std::cell::Cell<usize>>,
 		completions: Rc<std::cell::Cell<usize>>,
 		refusals_left: usize,
@@ -58,8 +65,23 @@ struct FailedDriverCompletion {
 	failure: Error,
 }
 
+// A refused native release still borrows the Rust owner. Thread exit cannot
+// revoke that borrow or run async recovery. Keep unfinished owners alive for
+// the process lifetime instead of dropping them with TLS. This key has no
+// destructor, so releases from other TLS destructors can still be parked.
+// Successful drains return the empty queue's allocation below.
 thread_local! {
-	static PENDING: RefCell<VecDeque<PendingRelease>> = const { RefCell::new(VecDeque::new()) };
+	static PENDING: RefCell<ManuallyDrop<VecDeque<PendingRelease>>> =
+		const { RefCell::new(ManuallyDrop::new(VecDeque::new())) };
+}
+
+fn reclaim_empty_queue() {
+	PENDING.with(|pending| {
+		let mut pending = pending.borrow_mut();
+		if pending.is_empty() {
+			pending.shrink_to_fit();
+		}
+	});
 }
 
 fn record(context: Option<&Rc<ContextInner>>, layer: FailureLayer, operation: &str, error: &Error) {
@@ -131,6 +153,7 @@ pub(crate) fn discard_host_sessions(host: &Rc<HostShared>) {
 			.borrow_mut()
 			.retain(|item| !matches!(item, PendingRelease::Session(shared) if Rc::ptr_eq(&shared.host, host)))
 	});
+	reclaim_empty_queue();
 }
 
 pub(crate) fn drain_host_sessions(host: &Rc<HostShared>) -> Result<()> {
@@ -143,6 +166,7 @@ pub(crate) fn drain_host_sessions(host: &Rc<HostShared>) -> Result<()> {
 			index.and_then(|index| pending.remove(index))
 		});
 		let Some(PendingRelease::Session(shared)) = parked else {
+			reclaim_empty_queue();
 			return Ok(());
 		};
 		if let Err(error) = shared.finish_native_release() {
@@ -159,9 +183,12 @@ pub(crate) fn drain() {
 		return;
 	}
 	let count = PENDING.with(|pending| pending.borrow().len());
+	if count == 0 {
+		return;
+	}
 	for _ in 0..count {
 		let Some(item) = PENDING.with(|pending| pending.borrow_mut().pop_front()) else {
-			return;
+			break;
 		};
 		match item {
 			#[cfg(feature = "loam")]
@@ -174,6 +201,12 @@ pub(crate) fn drain() {
 			PendingRelease::LoamWork { owner, raw } => {
 				if !crate::loam::work::finish_retired(&owner, raw) {
 					park_loam_work(owner, raw);
+				}
+			}
+			#[cfg(feature = "loam")]
+			PendingRelease::LoamEffectExecution { owner, raw } => {
+				if unsafe { crate::sys::loam::glowcap_loam_effect_execution_release(raw) } != sys::OK {
+					park_loam_effect_execution(owner, raw);
 				}
 			}
 			#[cfg(all(feature = "loam", target_arch = "wasm32"))]
@@ -263,6 +296,7 @@ pub(crate) fn drain() {
 			}
 			#[cfg(test)]
 			PendingRelease::Test {
+				owner,
 				attempts,
 				completions,
 				refusals_left,
@@ -271,6 +305,7 @@ pub(crate) fn drain() {
 				if refusals_left > 0 {
 					PENDING.with(|pending| {
 						pending.borrow_mut().push_back(PendingRelease::Test {
+							owner,
 							attempts,
 							completions,
 							refusals_left: refusals_left - 1,
@@ -282,6 +317,7 @@ pub(crate) fn drain() {
 			}
 		}
 	}
+	reclaim_empty_queue();
 }
 
 #[cfg(test)]
@@ -297,6 +333,7 @@ pub(crate) fn park_test_release(
 ) {
 	PENDING.with(|pending| {
 		pending.borrow_mut().push_back(PendingRelease::Test {
+			owner: None,
 			attempts,
 			completions,
 			refusals_left,
@@ -312,6 +349,17 @@ pub(crate) fn park_loam(owner: Rc<crate::loam::AttachmentInner>) {
 pub(crate) fn park_loam_work(owner: Rc<crate::loam::AttachmentInner>, raw: *mut crate::sys::loam::GlowcapLoamWork) {
 	PENDING.with(|pending| pending.borrow_mut().push_back(PendingRelease::LoamWork { owner, raw }));
 }
+#[cfg(feature = "loam")]
+pub(crate) fn park_loam_effect_execution(
+	owner: Rc<crate::loam::AttachmentInner>,
+	raw: *mut crate::sys::loam::GlowcapLoamEffectExecution,
+) {
+	PENDING.with(|pending| {
+		pending
+			.borrow_mut()
+			.push_back(PendingRelease::LoamEffectExecution { owner, raw })
+	});
+}
 
 #[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
 pub(crate) fn park_loam_store(raw: *mut crate::sys::loam::GlowcapLoamLmdb) {
@@ -321,6 +369,77 @@ pub(crate) fn park_loam_store(raw: *mut crate::sys::loam::GlowcapLoamLmdb) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::sync::{
+		Arc,
+		atomic::{AtomicUsize, Ordering},
+	};
+
+	pub(super) struct RetainedOwner(Arc<AtomicUsize>);
+	impl Drop for RetainedOwner {
+		fn drop(&mut self) {
+			self.0.fetch_add(1, Ordering::SeqCst);
+		}
+	}
+
+	#[test]
+	fn another_tls_destructor_can_park_a_refused_release() {
+		struct LateRelease(Option<RetainedOwner>);
+		impl Drop for LateRelease {
+			fn drop(&mut self) {
+				PENDING.with(|pending| {
+					pending.borrow_mut().push_back(PendingRelease::Test {
+						owner: self.0.take(),
+						attempts: Rc::new(std::cell::Cell::new(0)),
+						completions: Rc::new(std::cell::Cell::new(0)),
+						refusals_left: 1,
+					})
+				});
+			}
+		}
+		let released = Arc::new(AtomicUsize::new(0));
+		let observed = released.clone();
+		std::thread::spawn(move || {
+			thread_local! {
+				static LATE: RefCell<Option<LateRelease>> = const { RefCell::new(None) };
+			}
+			// Register this destructor before using the finalizer queue. A queue
+			// with its own destructor would be unavailable when LATE drops.
+			LATE.with(|late| *late.borrow_mut() = Some(LateRelease(Some(RetainedOwner(released)))));
+			park_test_release(Rc::new(std::cell::Cell::new(0)), Rc::new(std::cell::Cell::new(0)), 0);
+			drain();
+		})
+		.join()
+		.unwrap();
+		assert_eq!(observed.load(Ordering::SeqCst), 0);
+	}
+
+	#[test]
+	fn thread_exit_preserves_owners_of_unfinished_releases() {
+		for finish in [false, true] {
+			let released = Arc::new(AtomicUsize::new(0));
+			let observed = released.clone();
+			std::thread::spawn(move || {
+				PENDING.with(|pending| {
+					pending.borrow_mut().push_back(PendingRelease::Test {
+						owner: Some(RetainedOwner(released)),
+						attempts: Rc::new(std::cell::Cell::new(0)),
+						completions: Rc::new(std::cell::Cell::new(0)),
+						refusals_left: 1,
+					})
+				});
+				drain();
+				assert_eq!(pending_count(), 1);
+				if finish {
+					drain();
+					assert_eq!(pending_count(), 0);
+					PENDING.with(|pending| assert_eq!(pending.borrow().capacity(), 0));
+				}
+			})
+			.join()
+			.unwrap();
+			assert_eq!(observed.load(Ordering::SeqCst), usize::from(finish));
+		}
+	}
 
 	#[test]
 	fn one_boundary_claims_one_batch_and_a_refusal_waits_for_the_next() {

@@ -38,7 +38,7 @@ with that controller.
 Changing targets first drains writes assigned to the old target. Reads already
 using it finish before its session closes. Later direct-message writes and
 history reads use the new target. Recovered groups name the archive peer, recorder source, and conversation
-generation that supplied them. No records migrate during a target change.
+generation that supplied them. A target change moves no records.
 Once the new target is active, refusal while retiring the old one is a cleanup
 diagnostic rather than grounds to roll back the committed selection.
 
@@ -77,7 +77,7 @@ the selected archive's scoped blob capabilities.
   of a bearer is a separate custody choice.
 - Putting the sturdyref in the application store was rejected because ordinary
   rendering and diagnostics do not need archive authority.
-- Migrating device history during selection was rejected because selection and
+- Copying device history during selection was rejected because selection and
   transfer have different failure, duplication, and provenance semantics.
 
 ## Consequences

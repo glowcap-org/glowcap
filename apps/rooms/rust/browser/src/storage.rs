@@ -3,12 +3,15 @@
 mod backend;
 pub use backend::PageArchive;
 mod blobs;
+mod credentials;
+pub use credentials::Credentials;
 mod database;
+mod device;
 mod erase;
-pub(crate) use erase::Eraser;
 mod memory;
 mod metadata;
 mod records;
+pub mod session;
 mod transaction;
 mod value;
 pub use database::Database;

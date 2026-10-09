@@ -1,11 +1,13 @@
 //! Borrowed admission and routing for the Rooms session `command` method.
 //! Runtime effects and checkpoint policy validate their own command arguments.
+pub mod selection;
 use super::{
 	checkpoint::commands::{self, results},
 	state::{OperationId, SafeInteger},
 };
 use crate::{grants::Access, room::ArgumentView};
-use serde::Deserialize;
+use alloc::string::String;
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeSeq};
 
 pub const MAX_ARGUMENTS: usize = 64;
 pub const MAX_MATERIAL_BYTES: usize = 512 * 1024;
@@ -22,10 +24,19 @@ macro_rules! catalog {
 }
 pub(crate) use catalog;
 catalog! { Effect {
+	EnterRoom,
 	OfferRoom,
+	ShareArchiveHistory,
+	OfferDurableArchive,
+	RevokeIssuedArchiveShare,
 	SetRoomTopic,
+	SetRoomAway,
+	RetireRoomMembership,
 	KickRoomMember,
+	IssueRoomModerator,
 	Say,
+	DirectReady,
+	OfferDirectInbox,
 	EditLine,
 	WithdrawLine,
 	Operator,
@@ -100,6 +111,13 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 		if !matches!(access, Access::Interact | Access::Admin) {
 			return Err(Refusal::Access);
 		}
+		let request = Self::parse(args)?;
+		request.require_legacy_access(access)?;
+		Ok(request)
+	}
+	/// Parse the bounded command grammar without granting authority. Managed
+	/// content declares this route's requirements to the shared access owner.
+	pub fn parse(args: &'a [A]) -> Result<Self, Refusal> {
 		if args.len() < 3 {
 			return Err(Refusal::Arguments);
 		}
@@ -111,13 +129,30 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 			.ok_or(Refusal::Arguments)?
 			.get();
 		let name = args[2].text().ok_or(Refusal::Arguments)?;
-		Self::new(access, id, base, name, &args[3..])
+		Self::from_parts(id, base, name, &args[3..])
 	}
 	/// Admit a local command through the same policy as the wire envelope.
 	pub fn new(access: Access, id: &'a str, base: u64, name: &'a str, args: &'a [A]) -> Result<Self, Refusal> {
 		if !matches!(access, Access::Interact | Access::Admin) {
 			return Err(Refusal::Access);
 		}
+		let request = Self::from_parts(id, base, name, args)?;
+		request.require_legacy_access(access)?;
+		Ok(request)
+	}
+	fn require_legacy_access(&self, access: Access) -> Result<(), Refusal> {
+		if access != Access::Admin
+			&& matches!(
+				self.name,
+				"replaceOperationsCapabilities" | "replaceOperationsBundle" | "selectArchive"
+			) {
+			return Err(Refusal::Administration);
+		}
+		Ok(())
+	}
+	/// Admit borrowed application arguments before constructing a wire envelope.
+	/// This grants no access; the held source owns command authorization.
+	pub fn from_parts(id: &'a str, base: u64, name: &'a str, args: &'a [A]) -> Result<Self, Refusal> {
 		SafeInteger::<false>::new(base).ok_or(Refusal::Arguments)?;
 		if !OperationId::accepts_utf16(id.encode_utf16()) {
 			return Err(Refusal::OperationId);
@@ -135,13 +170,6 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 			if bytes > MAX_MATERIAL_BYTES {
 				return Err(Refusal::MaterialSize);
 			}
-		}
-		if access != Access::Admin
-			&& matches!(
-				name,
-				"replaceOperationsCapabilities" | "replaceOperationsBundle" | "selectArchive"
-			) {
-			return Err(Refusal::Administration);
 		}
 		for arg in args {
 			if arg
@@ -178,10 +206,26 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 	pub fn args(&self) -> impl ExactSizeIterator<Item = &'a str> {
 		self.args.iter().map(|v| v.text().expect("admitted text"))
 	}
+	/// Own the exact bounded intent for receipt recovery. Serialization walks
+	/// admitted borrowed arguments directly; it creates no intermediate argument
+	/// inventory or payload copies. The returned string outlives the request.
+	pub fn canonical(&self) -> serde_json::Result<String> {
+		serde_json::to_string(&(self.id, self.base, self.name, Arguments(self.args)))
+	}
 	/// Exact incoming JSON array size, including bridge secrets. The eventual
 	/// retry material excludes those secrets and may therefore be smaller.
 	pub fn material_bytes(&self) -> usize {
 		self.material_bytes
+	}
+}
+struct Arguments<'a, A>(&'a [A]);
+impl<A: ArgumentView> Serialize for Arguments<'_, A> {
+	fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+		let mut sequence = serializer.serialize_seq(Some(self.0.len()))?;
+		for argument in self.0 {
+			sequence.serialize_element(argument.text().expect("admitted text"))?;
+		}
+		sequence.end()
 	}
 }
 fn json_string_bytes(text: &str) -> usize {

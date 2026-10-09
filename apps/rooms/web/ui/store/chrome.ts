@@ -452,10 +452,7 @@ export function setArchiveTarget(projection: PageProjection, archiveTarget: Arch
 	projection.set({ archiveTarget });
 }
 
-/** Replace the possession rows. Possession is derived from these rows, so a
- * reconnect's drops flow through here too and the Holdings toggles fall back
- * off with the capabilities they mirror. The pane selection is the reader's
- * and does not move. */
+/** Replace loaded inventory. Custody intent independently owns possession. */
 function patchOpsRows(projection: PageProjection, patch: {
 	diagnostics?: readonly DiagnosticRow[] | null;
 	listeners?: readonly ListenerRow[] | null;
@@ -475,8 +472,7 @@ export function setListeners(projection: PageProjection, listeners: readonly Lis
 	patchOpsRows(projection, { listeners });
 }
 
-/** What the gateway possession row says when the capability arrives, the
- * bridged list changes, or the capability goes. */
+/** The gateway's loaded connection and lease inventory. */
 export function setIrcGateway(projection: PageProjection, irc: IrcGatewayState | null): void {
 	patchOpsRows(projection, { irc });
 }
@@ -485,15 +481,12 @@ export function setRoomsOperator(projection: PageProjection, operator: RoomsOper
 	patchOpsRows(projection, { operator });
 }
 
-/** What the peering possession row says when the capability arrives, a
- * publication changes standing, or the capability goes. */
+/** Loaded publication state. */
 export function setPeering(projection: PageProjection, peering: PeeringState | null): void {
 	patchOpsRows(projection, { peering });
 }
 
-/** What the trace possession row says when the capability arrives, redials, or
- * goes. A connectivity flip on an already-held capability rides the same
- * path and moves no tab. */
+/** Loaded trace connectivity and publication state. */
 export function setTracePublish(projection: PageProjection, trace: TracePublishState | null): void {
 	patchOpsRows(projection, { trace });
 }

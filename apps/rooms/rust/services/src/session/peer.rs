@@ -6,34 +6,66 @@ use super::{
 	readiness::Readiness,
 	transports::{Needs, Transports},
 };
-use crate::{archive::file::FileArchive, documents::SessionDocuments, session_commands::SessionCommands};
 use glowcap::{Host, PendingWork};
-use rooms_platform::serving::{CONNECTION_LIMIT, PartnerNotice, Retry, accept_ended, serve_partner};
-use rooms_runtime::service::{Inputs, Session as SharedSession};
-use std::{future::Future, rc::Rc};
+use rooms_platform::serving::{CONNECTION_LIMIT, PartnerNotice, Retry, accept_ended, serve_partner_until};
+use rooms_platform::storage::session::{Prepared, Session as Storage};
+use rooms_runtime::session::managed::{MembershipKinds, production_limits};
+use std::future::Future;
 use tokio::task::JoinSet;
 
 #[derive(Default)]
 struct Owners {
 	readiness: Option<Readiness>,
-	commands: Option<SessionCommands>,
+	management_readiness: Option<Readiness>,
 	transports: Option<Transports>,
-	session: Option<SharedSession<rooms_platform::HostPlatform>>,
+	session: Option<Storage>,
+	local: Option<super::Local>,
+	archive: Option<std::rc::Rc<crate::session_archive::SessionArchive>>,
+	archive_worker: Option<tokio::task::JoinHandle<crate::session_archive::Report>>,
+	trace: Option<std::rc::Rc<rooms_runtime::trace::Trace<rooms_platform::HostPlatform>>>,
 }
 impl Owners {
-	async fn close(self) -> Result<(), Error> {
+	async fn stop_consumers(&mut self) -> Result<(), Error> {
+		self.local.take();
+		if let Some(trace) = self.trace.as_ref() {
+			trace.close().await?;
+		}
+		self.trace.take();
+		if let Some(session) = self.session.as_mut() {
+			session.opened.stop_activity().await?;
+		}
+		Ok(())
+	}
+	async fn close(&mut self) -> Result<(), Error> {
 		let mut result = Ok(());
-		if let Some(session) = self.session {
-			result = Error::fold(result, session.close().await.map_err(Into::into));
+		self.stop_consumers().await?;
+		if let Some(session) = self.session.as_mut() {
+			// The Host must remain alive until every managed close barrier succeeds.
+			session.opened.close().await?;
 		}
-		if let Some(commands) = self.commands {
-			result = Error::fold(result, commands.close().await.map_err(Into::into));
+		self.session.take();
+		if let Some(archive) = self.archive.as_ref() {
+			archive.close().await.map_err(Error::from)?;
+			if let Some(worker) = self.archive_worker.as_mut() {
+				worker
+					.await
+					.map_err(|error| Error::closed(format!("archive worker failed: {error}")))?;
+			}
+			self.archive_worker.take();
+			self.archive.take();
 		}
-		if let Some(transports) = self.transports {
+		if let Some(transports) = self.transports.take() {
 			result = Error::fold(result, transports.close().await);
 		}
-		if let Some(readiness) = self.readiness {
+		if let Some(readiness) = self.readiness.as_ref() {
 			result = Error::fold(result, readiness.remove().await);
+		}
+		if let Some(readiness) = self.management_readiness.as_ref() {
+			result = Error::fold(result, readiness.remove().await);
+		}
+		if result.is_ok() {
+			self.readiness.take();
+			self.management_readiness.take();
 		}
 		result
 	}
@@ -46,6 +78,11 @@ pub struct Peer {
 	pub(super) state_directory: std::path::PathBuf,
 	link: String,
 	report: Report,
+	connections: JoinSet<()>,
+	// One shared stop signal, with at most CONNECTION_LIMIT borrowed receivers.
+	// Retiring external calls needs the Host alive through their cancellation;
+	// closing it only after attachment release would leave remote waits admitted.
+	connections_stop: tokio::sync::watch::Sender<bool>,
 }
 
 impl Peer {
@@ -59,34 +96,51 @@ impl Peer {
 				owners,
 				link,
 				report,
+				connections: JoinSet::new(),
+				connections_stop: tokio::sync::watch::channel(false).0,
 				state_directory: config.state,
 			}),
-			Err(error) => Err(error.retain_result(owners.close().await)),
+			Err(error) => {
+				// Startup cannot return while a refused barrier still owns work.
+				while let Err(cause) = owners.close().await {
+					report(Notice::Activity {
+						operation: "startup close".into(),
+						cause: glowcap::loam::refusal(cause.to_string()),
+					});
+					tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+				}
+				Err(error)
+			}
 		}
 	}
-	/// The administrator sturdyref this peer published.
+	/// The managed workspace use endpoint this peer published.
 	pub fn link(&self) -> &str {
 		&self.link
 	}
 	/// Local application access for a view hosted by this same process.
-	pub fn local(&self) -> Result<rooms_runtime::service::Local<rooms_platform::HostPlatform>, Error> {
+	pub fn local(&self) -> Result<super::Local, Error> {
 		self.owners
-			.session
+			.local
 			.as_ref()
-			.map(SharedSession::local)
+			.cloned()
 			.ok_or_else(|| Error::closed("the session is closed"))
 	}
 	/// Accept and serve partners until `halt` resolves or a worker ends on its
-	/// own. Either way the peer is closed before this returns, and every
-	/// accepted connection has been observed to its end.
-	pub async fn serve(self, halt: impl Future<Output = ()>) -> Result<(), Error> {
-		let Self { mut owners, report, .. } = self;
-		let mut connections: JoinSet<()> = JoinSet::new();
+	/// own. The caller drains dependent consumers and then retries `close` until
+	/// its retained barriers succeed. Accepted connections remain owned here.
+	pub async fn serve(&mut self, halt: impl Future<Output = ()>) -> Result<(), Error> {
+		let Self {
+			owners,
+			report,
+			connections,
+			connections_stop,
+			..
+		} = self;
 		tokio::pin!(halt);
-		let outcome = 'serving: {
+		'serving: {
 			// `open` never returns a peer without both, so a missing one is a
 			// peer to close, not one to serve.
-			let (Some(session), Some(transports)) = (owners.session.as_mut(), owners.transports.as_ref()) else {
+			let (Some(_session), Some(transports)) = (owners.session.as_mut(), owners.transports.as_ref()) else {
 				break 'serving Err(Error::closed("the peer was not fully opened"));
 			};
 			// A refused accept is asked again after a pause; only a closed
@@ -95,9 +149,8 @@ impl Peer {
 			loop {
 				tokio::select! {
 					_ = &mut halt => break Ok(()),
-					ended = session.ended() => break Err(ended.into()),
 					accepted = transports.accept(), if connections.len() < CONNECTION_LIMIT && retry.ready() => match accepted {
-						Ok(session) => { connections.spawn_local(served(session, report.clone())); }
+						Ok(session) => { connections.spawn_local(served(session, report.clone(), connections_stop.subscribe())); }
 						Err(error) if accept_ended(&error) => break Err(Error::from(error)),
 						Err(error) => {
 							report(Notice::Partner(PartnerNotice::AcceptRefused(error)));
@@ -112,44 +165,43 @@ impl Peer {
 					}
 				}
 			}
-		};
-		let closed = owners.close().await;
-		while let Some(ended) = connections.join_next().await {
-			if let Err(join) = ended {
-				report(Notice::Partner(PartnerNotice::TaskFailed(join)));
-			}
 		}
-		Error::fold(outcome, closed)
 	}
 	/// Retire without serving: the same order a finished `serve` uses.
-	pub async fn close(self) -> Result<(), Error> {
+	pub async fn close(&mut self) -> Result<(), Error> {
+		self.owners.stop_consumers().await?;
+		self.connections_stop.send_replace(true);
+		while let Some(ended) = self.connections.join_next().await {
+			if let Err(join) = ended {
+				(self.report)(Notice::Partner(PartnerNotice::TaskFailed(join)));
+			}
+		}
 		self.owners.close().await
 	}
 }
 
 /// Serve one accepted partner to its end, reporting an end that was not the
 /// partner simply leaving.
-async fn served(session: glowcap::Session, report: Report) {
-	if let Err(ended) = serve_partner(session).await {
+async fn served(session: glowcap::Session, report: Report, mut stop: tokio::sync::watch::Receiver<bool>) {
+	let halted = async {
+		while !*stop.borrow_and_update() {
+			if stop.changed().await.is_err() {
+				break;
+			}
+		}
+	};
+	if let Err(ended) = serve_partner_until(session, halted).await {
 		report(Notice::Partner(PartnerNotice::Ended(ended)));
 	}
 }
 
 async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Result<String, Error> {
 	owners.readiness = Some(Readiness::clear(config.readiness_path()).await?);
-	let mut documents = SessionDocuments::open(&config.state).await?;
-	let mut listener_keys = documents.listener_keys();
-	let grants_document = documents
-		.take_grants()
-		.ok_or_else(|| Error::invalid("session grants document is missing"))?;
-	let session_owners = documents.into_owners();
-	let (commands, session_worker) = SessionCommands::open(session_owners.state, rooms_platform::HostPlatform).await?;
-	owners.commands = Some(commands.clone());
-	let seed = commands
-		.view()
-		.read(|state| Ok::<_, Error>(*state.identity_seed()?))??;
-	let host = Host::from_seed_with_options(seed, rooms_glowcap::host_options())?;
-	let needs = Needs::from_checkpoint(&commands.view(), config.relay_url.clone())?;
+	owners.management_readiness = Some(Readiness::clear(config.state.join("control.sturdyref")).await?);
+	let prepared = Prepared::open(&config.state)?;
+	let mut listener_keys = rooms_platform::serving::onion::KeyFile(Some(prepared.directory().clone()));
+	let host = Host::from_seed_with_options(prepared.seed(), rooms_glowcap::host_options())?;
+	let needs = Needs::configured(&config.dial_transports, config.relay_url.clone())?;
 	// Until the dial runtime adopts it, the Host has no owner but this frame.
 	let transports = match Transports::open(&host, &config.transport, &needs, &mut listener_keys).await {
 		Ok(transports) => transports,
@@ -158,37 +210,107 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 			return Err(error.retain_result(closed));
 		}
 	};
-	let dial = transports.dial();
 	let locator = transports.locator().clone();
 	owners.transports = Some(transports);
-
-	let backend = FileArchive::open(config.state.join("archive"), Default::default()).await?;
-	let initial_checkpoint = match &config.checkpoint {
-		Some(path) => Some(super::verbs::checkpoint::read(path).await?),
-		None => None,
-	};
-	let shared_report = report.clone();
-	// Transfer command custody into the shared application before opening it.
-	owners.commands = None;
-	let session = SharedSession::open(
-		Inputs {
-			recording_source: None,
-			platform: rooms_platform::HostPlatform,
-			connections: rooms_runtime::directories::connections::Connections::new(dial, rooms_platform::HostPlatform),
-			locator,
-			entropy: || rooms_platform::OsEntropy,
-			trace: Rc::new(super::trace::Trace::new(super::trace::HostTraceTransport)),
-			report: Rc::new(move |notice| shared_report(notice.into())),
-		},
-		(commands, session_worker),
-		grants_document,
-		session_owners.bridge_secrets,
-		backend,
-		initial_checkpoint,
-	)
-	.await?;
-	let link = session.link().expect("host session published at open").to_owned();
+	let limits = production_limits()?;
+	let credentials = crate::documents::DocumentFile::bridge_secrets(prepared.directory().clone());
+	let session = prepared
+		.start(
+			host.clone(),
+			limits,
+			512 * 1024 * 1024,
+			rooms_application::content::session::custody::MAX_CUSTODY_FIELDS as u32,
+		)
+		.await?;
 	owners.session = Some(session);
+	let opened = &mut owners.session.as_mut().expect("installed storage owner").opened;
+	let trouble_report = report.clone();
+	opened.session().on_trouble(move |operation, cause| {
+		trouble_report(Notice::Activity {
+			operation: operation.into(),
+			cause: cause.clone(),
+		})
+	})?;
+	opened.session().configure_credentials(credentials).await?;
+	let mut backend = crate::archive::file::FileArchive::open(config.state.join("archive"), Default::default()).await?;
+	let source = backend.recording_source().await?;
+	let (archive, worker) = crate::session_archive::SessionArchive::new(
+		rooms_platform::HostPlatform,
+		owners.transports.as_ref().expect("owned transport").runtime(),
+		backend,
+	);
+	let archive = std::rc::Rc::new(archive);
+	owners.archive = Some(archive.clone());
+	owners.archive_worker = Some(tokio::task::spawn_local(worker.run()));
+	opened.record_to(archive.clone(), source)?;
+	if let Some(path) = &config.checkpoint {
+		let bytes = tokio::fs::read(path).await.map_err(|source| Error::Io {
+			what: "read workspace intent",
+			source,
+		})?;
+		let text = std::str::from_utf8(&bytes).map_err(|_| Error::invalid("workspace intent is not UTF-8"))?;
+		let intent = rooms_application::content::session::workspace::Intent::decode(text)
+			.map_err(|_| Error::invalid("invalid managed workspace intent"))?;
+		let workspace = opened.workspace()?;
+		let snapshot = workspace.snapshot().await.map_err(rooms_runtime::Error::peer)?;
+		if snapshot.intent != rooms_application::content::session::workspace::Intent::empty() {
+			return Err(Error::refused("workspace import requires an empty managed session"));
+		}
+		workspace
+			.prepare_acquisition(snapshot.revision, vec![], &[], &intent)?
+			.submit()
+			.await
+			.map_err(rooms_runtime::Error::peer)?;
+	}
+	let trace_report = report.clone();
+	let trace = std::rc::Rc::new(rooms_runtime::trace::Trace::start(
+		rooms_platform::HostPlatform,
+		opened.workspace()?,
+		opened.session().changes()?,
+		std::rc::Rc::new(move |reason| {
+			trace_report(Notice::Activity {
+				operation: "Trace publisher".into(),
+				cause: glowcap::loam::refusal(reason),
+			})
+		}),
+	));
+	opened.session().configure_trace(trace.clone())?;
+	owners.trace = Some(trace);
+	owners.local = Some(super::Local {
+		workspace: opened.workspace()?,
+		management: opened.management()?,
+		host,
+		activity: opened.session().activity(),
+		archive,
+	});
+	let route = glowcap::format_locator_uri(&locator)?;
+	let receive = opened.session().activity_receivers();
+	let activity_report = report.clone();
+	opened.supervise_workspace(
+		&route,
+		rooms_platform::OsEntropy,
+		MembershipKinds::ALL,
+		receive,
+		move |result| match result {
+			Err(cause) => activity_report(Notice::Activity {
+				operation: "workspace realization".into(),
+				cause,
+			}),
+			Ok(state) => {
+				for (target, cause) in &state.failures {
+					activity_report(Notice::Activity {
+						operation: format!("{target:?}"),
+						cause: cause.clone(),
+					});
+				}
+			}
+		},
+	)?;
+	let link = opened.publish(&locator).await?;
+	let management_link = opened.publish_management(&locator).await?;
+	if let Some(readiness) = owners.management_readiness.as_ref() {
+		readiness.publish(&management_link).await?;
+	}
 	if let Some(readiness) = owners.readiness.as_ref() {
 		readiness.publish(&link).await?;
 	}

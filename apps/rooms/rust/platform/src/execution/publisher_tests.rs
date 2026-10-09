@@ -47,10 +47,10 @@ async fn scenario() {
 	let (tx, mut deferred) = tokio::sync::mpsc::channel(1);
 	server
 		.host()
-		.publish_giftable("directory", move || {
+		.publish("directory", move || {
 			Box::new(move |verb, args| {
 				assert_eq!(verb, "offerInbox");
-				assert_eq!(args.len(), 3);
+				assert_eq!(args.len(), 4);
 				if delayed.replace(false) {
 					tx.try_send(
 						glowcap::current_session()
@@ -62,7 +62,7 @@ async fn scenario() {
 					)
 					.unwrap();
 				}
-				let Argument::Reference(reference) = &args[2] else {
+				let Argument::Reference(reference) = &args[3] else {
 					panic!("inbox")
 				};
 				offered
@@ -77,7 +77,7 @@ async fn scenario() {
 		.unwrap();
 	let locator = server.locator().unwrap();
 	let (caller, peer) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let peer = Rc::new(peer.unwrap().with_gc());
+	let peer = Rc::new(peer.unwrap());
 	let service = peer.clone();
 	let serving = tokio::task::spawn_local(async move { service.serve().await });
 	let platform = Platform::default();
@@ -104,24 +104,24 @@ async fn scenario() {
 		.offerer(|_, _| Ok(Box::new(|_, _| Ok("two".into()))))
 		.unwrap()
 		.with_skip(|peer| peer == "self");
-	two.offer(&directory, "self", &id(7)).await.unwrap();
+	two.offer(&directory, "self", &id(7), "opening").await.unwrap();
 	assert_eq!(publisher.held(), 0);
 	// An unrelated Host alias collision releases only the provisional row.
 	let mut scratch = policy::Ledger::new(2).unwrap();
 	let scope = scratch.scope().unwrap();
 	let collision = scratch.reserve(&scope, "alice", &id(1), [0; 32]).unwrap();
-	host.publish_giftable(collision.alias(), || Box::new(|_, _| Ok("unrelated".into())))
+	host.publish(collision.alias(), || Box::new(|_, _| Ok("unrelated".into())))
 		.unwrap();
-	assert!(one.offer(&directory, "alice", &id(1)).await.is_err());
+	assert!(one.offer(&directory, "alice", &id(1), "opening").await.is_err());
 	assert_eq!(publisher.held(), 0);
 	let unrelated = client.session().published_ref(collision.alias()).unwrap().unwrap();
 	assert_eq!(
 		client.session().send(&unrelated, "check", &[]).await.unwrap().as_str(),
 		Some("unrelated")
 	);
-	host.unpublish_giftable(collision.alias()).unwrap();
-	one.offer(&directory, "alice", &id(1)).await.unwrap();
-	one.offer(&directory, "alice", &id(1)).await.unwrap();
+	host.unpublish(collision.alias()).unwrap();
+	one.offer(&directory, "alice", &id(1), "opening").await.unwrap();
+	one.offer(&directory, "alice", &id(1), "opening").await.unwrap();
 	assert_eq!(publisher.held(), 1);
 	assert_eq!(made.get(), 2);
 	let old = {
@@ -132,28 +132,28 @@ async fn scenario() {
 	assert_eq!(peer.send(&old, "check", &[]).await.unwrap().as_i64(), Some(2));
 	delay.set(true);
 	let pending_id = id(1);
-	let mut pending = Box::pin(one.offer(&directory, "alice", &pending_id));
+	let mut pending = Box::pin(one.offer(&directory, "alice", &pending_id, "opening"));
 	let mut resolver =
 		tokio::select! {r=deferred.recv()=>r.unwrap(),_=&mut pending=>panic!("offer acknowledged early")};
 	drop(pending);
 	assert_eq!(publisher.held(), 1);
 	resolver.fulfill(&Argument::Void).unwrap();
-	one.offer(&directory, "alice", &id(1)).await.unwrap();
+	one.offer(&directory, "alice", &id(1), "opening").await.unwrap();
 	assert_eq!(made.get(), 2);
 	assert!(matches!(
-		one.offer(&directory, "bob", &id(1)).await,
+		one.offer(&directory, "bob", &id(1), "opening").await,
 		Err(Error::Inbox(policy::Error::Registration))
 	));
-	two.offer(&directory, "bob", &id(2)).await.unwrap();
+	two.offer(&directory, "bob", &id(2), "opening").await.unwrap();
 	assert_eq!(Publisher::with_limit(host.clone(), HostPlatform, 2).unwrap().held(), 2);
 	assert!(matches!(
-		two.offer(&directory, "charlie", &id(3)).await,
+		two.offer(&directory, "charlie", &id(3), "opening").await,
 		Err(Error::Inbox(policy::Error::Full))
 	));
 	one.forget(&id(1)).await.unwrap();
 	assert_eq!(publisher.held(), 1);
 	assert!(peer.send(&old, "check", &[]).await.is_err());
-	one.offer(&directory, "alice", &id(1)).await.unwrap();
+	one.offer(&directory, "alice", &id(1), "opening").await.unwrap();
 	assert_eq!(made.get(), 3);
 	assert!(peer.send(&old, "check", &[]).await.is_err());
 	let new = arrivals.borrow().last().unwrap().0.clone();
@@ -161,12 +161,12 @@ async fn scenario() {
 	client.session().close(PendingWork::Cancel).await.unwrap();
 	serving.await.unwrap().unwrap();
 	let (caller, peer2) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let peer2 = Rc::new(peer2.unwrap().with_gc());
+	let peer2 = Rc::new(peer2.unwrap());
 	let service = peer2.clone();
 	let serving = tokio::task::spawn_local(async move { service.serve().await });
 	let reconnected = Client::new(caller.unwrap(), platform);
 	let directory2 = Directory::fetch(reconnected.clone()).await.unwrap();
-	one.offer(&directory2, "alice", &id(1)).await.unwrap();
+	one.offer(&directory2, "alice", &id(1), "opening").await.unwrap();
 	assert_eq!(made.get(), 3);
 	assert_eq!(publisher.held(), 2);
 	let new = arrivals.borrow().last().unwrap().0.clone();
@@ -177,7 +177,7 @@ async fn scenario() {
 	assert_eq!(publisher.held(), 1);
 	delay.set(true);
 	let closing_id = id(1);
-	let mut closing = Box::pin(one.offer(&directory2, "alice", &closing_id));
+	let mut closing = Box::pin(one.offer(&directory2, "alice", &closing_id, "opening"));
 	let mut answer = tokio::select! {
 		answer = deferred.recv() => answer.unwrap(),
 		_ = &mut closing => panic!("closing offer answered early"),
@@ -187,7 +187,7 @@ async fn scenario() {
 	assert!(peer2.send(&new, "check", &[]).await.is_err());
 	answer.fulfill(&Argument::Void).unwrap();
 	assert!(matches!(closing.await, Err(Error::Inbox(policy::Error::Closed))));
-	assert!(one.offer(&directory2, "alice", &id(1)).await.is_err());
+	assert!(one.offer(&directory2, "alice", &id(1), "opening").await.is_err());
 	peer2.close(PendingWork::Cancel).await.unwrap();
 	drop((
 		one,
@@ -202,7 +202,7 @@ async fn scenario() {
 		unrelated,
 	));
 	runtime.close(PendingWork::Cancel).await.unwrap();
-	server.host().unpublish_giftable("directory").unwrap();
+	server.host().unpublish("directory").unwrap();
 	server.close().await.unwrap();
 	server.host().close(PendingWork::Cancel).await.unwrap();
 	serving.await.unwrap().unwrap();
@@ -224,7 +224,7 @@ async fn inbox_retirement_yields_and_survives_cancellation_or_overlapping_cleanu
 						.borrow_mut()
 						.reserve(&scope, "alice", &id(index), [index as u8; 32])
 						.unwrap();
-					host.publish_giftable(row.alias(), || Box::new(|_, _| Ok(Argument::Void)))
+					host.publish(row.alias(), || Box::new(|_, _| Ok(Argument::Void)))
 						.unwrap();
 					ledger.borrow_mut().published(&row).unwrap();
 				}
@@ -242,12 +242,12 @@ async fn inbox_retirement_yields_and_survives_cancellation_or_overlapping_cleanu
 						.borrow_mut()
 						.reserve(&successor_scope, "alice", &id(128), [64; 32])
 						.unwrap();
-					host.publish_giftable(successor.alias(), || Box::new(|_, _| Ok("successor".into())))
+					host.publish(successor.alias(), || Box::new(|_, _| Ok("successor".into())))
 						.unwrap();
 					ledger.borrow_mut().published(&successor).unwrap();
 					pending.await.unwrap();
 					assert!(
-						host.unpublish_giftable(successor.alias()).unwrap(),
+						host.unpublish(successor.alias()).unwrap(),
 						"an old batch must not unpublish a reused alias"
 					);
 					successor_scope.close();

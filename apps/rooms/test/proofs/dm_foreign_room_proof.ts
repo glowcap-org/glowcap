@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // Starting a direct message from somebody else's room.
 //
 // A reader who pastes another directory's locator into the join card ends up
@@ -25,11 +26,10 @@
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort } from "../support/rooms_server.ts";
 import { awaitBubble, fail, openDmTo, reachDirectoryOnCard } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi ada, I am writing from a page that is not yours";
@@ -40,7 +40,7 @@ const REPLY_TEXT = "got it bo, replying from mine";
 // anywhere and cleartext TCP only where it is told, and the visitor's page is
 // the one that has to reach the room it is visiting.
 function serveRooms(httpPort: number, roomPort: number, reaches?: number): Deno.ChildProcess {
-	return spawnOwned(WEB, {
+	return spawnWeb({
 		env: reaches === undefined ? {} : { GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${reaches}` },
 		args: [
 			"--transport=tcp",

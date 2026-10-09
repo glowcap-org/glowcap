@@ -13,6 +13,34 @@ pub const endpoint = @import("endpoint_stage.zig").create;
 pub const endpointFromOperation = @import("endpoint_stage.zig").createFromOperation;
 pub const endpointAtOperation = @import("endpoint_stage.zig").stageFromOperation;
 
+/// Retained encoded proposals, not Store allocator peak or backend metadata.
+/// Application content, pages and fresh reference recipes are separate rows.
+pub const ContentStagingBounds = struct { changes: usize = 0, staging_bytes: usize = 0, record_bytes: usize = 0 };
+
+/// One content effect stamps the target and its ancestors, journals one batch,
+/// updates the history root and owner, and optionally saves a mutation receipt
+/// and its endpoint. Window eviction removes edges, not physical rows. Other
+/// effects, resource/control edits and owner creation are separate participants.
+/// This describes demand without loading records or admitting a transaction.
+pub fn contentStagingSizeBound(resource_path: usize, receipt: bool) !ContentStagingBounds {
+    if (resource_path == 0 or resource_path > records.ChangeBatchRecord.max_path) return error.DepthLimit;
+    var bound: ContentStagingBounds = .{};
+    for (records.profile.schemas) |schema| {
+        const count: usize = switch (schema.id) {
+            records.profile.resource => resource_path,
+            records.profile.owner, records.profile.change_batch, records.profile.change_history => 1,
+            records.profile.mutation, records.profile.endpoint => if (receipt) 1 else 0,
+            else => 0,
+        };
+        if (count == 0) continue;
+        const bytes = try schema.encodedSizeBound();
+        bound.changes = try std.math.add(usize, bound.changes, count);
+        bound.staging_bytes = try std.math.add(usize, bound.staging_bytes, try std.math.mul(usize, count, bytes));
+        bound.record_bytes = @max(bound.record_bytes, bytes);
+    }
+    return bound;
+}
+
 /// Creates an empty owner root in the caller's staging transaction. Opening
 /// failure never replaces an owner; callers explicitly retain this reference.
 pub fn createOwner(store: *loam.Store, owner: core.OwnerId, policy: core.Policy, options: Options) !loam.ObjectId {
@@ -59,6 +87,7 @@ pub fn appendResource(append: *Append, kind: core.KindId, parent: ?core.Resource
     if (append.directory.family != .resource or append.directory.count != 4 or append.directory.staged or append.directory.cancelled) return error.WrongPhase;
     if (!append.resource_ready or !std.meta.eql(append.parent, parent)) return error.NotPrepared;
     var resources = try view.resourceView();
+    try view.header.policy.validatePlacement(kind, if (parent) |id| (try resources.get(id)).kind else null);
     var parent_object: ?loam.ObjectId = null;
     if (parent) |id| {
         if (resources.max_depth == 0) return error.DepthLimit;
@@ -132,9 +161,15 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
         break :blk prior.value.lifecycle;
     };
     const parent = if (changes.parent_record) |parent_record| try rowOf(view, .{ .grant = parent_record.id }) else null;
-    var edges: [514]loam.Edge = undefined;
+    var child_root: ?loam.ObjectId = null;
+    if (original) |row| {
+        var prior = try records.GrantRecord.decodeOwned(view.allocator, row.view.payload);
+        defer prior.deinit(view.allocator);
+        child_root = prior.value.children;
+    }
+    var edges: [515]loam.Edge = undefined;
     var edge_count: usize = 0;
-    if (plan.delta == .status) {
+    if (plan.delta == .status or plan.delta == .label) {
         var it = original.?.view.edges();
         while (it.next()) |edge| {
             if (edge_count == edges.len) return error.InvalidRecord;
@@ -156,15 +191,19 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
                 edge_count += 1;
             },
         };
+        if (child_root) |id| {
+            edges[edge_count] = .{ .target = id };
+            edge_count += 1;
+        }
     }
     var header = view.header;
     header.version = changes.event.version;
     errdefer view.store.abort() catch unreachable;
     view.transaction = view.store.ticket;
     const object = if (original) |row| row.view.id else try view.store.allocateId();
-    try putEncoded(view.store, object, records.profile.grant, records.GrantRecord{ .grant = changes.record, .lifecycle = status_stamp, .authority = try history.stamp(view, @backingInt(header.version.grants)), .inventory = try history.stamp(view, @backingInt(header.version.grants)) }, edges[0..edge_count], if (original) |row| row.expected else null, false);
+    try putEncoded(view.store, object, records.profile.grant, records.GrantRecord{ .children = child_root, .grant = changes.record, .lifecycle = status_stamp, .authority = try history.stamp(view, @backingInt(header.version.grants)), .inventory = try history.stamp(view, @backingInt(header.version.grants)) }, edges[0..edge_count], if (original) |row| row.expected else null, false);
     if (parent) |row| {
-        var parent_edges: [514]loam.Edge = undefined;
+        var parent_edges: [515]loam.Edge = undefined;
         var n: usize = 0;
         var it = row.view.edges();
         while (it.next()) |edge| {
@@ -174,6 +213,17 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
         }
         var parent_record = try records.GrantRecord.decodeOwned(view.allocator, row.view.payload);
         defer parent_record.deinit(view.allocator);
+        const child_index = append.?.child orelse return error.NotPrepared;
+        try child_index.rebaseProposed(parent_record.value.children);
+        const root = (try child_index.stage(object)).?;
+        if (parent_record.value.children) |old| {
+            if (n == 0 or !parent_edges[n - 1].target.eql(old)) return error.InvalidRecord;
+            parent_edges[n - 1] = .{ .target = root };
+        } else {
+            parent_edges[n] = .{ .target = root };
+            n += 1;
+        }
+        parent_record.value.children = root;
         parent_record.value.grant.child_count = changes.parent_record.?.child_count;
         parent_record.value.grant.revision = changes.parent_record.?.revision;
         parent_record.value.inventory = try history.stamp(view, @backingInt(header.version.grants));

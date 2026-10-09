@@ -1,6 +1,6 @@
 //! Synchronous transaction evaluation for embedding-owned atomic KV stores.
-//! A missing input suspends evaluation; the adapter discards tentative writes,
-//! loads that input in its active database callback, and evaluates again.
+//! A missing input suspends the batch cursor; earlier writes stay in the same
+//! atomic transaction. Only get suspends; put/remove synchronously consume bytes.
 //! Only a terminal database event can retire a plan and permit installation.
 const std = @import("std");
 const common = @import("common.zig");
@@ -14,7 +14,7 @@ pub const Kv = struct {
     fn call(self: *Kv, op: u32, key: []const u8, input: ?*const GlowcapLoamBytes, output: ?*GlowcapLoamBytes) !void {
         switch (self.callback(self.context, op, key.ptr, key.len, input, output)) {
             common.shared.GLOWCAP_OK => {},
-            common.shared.GLOWCAP_ERR_WOULD_BLOCK => return error.RecordUnloaded,
+            common.shared.GLOWCAP_ERR_WOULD_BLOCK => return if (op == 0) error.RecordUnloaded else error.WriteWouldBlock,
             else => return error.StorageFailure,
         }
     }
@@ -38,19 +38,15 @@ pub const Kv = struct {
         return error.UnsupportedCollection;
     }
 };
-pub fn claim(identity: []const u8, create: bool, previous: ?[]const u8) !core.Metadata {
+pub fn claim(identity: []const u8, mode: core.OpenMode, previous: ?[]const u8) !core.Metadata {
     if (identity.len != 16) return error.InvalidArgument;
     const id: core.StoreId = @fromBackingInt(std.mem.readInt(u128, identity[0..16], .big));
-    const old = if (create) blk: {
-        if (previous != null) return error.AlreadyExists;
-        break :blk core.Metadata{ .store = id };
-    } else try core.Metadata.decode(previous orelse return error.MissingStore);
-    if (old.store != id) return error.ForeignStore;
+    const old = try core.Metadata.select(id, mode, previous);
     return old.claim();
 }
-pub fn plan(request: work.Request, kv: *Kv) !work.Result {
+pub fn plan(request: work.Request, evaluation: ?*core.Batch.Evaluation, kv: *Kv) !work.Result {
     return switch (request) {
-        .write => |batch| .{ .write = .{ .committed = try batch.apply(kv) } },
+        .write => .{ .write = .{ .committed = try evaluation.?.advance(kv) } },
         .recover => |batch| .{ .recover = try batch.resolve(try metadata(kv)) },
         .lookup => |lookup| .{ .lookup = try lookup.read(kv) },
         .read => |read| blk: {
@@ -88,7 +84,8 @@ pub fn startupPlan(owner: *common.Store, recovery: bool, kv: *Kv) !void {
         owner.startup_batch = batch;
         break :blk batch;
     };
-    const result: core.Resolution = if (recovery) try batch.resolve(try metadata(kv)) else .{ .committed = try batch.apply(kv) };
+    if (!recovery and owner.startup_evaluation == null) owner.startup_evaluation = core.Batch.Evaluation.init(&owner.startup_batch.?);
+    const result: core.Resolution = if (recovery) try batch.resolve(try metadata(kv)) else .{ .committed = try owner.startup_evaluation.?.advance(kv) };
     owner.startup_result = result;
 }
 pub fn startupFinish(owner: *common.Store, recovery: bool, outcome: u32) !void {
@@ -102,6 +99,7 @@ pub fn startupFinish(owner: *common.Store, recovery: bool, outcome: u32) !void {
         const result = owner.startup_result orelse return error.WorkerNotRetired;
         try owner.value.resolve((try owner.value.recoveryBatch()).ticket, result);
         owner.startup_batch = null;
+        owner.startup_evaluation = null;
         owner.startup_result = null;
         if (result == .unchanged) return error.WriteNotCommitted;
     } else {
@@ -112,7 +110,10 @@ pub fn startupFinish(owner: *common.Store, recovery: bool, outcome: u32) !void {
             2 => .unknown,
             else => unreachable,
         };
-        defer owner.startup_result = null;
+        defer {
+            owner.startup_result = null;
+            owner.startup_evaluation = null;
+        }
         owner.value.completeWrite(batch.ticket, result) catch |err| {
             if (owner.value.phase != .uncertain) owner.startup_batch = null;
             return err;

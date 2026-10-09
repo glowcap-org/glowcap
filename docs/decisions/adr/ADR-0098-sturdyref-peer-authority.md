@@ -210,12 +210,10 @@ fetch, removal miss, and surviving-ref scenes over the C ABI.
 
 Retaining the transport adds no separate identity allocation: a dialed session
 stores transport and selected designator in the one block it already required;
-an accepted session owns one transport block. After the shared Vat moved out of
-the per-session shell, the `HostSession` shell is 528 bytes at its ceiling:
-464 when this decision landed, plus 32 for ADR-0097's per-session signing
-seed, 8 for the session-minted outbound high-water, and 8 for ADR-0107's
-sealed-channel pointer. The 448-byte Vat and its
-4,152-byte fixed queue chunk are now charged once per Host.
+an accepted session owns one transport block. With the Vat owned by the Host,
+the `HostSession` shell is 528 bytes at its ceiling. The Vat and its queue
+chunks are charged once per Host. [The footprint table](../../ladder.md#2-performance-at-scale)
+records the current costs.
 
 ## Scope (what this does not decide)
 

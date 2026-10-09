@@ -5,9 +5,6 @@ use rooms_runtime::cleanup;
 #[cfg(feature = "processes")]
 pub mod chat;
 pub mod documents;
-pub mod grant_commands;
-pub mod grant_publications;
-pub mod grants;
 #[cfg(feature = "processes")]
 pub mod irc;
 #[cfg(feature = "processes")]
@@ -20,13 +17,6 @@ pub mod server;
 #[cfg(feature = "processes")]
 pub mod web;
 
-pub mod session_archive;
-pub use rooms_runtime::session::commands as session_commands;
 #[cfg(feature = "processes")]
 pub mod session;
-#[cfg(test)]
-mod session_command_tests;
-pub mod session_directory;
-pub mod session_retention;
-pub mod session_runtime;
-pub mod session_state;
+pub mod session_archive;

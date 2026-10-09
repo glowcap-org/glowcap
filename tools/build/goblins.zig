@@ -90,11 +90,10 @@ pub fn register(ctx: Context) Registered {
     // spawns and tears down the Goblins vat itself.
     const goblins_interop = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-interop", .source = "interop/goblins_interop/driver.zig", .step_name = "goblins-interop", .description = "Live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
-    // Live TCP scale over the loop-fed host bridge (ADR-0076): one completion
-    // loop thread serves a full byte-fed node through `driver.Bridge`,
-    // many concurrent BlockingSession clients across two waves. Binds real
-    // loopback sockets at scale, port-exclusive like every live step.
-    _ = liveDriver(ctx, .{ .exe_name = "glowcap-tcp-loop", .source = "interop/tcp_loop/driver.zig", .step_name = "tcp-loop", .description = "Live TCP scale: many concurrent connections served from one loop thread through the Host bridge (ADR-0076)", .pin_port = false, .posture = .{ .deterministic = 30 } });
+    // Live TCP scale: one `driver.Server` thread serves many concurrent
+    // Session clients across two waves. Binds real loopback sockets at scale,
+    // port-exclusive like every live step.
+    _ = liveDriver(ctx, .{ .exe_name = "glowcap-tcp-loop", .source = "interop/tcp_loop/driver.zig", .step_name = "tcp-loop", .description = "Live TCP scale: many concurrent connections served from one Server thread", .pin_port = false, .posture = .{ .deterministic = 30 } });
 
     // Live Tor (ADR-0108): two glowcap peers hold an OCapN conversation over a
     // real hidden service. The driver starts its own Tor, so this needs `tor`
@@ -258,6 +257,13 @@ pub fn register(ctx: Context) Registered {
     racket_langs_check.step.dependOn(b.getInstallStep());
     racket_langs_check.has_side_effects = true;
     check_step.dependOn(&racket_langs_check.step);
+
+    // The site report's parsers and renderers run against captured bench
+    // output, so a change to a bench's output lines fails here rather than at
+    // the next page regeneration.
+    const site_report_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "racket", "-y", "bench/site_report-test.rkt" });
+    site_report_test.has_side_effects = true;
+    check_step.dependOn(&site_report_test.step);
 
     // Regenerate the performance page's charts and tables from live ReleaseFast
     // runs of every bench (codec, peer-scaling, frame-view) plus the Goblins

@@ -58,7 +58,6 @@ graph!(State {
 	keep_history,
 	join,
 	dm_mode,
-	trace_override,
 	capabilities,
 	peering
 });

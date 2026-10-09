@@ -9,6 +9,7 @@ pub const descriptor: core.Policy.Descriptor = .{
     .permissions = &.{ read, post },
     .constraints = &.{.{ .key = history, .operator = .lower_bound }},
 };
+pub const structural_policy = core.Policy.init(.{ .id = @fromBackingInt(0), .permissions = &.{} }) catch unreachable;
 pub const kind: core.KindId = @fromBackingInt(1);
 
 pub fn graphInit(allocator: std.mem.Allocator) !core.Graph {

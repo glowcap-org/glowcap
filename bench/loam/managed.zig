@@ -33,21 +33,45 @@ const read_acquisitions_per_call = 5 + record_capacity * (directory_levels + 1);
 const collection_window_roots = max_calls * (1 + read_acquisitions_per_call * (2 + max_record_edges));
 const contents = [_]access.hosting.ContentBehavior{.{ .schema = 7, .requirement = requirement, .retry = retry, .references = references, .dependent_requirement = requirement, .invoke = content }};
 
-fn references(_: ?*anyopaque, arena: std.mem.Allocator, _: loam.core.RecordView, verb: []const u8, _: []const driver.Value) ![]const loam.hosting.references.Request {
+/// This fixture admits an edit envelope, one capability reply and two held
+/// occurrences. The shared owners size retained invocation and one restored
+/// field; the callback adds its request spine and 128-byte replacement. Native
+/// access operations and Store staging retain their separate allocator owners.
+pub fn callAllocationBound() !loam.hosting.references.AllocationBound {
+    var bound = try access.hosting.invocationAllocationBound(.{
+        .arguments = .{ .values = 2, .bytes = "edit".len },
+        .reply = .{ .values = 1, .capabilities = 1 },
+        .verb_bytes = "dependent".len,
+        .held_occurrences = 2,
+        .receipt = true,
+        .dependent = true,
+    });
+    try bound.merge(try loam.hosting.references.allocationBound(1, 0, 0));
+    try bound.include(@sizeOf(loam.hosting.references.Request), @alignOf(loam.hosting.references.Request), 1);
+    try bound.include(128, 1, 1);
+    return bound;
+}
+
+fn references(_: ?*anyopaque, arena: std.mem.Allocator, input: access.hosting.ContentInvocation) ![]const loam.hosting.references.Request {
+    const verb = input.verb;
     if (!std.mem.eql(u8, verb, "exact") and !std.mem.eql(u8, verb, "dependent")) return &.{};
     const requests = try arena.alloc(loam.hosting.references.Request, 1);
     requests[0] = .{ .restore = 0 };
     return requests;
 }
 
-fn requirement(_: ?*anyopaque, _: std.mem.Allocator, _: loam.core.RecordView, verb: []const u8, args: []const driver.Value) !core.Policy.Requirement {
+fn requirement(_: ?*anyopaque, _: std.mem.Allocator, input: access.hosting.ContentInvocation) !core.Policy.Requirement {
+    const verb = input.verb;
+    const args = input.args;
     if (args.len != 0) return error.InvalidArguments;
     if (std.mem.eql(u8, verb, "read") or std.mem.eql(u8, verb, "exact") or std.mem.eql(u8, verb, "dependent")) return .{ .permissions = &.{read_key} };
     if (std.mem.eql(u8, verb, "edit")) return .{ .permissions = &.{edit_key} };
     return error.NoSuchMethod;
 }
 
-fn content(_: ?*anyopaque, call: *access.hosting.ContentCall, view: loam.core.RecordView, verb: []const u8, _: []const driver.Value) !driver.Value {
+fn content(_: ?*anyopaque, call: *access.hosting.ContentCall, input: access.hosting.ContentInvocation) !driver.Value {
+    const view = input.content;
+    const verb = input.verb;
     if (view.payload.len != 128) return error.InvalidRecord;
     const old = std.mem.readInt(i64, view.payload[0..8], .little);
     if (std.mem.eql(u8, verb, "read")) return .{ .integer = old };
@@ -122,10 +146,10 @@ pub const Managed = struct {
     writes: u64 = 0,
 
     pub fn init(self: *Managed, allocator: std.mem.Allocator, db: *w.Lmdb, count: usize, depth: u16) !void {
-        return self.initIdentity(allocator, db, count, depth, 0x83);
+        return self.initIdentity(allocator, db, count, depth, 0x83, try (try callAllocationBound()).physicalBytes());
     }
 
-    pub fn initIdentity(self: *Managed, allocator: std.mem.Allocator, db: *w.Lmdb, count: usize, depth: u16, identity: u8) !void {
+    pub fn initIdentity(self: *Managed, allocator: std.mem.Allocator, db: *w.Lmdb, count: usize, depth: u16, identity: u8, call_bytes: usize) !void {
         const max_retentions = count * 2 + 32;
         self.* = .{
             .allocator = allocator,
@@ -166,8 +190,9 @@ pub const Managed = struct {
         self.attachment = try loam.hosting.Attachment.create(allocator, &self.host, &self.store, &self.behaviors, .{
             .max_endpoints = count * 2 + 1,
             .max_calls = max_calls,
-            .call_bytes = 4096,
-            .pending_bytes = 32 * 1024,
+            .call_bytes = call_bytes,
+            .pending_bytes = try std.math.mul(usize, max_calls, call_bytes),
+            .ingress_bytes = try std.math.mul(usize, max_calls, call_bytes),
             .forward_reply_bytes = 512,
         });
         errdefer self.attachment.destroy() catch unreachable;
@@ -225,7 +250,7 @@ pub const Managed = struct {
         try setup.pump(self, operation);
         var prepared = false;
         for (0..128) |_| {
-            operation.prepareManagedDeriveCopying(.{ .ceiling = terms, .configured = terms }, .{ .revoke = true }) catch |err| {
+            operation.prepareManagedDeriveCopying(.{ .ceiling = terms, .configured = terms }, .{ .revoke = true, .delegate_control = true }) catch |err| {
                 if (err != error.RecordUnloaded) return err;
                 try setup.pump(self, operation);
                 continue;

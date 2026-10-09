@@ -92,7 +92,6 @@ pub fn checkDurablePinWriters(
             .declared_in = "src/ocapn/engine/peer/identity.zig",
             .speakers = &.{
                 "src/net/transport/iroh/stream.zig",
-                "src/driver/bridge.zig",
                 "src/driver/host_runtime/connections.zig",
                 "src/driver/host_runtime/opens.zig",
                 "src/driver/host_runtime/resident_pump.zig",

@@ -77,15 +77,13 @@ impl<'a, D: Deadline> Manager<'a, D> {
 		Ok(())
 	}
 	pub async fn unregister(&self) -> Result<PolicyUpdate, Error> {
-		let token = CheckpointRoutes.authority_token(&self.link).ok_or(Refusal::Token)?;
-		let reply = self.call(authority::UNREGISTER_ROOM, &[&token]).await?;
+		let reply = self.call(authority::UNREGISTER_ROOM, &[]).await?;
 		Self::policy(reply)
 	}
 	pub async fn set_policy(&self, policy: RoomPolicy, name: &str) -> Result<PolicyUpdate, Error> {
-		let token = CheckpointRoutes.authority_token(&self.link).ok_or(Refusal::Token)?;
 		let [visibility, entry, speaking] = policy.modes();
 		let reply = self
-			.call(authority::SET_POLICY, &[&token, visibility, entry, speaking, name])
+			.call(authority::SET_POLICY, &[visibility, entry, speaking, name])
 			.await?;
 		Self::policy(reply)
 	}

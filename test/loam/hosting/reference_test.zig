@@ -6,6 +6,103 @@ const refs = f.hosting.references;
 const a = std.testing.allocator;
 const schemas = f.schemas ++ [_]f.loam.core.Schema{refs.schema};
 
+test "loam save preparation waits for the exact inline handoff and preserves its occurrence" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    const alias = try fixture.host.capabilities.retain(a, .{ .deferred = @fromBackingInt(1) });
+    const id = fixture.host.capabilities.resolve(alias).?.deferred;
+    try fixture.host.capability_promises.put(a, id, .{ .introducing_peer = @fromBackingInt(1) });
+    const lease = try records.load(&fixture.data.store, &fixture.data.backend, fixture.id);
+    defer fixture.data.store.release(lease) catch unreachable;
+    var memory: f.hosting.Call.Memory = undefined;
+    memory.init(a, 1024 * 1024);
+    defer memory.deinit();
+    var call: f.hosting.Call = .{ .memory = &memory, .attachment = fixture.attached, .view = try fixture.data.store.currentView(lease) };
+    defer call.release();
+    const working = try refs.Set.create(&call, call.view, &.{.{ .save = .{ .capability = alias } }});
+    fixture.host.releaseCapabilityTerminal(alias, null);
+    try std.testing.expect(try working.advance() == .waiting);
+    try std.testing.expectEqual(@as(usize, 0), fixture.attached.reference_saves);
+    const resolved = try fixture.host.retainLocalCapability(fixture.host.localActorFor(fixture.root).?);
+    fixture.host.capability_promises.getPtr(id).?.state = .{ .fulfilled = resolved };
+    try std.testing.expect(try working.advance() == .ready);
+    const saved = try working.captured(alias);
+    try std.testing.expect(saved.edge.target.eql(fixture.id));
+    call.release();
+    try std.testing.expect(fixture.host.capabilities.retainCount(alias) == null);
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.capability_promises.count());
+    try std.testing.expectEqual(@as(?u64, 1), fixture.host.capabilities.retainCount(fixture.root));
+}
+
+test "loam settled handoff save validates the canonical foreign object against its recipe" {
+    const wire = @import("../../driver/core_host/harness.zig");
+    const pairs = @import("../../support/host_pair.zig");
+    const CapturedRef = @import("../../support/capture.zig").CapturedRef;
+    const model = @import("glowcap").ocapn.model;
+    for ([_]bool{ false, true }) |mismatch| {
+        var fixture: f.Fixture = undefined;
+        try fixture.init(.{});
+        defer fixture.deinit();
+        var remote = @import("../../support/core_host.zig").init(a, @splat(0x73), .{});
+        defer remote.deinit();
+        const pair = try pairs.openPair(&fixture.host, &remote, "127.0.0.1:7917");
+        const target = try remote.spawn(pair.b, wire.Widget, .{});
+        defer remote.releaseCapabilityTerminal(target, null);
+        const swiss = try remote.publishDurableCapability(@splat(0x21), target);
+        var fetched: CapturedRef = .{};
+        try fixture.host.vowOn(try fixture.host.fetch(pair.a, swiss.slice()), .{ .ctx = &fetched, .func = CapturedRef.record });
+        try pairs.pumpToQuiescence(&.{pair});
+        const resolved = try fixture.host.liftCapability(pair.a, try fetched.require());
+        const alias = try fixture.host.capabilities.retain(a, .{ .deferred = @fromBackingInt(1) });
+        defer fixture.host.releaseCapabilityTerminal(alias, null);
+        const id = fixture.host.capabilities.resolve(alias).?.deferred;
+        try fixture.host.capability_promises.put(a, id, .{ .introducing_peer = pair.a.peer_handle, .state = .{ .fulfilled = resolved } });
+        const other = try remote.spawn(pair.b, wire.Widget, .{});
+        defer remote.releaseCapabilityTerminal(other, null);
+        const wrong = try remote.publishDurableCapability(@splat(0x22), other);
+        const uri = try model.uri.writeSturdyref(a, wire.tcpSturdyref("127.0.0.1:7917", if (mismatch) wrong.slice() else swiss.slice()));
+        defer a.free(uri);
+        const save = try refs.beginSave(fixture.attached, a, alias, uri);
+        defer save.deinit();
+        try pairs.pumpToQuiescence(&.{pair});
+        if (mismatch) {
+            try std.testing.expectEqual(error.DurableReferenceMismatch, save.result().failed);
+        } else try std.testing.expect(save.result() == .ready);
+    }
+}
+
+test "loam retained reference preparation refuses foreign Host work before allocating" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    var other = @import("../../support/core_host.zig").init(a, @splat(0x71), .{});
+    defer other.deinit();
+    var work = try other.admitPendingWork();
+    defer work.complete();
+    var failing = std.testing.FailingAllocator.init(a, .{ .fail_index = 0 });
+    var memory: f.hosting.Call.Memory = undefined;
+    memory.init(failing.allocator(), 1024 * 1024);
+    defer memory.deinit();
+    const lease = try records.load(&fixture.data.store, &fixture.data.backend, fixture.id);
+    defer fixture.data.store.release(lease) catch unreachable;
+    var call: f.hosting.Call = .{ .memory = &memory, .attachment = fixture.attached, .view = try fixture.data.store.currentView(lease), .work = &work };
+    defer call.release();
+    try std.testing.expectError(error.ForeignWork, refs.Set.create(&call, call.view, &.{.{ .save = .{ .capability = fixture.root } }}));
+    try std.testing.expect(call.references == null);
+    try std.testing.expect(!failing.has_induced_failure);
+    try std.testing.expectEqual(@as(?u64, 1), fixture.host.capabilities.retainCount(fixture.root));
+    try std.testing.expectEqual(@as(usize, 0), fixture.attached.reference_saves);
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.pending_operations);
+    try std.testing.expectEqual(@as(usize, 1), other.pending_operations);
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.pending_enliven_count);
+    try std.testing.expectEqual(@as(usize, 0), other.pending_enliven_count);
+    try std.testing.expectEqual(@as(usize, 0), fixture.host.pendingVowCount());
+    try std.testing.expectEqual(@as(usize, 0), other.pendingVowCount());
+    try std.testing.expect((try fixture.host.nextAction()) == null);
+    try std.testing.expect((try other.nextAction()) == null);
+}
+
 test "loam reference declarations retain every save target before preparation advances" {
     var fixture: f.Fixture = undefined;
     try fixture.init(.{});
@@ -22,9 +119,10 @@ test "loam reference declarations retain every save target before preparation ad
     const target = try fixture.attached.restore(lease);
     var target_owned = true;
     defer if (target_owned) fixture.host.releaseCapabilityTerminal(target, null);
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    var call: f.hosting.Call = .{ .arena = arena.allocator(), .attachment = fixture.attached, .view = try store.currentView(lease) };
+    var memory: f.hosting.Call.Memory = undefined;
+    memory.init(a, 1024 * 1024);
+    defer memory.deinit();
+    var call: f.hosting.Call = .{ .memory = &memory, .attachment = fixture.attached, .view = try store.currentView(lease) };
     defer call.release();
     const working = try refs.Set.create(&call, call.view, &.{ .{ .save = .{ .capability = fixture.root } }, .{ .save = .{ .capability = target } } });
     fixture.host.releaseCapabilityTerminal(target, null);
@@ -76,9 +174,10 @@ test "loam saved proof refuses another attachment's restoration owner" {
     defer other.destroy() catch unreachable;
     const save = try refs.beginSave(fixture.attached, a, fixture.root, null);
     defer save.deinit();
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    var call: f.hosting.Call = .{ .arena = arena.allocator(), .attachment = other, .view = undefined };
+    var memory: f.hosting.Call.Memory = undefined;
+    memory.init(a, 1024 * 1024);
+    defer memory.deinit();
+    var call: f.hosting.Call = .{ .memory = &memory, .attachment = other, .view = undefined };
     defer call.release();
     try std.testing.expectError(error.ForeignAttachment, refs.copySaved(&call, save));
 }
@@ -139,10 +238,11 @@ test "loam local recipe survives reverse attachment startup and collection while
     const save = try refs.beginSave(source, a, cap, null);
     try std.testing.expect(save.result() == .ready);
     try std.testing.expectError(error.Busy, source.destroy());
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
+    var memory: f.hosting.Call.Memory = undefined;
+    memory.init(a, 1024 * 1024);
+    defer memory.deinit();
     lease = try records.load(&store, &backend, target_id);
-    var call: f.hosting.Call = .{ .arena = arena.allocator(), .attachment = source, .view = try store.currentView(lease) };
+    var call: f.hosting.Call = .{ .memory = &memory, .attachment = source, .view = try store.currentView(lease) };
     defer call.release();
     const replacement = try refs.copySaved(&call, save);
     try store.begin();
@@ -172,13 +272,13 @@ test "loam local recipe survives reverse attachment startup and collection while
     try records.collect(&store, &backend);
     store.evict();
     lease = try records.load(&store, &backend, root);
-    call = .{ .arena = arena.allocator(), .attachment = source, .view = try store.currentView(lease) };
+    call = .{ .memory = &memory, .attachment = source, .view = try store.currentView(lease) };
     // A refused recipe read retires its ticket and all preparation custody.
     var working = try refs.Set.create(&call, call.view, &.{.{ .restore = 0 }});
     const refused = (try working.advance()).read;
     try std.testing.expectError(error.InjectedRead, working.completeRead(refused.ticket, .{ .failed = error.InjectedRead }));
     call.release();
-    call = .{ .arena = arena.allocator(), .attachment = source, .view = try store.currentView(lease) };
+    call = .{ .memory = &memory, .attachment = source, .view = try store.currentView(lease) };
     working = try refs.Set.create(&call, call.view, &.{.{ .restore = 0 }});
     for (0..8) |_| switch (try working.advance()) {
         .read => |read| try working.completeRead(read.ticket, backend.read(read)),
@@ -191,7 +291,7 @@ test "loam local recipe survives reverse attachment startup and collection while
     call.release();
     try store.release(lease);
     lease = try records.load(&store, &backend, root);
-    call = .{ .arena = arena.allocator(), .attachment = source, .view = try store.currentView(lease) };
+    call = .{ .memory = &memory, .attachment = source, .view = try store.currentView(lease) };
     working = try refs.Set.create(&call, call.view, &.{.{ .restore = 0 }});
     for (0..8) |_| switch (try working.advance()) {
         .read => |read| try working.completeRead(read.ticket, backend.read(read)),

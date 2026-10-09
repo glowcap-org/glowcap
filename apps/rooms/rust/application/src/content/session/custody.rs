@@ -10,9 +10,12 @@ use core::{marker::PhantomData, num::NonZeroU64};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 
 pub const MAX_FIELDS_PER_ROLE: usize = 256;
+/// Aggregate admission stays fixed as new typed roles enter the vocabulary.
+pub const MAX_CUSTODY_FIELDS: usize = 3072;
 pub const MAX_EFFECTS: usize = 8;
 pub const MAX_RESULT_FIELDS: usize = 32;
 pub const MAX_TARGET_FIELDS: usize = 32;
+pub const MAX_OBSERVATION_REASON_UNITS: usize = 4096;
 pub const MAX_AUTHORITY_BYTES: usize = 1024 * 1024;
 
 /// Data coordinate inside this session owner, not a publication or resource ID.
@@ -67,6 +70,13 @@ pub struct Held<K, C> {
 	pub key: FieldKey<K>,
 	pub reference: C,
 }
+impl<K, C: PartialEq> PartialEq for Held<K, C> {
+	fn eq(&self, other: &Self) -> bool {
+		self.key.slot() == other.key.slot()
+			&& self.key.generation() == other.key.generation()
+			&& self.reference == other.reference
+	}
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
 	Duplicate,
@@ -83,11 +93,15 @@ macro_rules! custody {
 		#[serde(rename_all = "camelCase")]
 		pub enum Role { $($kind,)* }
 		impl Role { pub const ALL: &'static [Self] = &[$(Self::$kind,)*]; }
-		pub struct Custody<R: References> { $($field: List<Held<$kind, R::$kind>, MAX_FIELDS_PER_ROLE>,)* }
+		pub struct Custody<R: References> { count: usize, next_identity: crate::fields::SafeInteger, $($field: List<Held<$kind, R::$kind>, MAX_FIELDS_PER_ROLE>,)* }
 		impl<R: References> Default for Custody<R> {
-			fn default() -> Self { Self { $($field: List::new(alloc::vec::Vec::new()).expect("empty field table"),)* } }
+			fn default() -> Self { Self { count: 0, next_identity: crate::fields::SafeInteger::new(1).expect("initial line identity"), $($field: List::new(alloc::vec::Vec::new()).expect("empty field table"),)* } }
 		}
 		impl<R: References> Custody<R> {
+			pub fn next_identity(&self) -> crate::fields::SafeInteger { self.next_identity }
+			pub fn set_next_identity(&mut self, next: crate::fields::SafeInteger) { self.next_identity = next; }
+			pub fn len(&self) -> usize { self.count }
+			pub fn is_empty(&self) -> bool { self.count == 0 }
 			/// Borrow the typed fields for a bounded hosting codec walk.
 			pub fn fields(&self) -> impl Iterator<Item = Retained<'_, R>> {
 				core::iter::empty()$(.chain(self.$field.as_slice().iter().map(Retained::$kind)))*
@@ -97,12 +111,16 @@ macro_rules! custody {
 			}
 			pub fn $insert(&mut self, held: Held<$kind, R::$kind>) -> Result<(), Refusal> {
 				if self.$field.as_slice().iter().any(|field| field.key.slot() == held.key.slot()) { return Err(Refusal::Duplicate); }
-				self.$field.try_push(held).map_err(|_| Refusal::Capacity)
+				if self.count >= MAX_CUSTODY_FIELDS { return Err(Refusal::Capacity); }
+				self.$field.try_push(held).map_err(|_| Refusal::Capacity)?;
+				self.count += 1;
+				Ok(())
 			}
 			/// Release local custody without invoking grant revocation. The owner
 			/// commits intent changes and this removal in the same transaction.
 			pub fn $remove(&mut self, key: FieldKey<$kind>) -> Option<Held<$kind, R::$kind>> {
 				let index = self.$field.0.iter().position(|field| field.key == key)?;
+				self.count -= 1;
 				Some(self.$field.0.remove(index))
 			})*
 		}
@@ -110,6 +128,22 @@ macro_rules! custody {
 		/// Receipt results retain exact typed roles, never bearer strings or a
 		/// resource ID used to reconstruct a stronger capability.
 		pub enum RetainedField<R: References> { $($kind(Held<$kind, R::$kind>),)* }
+		impl<R: References> PartialEq for RetainedField<R> where $(R::$kind: PartialEq,)* {
+			fn eq(&self, other: &Self) -> bool {
+				match (self, other) { $((Self::$kind(left), Self::$kind(right)) => left == right,)* _ => false }
+			}
+		}
+		impl<R: References> PartialEq for Outcome<R> where $(R::$kind: PartialEq,)* {
+			fn eq(&self, other: &Self) -> bool {
+				match (self, other) {
+					(Self::Unresolved, Self::Unresolved) | (Self::KnownAbsent, Self::KnownAbsent) => true,
+					(Self::Unknown { reason: left }, Self::Unknown { reason: right }) => left == right,
+					(Self::Committed { result: left, retained: left_fields }, Self::Committed { result: right, retained: right_fields }) =>
+						left == right && left_fields.as_slice() == right_fields.as_slice(),
+					_ => false,
+				}
+			}
+		}
 		impl<R: References> Retained<'_, R> {
 			pub fn coordinate(&self) -> Coordinate {
 				match self { $(Self::$kind(field) => Coordinate { role: Role::$kind, key: FieldKey::new(field.key.slot(), field.key.generation()) },)* }
@@ -119,6 +153,17 @@ macro_rules! custody {
 			pub fn borrowed(&self) -> Retained<'_, R> { match self { $(Self::$kind(field) => Retained::$kind(field),)* } }
 		}
 		impl<R: References> Custody<R> {
+			/// Select an existing exact typed field, never reconstruct authority.
+			pub fn get(&self, coordinate: Coordinate) -> Option<Retained<'_, R>> {
+				let key = coordinate.key;
+				match coordinate.role { $(Role::$kind => self.$field(FieldKey::new(key.slot(), key.generation())).map(Retained::$kind),)* }
+			}
+			/// Remove only the exact role, slot and generation. Effects retain their
+			/// own occurrences independently of workspace custody.
+			pub fn remove(&mut self, coordinate: Coordinate) -> Option<RetainedField<R>> {
+				let key = coordinate.key;
+				match coordinate.role { $(Role::$kind => self.$remove(FieldKey::new(key.slot(), key.generation())).map(RetainedField::$kind),)* }
+			}
 			pub fn insert(&mut self, field: RetainedField<R>) -> Result<(), Refusal> {
 				match field { $(RetainedField::$kind(field) => self.$insert(field),)* }
 			}
@@ -127,17 +172,52 @@ macro_rules! custody {
 }
 custody! {
 	SessionAccess => session_access, insert_session_access, remove_session_access;
+	SessionControl => session_control, insert_session_control, remove_session_control;
 	RoomAccess => room_access, insert_room_access, remove_room_access;
 	DirectoryAccess => directory_access, insert_directory_access, remove_directory_access;
 	DirectAccess => direct_access, insert_direct_access, remove_direct_access;
+	DirectInbox => direct_inbox, insert_direct_inbox, remove_direct_inbox;
 	ArchiveAccess => archive_access, insert_archive_access, remove_archive_access;
 	Operator => operator, insert_operator, remove_operator;
+	Operations => operations, insert_operations, remove_operations;
+	IrcConnection => irc_connection, insert_irc_connection, remove_irc_connection;
 	Offer => offer, insert_offer, remove_offer;
 	AcceptedAccess => accepted_access, insert_accepted_access, remove_accepted_access;
 	RoomControl => room_control, insert_room_control, remove_room_control;
 	ArchiveControl => archive_control, insert_archive_control, remove_archive_control;
 	CreationReceipt => creation_receipt, insert_creation_receipt, remove_creation_receipt;
 	PublicationLease => publication_lease, insert_publication_lease, remove_publication_lease;
+	RoomSeat => room_seat, insert_room_seat, remove_room_seat;
+	RoomTopic => room_topic, insert_room_topic, remove_room_topic;
+	RoomInbox => room_inbox, insert_room_inbox, remove_room_inbox;
+	RoomFiles => room_files, insert_room_files, remove_room_files;
+	Line => line, insert_line, remove_line;
+	DirectoryName => directory_name, insert_directory_name, remove_directory_name;
+	DirectoryInbox => directory_inbox, insert_directory_inbox, remove_directory_inbox;
+	SourceBlob => source_blob, insert_source_blob, remove_source_blob;
+}
+
+impl Role {
+	/// These exact actors expire with the attachment's actual Host lifetime.
+	/// Direct inboxes are registration-scoped Host aliases, not durable grants.
+	pub const fn live(self) -> bool {
+		matches!(
+			self,
+			Self::Offer
+				| Self::DirectAccess
+				| Self::DirectInbox
+				| Self::IrcConnection
+				| Self::AcceptedAccess
+				| Self::RoomSeat
+				| Self::RoomTopic
+				| Self::RoomInbox
+				| Self::RoomFiles
+				| Self::Line | Self::PublicationLease
+				| Self::DirectoryName
+				| Self::DirectoryInbox
+				| Self::SourceBlob
+		)
+	}
 }
 
 /// A record's typed field coordinate. Hosting supplies the corresponding held
@@ -148,6 +228,13 @@ pub struct Coordinate {
 	pub role: Role,
 	pub key: FieldKey<()>,
 }
+impl Coordinate {
+	/// Wire coordinates are JSON objects with an exact typed key. Positional
+	/// arrays cannot supply a checked role or select receipt/custody authority.
+	pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {
+		crate::fields::json_object(raw)
+	}
+}
 
 /// Bind content to the shared managed resource without repeating its canonical
 /// parent or resource identity. The hosting codec supplies this strong edge.
@@ -157,8 +244,18 @@ pub struct ResourceBinding<C> {
 
 pub struct EffectReceipt<R: References> {
 	pub operation: OperationId,
+	/// The first workspace adoption commits with its exact transferred fields.
+	/// Recovery cannot install the same result into a second topology.
+	pub adopted: bool,
+	/// Private capacity and coordinate reservation, committed before dispatch.
+	/// Exported intent cannot supply this sender provenance.
+	pub outgoing: Option<super::outgoing::Update>,
+	/// Scalar contact provenance captured at introduction admission. One bounded
+	/// registration and opening identity survive in the receipt; coordinates stay inline.
+	/// Recovery cannot replace it with a subsequently selected registration.
+	pub introduction: Option<super::workspace::Introduction>,
 	pub canonical_intent: Text<262144, true>,
-	pub attachment_generation: NonZeroU64,
+	pub resource_generation: NonZeroU64,
 	/// The original mediation grant and exact targets survive workspace changes.
 	/// Recovery cannot select replacement authority from current intent.
 	pub source: Held<SessionAccess, R::SessionAccess>,
@@ -169,6 +266,11 @@ pub struct EffectReceipt<R: References> {
 /// results remain in the bounded receipt rather than being minted on replay.
 pub enum Outcome<R: References> {
 	Unresolved,
+	/// A terminal observation failed. The reason is diagnostic, never proof
+	/// that the target did nothing or permission to dispatch the effect again.
+	Unknown {
+		reason: Text<MAX_OBSERVATION_REASON_UNITS, true>,
+	},
 	KnownAbsent,
 	Committed {
 		result: Text<32768>,

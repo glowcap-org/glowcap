@@ -41,7 +41,8 @@ const PreparedHome = struct {
         self.* = undefined;
     }
 
-    fn commit(self: *PreparedHome, node: *Node) void {
+    fn commit(self: *PreparedHome, node: *Node, provisional: bool) void {
+        self.proxy.provisional = provisional;
         const home = node.peer(self.key.home) orelse unreachable;
         home.session_state.recordPreparedSend(self.message);
         home.pushPendingAssume(self.reservation, .{ .message = self.message });
@@ -114,14 +115,92 @@ pub const Prepared = struct {
     }
 
     pub fn commit(self: *Prepared, node: *Node) void {
+        self.commitAs(node, false);
+    }
+
+    /// Commit for a send inside an open provisional window (ADR-0194), and
+    /// append one receipt per recipient so the window's outcome can keep or
+    /// withdraw it. `receipts` has room for every recipient.
+    pub fn commitProvisional(
+        self: *Prepared,
+        node: *Node,
+        receipts: *std.ArrayListUnmanaged(Receipt),
+    ) void {
+        self.commitAs(node, true);
+        for (self.recipients.items) |recipient| receipts.appendAssumeCapacity(.{
+            .home_key = recipient.home_key,
+            .peer = recipient.peer,
+            .export_position = recipient.export_position,
+            .import_position = recipient.import_position,
+        });
+    }
+
+    fn commitAs(self: *Prepared, node: *Node, provisional: bool) void {
         var groups = self.groups.valueIterator();
         while (groups.next()) |group| if (group.prepared_home) |*home|
-            home.commit(node);
+            home.commit(node, provisional);
         for (self.recipients.items) |*recipient| recipient.commit(node);
         actions.commitProxyReservations(node, self.recipients.items.len);
         self.committed = true;
     }
 };
+
+/// One recipient a provisional send added to a promise proxy.
+pub const Receipt = struct {
+    home_key: topology.HomeKey,
+    peer: PeerHandle,
+    export_position: model.ExportPosition,
+    import_position: model.ImportPosition,
+};
+
+/// The window that made the send committed: the recipient stays, and so does
+/// a home that send created.
+pub fn keep(self: *Node, receipt: Receipt) void {
+    const proxy = self.promise_proxies.getPtr(receipt.home_key) orelse return;
+    proxy.provisional = false;
+}
+
+/// The window that made the send was retracted. Its carrier is already gone
+/// from the recipient Peer, which released the carrier's export retain, so
+/// only the rows the commit created remain: the recipient's promise export
+/// and third-party import, its proxy entry, and, when the window created the
+/// proxy and no recipient is left, the home listener and its queued listen.
+pub fn withdraw(self: *Node, receipt: Receipt) void {
+    const proxy = self.promise_proxies.getPtr(receipt.home_key) orelse unreachable;
+    const index = for (proxy.recipients.items, 0..) |recipient, i| {
+        if (recipient.peer == receipt.peer and recipient.import_pos == receipt.import_position.int())
+            break i;
+    } else unreachable;
+    var removed = proxy.recipients.orderedRemove(index);
+    if (removed.failure_reason != null) actions.releaseProxyReservation(self);
+    removed.releaseFailure(self.allocator);
+    if (self.peer(receipt.peer)) |recipient| {
+        recipient.session_state.abandonUnsharedThirdPartyImport(receipt.import_position);
+        recipient.session_state.releaseUnsharedExport(receipt.export_position);
+    }
+    if (!proxy.provisional or proxy.recipients.items.len != 0) return;
+
+    var withdrawn = (self.promise_proxies.fetchRemove(receipt.home_key) orelse unreachable).value;
+    std.debug.assert(self.proxy_by_listener.remove(.{
+        .home = receipt.home_key.home,
+        .listener_export = withdrawn.listener_export,
+    }));
+    std.debug.assert(self.proxy_by_source.remove(.{
+        .home = receipt.home_key.home,
+        .wire_pos = withdrawn.current_wire_pos,
+    }));
+    if (self.peer(receipt.home_key.home)) |home| {
+        const listener = model.ExportPosition.from(withdrawn.listener_export);
+        home.withdrawQueuedListen(listener);
+        if (home.session_state.captp_version == .next) {
+            home.session_state.abandonPromiseSettlingListener(.from(withdrawn.current_wire_pos));
+        } else {
+            std.debug.assert(home.session_state.removeOutboundResolver(listener));
+        }
+        home.session_state.releaseUnsharedExport(listener);
+    }
+    withdrawn.deinit(self.allocator);
+}
 
 fn prepareHome(
     self: *Node,

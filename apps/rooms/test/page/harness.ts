@@ -7,6 +7,7 @@
 // A proof is one conversation driven in order, so these are the only things
 // shared across its phases. Everything else a phase needs, it is handed.
 import type { Locator, Page } from "playwright";
+import { inkContrast } from "../ink_contrast.ts";
 
 import { fail } from "../support/fail.ts";
 
@@ -16,72 +17,15 @@ export { freePort } from "../support/ports.ts";
 export { until } from "../support/wait.ts";
 export { waitForHttp } from "../support/rooms_server.ts";
 
-/** How readable `selector` is over the gradient bubble behind it, or why that
- * could not be worked out.
- *
- * The answer is the lowest ink contrast a translucent descendant surface
- * reaches over either end of its containing bubble's gradient, so it is the
- * composite a person actually sees rather than the declarations in isolation. */
+/** Measure hovered ink against every painted ancestor, including opaque file
+ * chips inside a gradient bubble. The shared contrast owner handles browser
+ * colour syntax and alpha; no descendant skips its actual ground. */
 export async function bubbleInkContrast(
 	page: Page,
 	selector: string,
-	surfaceSelector: string = selector,
 ): Promise<{ ratio: number } | { why: string }> {
 	await page.hover(selector);
-	return page.evaluate(({ selector, surfaceSelector }) => {
-		type Rgba = [number, number, number, number];
-		// Two syntaxes, because a computed color comes back in whatever shape the
-		// token was written in. A `color-mix()` carrying transparency computes to
-		// `color(srgb r g b / a)`, whose channels run 0 to 1 rather than 0 to 255,
-		// and a reader that knew only `rgb()` found nothing in it. That is how a
-		// contrast check came to report the note on a changed line as having no
-		// color, on a page whose contrast was perfectly fine. `test/ink_contrast.ts`
-		// met the same syntax from the other side and carries the longer account.
-		const colors = (value: string): Rgba[] =>
-			[...value.matchAll(/rgba?\(([^)]+)\)|color\(srgb\s+([^)]+)\)/g)].map((match) => {
-				const srgb = match[2] !== undefined;
-				const parts = (srgb ? match[2] : match[1]).split(/[ ,/]+/).filter(Boolean).map(Number);
-				const scale = srgb ? 255 : 1;
-				return [parts[0] * scale, parts[1] * scale, parts[2] * scale, parts[3] ?? 1];
-			});
-		const relative = ([r, g, b]: Rgba): number => {
-			const channel = (n: number) => {
-				const s = n / 255;
-				return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-			};
-			return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-		};
-		const contrast = (a: Rgba, b: Rgba): number => {
-			const [bright, dark] = [relative(a), relative(b)].sort((x, y) => y - x);
-			return (bright + 0.05) / (dark + 0.05);
-		};
-		const over = (front: Rgba, back: Rgba): Rgba => [
-			front[0] * front[3] + back[0] * (1 - front[3]),
-			front[1] * front[3] + back[1] * (1 - front[3]),
-			front[2] * front[3] + back[2] * (1 - front[3]),
-			1,
-		];
-
-		const target = document.querySelector(selector);
-		const surface = target?.closest(surfaceSelector);
-		const bubble = target?.closest(".bubble");
-		// Unmeasurable is reported rather than returned as a bare nothing. There
-		// are several ways to arrive at it and they mean different things (a
-		// note that never rendered, a bubble that is not painted as a gradient
-		// yet), and a caller told only "null" has to guess which, at the moment
-		// when the run that could have answered is already over.
-		if (!(target instanceof HTMLElement)) return { why: `no element matched ${selector}` };
-		if (!(surface instanceof HTMLElement)) return { why: `${selector} sits in no ${surfaceSelector}` };
-		if (!(bubble instanceof HTMLElement)) return { why: `${selector} sits in no .bubble` };
-		const ink = colors(getComputedStyle(target).color)[0];
-		const wash = colors(getComputedStyle(surface).backgroundColor)[0];
-		const painted = getComputedStyle(bubble).backgroundImage;
-		const stops = colors(painted);
-		if (!ink) return { why: `${selector} has no color` };
-		if (!wash) return { why: `${surfaceSelector} has no background color` };
-		if (stops.length < 2) return { why: `the bubble is painted ${JSON.stringify(painted)}, not as a gradient` };
-		return { ratio: Math.min(...stops.map((stop) => contrast(ink, over(wash, stop)))) };
-	}, { selector, surfaceSelector });
+	return await inkContrast(page, selector) ?? { why: `${selector} has no measurable painted ground` };
 }
 
 /** Fill a field of the join card and wait until it holds what was filled.
@@ -124,13 +68,32 @@ export async function say(tab: Page, text: string): Promise<void> {
 }
 
 /** Press the direct-message control beside `peer` in the member list and wait
- * until the composer is live again. The control is there only once `peer` is
- * both in the roster and advertised as reachable for direct messages. */
+ * until that conversation is the selected rail row and its composer is live.
+ * The title alone names the destination while the conversation is still being
+ * opened, over the previous conversation's composer, so it proves nothing about
+ * where the next line goes. The control is there only once `peer` is both in
+ * the roster and advertised as reachable for direct messages. */
 export async function openDmTo(tab: Page, peer: string): Promise<void> {
 	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
 	await button.waitFor({ state: "visible", timeout: 60_000 });
 	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
+	await directOpened(tab, peer);
+}
+
+/** The direct line to `peer` is the open conversation and takes a message. A
+ * press only starts the opening; the conversation the reader was in keeps its
+ * own composer meanwhile, so an enabled composer alone proves nothing. */
+export async function directOpened(tab: Page, peer: string, timeout = 30_000): Promise<void> {
+	await tab.waitForFunction(
+		(peer) =>
+			[...document.querySelectorAll("li.here .dm-open .rname")].some((name) =>
+				name.textContent?.trim() === peer
+			) &&
+			(document.getElementById("roomName")?.textContent ?? "").trim() === peer &&
+			(document.getElementById("line") as HTMLTextAreaElement | null)?.disabled === false,
+		peer,
+		{ timeout },
+	);
 }
 
 /** Wait for a bubble containing `text` to render in `tab`; on timeout, dump the
@@ -224,8 +187,13 @@ export async function reachDirectoryOnCard(
 
 /** The directory conversation's title opens the existing directory card. */
 export async function openDirectoryCard(tab: Page): Promise<void> {
+	// Exit transitions retain the previous card after close(). Its painted
+	// title cannot prove that this press opened the selected directory's card.
+	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 });
 	await tab.click("#roomAbout");
-	await tab.waitForSelector("#dircardTitle", { timeout: 10_000 })
+	await tab.waitForSelector('dialog[aria-labelledby="dircardTitle"]:modal:not([inert]) #dircardTitle', {
+		timeout: 10_000,
+	})
 		.catch(() => fail("the directory conversation's title did not open its card"));
 }
 

@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 pub struct CapabilityQuery {
 	directory: PathBuf,
+	locator: glowcap::Locator,
+	trace_locator: Option<glowcap::Locator>,
 }
 impl CapabilityQuery {
 	pub fn parse(args: &[String], env: impl Fn(&str) -> Option<String>) -> Result<Option<Self>, Error> {
@@ -25,8 +27,25 @@ impl CapabilityQuery {
 		let directory = directory
 			.filter(|s| !s.trim().is_empty())
 			.ok_or_else(|| Error::refused("use --capabilities=<state-directory> or set GLOWCAP_ROOMS_STATE"))?;
+		let trace_locator = env("GLOWCAP_ROOMS_TRACE_LOCATOR")
+			.map(|locator| glowcap::parse_locator(&locator))
+			.transpose()?;
+		if let Some(locator) = &trace_locator {
+			let Some(glowcap::HintValue::String(endpoint)) = locator.hints.get("trace-publish") else {
+				return Err(Error::refused(
+					"the trace locator must advertise its exact trace-publish endpoint",
+				));
+			};
+			rooms_application::server::trace::producer_endpoint(endpoint).map_err(Error::refused)?;
+		}
 		Ok(Some(Self {
 			directory: directory.into(),
+			locator: glowcap::parse_locator(&env("GLOWCAP_ROOMS_LOCATOR").ok_or_else(|| {
+				Error::refused(
+					"set GLOWCAP_ROOMS_LOCATOR to the server's advertised locator when reading durable capability recipes",
+				)
+			})?)?,
+			trace_locator,
 		}))
 	}
 	pub async fn run(self) -> Result<String, Error> {
@@ -57,7 +76,15 @@ impl CapabilityQuery {
 						capability,
 						swiss: swiss.into(),
 					}
-					.line()
+					.line(if capability.id == "trace" {
+						self.trace_locator.as_ref().ok_or_else(|| {
+							Error::refused(
+								"set GLOWCAP_ROOMS_TRACE_LOCATOR to the timeline's advertised locator when reading its capability recipe",
+							)
+						})?
+					} else {
+						&self.locator
+					})?
 				}
 			};
 			lines.push(line);

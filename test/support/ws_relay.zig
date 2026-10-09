@@ -208,6 +208,15 @@ pub fn bridgeOneRendezvous(io: Io, server: *ip.Server, allocator: std.mem.Alloca
     return bridgeOneRendezvousObserved(io, server, allocator, null);
 }
 
+pub const Probe = struct {
+    /// Scanned for at the relay's plaintext payload position.
+    needle: []const u8 = &.{},
+    found: ?*std.atomic.Value(bool) = null,
+    /// Set once the parked registration answered the relay's ping, so a
+    /// test can dial knowing the registration is the first leg accepted.
+    registered: ?*std.atomic.Value(bool) = null,
+};
+
 /// The rendezvous bridge with an optional scanner at the relay's plaintext
 /// payload position. A sealed-channel test passes a needle and proves the far
 /// peer received it while this scanner did not.
@@ -215,7 +224,7 @@ pub fn bridgeOneRendezvousObserved(
     io: Io,
     server: *ip.Server,
     allocator: std.mem.Allocator,
-    probe: ?struct { needle: []const u8, found: *std.atomic.Value(bool) },
+    probe: ?Probe,
 ) !void {
     var reg: Leg = .{ .stream = try server.accept(io), .io = io };
     reg.wire();
@@ -231,6 +240,7 @@ pub fn bridgeOneRendezvousObserved(
     const pong = try readClientFrame(&reg, &pong_buf);
     try std.testing.expectEqual(keyed_relay.Opcode.pong, pong.opcode);
     try std.testing.expectEqualStrings("hb", pong.payload);
+    if (probe) |p| if (p.registered) |registered| registered.store(true, .release);
 
     var dial: Leg = .{ .stream = try server.accept(io), .io = io };
     dial.wire();
@@ -239,10 +249,10 @@ pub fn bridgeOneRendezvousObserved(
     try std.testing.expect(std.mem.startsWith(u8, dial.target, "/relay?rendezvous="));
     try std.testing.expectEqualStrings(reg_id, dial.target["/relay?rendezvous=".len..]);
 
-    const internal_probe: ?PlaintextProbe = if (probe) |p| .{
+    const internal_probe: ?PlaintextProbe = if (probe) |p| if (p.found) |found| .{
         .needle = p.needle,
-        .found = p.found,
-    } else null;
+        .found = found,
+    } else null else null;
     var to_reg = try io.concurrent(bridgeDirectionObserved, .{ &dial, &reg, allocator, internal_probe });
     var to_dial = try io.concurrent(bridgeDirectionObserved, .{ &reg, &dial, allocator, internal_probe });
     to_reg.await(io) catch {};

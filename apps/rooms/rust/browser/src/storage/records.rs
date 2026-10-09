@@ -65,6 +65,11 @@ impl Archive {
 		self.pending = Some(write::clear(&self.database)?);
 		self.settle().await.map(|_| self.cache.clear())
 	}
+	pub async fn clear_source(&mut self, source: DocumentText) -> Result<(), Error> {
+		self.settle().await?;
+		self.pending = Some(write::clear_source(&self.database, source)?);
+		self.settle().await.map(|_| self.cache.clear())
+	}
 	pub async fn close(&mut self) -> Result<(), Error> {
 		let result = self.settle().await;
 		self.database.close().await;

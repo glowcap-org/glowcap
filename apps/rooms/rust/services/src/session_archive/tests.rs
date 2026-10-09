@@ -132,7 +132,7 @@ async fn scenario() {
 			let count = service_active.clone();
 			count.set(count.get() + 1);
 			sessions.spawn_local(async move {
-				let session = session.with_gc();
+				let session = session;
 				let _ = session.serve().await;
 				session.close(PendingWork::Cancel).await.unwrap();
 				count.set(count.get() - 1);

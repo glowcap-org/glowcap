@@ -1,8 +1,8 @@
 //! Host-owned trace emission.
 //!
 //! `../trace.zig` owns the callback vocabulary. This leaf owns the facts read
-//! from live Host/session state and emits them once at their authoritative
-//! transition. It performs no formatting, clock reads, or adapter policy.
+//! from live Host/session state, their transitions, and explicit replay of
+//! currently open sessions. It performs no formatting or clock reads.
 
 const std = @import("std");
 
@@ -19,10 +19,36 @@ const crypto = foundation.crypto;
 /// Install (or clear) the live trace sink: the callback that hears this host's
 /// session opens, message verbs, and closes, on the host's one thread, fields
 /// borrowed per call. The embedder stamps time and formats; the core reports
-/// facts only.
-pub fn setTrace(self: *Host, sink: ?trace.Sink) error{WrongThread}!void {
+/// facts only. Call `replayTrace` after publishing the sink's own state to
+/// seed it with sessions that are already open.
+pub fn setTrace(self: *Host, sink: ?trace.Sink) error{ ReenteredHost, WrongThread }!void {
     try admission.checkOwnerIfClaimed(self);
+    if (admission.withinCallback(self)) return error.ReenteredHost;
     self.trace_sink = sink;
+}
+
+/// Report current open sessions without replaying messages or closed sessions.
+/// Callbacks borrow the live rows, so Host-driving reentry is refused.
+pub fn replayTrace(self: *Host) error{ ReenteredHost, WrongThread }!void {
+    try admission.refuseReentry(self);
+    const sink = self.trace_sink orelse return;
+    self.in_callback = true;
+    defer self.in_callback = false;
+    var sessions = self.sessions.valueIterator();
+    while (sessions.next()) |slot| {
+        const session = slot.*;
+        switch (session.lifecyclePhase()) {
+            .active, .finishing => reportOpen(self, session, sink),
+            .cancel_pending, .terminating => {},
+        }
+    }
+}
+
+fn emit(self: *Host, sink: trace.Sink, event: trace.Event) void {
+    const previous = self.in_callback;
+    self.in_callback = true;
+    defer self.in_callback = previous;
+    sink.emit(sink.ctx, event);
 }
 
 /// Emit the open fact for `session` once, the first time it is observed open.
@@ -30,6 +56,10 @@ pub fn traceNoteOpen(self: *Host, session: *HostSession) void {
     self.assertOwner();
     const sink = self.trace_sink orelse return;
     if (session.control.trace_open_noted) return;
+    reportOpen(self, session, sink);
+}
+
+fn reportOpen(self: *Host, session: *HostSession, sink: trace.Sink) void {
     if (!session.sessionOpen()) return;
     session.control.trace_open_noted = true;
     const state = &session.served.port.peer.session_state;
@@ -50,7 +80,7 @@ pub fn traceNoteOpen(self: *Host, session: *HostSession) void {
             session_id = &session_id_digits;
         } else |_| {}
     }
-    sink.emit(sink.ctx, .{ .session_open = .{
+    emit(self, sink, .{ .session_open = .{
         .session = session.peer_handle,
         .designator = designator,
         .transport = session.transport,
@@ -75,7 +105,7 @@ pub fn traceMessage(
     if (!session.control.trace_open_noted) return;
     var digest: [trace.digest_bytes]u8 = undefined;
     std.crypto.hash.Blake3.hash(frame, &digest, .{});
-    sink.emit(sink.ctx, .{ .message = .{
+    emit(self, sink, .{ .message = .{
         .session = session.peer_handle,
         .outbound = outbound,
         .verb = verb,
@@ -90,5 +120,5 @@ pub fn traceClose(self: *Host, session: *HostSession) void {
     const sink = self.trace_sink orelse return;
     if (!session.control.trace_open_noted) return;
     session.control.trace_open_noted = false;
-    sink.emit(sink.ctx, .{ .session_close = .{ .session = session.peer_handle } });
+    emit(self, sink, .{ .session_close = .{ .session = session.peer_handle } });
 }

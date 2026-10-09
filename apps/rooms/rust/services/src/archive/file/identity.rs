@@ -31,6 +31,36 @@ impl rooms_platform::serving::onion::KeyStore for FileArchive {
 	}
 }
 impl FileArchive {
+	/// Recorder identity belongs to this archive account, independently of the
+	/// session Host, Loam resource or a standalone archive peer identity.
+	pub async fn recording_source(&mut self) -> Result<rooms_application::text::DocumentText, Error> {
+		match self
+			.submit(|store| {
+				const FILE: &str = "recording-source.json";
+				let source = match storage::read(&store.directory.path().join(FILE), 256)? {
+					Some(bytes) => {
+						let source: identity::RecordingIdentity = serde_json::from_slice(&bytes)
+							.map_err(|error| DiskFailure::Corrupt(error.to_string().into()))?;
+						source
+					}
+					None => {
+						let mut random = [0; 16];
+						rooms_platform::entropy::fill(&mut random).map_err(entropy_failure)?;
+						let source = identity::RecordingIdentity::new(random);
+						let bytes = serde_json::to_vec(&source).expect("fixed recorder identity");
+						let written = storage::atomic::replace(&store.directory, FILE, [bytes.as_slice()]);
+						store.written(written)?;
+						source
+					}
+				};
+				Ok(Completion::RecordingSource(source.source()))
+			})
+			.await?
+		{
+			Completion::RecordingSource(source) => Ok(source),
+			_ => unreachable!("recording source completion"),
+		}
+	}
 	/// Standalone peers explicitly request identity under the existing archive
 	/// lease. Session-local archives do not create a peer identity as a side effect.
 	pub async fn identity(&mut self) -> Result<Identity, Error> {

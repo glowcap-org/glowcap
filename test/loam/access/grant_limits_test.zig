@@ -1,6 +1,7 @@
 //! Grant quotas, stale revisions, and malformed identities refuse before
 //! mutation. Tombstones retain their identity and consume bounded capacity.
 
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");
 const core = f.core;
@@ -9,7 +10,7 @@ const Ledger = core.GrantLedger;
 test "access grants bound delegation child counts and retained tombstones" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 3, .max_depth = 2, .max_children = 1 });
     defer ledger.deinit() catch unreachable;
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
@@ -34,14 +35,14 @@ test "access grants bound delegation child counts and retained tombstones" {
 test "access grant changes reject stale graph and ledger revisions" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 8 });
     defer ledger.deinit() catch unreachable;
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
     const request = f.issue(terms, 2);
     const root = (try ledger.issueRootCopying(ledger.version(), request)).grant;
     const old_graph = ledger.version();
-    _ = try graph.create(graph.revision(), f.kind, null);
+    _ = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     const old_ledger = ledger.version();
     _ = try ledger.pause(ledger.version(), root);
     for ([_]Ledger.Version{ old_graph, old_ledger }) |stale| {
@@ -70,7 +71,7 @@ test "access grant changes reject stale graph and ledger revisions" {
 test "access grant identities and schemas fail closed without changing state" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 3 });
     defer ledger.deinit() catch unreachable;
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);

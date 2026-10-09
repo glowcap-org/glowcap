@@ -2,7 +2,8 @@
 //!
 //! Dial and accept paths transfer an owned stream plus a retained netlayer
 //! lease here. This module owns the raw C handle, readiness descriptor,
-//! read/write failure latch, and final release of that lease.
+//! nonblocking read/write with its failure latch, and final release of that
+//! lease.
 
 const std = @import("std");
 const net = @import("net");
@@ -33,6 +34,7 @@ pub fn adoptStream(owner: *runtime.Netlayer, stream: std.Io.net.Stream) !Adopted
         stream.close(owner.io());
         owner.releaseProviderChild();
     }
+    if (!net.socket.setNoSigpipe(stream.socket.handle)) return error.SocketConfigurationFailed;
     const conn = try owner.allocator.create(RawConn);
     conn.* = .{
         .stream = net.onion.resident.RawStream.init(
@@ -51,7 +53,7 @@ fn rawConn(raw: ?*anyopaque) *RawConn {
     return @ptrCast(@alignCast(raw.?));
 }
 
-pub fn providerRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usize) callconv(.c) isize {
+pub fn providerTryRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usize) callconv(.c) isize {
     const conn = rawConn(conn_raw);
     if (!conn.operations.acquire(conn.owner.io())) {
         if (c.transport_provider.providerFailureEmpty(conn.failure))
@@ -63,8 +65,8 @@ pub fn providerRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usi
         c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
         return -1;
     })[0..cap];
-    const got = conn.stream.read(dest) catch |err| {
-        if (err == error.EndOfStream) return 0;
+    const got = net.socket.receiveNonblocking(@intCast(conn.stream.readinessFd()), dest) catch |err| {
+        if (err == error.WouldBlock) return c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK;
         if (c.transport_provider.providerFailureEmpty(conn.failure))
             c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
         return -1;
@@ -72,24 +74,25 @@ pub fn providerRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usi
     return @intCast(got);
 }
 
-pub fn providerWriteAll(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const u8, len: usize) callconv(.c) i32 {
+pub fn providerTryWrite(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const u8, len: usize) callconv(.c) isize {
     const conn = rawConn(conn_raw);
     if (!conn.operations.acquire(conn.owner.io())) {
         if (c.transport_provider.providerFailureEmpty(conn.failure))
             c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_CLOSED, error.Closed);
-        return GLOWCAP_ERR_CLOSED;
+        return -1;
     }
     defer conn.operations.release(conn.owner.io());
     const source = bytes orelse {
         c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-        return GLOWCAP_ERR_NULL_POINTER;
+        return -1;
     };
-    conn.stream.writeAll(source[0..len]) catch |err| {
+    const wrote = net.socket.sendNonblocking(@intCast(conn.stream.readinessFd()), source[0..len]) catch |err| {
+        if (err == error.WouldBlock) return c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK;
         if (c.transport_provider.providerFailureEmpty(conn.failure))
             c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
-        return GLOWCAP_ERR_IO;
+        return -1;
     };
-    return GLOWCAP_OK;
+    return @intCast(wrote);
 }
 
 pub fn providerConnTakeFailure(_: ?*anyopaque, conn_raw: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) void {

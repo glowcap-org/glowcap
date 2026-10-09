@@ -28,11 +28,13 @@ const Pending = struct {
         idle,
         recv: u64,
         accept: u64,
+        poll: u64,
     } = .idle,
     write: union(enum) {
         idle,
         send: PendingSend,
         connect: u64,
+        poll: u64,
     } = .idle,
 };
 
@@ -196,6 +198,23 @@ pub const Backend = struct {
         if (events == 0) std.debug.assert(self.pending.remove(fd));
     }
 
+    /// Submissions register with epoll as they are made; nothing waits.
+    pub fn flush(_: *Backend) !void {}
+
+    /// Nothing here waits on a timer: every completion arrives through the
+    /// descriptor.
+    pub fn waitBoundMs(_: *const Backend, requested_ms: i32) i32 {
+        return requested_ms;
+    }
+
+    /// The descriptor that turns readable when `poll` has completions to
+    /// return, once `flush` has run after the last submission. A resident
+    /// that hands the loop's readiness to another waiter polls on it
+    /// (`net.completion_resident`).
+    pub fn readinessFd(self: *const Backend) Fd {
+        return self.epoll_fd;
+    }
+
     pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void {
         const reserved = try self.reserveSlot(listen_fd);
         errdefer self.rollbackSlot(listen_fd, reserved);
@@ -253,6 +272,24 @@ pub const Backend = struct {
         reserved.pending.* = next;
     }
 
+    pub fn submitPoll(self: *Backend, user_data: u64, fd: Fd, interest: completion.Interest) !void {
+        const reserved = try self.reserveSlot(fd);
+        errdefer self.rollbackSlot(fd, reserved);
+        var next = reserved.pending.*;
+        switch (interest) {
+            .readable => {
+                std.debug.assert(next.read == .idle);
+                next.read = .{ .poll = user_data };
+            },
+            .writable => {
+                std.debug.assert(next.write == .idle);
+                next.write = .{ .poll = user_data };
+            },
+        }
+        try self.register(fd, next, reserved.inserted);
+        reserved.pending.* = next;
+    }
+
     pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         const reserved = try self.reserveSlot(fd);
         errdefer self.rollbackSlot(fd, reserved);
@@ -270,13 +307,17 @@ pub const Backend = struct {
         fd: Fd,
     ) !void {
         const pending = self.pending.getPtr(fd) orelse return error.InvalidCancelTarget;
-        switch (pending.read) {
-            .recv => |ud| if (ud != target_user_data) return error.InvalidCancelTarget,
-            .idle, .accept => return error.InvalidCancelTarget,
-        }
-        try self.ready.ensureUnusedCapacity(self.allocator, 2);
         var next = pending.*;
-        next.read = .idle;
+        const read_target = switch (pending.read) {
+            .recv, .poll => |ud| ud == target_user_data,
+            .idle, .accept => false,
+        };
+        const write_target = switch (pending.write) {
+            .poll => |ud| ud == target_user_data,
+            .idle, .send, .connect => false,
+        };
+        if (read_target) next.read = .idle else if (write_target) next.write = .idle else return error.InvalidCancelTarget;
+        try self.ready.ensureUnusedCapacity(self.allocator, 2);
         const events = interests(next);
         try self.control(
             if (events == 0) linux.EPOLL.CTL_DEL else linux.EPOLL.CTL_MOD,
@@ -294,12 +335,12 @@ pub const Backend = struct {
         if (self.pending.get(fd)) |pending| {
             switch (pending.read) {
                 .idle => {},
-                .recv, .accept => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
+                .recv, .accept, .poll => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
             }
             switch (pending.write) {
                 .idle => {},
                 .send => |send| self.ready.appendAssumeCapacity(.{ .user_data = send.ud, .result = -1 }),
-                .connect => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
+                .connect, .poll => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
             }
         }
         _ = self.pending.remove(fd); // tolerant: an idle fd has no submitted operation and therefore no row
@@ -354,6 +395,12 @@ pub const Backend = struct {
                         produced += 1;
                         completed = true;
                     },
+                    .poll => |ud| {
+                        pending.read = .idle;
+                        out[produced] = .{ .user_data = ud, .result = 0 };
+                        produced += 1;
+                        completed = true;
+                    },
                 }
             }
             if (write_ready and produced < out.len) {
@@ -373,6 +420,12 @@ pub const Backend = struct {
                     .send => |send| if (completeSend(fd, send)) |comp| {
                         pending.write = .idle;
                         out[produced] = comp;
+                        produced += 1;
+                        completed = true;
+                    },
+                    .poll => |ud| {
+                        pending.write = .idle;
+                        out[produced] = .{ .user_data = ud, .result = 0 };
                         produced += 1;
                         completed = true;
                     },
@@ -473,6 +526,19 @@ pub const Backend = struct {
                 .failure = completion.failureFromErrno(err),
             },
         };
+    }
+
+    /// The interface every listener binds; `openListener` chooses only the
+    /// port.
+    pub fn listenerIp4(self: *const Backend) [4]u8 {
+        return self.listener_ip4;
+    }
+
+    /// The port a listener binds on the construction-time interface.
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
     }
 
     pub fn openListener(self: *Backend, port: u16) !Fd {

@@ -23,7 +23,9 @@ test "access owner dependencies round trip within the maximum descriptor budget"
     const vocabulary = try f.core.Policy.init(.{ .id = @fromBackingInt(std.math.maxInt(u128)), .permissions = &keys, .constraints = &constraints });
     var masks: [64]u64 = undefined;
     for (&masks, 0..) |*mask, i| mask.* = std.math.maxInt(u64) ^ (@as(u64, 1) << @intCast(i));
-    const header: records.OwnerRecord = .{ .owner = @fromBackingInt(std.math.maxInt(u128)), .policy = try vocabulary.withPrerequisiteMasks(masks), .version = .{ .resources = @fromBackingInt(std.math.maxInt(u64)), .grants = @fromBackingInt(std.math.maxInt(u64)) }, .control_revision = std.math.maxInt(u64), .next_resource = records.OwnerRecord.max_slots, .next_grant = records.OwnerRecord.max_slots, .next_identity = records.OwnerRecord.max_slots, .max_grant_children = std.math.maxInt(u32) };
+    var kinds: [f.core.Policy.max_kinds]f.core.Policy.KindRule = undefined;
+    for (&kinds, 0..) |*rule, i| rule.* = .{ .kind = @fromBackingInt(std.math.maxInt(u64) - kinds.len + 1 + i), .permissions = std.math.maxInt(u64), .subtree_permissions = std.math.maxInt(u64) };
+    const header: records.OwnerRecord = .{ .owner = @fromBackingInt(std.math.maxInt(u128)), .policy = try (try vocabulary.withPrerequisiteMasks(masks)).withKinds(&kinds), .version = .{ .resources = @fromBackingInt(std.math.maxInt(u64)), .grants = @fromBackingInt(std.math.maxInt(u64)) }, .control_revision = std.math.maxInt(u64), .next_resource = records.OwnerRecord.max_slots, .next_grant = records.OwnerRecord.max_slots, .next_identity = records.OwnerRecord.max_slots, .max_grant_children = std.math.maxInt(u32) };
     const payload = try header.encodeAlloc(a);
     defer a.free(payload);
     try std.testing.expect(payload.len <= 4096);
@@ -31,6 +33,7 @@ test "access owner dependencies round trip within the maximum descriptor budget"
     defer a.free(encoded);
     const decoded = try records.OwnerRecord.decode(try view(encoded));
     try std.testing.expectEqual(masks, decoded.policy.prerequisite_masks);
+    try std.testing.expectEqualDeep(&kinds, decoded.policy.kind_rules[0..decoded.policy.kind_count]);
     try std.testing.expectError(error.MissingPrerequisite, decoded.policy.value(keys[0..1], &.{}));
     const all = try decoded.policy.value(&keys, &.{});
     try std.testing.expect(try decoded.policy.allows(all, .{ .permissions = keys[63..] }));

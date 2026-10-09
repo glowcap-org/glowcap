@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // The page's first paint is in the theme the reader left.
 //
 // A session decides the theme, and a session is not up during the first paint.
@@ -21,9 +22,9 @@
 /// <reference lib="dom" />
 
 import { chromium } from "playwright";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { freePort, ROOT, waitForHttp, WEB } from "../page/harness.ts";
+import { freePort, ROOT, waitForHttp } from "../page/harness.ts";
 
 function fail(message: string): never {
 	console.error(`rooms-web-boot-theme FAILED: ${message}`);
@@ -32,7 +33,7 @@ function fail(message: string): never {
 
 const httpPort = freePort();
 const roomPort = freePort();
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "null",
@@ -54,10 +55,10 @@ try {
 	// and driving the settings control to change it would prove that instead.
 	for (const theme of ["dark", "light"] as const) {
 		await page.evaluate((value) => {
-			const raw = localStorage.getItem("rooms.workspace-state");
+			const raw = localStorage.getItem("rooms.view-preferences");
 			const document_ = JSON.parse(raw ?? "null") ?? {};
-			document_.view = { ...(document_.view ?? {}), theme: value };
-			localStorage.setItem("rooms.workspace-state", JSON.stringify(document_));
+			document_.theme = value;
+			localStorage.setItem("rooms.view-preferences", JSON.stringify(document_));
 		}, theme);
 
 		const cold = await context.newPage();

@@ -35,11 +35,7 @@ async fn operator() {
 	let swiss = running.capabilities[0].swiss.clone();
 	let runtime = runtime().await;
 	let dial = glowcap::parse_locator(&running.location).unwrap();
-	let session = runtime
-		.connect(&dial, ConnectOptions::default())
-		.await
-		.unwrap()
-		.with_gc();
+	let session = runtime.connect(&dial, ConnectOptions::default()).await.unwrap();
 	let op = session.fetch(&swiss).await.unwrap();
 
 	// A watcher hears the revision at admission and on every change.
@@ -65,11 +61,7 @@ async fn operator() {
 	// A member in a room fills the inventories. Its own runtime, because one
 	// Host keeps one session per partner.
 	let member_runtime = super::runtime().await;
-	let member_session = member_runtime
-		.connect(&dial, ConnectOptions::default())
-		.await
-		.unwrap()
-		.with_gc();
+	let member_session = member_runtime.connect(&dial, ConnectOptions::default()).await.unwrap();
 	let client = Client::new(member_session.borrowed(), rooms_platform::HostPlatform);
 	let directory = Directory::fetch(client.clone()).await.unwrap();
 	let garden = directory.open("garden").await.unwrap();
@@ -309,11 +301,7 @@ async fn operator() {
 
 	// A full reset retires rooms before it closes their peer sessions. The
 	// terminal reason must survive that close rather than becoming transport loss.
-	let reset_session = member_runtime
-		.connect(&dial, ConnectOptions::default())
-		.await
-		.unwrap()
-		.with_gc();
+	let reset_session = member_runtime.connect(&dial, ConnectOptions::default()).await.unwrap();
 	let reset_client = Client::new(reset_session.borrowed(), rooms_platform::HostPlatform);
 	let reset_directory = Directory::fetch(reset_client.clone()).await.unwrap();
 	let reset_events = Rc::new(RefCell::new(Vec::<String>::new()));
@@ -339,11 +327,7 @@ async fn operator() {
 		.expect("the reset room stayed open")
 		.expect("the reset room roster line");
 	let second_runtime = super::runtime().await;
-	let second_session = second_runtime
-		.connect(&dial, ConnectOptions::default())
-		.await
-		.unwrap()
-		.with_gc();
+	let second_session = second_runtime.connect(&dial, ConnectOptions::default()).await.unwrap();
 	let second_client = Client::new(second_session.borrowed(), rooms_platform::HostPlatform);
 	let second_directory = Directory::fetch(second_client.clone()).await.unwrap();
 	let second_events = Rc::new(RefCell::new(Vec::<String>::new()));

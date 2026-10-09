@@ -12,10 +12,10 @@ const host_mod = @import("../host.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 
-fn prepareLocalCapability(self: *Host, session: *HostSession) !capability.FreshLocalReservation {
+fn prepareLocalCapability(self: *Host, session: ?*HostSession) !capability.FreshLocalReservation {
     try self.refuseReentry();
     try self.admitApplicationOperation();
-    try self.admitSessionOperation(session);
+    if (session) |home| try self.admitSessionOperation(home);
     return self.reserveFreshCapability(session);
 }
 
@@ -57,7 +57,7 @@ pub fn publishHosted(
 /// Wire positions remain lazy until the capability is marshalled.
 pub fn spawn(
     self: *Host,
-    session: *HostSession,
+    session: ?*HostSession,
     comptime Behavior: type,
     initial: Behavior,
 ) !capability.Ref {
@@ -71,7 +71,7 @@ pub fn spawn(
 /// Foreign-callback twin of `spawn`.
 pub fn spawnHosted(
     self: *Host,
-    session: *HostSession,
+    session: ?*HostSession,
     hosted: actors.HostedActor,
 ) !capability.Ref {
     var hosted_pending = true;

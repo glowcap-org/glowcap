@@ -19,7 +19,6 @@ const ResolveInterceptor = vat_mod.ResolveInterceptor;
 const Listener = vat_mod.Listener;
 const FarOutcome = vat_mod.FarOutcome;
 const Error = vat_mod.Error;
-const max_served_dropped_far_answers = vat_mod.max_served_dropped_far_answers;
 
 /// One CapTP session's projection of a Vat: wire peer, export positions, and
 /// far-vow settlement. A Port owns names and authority that exist only on that
@@ -34,11 +33,12 @@ pub const Port = struct {
     ingress: IngressId = .local,
     resolve_interceptor: ?ResolveInterceptor = null,
     /// Listener for a far send's vow, keyed by this Port's outbound answer
-    /// position namespace.
-    far_listeners: std.AutoHashMapUnmanaged(model.AnswerPosition, Listener) = .{},
-    /// Answers served before a listener was registered. Bounded; see
-    /// `max_served_dropped_far_answers`.
-    served_dropped_far: std.AutoHashMapUnmanaged(model.AnswerPosition, void) = .{},
+    /// position namespace. Dense storage lets bulk failure pop one listener
+    /// before each callback in O(1), while cancellation still sees the rest.
+    far_listeners: std.AutoArrayHashMapUnmanaged(model.AnswerPosition, Listener) = .{},
+    /// A bulk break consumes every previously minted answer, including sends
+    /// without observers. Fresh sends after the break may still be observed.
+    far_broken_before: u64 = 0,
     /// Local actor id for each export position projected on this Port.
     exports: std.AutoHashMapUnmanaged(u64, u64) = .{},
     /// Canonical export position already projecting a local actor.
@@ -54,9 +54,8 @@ pub const Port = struct {
     pub fn deinit(self: *Port, vat: *Vat) void {
         var bound = self.reverse_exports.keyIterator();
         while (bound.next()) |actor_id| vat.releaseActor(actor_id.*);
-        vows.freeOwnedForwardContexts(self.allocator, &self.far_listeners);
+        vows.freeOwnedForwardContexts(vat, &self.far_listeners);
         self.far_listeners.deinit(self.allocator);
-        self.served_dropped_far.deinit(self.allocator);
         self.exports.deinit(self.allocator);
         self.reverse_exports.deinit(self.allocator);
         self.* = undefined;
@@ -117,7 +116,7 @@ pub const Port = struct {
         switch (vow) {
             .local => try vat.on(vow, listener),
             .far => |answer| {
-                if (self.served_dropped_far.contains(answer)) return Error.AlreadySettled;
+                if (answer.int() < self.far_broken_before or !self.peer.canObserveAnswer(answer)) return Error.AlreadySettled;
                 const gop = try self.far_listeners.getOrPut(self.allocator, answer);
                 if (gop.found_existing) return Error.AlreadyListening;
                 gop.value_ptr.* = listener;
@@ -132,8 +131,15 @@ pub const Port = struct {
     pub fn takeListener(self: *Port, vat: *Vat, vow: Vow) ?Listener {
         return switch (vow) {
             .local => vat.takeListener(vow),
-            .far => |answer| if (self.far_listeners.fetchRemove(answer)) |entry| entry.value else null,
+            .far => |answer| if (self.far_listeners.fetchSwapRemove(answer)) |entry| entry.value else null,
         };
+    }
+
+    /// Rollback removed the send before this notification. Its observer can
+    /// still cancel through takeListener while another failure listener runs.
+    pub fn breakRetracted(self: *Port, answer: model.AnswerPosition, reason: []const u8) void {
+        const entry = self.far_listeners.fetchSwapRemove(answer) orelse return;
+        entry.value.func(entry.value.ctx, .{ .broken = reason });
     }
 
     /// Reserve the exact listener table a not-yet-committed send will use.
@@ -164,7 +170,7 @@ pub const Port = struct {
             },
             .far => |answer| {
                 std.debug.assert(reservation.location == .far);
-                std.debug.assert(!self.served_dropped_far.contains(answer));
+                std.debug.assert(answer.int() >= self.far_broken_before and self.peer.canObserveAnswer(answer));
                 std.debug.assert(!self.far_listeners.contains(answer));
                 self.far_listeners.putAssumeCapacity(answer, listener);
             },
@@ -263,9 +269,19 @@ pub const Port = struct {
 
 /// Encode one far `op:deliver` while the caller's message is borrowed. The
 /// outbound queue takes the one owned boundary clone; only the verb-splice
-/// spine is scratch, stack-backed for the common arity.
+/// spine is scratch, stack-backed for the common arity. Inside a turn the Port
+/// enrolls first, so the send is retractable if the turn fails (ADR-0194).
 fn farDeliverTo(vat: *Vat, port: *Port, target: model.Reference, msg: Message, answer: ?model.AnswerPosition) Error!void {
     const peer = port.peer;
+    if (vat.turn_depth != 0 and !peer.provisional) {
+        try vat.enrollTurn(.{ .ctx = port, .commit = commitTurn, .abort = abortTurn });
+        peer.openProvisional();
+    }
+    const reserve_break = vat.turn_depth != 0 and answer != null;
+    if (reserve_break) try @import("turn_commit.zig").reserveBreak(vat);
+    errdefer if (reserve_break) {
+        vat.turn_break_reservations -= 1;
+    };
     const has_verb = msg.verb.len > 0;
     const total = msg.args.len + @intFromBool(has_verb);
     var buf: [8]model.Argument = undefined;
@@ -288,4 +304,29 @@ fn farDeliverTo(vat: *Vat, port: *Port, target: model.Reference, msg: Message, a
         error.OutOfMemory => error.OutOfMemory,
         else => Error.SendRejected,
     };
+}
+
+fn commitTurn(ctx: *anyopaque, vat: *Vat) void {
+    _ = vat;
+    const port: *Port = @ptrCast(@alignCast(ctx));
+    port.peer.commitProvisional();
+}
+
+/// Retract the failed turn's far sends. The Vat notifies their listeners only
+/// after every participant has undone its effects.
+fn abortTurn(ctx: *anyopaque, vat: *Vat, reason: []const u8) void {
+    _ = reason;
+    const port: *Port = @ptrCast(@alignCast(ctx));
+    const Breaker = struct {
+        port: *Port,
+        vat: *Vat,
+        fn retracted(erased: *anyopaque, answer: model.AnswerPosition) void {
+            const self: *@This() = @ptrCast(@alignCast(erased));
+            if (self.port.far_listeners.contains(answer)) {
+                self.vat.turn_breaks.appendAssumeCapacity(.{ .port = self.port, .answer = answer });
+            }
+        }
+    };
+    var breaker: Breaker = .{ .port = port, .vat = vat };
+    port.peer.retractProvisional(&breaker, Breaker.retracted);
 }

@@ -2,15 +2,48 @@
 //! ancestor restrictions, and terminal revocation. These exercise model calls;
 //! they do not claim authenticated management, storage, or Host enforcement.
 
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");
 const core = f.core;
 const Ledger = core.GrantLedger;
 
+test "access control issuance is independent of use delegation and retains source restrictions" {
+    var graph = try f.graphInit(std.testing.allocator);
+    defer graph.deinit() catch unreachable;
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 8 });
+    defer f.deinitLedger(&ledger);
+    const wide = try f.terms(.{ .object = resource }, &.{ f.read, f.post }, null);
+    const narrow = try f.terms(.{ .object = resource }, &.{f.read}, null);
+    const root = (try ledger.issueRootCopying(ledger.version(), .{ .ceiling = wide, .configured = narrow, .delegation_depth = 0 })).grant;
+    const control = try ledger.createControlCopying(root, .{ .issue_ceiling = wide });
+    defer control.release();
+    try std.testing.expectError(error.DelegationDenied, ledger.deriveCopying(ledger.version(), root, f.issue(narrow, 0)));
+    _ = try ledger.pause(ledger.version(), root);
+    var request = f.issue(wide, 0);
+    request.label.len = 121;
+    try std.testing.expectError(error.InvalidLabel, control.prepareIssueCopying(ledger.version(), request));
+    request.label = try Ledger.Label.init("shared terminal");
+    const ticket = try control.prepareIssueCopying(ledger.version(), request);
+    _ = try ledger.beginWrite(ticket);
+    const result = try ledger.finishWrite(ticket, .committed);
+    const child = result.committed.grant;
+    try std.testing.expectEqualStrings("shared terminal", (try ledger.get(child)).label.slice());
+    try std.testing.expectError(error.Paused, ledger.require(child, resource, .{ .permissions = &.{f.read} }));
+    _ = try ledger.@"resume"(ledger.version(), root);
+    try ledger.require(child, resource, .{ .permissions = &.{f.read} });
+    try std.testing.expectError(error.Denied, ledger.require(child, resource, .{ .permissions = &.{f.post} }));
+    _ = try ledger.setPolicyCopying(ledger.version(), root, wide);
+    try ledger.require(child, resource, .{ .permissions = &.{f.post} });
+    _ = try ledger.revoke(ledger.version(), root);
+    try std.testing.expectError(error.Revoked, control.prepareIssueCopying(ledger.version(), request));
+}
+
 test "access dependency refusals preserve direct issuance derivation and policy editing state" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var descriptor = f.descriptor;
     descriptor.dependencies = &.{.{ .permission = f.post, .required = f.read }};
     var ledger = try Ledger.init(std.testing.allocator, &graph, descriptor, .{ .capacity = 8 });
@@ -42,8 +75,8 @@ test "access dependency refusals preserve direct issuance derivation and policy 
 test "access child ceiling captures current access and survives parent edits" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const room = try graph.create(graph.revision(), f.kind, null);
-    const message = try graph.create(graph.revision(), f.kind, room);
+    const room = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const message = try graph.create(graph.revision(), &structural_policy, f.kind, room);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 8 });
     defer ledger.deinit() catch unreachable;
     const full = try f.terms(.{ .owned_subtree = room }, &.{ f.read, f.post }, null);
@@ -70,7 +103,7 @@ test "access child ceiling captures current access and survives parent edits" {
 test "access paused edits and revocation affect exact dependent branches" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 8 });
     defer ledger.deinit() catch unreachable;
     const terms = try f.terms(.{ .object = resource }, &.{ f.read, f.post }, null);
@@ -113,9 +146,9 @@ test "access paused edits and revocation affect exact dependent branches" {
 test "access resource moves recheck all scopes and exact grants never retarget" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const a = try graph.create(graph.revision(), f.kind, null);
-    const b = try graph.create(graph.revision(), f.kind, null);
-    const message = try graph.create(graph.revision(), f.kind, a);
+    const a = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const b = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const message = try graph.create(graph.revision(), &structural_policy, f.kind, a);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 8 });
     defer ledger.deinit() catch unreachable;
     const scope = try f.terms(.{ .owned_subtree = a }, &.{f.read}, null);
@@ -124,16 +157,16 @@ test "access resource moves recheck all scopes and exact grants never retarget" 
     const child = (try ledger.deriveCopying(ledger.version(), parent, f.issue(exact, 1))).grant;
     const independent = (try ledger.issueRootCopying(ledger.version(), f.issue(exact, 0))).grant;
     try std.testing.expectError(error.CeilingExceeded, ledger.deriveCopying(ledger.version(), child, f.issue(try f.terms(.{ .owned_subtree = message }, &.{f.read}, null), 0)));
-    try graph.reparent(graph.revision(), message, b);
+    try graph.reparent(graph.revision(), &structural_policy, message, b);
     try std.testing.expectError(error.OutOfScope, ledger.require(child, message, .{ .permissions = &.{f.read} }));
     try ledger.require(independent, message, .{ .permissions = &.{f.read} });
-    try graph.reparent(graph.revision(), message, a);
+    try graph.reparent(graph.revision(), &structural_policy, message, a);
     try ledger.require(child, message, .{ .permissions = &.{f.read} });
-    const later = try graph.create(graph.revision(), f.kind, a);
+    const later = try graph.create(graph.revision(), &structural_policy, f.kind, a);
     try ledger.require(parent, later, .{ .permissions = &.{f.read} });
     try std.testing.expectError(error.OutOfScope, ledger.require(child, later, .{ .permissions = &.{f.read} }));
     try graph.destroy(graph.revision(), message);
-    const replacement = try graph.create(graph.revision(), f.kind, a);
+    const replacement = try graph.create(graph.revision(), &structural_policy, f.kind, a);
     try std.testing.expectEqual(message.slot, replacement.slot);
     try std.testing.expectError(error.Gone, ledger.require(independent, replacement, .{ .permissions = &.{f.read} }));
     _ = try ledger.revoke(ledger.version(), child);
@@ -143,7 +176,7 @@ test "access resource moves recheck all scopes and exact grants never retarget" 
 test "access independent grants never union their permissions" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 2 });
     defer ledger.deinit() catch unreachable;
     const reader = (try ledger.issueRootCopying(ledger.version(), f.issue(try f.terms(.{ .object = resource }, &.{f.read}, null), 0))).grant;

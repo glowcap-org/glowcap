@@ -16,7 +16,7 @@ glowcap = { workspace = true, features = ["tcp", "iroh", "relay", "onion"] }
 tokio = { workspace = true, features = ["net", "io-util", "fs"] }
 getrandom = "=0.4.3"
 serde = { workspace = true, features = ["std"] }
-tokio-tungstenite = { workspace = true, features = ["connect"] }
+tokio-tungstenite = { workspace = true, features = ["connect", "rustls-tls-native-roots"] }
 futures-util = { workspace = true, features = ["sink"] }
 tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
 rustls-native-certs = "=0.8.4"

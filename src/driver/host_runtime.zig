@@ -13,15 +13,10 @@
 //! session waits on a withdraw) is served inside the same wait. That is how
 //! same-Host gifter and exporter roles work on one fiber with no thread.
 //!
-//! The wires are `net.Connection`s used through their byte-stream face only —
-//! raw reads off `conn.r` into the core's outer framer, and
-//! `takeOutbound` frames wrapped onto `conn.w`; the parse-into-peer
-//! half (`pump`, the spill) stays the borrowing tier's vocabulary. Multiplexed
-//! blocking waits need readiness. A stream netlayer supplies one descriptor
-//! per connection, while a `MultiplexedResident` supplies one descriptor for
-//! its runtime and routes drained readiness by stable connection id. A
-//! transport that can do neither is refused at open
-//! (`Error.TransportNotPollable`).
+//! Every wire belongs to a `MultiplexedResident`: a transport runtime with
+//! one readiness descriptor that routes drained ready records by stable
+//! connection id. The pump polls those descriptors, never a socket per
+//! connection.
 
 const std = @import("std");
 
@@ -77,8 +72,7 @@ pub const HostRuntime = struct {
     /// what lets an embedding owner hold the core elsewhere (ADR-0112).
     core: *driver_core.Host,
     /// One provider registry for dial and listen dispatch. Entries carry the
-    /// Host-owned canonical symbol and point at either a stream vtable copy or
-    /// a multiplexed-resident index. Concrete provider contexts remain borrowed
+    /// Host-owned canonical symbol and a multiplexed-resident index. Concrete provider contexts remain borrowed
     /// and must outlive the HostRuntime; selection itself has no second authority.
     providers: std.ArrayListUnmanaged(Provider) = .empty,
     /// Installed provider packages and their configuration/lifetime owner.
@@ -134,8 +128,8 @@ pub const HostRuntime = struct {
     /// Runtime cleanup, but terminality is Runtime policy and every later
     /// application operation observes this one sticky concrete cause.
     terminal_failure: ?OperationFailure = null,
-    /// The multiplexed runtimes this host dials and accepts through (ADR-0112),
-    /// beside the stream netlayers above. Each runtime handle is borrowed and
+    /// The multiplexed runtimes this host dials and accepts through (ADR-0112).
+    /// Each runtime handle is borrowed and
     /// its `ctx` and vtable must outlive registration.
     residents: std.ArrayListUnmanaged(RegisteredResident) = .empty,
     /// Active profile listeners routed by the multiplexed runtime's accept-event
@@ -144,32 +138,23 @@ pub const HostRuntime = struct {
     resident_listeners: std.AutoHashMapUnmanaged(ResidentListenerKey, ResidentListener) = .empty,
     /// Live resident connections routed by drained ready records.
     resident_wires: std.AutoHashMapUnmanaged(ResidentConnKey, *Wire) = .empty,
+    /// The one buffer every resident wire reads into. A read feeds the core
+    /// before the next begins (byte streams copy only a partial tail, and a
+    /// message packet dispatches during the call), and the pump never reads
+    /// two wires at once, so an idle resident wire holds no read buffer. It
+    /// grows at adoption to the largest packet a live wire may deliver and is
+    /// retained, so the read path never allocates.
+    resident_read_scratch: []u8 = &.{},
     /// Resident dials awaiting `ev_connect`, keyed by runtime and its
     /// host-minted request id.
     pending_resident_dials: std.AutoHashMapUnmanaged(ResidentRequestKey, *ResidentDialWait) = .{},
     /// Scratch a resident's ready records drain into; batch-sized, so a drain
     /// pass allocates nothing.
     event_scratch: [resident_event_batch]net.multiplexed_resident.ReadyEvent = undefined,
-    /// Scratch for the multi-wire readiness wait, sized to the live wires; the
+    /// Scratch for the readiness wait: one poll row per resident readiness
+    /// descriptor, then the mailbox and readiness wakes. Retained, so the
     /// wait itself allocates nothing.
     poll_scratch: std.ArrayListUnmanaged(std.posix.pollfd) = .empty,
-    conn_scratch: std.ArrayListUnmanaged(*Wire) = .empty,
-    /// Staged stream dials mirrored into each wait. Pending rows are
-    /// heap-pinned, so these pointers survive list growth and callbacks that
-    /// stage another open.
-    dial_scratch: std.ArrayListUnmanaged(*PendingOpen) = .empty,
-    /// Staged stream listener setups mirrored into each wait. Rows are pinned
-    /// for the same reason as pending opens: completion callbacks may mutate
-    /// the owning list.
-    listen_scratch: std.ArrayListUnmanaged(*PendingListener) = .empty,
-    /// Active stream listeners mirrored into one readiness wait. Rows live in
-    /// `active_listeners` and remain stable because listener mutation never
-    /// occurs during the wait.
-    active_listener_scratch: std.ArrayListUnmanaged(*TransportListener) = .empty,
-    borrow_scratch: std.ArrayListUnmanaged(*net.Connection) = .empty,
-    wait_interest_scratch: std.ArrayListUnmanaged(net.WaitInterest) = .empty,
-    /// The trailing poll rows: resident readiness descriptors, then the
-    /// mailbox wake.
     extra_fd_scratch: std.ArrayListUnmanaged(std.posix.fd_t) = .empty,
     /// Descriptors watched through `watchFd`. Kept on both faces, so
     /// descriptor-conflict detection and `unwatchFd` have one lifecycle path
@@ -178,14 +163,10 @@ pub const HostRuntime = struct {
     /// The off-turn settle mailbox (ADR-0102 stage 4), minted on first
     /// request; its wake fd rides every readiness wait beside the wires.
     mailbox: ?*settle_mailbox.SettleMailbox = null,
-    /// Where the next readiness scan starts. `net.waitAnyReadable` reports the
-    /// *first* ready wire, so a fixed order lets one always-readable partner
-    /// starve every sibling — unbounded on `serve`/`step`, which carry no
-    /// budget at all, and a misattributed `WaitTimedOut` on the budgeted
-    /// waits (the timeout would name the innocent caller, not the flooder).
-    /// Starting the ready scan one position later per wait bounds a live
-    /// wire's turn by the live-wire count instead of by a partner's send rate,
-    /// at the cost of one index rather than a rotation of the rows.
+    /// Which resident the next readiness wait polls first. A poll reports the
+    /// first ready row, so a fixed order lets one always-ready resident
+    /// starve its siblings; starting one position later per wait bounds a
+    /// resident's turn by the resident count instead of by its traffic.
     wait_cursor: usize = 0,
     /// The nearest carrier-close deadline any wire holds, and how many hold
     /// one. Both sibling tiers cache this rather than walk every slot before
@@ -195,13 +176,6 @@ pub const HostRuntime = struct {
     /// cache early, and the one walk that finds nothing due re-derives it.
     nearest_carrier_close_ms: ?i64 = null,
     carrier_close_waiters: usize = 0,
-    /// One vow whose synchronously settled completion the next action drain
-    /// hands back instead of dropping: the select-or-dial enliven's
-    /// cache-hit arm settles inside the verb, before any listener can
-    /// register. Every other wait on this face registers first, so this is
-    /// the only claimer.
-    awaited_completion: ?u64 = null,
-    claimed_completion: ?driver_core.HostAction = null,
     /// Which face drives this runtime, chosen once at construction through
     /// `Options.drive` and never changed. The blocking native face waits
     /// through `net.waitAnyReadable` and observes vows in-process through
@@ -238,8 +212,6 @@ pub const HostRuntime = struct {
     pub const FailureObserver = Contract.FailureObserver;
     pub const AdoptionOptions = Contract.AdoptionOptions;
     pub const ProviderRegistrationError = Contract.ProviderRegistrationError;
-    pub const InitError = Contract.InitError;
-    pub const AdoptionInitError = Contract.AdoptionInitError;
     pub const PendingWork = Contract.PendingWork;
     pub const CloseOutcome = Contract.CloseOutcome;
 
@@ -279,8 +251,8 @@ pub const HostRuntime = struct {
     };
 
     /// The stepped face's state (ADR-0112). All three are installed together,
-    /// before any wire exists, so none is optional here: every stream wire
-    /// fd, resident readiness fd, mailbox wake fd, and watched extra fd is
+    /// before any wire exists, so none is optional here: every resident
+    /// readiness fd, mailbox wake fd, and watched extra fd is
     /// mirrored into `ready_set` from the moment it appears, every wire
     /// reserves its close publication with `close_observer` at adoption, and
     /// every application-visible completion with no in-process claimer has
@@ -314,7 +286,6 @@ pub const HostRuntime = struct {
     pub const PreparedListenerLocator = lifecycle.PreparedListenerLocator;
     pub const PrepareListenerLocatorOutcome = lifecycle.PrepareListenerLocatorOutcome;
 
-    pub const MultiplexedRegistration = provider_package.MultiplexedRegistration;
     pub const ProviderRegistration = provider_package.Registration;
     pub const ProviderPackage = provider_package.Package;
     const InstalledProviderPackage = provider_package.Installed;
@@ -332,9 +303,8 @@ pub const HostRuntime = struct {
     const PendingListener = pending_state.Listener;
 
     pub const init = runtime_providers.init;
-    pub const initProviders = runtime_providers.initProviders;
+    pub const Transports = @import("host_runtime/transports.zig").Transports;
     pub const initWithCore = runtime_providers.initWithCore;
-    pub const addNetlayer = runtime_providers.addNetlayer;
     pub const addResident = runtime_providers.addResident;
     pub const addProviderPackage = runtime_providers.addProviderPackage;
     pub const addProviders = runtime_providers.addProviders;
@@ -344,7 +314,6 @@ pub const HostRuntime = struct {
 
     const reserveListenerProfile = runtime_listeners.reserveListenerProfile;
     const releaseListenerProfile = runtime_listeners.releaseListenerProfile;
-    pub const takeStreamListener = runtime_listeners.takeStreamListener;
     pub const listenerLocatorOutcome = runtime_listeners.listenerLocatorOutcome;
     pub const listenerRestorationStateOutcome = runtime_listeners.listenerRestorationStateOutcome;
     pub const canonicalizeListenerLocatorOutcome = runtime_listeners.canonicalizeListenerLocatorOutcome;
@@ -361,7 +330,6 @@ pub const HostRuntime = struct {
     pub const stopOwnedListener = runtime_listeners.stopOwnedListener;
     const closeOwnedListeners = runtime_listeners.closeOwnedListeners;
     const detachClosingListeners = runtime_listeners.detachClosingListeners;
-    pub const acceptReady = runtime_listeners.acceptReady;
     pub const closeListener = runtime_listeners.closeListener;
     pub const readinessDescriptor = runtime_readiness.readinessDescriptor;
     pub const watchFd = runtime_readiness.watchFd;
@@ -413,14 +381,12 @@ pub const HostRuntime = struct {
     const pendingResidentListener = runtime_listener_setup.pendingResidentListener;
     const advancePendingListeners = runtime_listener_setup.advancePendingListeners;
 
-    pub const startAcceptWire = runtime_opens.startAcceptWire;
     pub const cancelAccepts = runtime_opens.cancelAccepts;
     const advancePendingOpens = runtime_opens.advancePendingOpens;
     const discardPendingOpen = runtime_opens.discardPendingOpen;
     const pendingOpenByRequest = runtime_opens.pendingOpenByRequest;
     const pendingOpenFor = runtime_opens.pendingOpenFor;
     const adoptPendingResidentDial = runtime_opens.adoptPendingResidentDial;
-    const adoptPendingStreamDial = runtime_opens.adoptPendingStreamDial;
 
     const pendingOpenSlotAvailable = runtime_admission.pendingOpenSlotAvailable;
     const acquireOpenAdmission = runtime_admission.acquireOpenAdmission;
@@ -444,12 +410,8 @@ pub const HostRuntime = struct {
     const clampTimeoutToPendingWork = runtime_step.clampTimeoutToPendingWork;
     const progressCarrierCloseDeadlines = runtime_carrier.progressCarrierCloseDeadlines;
 
-    pub const acceptWire = runtime_connections.acceptWire;
-    const bindAcceptedWireOutcome = runtime_connections.bindAcceptedWireOutcome;
     const bindWire = runtime_connections.bindWire;
-    const bindStreamWireOutcome = runtime_connections.bindStreamWireOutcome;
     const bindResidentWire = runtime_connections.bindResidentWire;
-    const adoptConn = runtime_connections.adoptConn;
     const adoptResidentConn = runtime_connections.adoptResidentConn;
 
     const freeWire = runtime_carrier.freeWire;
@@ -460,10 +422,8 @@ pub const HostRuntime = struct {
     const closeWire = runtime_carrier.closeWire;
     const progressWireCarrierClose = runtime_carrier.progressWireCarrierClose;
 
-    pub const publishGiftable = runtime_capabilities.publishGiftable;
+    pub const publish = runtime_capabilities.publish;
     pub const unpublish = runtime_capabilities.unpublish;
-    const claimCompletion = runtime_capabilities.claimCompletion;
-    const wouldClaimCompletion = runtime_capabilities.wouldClaimCompletion;
     pub const enliven = runtime_capabilities.enliven;
 
     pub const releaseWire = runtime_sessions.releaseWire;
@@ -481,7 +441,6 @@ pub const HostRuntime = struct {
     pub const attendSession = runtime_pump.attendSession;
     const resumeFeedTails = runtime_pump.resumeFeedTails;
     const pumpUntilProbe = runtime_pump.pumpUntilProbe;
-    const serviceReadyWire = runtime_pump.serviceReadyWire;
     const feedReadable = runtime_pump.feedReadable;
     pub const settleMailbox = runtime_pump.settleMailbox;
     const applySettleMailbox = runtime_pump.applySettleMailbox;
@@ -515,9 +474,7 @@ pub const Internal = struct {
     pub const advancePendingOpens = HostRuntime.advancePendingOpens;
     pub const advancePendingListeners = HostRuntime.advancePendingListeners;
     pub const waitAnySource = HostRuntime.waitAnySource;
-    pub const serviceReadyWire = HostRuntime.serviceReadyWire;
     pub const serviceResident = HostRuntime.serviceResident;
-    pub const adoptPendingStreamDial = HostRuntime.adoptPendingStreamDial;
     pub const adoptPendingResidentDial = HostRuntime.adoptPendingResidentDial;
     pub const finishPendingListener = HostRuntime.finishPendingListener;
     pub const pendingResidentListener = HostRuntime.pendingResidentListener;
@@ -533,8 +490,6 @@ pub const Internal = struct {
     pub const noteTerminalFailure = HostRuntime.noteTerminalFailure;
     pub const progressRetirement = HostRuntime.progressRetirement;
     pub const admitApplicationOperation = HostRuntime.admitApplicationOperation;
-    pub const wouldClaimCompletion = HostRuntime.wouldClaimCompletion;
-    pub const claimCompletion = HostRuntime.claimCompletion;
     pub const stageDial = HostRuntime.stageDial;
     pub const discardPendingOpen = HostRuntime.discardPendingOpen;
     pub const pendingOpenByRequest = HostRuntime.pendingOpenByRequest;
@@ -567,9 +522,6 @@ pub const Internal = struct {
     pub const forceWireCarrierClose = HostRuntime.forceWireCarrierClose;
     pub const freeWire = HostRuntime.freeWire;
     pub const releaseListenerProfile = HostRuntime.releaseListenerProfile;
-    pub const bindAcceptedWireOutcome = HostRuntime.bindAcceptedWireOutcome;
     pub const bindWire = HostRuntime.bindWire;
-    pub const bindStreamWireOutcome = HostRuntime.bindStreamWireOutcome;
-    pub const adoptConn = HostRuntime.adoptConn;
     pub const adoptResidentConn = HostRuntime.adoptResidentConn;
 };

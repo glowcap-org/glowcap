@@ -152,7 +152,6 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 		}
 		Err(error) => return Err(error.into()),
 	}
-	request(&options.state, json!({"verb":"adopt"})).await?;
 	drop(lease);
 	if !options.values("room").is_empty() {
 		workspace::join(&joining).await

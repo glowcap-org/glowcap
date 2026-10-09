@@ -46,3 +46,24 @@ pub const relay_binary_rows: []const Ban = &.{
         .why = "Racket smoke diagnostics pin the byte relay's text-message refusal",
     },
 };
+
+/// A Racket script that starts another Racket process passes `-y`, as the
+/// build does for the script itself. Without it the child keeps a module's
+/// compiled `.zo` when that module's own source is unchanged, along with any
+/// constant it inlined from a module that did change, such as a binding's
+/// archive fingerprint.
+pub const child_compile_rows: []const Ban = &.{
+    childCompileRow("bench"),
+    childCompileRow("interop"),
+};
+
+fn childCompileRow(comptime dir: []const u8) Ban {
+    return .{
+        .where = .{ .tree = .{ .dir = dir, .suffixes = &.{".rkt"} } },
+        .kind = .forbid,
+        .needles = &.{"(find-executable-path \"racket\")"},
+        .unless_contains = "\"-y\"",
+        .check = "racket-child-compile",
+        .why = "a Racket child process must run with -y so it recompiles modules whose dependencies changed",
+    };
+}

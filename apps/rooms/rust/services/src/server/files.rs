@@ -223,7 +223,7 @@ pub(super) fn facet(
 							)
 						})?;
 						key.set(Some(line));
-						Ok(Argument::Reference(actor))
+						Ok(lines::posted_reply(state, line, actor))
 					},
 				)
 			}

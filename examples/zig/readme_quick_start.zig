@@ -12,6 +12,7 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 const driver = glowcap.driver;
+const model = glowcap.ocapn.model;
 const crypto = glowcap.foundation.crypto;
 
 /// The published greeter: answers `greet(name)` with a greeting built in the
@@ -27,7 +28,7 @@ const Greeter = struct {
 /// The hosting half: publish the greeter on the server before accept, so a
 /// partner that fetches as soon as the session opens cannot miss it.
 fn host(server: *driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
+    try server.publish("greeter", Greeter, .{});
     var session = try server.accept();
     defer session.deinit();
     try session.serve();
@@ -36,14 +37,13 @@ fn host(server: *driver.Server) !void {
 /// The client half, the README's Quick Start snippet, verbatim.
 fn client(io: std.Io, allocator: std.mem.Allocator, peer_key: []const u8, address: []const u8) !void {
     // Noise_XK seals the CapTP stream and proves the dialed key.
-    var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
-    const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
     const partner = glowcap.net.tcp.noise.locator(peer_key, address, &hint_storage);
 
     const session = try glowcap.driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.noise_tcp} },
         partner,
         .ephemeral,
         // Never leave a network wait unbounded.
@@ -75,10 +75,11 @@ pub fn main(init: std.process.Init) !void {
 
     const seed = @as([32]u8, @splat(7));
     const secret = crypto.SecretKey.fromSeed(seed);
-    var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        noise_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.noise_tcp} },
+        model.transport.noise_tcp,
         .{ .designator = "127.0.0.1:0" },
         .{ .keyed = secret },
         .{

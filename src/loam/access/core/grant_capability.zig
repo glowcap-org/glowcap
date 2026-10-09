@@ -1,6 +1,6 @@
-//! Native references carry access to one grant. The trusted ledger creates
+//! Owner-minted references carry access to one grant. The trusted ledger creates
 //! them; holders call them without another credential or a grant selector.
-//! Host actors can retain these references when hosting is implemented.
+//! Host actors retain these references through the durable attachment.
 
 const std = @import("std");
 const Ledger = @import("grants.zig").GrantLedger;
@@ -36,10 +36,9 @@ const Binding = struct {
 const UseState = struct { binding: Binding };
 const ControlState = struct {
     binding: Binding,
+    powers: Control.Powers,
     policy_ceiling: ?StoredTerms,
-    pause: bool,
-    resume_access: bool,
-    revoke: bool,
+    issue_ceiling: ?StoredTerms,
 };
 
 /// Possession conveys use and the grant's permitted delegation. Retain when
@@ -88,7 +87,7 @@ pub const GrantUse = opaque {
 
 /// Possession conveys only the configured management powers over one grant.
 /// It conveys no use reference, parent control, or ledger access. Releasing
-/// this native reference does not revoke the separately held use capability.
+/// this control reference does not revoke the separately held use capability.
 pub const GrantControl = opaque {
     /// A policy ceiling permits replacements within these terms. Null grants
     /// no policy editing. Lifecycle powers are independent and default off.
@@ -105,6 +104,7 @@ pub const GrantControl = opaque {
         if (!value.binding.release()) return;
         const allocator = value.binding.ledger.allocator;
         if (value.policy_ceiling) |*ceiling| ceiling.deinit(allocator);
+        if (value.issue_ceiling) |*ceiling| ceiling.deinit(allocator);
         allocator.destroy(value);
     }
 
@@ -116,13 +116,20 @@ pub const GrantControl = opaque {
         const ledger = value.binding.ledger;
         const grant = value.binding.grant;
         var resources = ledger.graph.readView();
-        const command = try Control.command(&resources, &ledger.policy, grant, .{
-            .policy_ceiling = if (value.policy_ceiling) |ceiling| ceiling.terms else null,
-            .pause = value.pause,
-            .resume_access = value.resume_access,
-            .revoke = value.revoke,
-        }, edit);
+        const command = try Control.command(&resources, &ledger.policy, grant, value.powers, edit);
         return ledger.prepareCopying(base, command);
+    }
+
+    /// Management issuance retains the use dependency without exercising use
+    /// delegation. A paused or narrowed source still constrains child use.
+    pub fn prepareIssueCopying(self: *GrantControl, base: Ledger.Version, request: Ledger.Issue) Ledger.Error!Ledger.Ticket {
+        const value = self.state();
+        const ceiling = value.powers.issue_ceiling orelse return error.Denied;
+        return (try value.binding.ledger.prepareCopying(base, .{ .issue_control = .{
+            .parent = value.binding.grant,
+            .ceiling = ceiling,
+            .request = request,
+        } })).?;
     }
 
     fn state(self: *const GrantControl) *ControlState {
@@ -142,20 +149,25 @@ pub fn createControlCopying(ledger: *Ledger, grant: identity.GrantId, powers: Gr
     const binding = try Binding.acquire(ledger, grant);
     errdefer ledger.live_capabilities -= 1;
     var ceiling: ?StoredTerms = null;
+    var issuance: ?StoredTerms = null;
+    const record = try ledger.get(grant);
+    var resources = ledger.graph.readView();
+    try Control.validate(&resources, &ledger.policy, record.ceiling, powers);
     if (powers.policy_ceiling) |terms| {
-        const record = try ledger.get(grant);
-        var resources = ledger.graph.readView();
-        try Control.validate(&resources, &ledger.policy, record.ceiling, powers);
         ceiling = try StoredTerms.initCopying(ledger.allocator, terms);
     }
     errdefer if (ceiling) |*value| value.deinit(ledger.allocator);
+    if (powers.issue_ceiling) |terms| issuance = try StoredTerms.initCopying(ledger.allocator, terms);
+    errdefer if (issuance) |*value| value.deinit(ledger.allocator);
+    var copied = powers;
+    copied.policy_ceiling = if (ceiling) |owned| owned.terms else null;
+    copied.issue_ceiling = if (issuance) |owned| owned.terms else null;
     const value = try ledger.allocator.create(ControlState);
     value.* = .{
         .binding = binding,
         .policy_ceiling = ceiling,
-        .pause = powers.pause,
-        .resume_access = powers.resume_access,
-        .revoke = powers.revoke,
+        .issue_ceiling = issuance,
+        .powers = copied,
     };
     return @ptrCast(value);
 }

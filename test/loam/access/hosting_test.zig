@@ -311,9 +311,10 @@ test "loam managed hosting keeps reference custody separate from reply authority
     try std.testing.expect(!target.eql(data.use));
     // Keep the exact target independently; dependent disclosure alone must
     // authorize only the facet, even when the callback already has this ref.
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    var call: h.loam.hosting.Call = .{ .arena = arena.allocator(), .attachment = host.attached, .view = before };
+    var memory: h.loam.hosting.Call.Memory = undefined;
+    memory.init(a, 1024 * 1024);
+    defer memory.deinit();
+    var call: h.loam.hosting.Call = .{ .memory = &memory, .attachment = host.attached, .view = before };
     defer call.release();
     host.application.smuggle = try call.edge(0);
     try store.release(lease);
@@ -442,7 +443,7 @@ test "loam managed hosting retries harmless commits with bounded preparation mem
         }
         const op = &host.attached.operations[0];
         try std.testing.expect(op.phase == .scheduled);
-        if (prepared_bytes) |bytes| try std.testing.expectEqual(bytes, op.fixed.end_index) else prepared_bytes = op.fixed.end_index;
+        if (prepared_bytes) |bytes| try std.testing.expectEqual(bytes, op.memory.backing.used) else prepared_bytes = op.memory.backing.used;
         // A different actor's unrelated content commit must cause a transparent
         // retry, rather than failing an otherwise still-authorized use call.
         try store.begin();

@@ -5,6 +5,7 @@
 //! admitted mutation that updates only future sessions.
 
 const std = @import("std");
+const actors = @import("actors");
 
 const model = @import("model");
 const engine = @import("engine");
@@ -126,4 +127,16 @@ pub fn setSessionLimits(
     if (max_retained_sent_answer_bytes) |value| {
         self.opts.limits.max_retained_sent_answer_bytes = value;
     }
+}
+
+/// Configure the Vat's independent per-ingress queue budget at bootstrap,
+/// before any session or eventual send. Bounds include message spines and
+/// queue rows, not just application bytes. Backing remains demand allocated.
+pub fn setIngressLimits(self: *Host, limits: actors.QueueLimits) error{ ReenteredHost, WrongThread, HostClosing, InvalidArgument, HostNotQuiescent }!void {
+    try admission.admitConfigurationMutation(self);
+    if (limits.max_pending_turns == 0 or limits.max_chunk_bytes == 0 or
+        limits.max_chunk_bytes > limits.max_pending_bytes) return error.InvalidArgument;
+    if (self.vat.next_ingress != 1 or self.next_vow != 1 or self.vat.next_vow != 1)
+        return error.HostNotQuiescent;
+    self.vat.queue_limits = limits;
 }

@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // Two browser tabs direct-message each other over a WebRTC DataChannel, the
 // room carrying only the signaling (ADR-0089, the live handoff-redeem proof).
 // Each tab joins with `?dm=webrtc`, so it advertises a bare
@@ -23,12 +24,11 @@
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
-import { connectTraceViewer, scrapeTraceSturdyref, traceMemorySeed } from "../trace/viewer.ts";
+import { reapOwned } from "../support/children.ts";
+import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { awaitBubble, fail, openDmTo } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, over a DataChannel the room only signaled";
@@ -41,13 +41,12 @@ async function joinAs(
 	browser: Browser,
 	port: number,
 	nick: string,
-	traceSeed: { key: string; value: string },
+	trace: string,
 ): Promise<{
 	context: BrowserContext;
 	tab: Page;
 }> {
 	const context = await browser.newContext();
-	await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), traceSeed);
 	const tab = await context.newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	// Surface the page's own error logs (the UI reports a failed dial or a
@@ -59,6 +58,7 @@ async function joinAs(
 	});
 	await tab.goto(`http://127.0.0.1:${port}/?dm=webrtc`);
 	await establishLocalSession(tab);
+	await acquireTraceCapability(tab, trace);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
 	await tab.click("#joinBtn");
@@ -85,7 +85,7 @@ const tracePort = freePort();
 
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`); the DM channel itself is WebRTC, so no cargo either.
-const web = spawnOwned(WEB, {
+const web = spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) },
@@ -108,11 +108,11 @@ try {
 	});
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	const traceSeed = traceMemorySeed(httpPort, sturdyref);
+	const trace = sturdyref;
 
 	// Both members advertise `webrtc` identities and file signaling inboxes.
-	const alice = await joinAs(browser, httpPort, "web-alice", traceSeed);
-	const bob = await joinAs(browser, httpPort, "web-bob", traceSeed);
+	const alice = await joinAs(browser, httpPort, "web-alice", trace);
+	const bob = await joinAs(browser, httpPort, "web-bob", trace);
 
 	// Alice redeems the introduction to Bob: her host's dial executor signals
 	// through the directory, the DataChannel opens, and the DM rides it.

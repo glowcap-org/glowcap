@@ -42,6 +42,8 @@ pub const Context = struct {
     wasm_archives: *std.Build.Step,
     iroh_abi_step: *std.Build.Step,
     iroh_sidecar_archive: std.Build.LazyPath,
+    /// Native Rust links only these static archives and the iroh companion.
+    native_archives: []const *std.Build.Step,
     /// The dynamic-install steps of exactly the archives the hermetic suite
     /// dlopens. The native archive separately depends on the iroh companion.
     ocapn_install: *std.Build.Step,
@@ -97,18 +99,19 @@ pub fn register(ctx: Context) Registered {
     const lib_mod = ctx.lib_mod;
     const check_step = ctx.check_step;
     const runtime_gate = ctx.runtime_gate;
-    const peers = rooms_peers.register(b, runtime_gate, ctx.iroh_abi_step);
+    const peers = rooms_peers.register(b, runtime_gate, ctx.iroh_abi_step, ctx.native_archives);
     const archive_install = peers.installed;
-    const browser_application = rooms_rust.register(b, check_step, runtime_gate, ctx.wasm_archives, ctx.wasm_driver_install, archive_install);
+    const browser_application = rooms_rust.register(b, check_step, runtime_gate, ctx.wasm_archives, ctx.wasm_driver_install, peers.browser_installed, ctx.native_archives);
     peers.web_build.dependOn(browser_application);
 
-    rooms_browser_front.register(.{
+    const browser_assets = rooms_browser_front.register(.{
         .b = b,
         .target = target,
         .version = ctx.version,
         .runtime_gate = runtime_gate,
         .browser_application = browser_application,
         .archive_install = archive_install,
+        .web_services = peers.web_build,
         .iroh_abi_step = ctx.iroh_abi_step,
         .ocapn_install = ctx.ocapn_install,
         .host_install = ctx.host_install,
@@ -189,6 +192,7 @@ pub fn register(ctx: Context) Registered {
         .relay_install = ctx.relay_install,
         .archive_install = archive_install,
         .wasm_install = browser_application,
+        .browser_assets = browser_assets,
     });
 
     // The rooms cross-language application demo: one Zig-built native client plus
@@ -256,7 +260,7 @@ pub fn register(ctx: Context) Registered {
     //     object, the three proofs (live cap, brand-new inbound, no relay)
     //     asserted. Its iroh sibling is `demo-rooms-dm-iroh`.
     //   demo-rooms-dm-reply — the bidirectional completion of the
-    //     introduction: a host-wide giftable reads its caller's connection
+    //     introduction: a Host publication reads its caller's connection
     //     through `currentSession()` and replies over it, so a non-listening
     //     caller (a browser peer) receives the reply on the connection it
     //     opened. Direct 2-party TCP, no room, no dial-back.
@@ -274,7 +278,7 @@ pub fn register(ctx: Context) Registered {
     //     (ADR-0088).
     const dm_demos = [_]DmDemo{
         .{ .step_name = "demo-rooms-dm", .description = "Rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)", .source = "apps/rooms/demos/dm_demo.ts" },
-        .{ .step_name = "demo-rooms-dm-reply", .description = "A host-wide giftable replies to its caller over the arriving connection via currentSession(), so a non-listening peer receives the reply (needs deno)", .source = "apps/rooms/demos/dm_reply_demo.ts" },
+        .{ .step_name = "demo-rooms-dm-reply", .description = "A Host publication replies to its caller over the arriving connection via currentSession(), so a non-listening peer receives the reply (needs deno)", .source = "apps/rooms/demos/dm_reply_demo.ts" },
         .{ .step_name = "demo-rooms-dm-back", .description = "A member replies to a non-listening sender across a redeemed introduction: the sender hosts a reply inbox on the redeemed direct connection (sendRedeeming), room out of the path (needs deno)", .source = "apps/rooms/demos/dm_back_demo.ts" },
         .{ .step_name = "rooms-dm-reredeem", .description = "sendRedeeming resolves the direct exporter from the reply's route: a re-redeem to an already-dialed exporter resolves the same live session with no second dial (needs deno)", .source = "apps/rooms/test/proofs/dm_reredeem_proof.ts", .runtime_gated = true },
     };
@@ -499,17 +503,28 @@ pub fn register(ctx: Context) Registered {
         }
         {
             run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
-            run.step.dependOn(archive_install);
+            run.step.dependOn(peers.web_build);
         }
         run.addArgs(&.{ "deno", "run", "--allow-all", proof.source });
+        // Each proof binds free loopback ports, owns its process group and
+        // temporary state, so the family runs concurrently up to `-j`.
+        // Capturing output keeps it out of the runtime gate's exclusive
+        // stdio lock; a failure still reports the proof's captured stderr.
+        run.expectExitCode(0);
         const cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", proof.source });
         run.step.dependOn(&cache.step);
         run.setCwd(b.path("."));
         run.has_side_effects = true;
         if (proof.needs_browser) run.step.dependOn(ctx.browser_preflight);
-        run.step.dependOn(browser_application);
+        // Prepare once before launching the concurrent family. Each proof
+        // pins a concrete generation through its prepared web front.
+        run.step.dependOn(browser_assets);
         if (proof.needs_iroh) run.step.dependOn(ctx.iroh_abi_step);
-        run.step.dependOn(b.getInstallStep());
+        run.step.dependOn(ctx.ocapn_install);
+        run.step.dependOn(ctx.host_install);
+        run.step.dependOn(ctx.driver_install);
+        run.step.dependOn(ctx.tcp_install);
+        run.step.dependOn(ctx.relay_install);
         b.step(proof.step_name, proof.description).dependOn(&run.step);
         web_proofs_step.dependOn(&run.step);
     }

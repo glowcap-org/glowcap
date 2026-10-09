@@ -229,10 +229,6 @@ export function startStatefulServer(
 	});
 }
 
-export function stopServer(proc: Deno.ChildProcess): Promise<void> {
-	return stopOwned(proc);
-}
-
 /** Read the server's announce token: a TCP port or a dialable transport URI. */
 export async function readAnnounce(proc: Deno.ChildProcess, withinMs = 10_000): Promise<string> {
 	const reader = proc.stdout.getReader();

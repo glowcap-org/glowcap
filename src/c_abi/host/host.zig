@@ -1,7 +1,7 @@
 //! Host lifecycle and the host-wide surfaces for `libglowcap_host`: create /
 //! release, the pure dial / accept planners, the embedder action queue
 //! (`glowcap_host_next_action` and the DIAL / gift-id completions), the
-//! host-wide giftable publish, GC release, and the archive's own last-error
+//! Host publish, GC release, and the archive's own last-error
 //! slot. The advertised-locator verbs live in `locators.zig`, the per-session
 //! verbs in `session.zig`, the turn-time verbs in `turn.zig`, and the
 //! convenience drain in `pump.zig`; the module root (`mod.zig`) owns the
@@ -222,7 +222,7 @@ pub fn glowcap_host_lifecycle_state(host: ?*GlowcapHost, out_state: ?*u32) callc
 /// Release the host and everything it owns: every still-open session
 /// (each still-parked vow breaks inside this call, its undrained completion
 /// freed with the rest of the action queue), the vow map, parked actions,
-/// the node, and the giftable rows (each giftable's `free` runs exactly once
+/// the node, and the publication rows (each publication's `free` runs exactly once
 /// here). Null is a no-op. HostSession (`GlowcapHostSession`) handles this host minted
 /// are freed with it — release the sessions first if you hold them, and never
 /// touch one after its host is gone. Because release is terminal, an embedder
@@ -318,7 +318,8 @@ pub fn glowcap_host_plan_dial(
     );
 }
 
-/// Install or clear the synchronous borrowed trace callback.
+/// Install or clear the synchronous borrowed trace callback. Installation
+/// reports currently open sessions after publishing the callback and context.
 pub fn glowcap_host_set_trace(
     host: ?*GlowcapHost,
     callback: ?c.GlowcapTraceCallback,
@@ -328,7 +329,8 @@ pub fn glowcap_host_set_trace(
     return host_trace.setTrace(host, callback, ctx);
 }
 
-/// Install, replace, or clear the bounded pull-based trace queue.
+/// Install, replace, or clear the bounded pull-based trace queue. A new queue
+/// starts with current open-session facts, subject to its capacity.
 pub fn glowcap_host_set_trace_queue(
     host: ?*GlowcapHost,
     capacity: usize,
@@ -502,7 +504,7 @@ pub fn glowcap_host_gift_id_failed(host: ?*GlowcapHost, ticket: u64) callconv(.c
 /// Publish one hosted object in the Vat owned by this Host and bind `name` as its host-wide
 /// alias. Fetch lazily projects the actor onto the requesting Port; a deposited
 /// gift retains the exact actor and never consults the alias at withdrawal. The
-/// giftable row owns `ctx` —
+/// publication row owns `ctx` —
 /// `free`, if non-null, runs exactly once: at `glowcap_host_release` on
 /// success, or before this returns on any non-OK outcome (except the
 /// null-pointer and reentry refusals, which touch nothing and leave ctx the
@@ -553,6 +555,22 @@ pub fn glowcap_host_publish_durable(
         out_swiss,
         swiss_cap,
     );
+}
+
+/// Publish an already-held local capability under a durable name. The
+/// publication retains its own root; the caller's reference stays owned by
+/// the caller on success and failure. Entropy and output use the same bounds
+/// as glowcap_host_publish_durable. Foreign capabilities are refused.
+pub fn glowcap_host_publish_reference(
+    host: ?*GlowcapHost,
+    reference: ?*const shared.GlowcapReference,
+    entropy: ?[*]const u8,
+    entropy_len: usize,
+    out_swiss: ?[*]u8,
+    swiss_cap: usize,
+) callconv(.c) i32 {
+    shared.lastErrorClear();
+    return host_publications.publishReference(host, reference, entropy, entropy_len, out_swiss, swiss_cap);
 }
 
 /// Remove a minted durable publication (ADR-0098): the old sturdyref misses

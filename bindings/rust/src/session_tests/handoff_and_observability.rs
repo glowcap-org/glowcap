@@ -79,7 +79,7 @@ async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
 			let (resolver_tx, mut resolver_rx) = tokio::sync::mpsc::unbounded_channel();
 			let behavior_host = captp.clone();
 			captp
-				.publish_giftable("worker", move || {
+				.publish("worker", move || {
 					let host = behavior_host.clone();
 					let resolver_tx = resolver_tx.clone();
 					Box::new(move |_verb, _args| {
@@ -166,7 +166,7 @@ async fn a_loop_hosted_worker_defers_its_answer_onto_a_resolver_vow() {
 			let (resolver_tx, mut resolver_rx) = tokio::sync::mpsc::unbounded_channel();
 			let behavior_host = captp.clone();
 			captp
-				.publish_giftable("worker", move || {
+				.publish("worker", move || {
 					let host = behavior_host.clone();
 					let resolver_tx = resolver_tx.clone();
 					Box::new(move |_verb, _args| {
@@ -251,7 +251,7 @@ async fn the_live_trace_produces_the_timeline_schema() {
 
 			let captp = Host::new_host();
 			captp
-				.publish_giftable("greeter", move || {
+				.publish("greeter", move || {
 					Box::new(move |verb, _args| Ok(Argument::String(format!("hello {verb}"))))
 				})
 				.unwrap();
@@ -275,6 +275,20 @@ async fn the_live_trace_produces_the_timeline_schema() {
 			// The annotation channel: named for the same session row the
 			// tap names.
 			crate::annotate_session(&session, Some("greeter-server"));
+			let before_label = events.borrow().last().unwrap().sim_t_ns;
+			crate::set_trace_label(Some("renamed"));
+			let renamed = events.borrow().last().unwrap().clone();
+			assert_eq!(renamed.a_label.as_deref(), Some("renamed"));
+			assert!(
+				renamed.sim_t_ns >= before_label,
+				"label changes preserve the timeline clock"
+			);
+			crate::set_trace_label(None);
+			assert_eq!(
+				events.borrow().last().unwrap().a_label,
+				None,
+				"withdrawal clears a live label"
+			);
 			session.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
 			uninstall();
@@ -294,7 +308,8 @@ async fn the_live_trace_produces_the_timeline_schema() {
 			assert!(
 				opened
 					.iter()
-					.all(|ev| ev.codec == Some("syrup") && ev.a_label.as_deref() == Some("smoke")),
+					.all(|ev| ev.codec == Some("syrup")
+						&& matches!(ev.a_label.as_deref(), Some("smoke" | "renamed") | None)),
 				"opens carry the negotiated codec and the application's display label",
 			);
 			// A producer states what it RUNS, because this schema is not

@@ -5,6 +5,7 @@
 //! shared with Host storage lives in `capability_promise/row.zig`.
 
 const std = @import("std");
+const capability_lower = @import("host/capabilities/lower.zig");
 
 const actors = @import("actors");
 const engine = @import("engine");
@@ -138,6 +139,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
                 .send => |*message| {
                     var prepared = try self.prepareValues(routed.session, message.arena.allocator(), message.values);
                     defer prepared.deinit();
+                    try capability_lower.holdForTurn(self, &prepared);
                     const location: actors.VowLocation = switch (routed.target) {
                         .local => .local,
                         .far => .far,
@@ -171,6 +173,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
                 .tell => |*message| {
                     var prepared = try self.prepareValues(routed.session, message.arena.allocator(), message.values);
                     defer prepared.deinit();
+                    try capability_lower.holdForTurn(self, &prepared);
                     try self.servedTellWithStaging(
                         routed.session,
                         routed.target,

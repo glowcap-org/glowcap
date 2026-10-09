@@ -70,8 +70,8 @@ interface DialWaiter {
  * be released at any time without racing a read. `close` destroys the socket
  * (closing its dup) and wakes every waiter, so the caller can then free the
  * netlayer with no callback still touching it. The Deno sibling of the Python
- * binding's `_IrohLoop` and Zig's `completion.Loop(iroh.Backend)` +
- * `driver.Bridge` + `driver_core.Host`. */
+ * binding's `_IrohLoop` and Zig's `driver.HostRuntime` over
+ * `iroh.MultiplexedAdapter`. */
 export class IrohLoop {
 	#netlayer: IrohNetlayer;
 	#conns = new Map<bigint, ConnWaiters>();

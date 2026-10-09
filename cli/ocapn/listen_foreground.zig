@@ -26,14 +26,12 @@ pub fn run(ctx: *Ctx, parsed: *Parsed) !u8 {
     const once = parsed.flagBool("once");
     const accept_id = try ctx.acceptIdentity();
 
-    var tcp = glowcap.net.tcp.Resident{ .io = ctx.io };
     var relay: ?relay_runtime.Provider = null;
     const target = listen_target.select(
         ctx,
         bind,
         parsed.flagString("rendezvous"),
         parsed.flagString("rendezvous-relay"),
-        &tcp,
         &relay,
     ) catch |err| switch (err) {
         error.Usage => return exit_codes.usage,
@@ -43,7 +41,9 @@ pub fn run(ctx: *Ctx, parsed: *Parsed) !u8 {
 
     var server = driver.listen(
         ctx.gpa,
-        target.netlayer,
+        ctx.io,
+        target.transports,
+        target.transport,
         .{ .designator = target.designator },
         accept_id,
         session_opts.sessionOptsReporting(ctx),

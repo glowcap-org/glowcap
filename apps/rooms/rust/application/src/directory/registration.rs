@@ -1,4 +1,4 @@
-//! Registered-name custody is distinct from its notification acknowledgement.
+//! One committed registration result binds its name, identity and exact custody.
 use crate::{
 	fields::{Text, lower_hex},
 	room::ArgumentView,
@@ -143,7 +143,6 @@ pub fn nickname_availability<'a>(
 }
 
 pub use crate::protocol_data::{MEMBER_REGISTRATION as MEMBER, OFFER_INBOX, REGISTER, REQUEST_DIRECT, VOUCHER};
-pub const ACK_MS: u64 = 10_000;
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_HELD_DIRECTORIES: usize = 64;
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -248,6 +247,7 @@ pub struct Event {
 	pub kind: Kind,
 	pub peer: Text<32, true>,
 	pub registration: Id,
+	pub opening: Option<Text<128, true>>,
 }
 #[derive(Default)]
 pub struct Events {
@@ -310,6 +310,12 @@ pub fn notice<A: ArgumentView>(verb: &str, at: impl Fn(usize) -> Option<A>) -> R
 	let registration = Id::parse(id.text().unwrap_or(""))?;
 	Ok(Some(Notice::Event(Event {
 		kind,
+		opening: if kind == Kind::DirectRequested {
+			None
+		} else {
+			let opening = at(3).ok_or(Error::Id)?;
+			Some(Text::new(opening.text().unwrap_or("").into()).ok_or(Error::Id)?)
+		},
 		peer: Text(peer.into()),
 		registration,
 	})))

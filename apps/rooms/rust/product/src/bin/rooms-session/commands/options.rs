@@ -56,6 +56,7 @@ impl Options {
 			"join" => &["room"][..],
 			"dismiss" => &["id"][..],
 			"resume" => &["accept-gap"][..],
+			"recover" => &["acquisition"][..],
 			_ => &[],
 		} {
 			if options.get(required).is_none() {
@@ -64,6 +65,20 @@ impl Options {
 		}
 		if options.verb == "command" && options.arguments.is_empty() {
 			return Err(Failure::invalid("command needs an application command name"));
+		}
+		if options.get("operation").is_some() && options.get("base").is_none() {
+			return Err(Failure::invalid(
+				"--operation requires its original --base revision for exact replay",
+			));
+		}
+		options.number("base", 0)?;
+		if let Some(id) = options.get("acquisition") {
+			super::acquisition::validate_id(id)?;
+		}
+		if let Some(nick) = options.get("nick")
+			&& let Some(reason) = rooms_application::room::inbox::nick_refusal(nick)
+		{
+			return Err(Failure::invalid(reason));
 		}
 		if let Some(transport) = options.get("transport")
 			&& !["iroh", "tcp", "onion"].contains(&transport)

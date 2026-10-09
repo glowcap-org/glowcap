@@ -360,7 +360,7 @@ int32_t glowcap_host_lifecycle_state(GlowcapHost *host, uint32_t *out_state);
 /* Release the host and everything it owns: every still-open session (each
    still-parked vow breaks inside this call, its undrained completion freed
    with the rest of the action queue), the vow map, parked actions, the node,
-   and the giftable rows (each giftable's free runs exactly once here). NULL is
+   and the publication rows (each publication's free runs exactly once here). NULL is
    a no-op. Session (GlowcapHostSession) handles this host minted are freed with it —
    never touch one after its host is gone. Because release is terminal, an embedder
    may transfer exclusive ownership to a finalizer thread after every Host call has
@@ -392,6 +392,11 @@ int32_t glowcap_host_remove_advertised_locator(GlowcapHost *host, const uint8_t 
    Zero fields leave the current value unchanged. Already-open peers keep the
    limits they were minted with. `options` is borrowed and must not be NULL. */
 int32_t glowcap_host_set_session_limits(GlowcapHost *host, const GlowcapSessionLimitOptions *options);
+/* Configure independent per-ingress queue bounds before any session or
+   eventual send. Bytes include spines and queue rows. All limits are positive;
+   a complete queue chunk must fit the aggregate byte allowance. No eager
+   payload allocation occurs. Later reconfiguration is refused. */
+int32_t glowcap_host_set_ingress_limits(GlowcapHost *host, uint32_t max_pending_turns, uint32_t max_pending_bytes, uint32_t max_chunk_bytes);
 /* Mint the dialing half after an embedder has opened the byte channel for
    locator. The one locator vocabulary is taken whole: the designator keys
    duplicate-dial refusal and, on a key transport, demands the partner's durable
@@ -668,10 +673,16 @@ int32_t glowcap_host_session_publish(GlowcapHostSession *session, const uint8_t 
    argument carries the opaque Host-scoped capability written to *out_ref. Same
    free contract as glowcap_host_session_publish. */
 int32_t glowcap_host_session_spawn(GlowcapHostSession *session, GlowcapHostBehavior behavior, void *ctx, GlowcapHostCtxFree free, GlowcapReference *out_ref);
+/* Spawn a hosted actor and adopt its first root into an owned Host reference.
+   No session, alias or wire export is created. Release the returned reference
+   through glowcap_host_ref_release. ctx/free follows glowcap_host_publish: null
+   and reentry refusals leave ctx yours; after admission free runs exactly once
+   on failure, final actor collection or Host release. */
+int32_t glowcap_host_spawn(GlowcapHost *host, GlowcapHostBehavior behavior, void *ctx, GlowcapHostCtxFree free, GlowcapReference *out_ref);
 /* Publish one hosted object in the Vat owned by this Host and bind name as its
    host-wide alias. Fetch lazily projects the actor onto the requesting Port; a
    deposited gift retains the exact actor and never consults the alias at
-   withdrawal. The giftable row owns ctx: free, if non-NULL, runs exactly once, at
+   withdrawal. The publication row owns ctx: free, if non-NULL, runs exactly once, at
    glowcap_host_release on success or before this returns on any non-OK outcome
    (the null-pointer and reentry refusals touch nothing and leave ctx yours).
    All-or-nothing over this call's own work: registration failure discards the
@@ -697,6 +708,11 @@ int32_t glowcap_host_unpublish(GlowcapHost *host, const uint8_t *name, size_t na
    the same bytes at startup to reproduce the sturdyref; losing either makes the
    old name miss, fail-closed. */
 int32_t glowcap_host_publish_durable(GlowcapHost *host, const uint8_t *entropy, size_t entropy_len, GlowcapHostBehavior behavior, void *ctx, GlowcapHostCtxFree free, uint8_t *out_swiss, size_t swiss_cap);
+/* Publish an already-held local capability under a durable name. The
+   publication retains its own root; the caller's reference stays owned by
+   the caller on success and failure. Entropy and output use the same bounds
+   as glowcap_host_publish_durable. Foreign capabilities are refused. */
+int32_t glowcap_host_publish_reference(GlowcapHost *host, const GlowcapReference *reference, const uint8_t *entropy, size_t entropy_len, uint8_t *out_swiss, size_t swiss_cap);
 /* Remove a minted durable publication: the old sturdyref misses from now on,
    while capabilities already issued and deposited gifts keep the exact actor. A
    swiss outside the durable namespace returns INVALID_ARGUMENT (mutable aliases
@@ -748,6 +764,13 @@ int32_t glowcap_host_session_listen(GlowcapHostSession *session, const GlowcapRe
    handoffs redeem through the Host. All pointers are required; outputs change
    only on success. Legal inside a callback. */
 int32_t glowcap_host_session_resolve(GlowcapHostSession *session, const GlowcapReference *target, GlowcapReference *out_reference, uint64_t *out_vow);
+/* Eventual-send through this Host without borrowing a network session. The
+   actual target determines its local or foreign home. Input values borrow
+   this call; the existing queue owns their copies and capability retains.
+   The returned vow is await-only and settles through Host actions. Releasing
+   its observer does not cancel admitted work. Refused inside a callback;
+   turn_send owns that turn's transactional delivery instead. */
+int32_t glowcap_host_send(GlowcapHost *host, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, uint64_t *out_vow);
 /* Eventual-send to an opaque Host-scoped target and mint a host vow for the
    answer; the outcome arrives as that vow's SETTLE or FAIL action. The Host
    chooses local delivery or the owning exporter session. A target or nested
@@ -758,6 +781,10 @@ int32_t glowcap_host_session_resolve(GlowcapHostSession *session, const GlowcapR
    the way Goblins invokes a capability. Legal inside a callback (the send
    encodes when the enclosing call unwinds). */
 int32_t glowcap_host_session_send(GlowcapHostSession *session, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, uint64_t *out_vow);
+/* Notification through the target's actual home, with no reply or vow. Input
+   values borrow this call; the owning queue retains admitted work. Refused
+   inside a callback, where turn_tell owns transactional delivery. */
+int32_t glowcap_host_tell(GlowcapHost *host, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len);
 /* Fire-and-forget eventual-send: glowcap_host_session_send with no answer and no
    vow. Same routing, refusals, and empty-verb contract. */
 int32_t glowcap_host_session_tell(GlowcapHostSession *session, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len);
@@ -833,9 +860,9 @@ int32_t glowcap_host_resolver_break(GlowcapHost *host, uint64_t resolver_id, con
    session teardown or settlement is complete cleanup. Unminted ids refuse
    NOT_FOUND; other failures leave the operation retryable. */
 int32_t glowcap_host_resolver_abandon(GlowcapHost *host, uint64_t resolver_id, const uint8_t *message, size_t message_len);
-/* Borrow the session whose Port delivered this callback turn. The handle is
-   Host-owned and lives with that session; do not release it. This is how an
-   embedder whose driver serves several sessions identifies the arriving
+/* Borrow the session whose Port delivered this callback turn. Trusted local
+   owning delivery succeeds with a null session. A nonnull handle is Host-owned
+   and lives with that session; do not release it. This identifies the arriving
    connection without reconstructing delivery state outside the core. */
 int32_t glowcap_host_turn_session(GlowcapHostTurn *turn, GlowcapHostSession **out_session);
 /* From inside a behavior callback, forward this turn's call to an opaque
@@ -854,10 +881,16 @@ int32_t glowcap_host_turn_forward(GlowcapHostTurn *turn, const GlowcapReference 
    forwarded effect. The behavior returns normally after success; its return
    value resolves nothing once the turn is deferred. */
 int32_t glowcap_host_turn_defer(GlowcapHostTurn *turn, uint64_t *out_resolver_id);
-/* From inside a behavior callback, eventual-send to target and mint a host vow
-   for the answer — the same routing, refusals, and empty-verb contract as
-   glowcap_host_session_send, on the turn's own session. The send encodes when the
-   enclosing top-level call unwinds. */
+/* Defer an answered call; a tell succeeds with zero and creates no resolver.
+   Nonzero IDs carry the same one-shot authority as glowcap_host_turn_defer.
+   Refusal zeros the output and leaves the current turn unchanged. */
+int32_t glowcap_host_turn_defer_if_answer(GlowcapHostTurn *turn, uint64_t *out_resolver_id);
+/* From inside a behavior callback, eventual-send to target and mint a Host
+   vow for the answer. Trusted local callbacks use the target's actual local
+   or foreign home; wire callbacks use their Session routing. Local public
+   vows settle through Host actions and support release, without a wire
+   pipeline or raw wire listener. Delivery commits with the enclosing turn.
+   The empty-verb contract is glowcap_host_session_send's. */
 int32_t glowcap_host_turn_send(GlowcapHostTurn *turn, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, uint64_t *out_vow);
 /* From inside a behavior callback, fire-and-forget eventual-send —
    glowcap_host_turn_send with no answer and no vow. Same empty-verb contract. */

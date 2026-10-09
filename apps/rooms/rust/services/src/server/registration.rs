@@ -115,17 +115,51 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 	let claim = claim(&session, locator)?;
 	let mut held = state.borrow_mut();
 	let id = fresh_id(&held)?;
-	// The name capability: the holding of this name, detached from the
-	// connection that holds it. Its one verb mints a single-use voucher that
-	// `register` on any connection redeems as being this member. It answers
-	// only while this registration is the current one.
+	// The exact name capability mints reconnect vouchers while current and
+	// retires only this registration. Retirement remains idempotent after
+	// replacement; it never selects another holder by nickname or connection.
 	let name = {
 		let state = state.clone();
 		let id = id.clone();
 		session
 			.spawn_owned(move |verb, args| {
+				if verb == rooms_application::signaling::CHECK {
+					if !args.is_empty() {
+						return Err("signalCheck takes no arguments".into());
+					}
+					state
+						.borrow()
+						.policy
+						.registration_connection(&id)
+						.map_err(|refusal| refusal.reason())?;
+					return Ok(Argument::Void);
+				}
+				if matches!(
+					verb,
+					rooms_application::signaling::OFFER_INBOX
+						| rooms_application::signaling::OFFER
+						| rooms_application::signaling::ANSWER
+						| rooms_application::signaling::CANDIDATE
+						| rooms_application::signaling::DONE
+				) {
+					let original = state
+						.borrow()
+						.policy
+						.registration_connection(&id)
+						.map_err(|refusal| refusal.reason())?;
+					return super::signaling::dispatch(&state, original, verb, args);
+				}
 				if args.iter().any(|arg| Value(arg).contains_capability()) {
 					return Err(format!("name capability {verb} does not take capability arguments"));
+				}
+				if verb == rooms_application::protocol_data::LEAVE {
+					if !args.is_empty() {
+						return Err("leave takes no arguments".into());
+					}
+					let mut state = state.borrow_mut();
+					let effects = state.policy.retire_registration(&id);
+					state.apply(effects);
+					return Ok(Argument::Void);
 				}
 				if verb != VOUCHER {
 					return Err(format!("a name capability has no method {verb}"));
@@ -159,12 +193,19 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 				voucher,
 				claimant: claim.claimant,
 			},
-			id,
+			id.clone(),
 			now,
 		)
 		.map_err(|refusal| refusal.reason())?;
+	let granted = held
+		.policy
+		.registered_nick(connection)
+		.expect("committed registration names its holder")
+		.to_owned();
 	held.apply(effects);
-	Ok(Argument::Reference(name))
+	// Identity and exact custody have one commit and one reply. Notifications
+	// remain discovery events; losing one cannot make acquisition uncertain.
+	Ok(Argument::List(vec![granted.into(), id.as_str().into(), name.into()]))
 }
 
 fn register_shape() -> String {

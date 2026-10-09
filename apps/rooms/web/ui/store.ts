@@ -20,6 +20,7 @@ export * from "./store/archive.ts";
 export * from "./store/convs.ts";
 export * from "./store/rooms.ts";
 export * from "./store/items.ts";
+export * from "./store/sent_lines.ts";
 export * from "./store/dirs.ts";
 export * from "./store/reaching.ts";
 export * from "./store/trouble.ts";

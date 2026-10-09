@@ -10,6 +10,11 @@ use crate::sys::host as ffi;
 use crate::{Error, Result};
 
 impl Session {
+	/// Compare views of the actual shared connection, independently of labels,
+	/// locators, and whether either view owns its lifetime.
+	pub fn same_connection(&self, other: &Session) -> bool {
+		Rc::ptr_eq(&self.shared, &other.shared)
+	}
 	/// Sample native connection liveness without starting work or waiting for
 	/// terminal cleanup. A closing Host or retired session returns false.
 	pub fn is_open(&self) -> bool {

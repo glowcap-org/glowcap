@@ -39,8 +39,9 @@ listening, and events, over a Host it has adopted.
 - The TCP provider package handles `noise-tcp`, `keyed-tcp`, and the testing `tcp`. Transports built separately
   register through the same common ABI.
 - The iroh provider handles both dialing and listening. Native Zig uses
-  `iroh.MultiplexedAdapter` with `driver.connectProviders` and
-  `driver.listenProviders`; C and native callers share the adapter state.
+  `iroh.MultiplexedAdapter` as a `driver.Transports` resident for
+  `driver.connect` and `driver.listen`; C and native callers share the
+  adapter state.
   `zig build iroh-managed` checks identity, fetch, call and session lifetime
   after Server destruction over real endpoints.
 - The onion archive supplies the standard Tor transport, and the driver never needs to know its symbol. Zig and all four
@@ -58,6 +59,14 @@ listening, and events, over a Host it has adopted.
   validates messages before applying them and sends a typed abort when a protocol error requires the session to close.
 - **Calls and promises.** Applications can fetch a bootstrap capability, call it, and send without waiting. They can
   also pipeline through an unresolved answer: calls, and field, index, and tag projections.
+  Locally invoked owning behaviors can forward their answer to a foreign
+  capability, preserving exact reply identities in the original bounded result
+  owner. Failed outer turns withdraw the forwarded effect, including staged
+  third-party introductions.
+  Zig and C owning callbacks can also send or tell local and foreign targets.
+  Local public sends deliver exact values through Host actions; tell allocates
+  no answer owner. Child work survives Host finish, while outer-turn failure
+  withdraws uncommitted delivery. Public handle release cancels observation.
   - glowcap always accepts the OCapN 1.0 `op:untag` operation. It sends one only when the partner's signed hello
     advertises the separate `untag` feature, so a Goblins peer that does not advertise it stays on the proven set.
   - A CapTP 1.0 call that names only a resolver still gets a typed local answer through the normal reply path, without
@@ -94,7 +103,9 @@ listening, and events, over a Host it has adopted.
 - **Three-party handoff.** A capability received from one peer can be returned or passed recursively to another. Inbound
   signed gives become Host-owned promises immediately. Outbound foreign objects and promises wait as one bounded
   transaction until every gift id, exporter deposit, shared promise listener, recipient escrow, and rewritten message
-  can commit. Core and C Host cover terminal failure. Node-local routes use an explicit reference arm, so every `u64`
+  can commit. The waiting message keeps its place in the recipient's queue, so later sends to that peer stay behind
+  it. A failed actor turn withdraws such a message with its other far sends, including any promise proxy the message
+  created. Core and C Host cover terminal failure. Node-local routes use an explicit reference arm, so every `u64`
   remains available to a peer as a wire import and an unlowered route is structurally refused by codecs. The recurring
   Deno, Python, Rust, and Racket gifter matrix proves two nested gives against live Goblins.
   The recurring iroh handoff proof also puts Goblins in the gifter and exporter roles and verifies
@@ -171,6 +182,8 @@ listening, and events, over a Host it has adopted.
   close joins that barrier instead of running teardown again. Implicit destruction is non-panicking. A fire-and-forget
   local behavior failure cannot become a reply; its Host retains the exception. Callerless and finalizer failures prefer
   the live Context journal; if that recorder is gone they enter the process-scoped queue. Explicit release still raises.
+  Rust preserves owners of refused native releases across thread exit instead of destroying borrowed state.
+  Those abandoned releases remain allocated for the process lifetime. Successful retries return empty queue storage.
   Provider installation and connector establishment keep the setup error primary and retain cleanup failure beside it.
   Native iroh and WebRTC close failure survives the peer or endpoint handle and returns from the owner's release. Those
   sidecars stay usable from a consumer already inside Tokio: they do not nest `block_on`. Python close raises the first
@@ -228,7 +241,7 @@ and `demo-rooms-onion`. See [stability](stability.md) and [known limitations](bo
 TCP, iroh, and relay join the native loop as transport packages. WebRTC joins that same loop once signaling has opened a
 DataChannel. A relay locator can carry its `rendezvous-relay` route, with deployment configuration retained only as the
 fallback for a bare locator. A bare `webrtc` locator needs configured signaling authority (`zig build webrtc-loop`,
-`zig build webrtc-bridge-redeem`). The native WebRTC companion accepts generic ICE server records, including
+`zig build webrtc-redeem`). The native WebRTC companion accepts generic ICE server records, including
 credentialed TURN; provider-specific credential issuance stays with the embedding. Browsers without native sockets use
 the byte-transparent relay in Deno, Python, Rust, and Racket. The relay forwards bytes without parsing CapTP or holding
 a capability.
@@ -243,8 +256,7 @@ another process family. Its listener defaults to
 wildcard address and reaches it through loopback, while the Darwin build checks the same API against kqueue. Linux
 prefers io_uring and falls back to epoll when the kernel or host policy cannot support glowcap's io_uring backend.
 Both paths keep the loop-wide bounded read pool. `net.tcpBackendStatus` exposes the choice and reason through the TCP,
-onion, keyed-relay, Noise, and iroh loop compositions. The many-sessions example and Rooms peer write the selected
-backend to their own diagnostic streams. The recorded 500,000-session result used io_uring. Epoll passes the
+onion, keyed-relay, Noise, and iroh loop compositions. The recorded 500,000-session result used io_uring. Epoll passes the
 completion-loop behavior tests but has no matching scale result.
 
 `noise-tcp` and `noise-relay` run ADR-0107's Noise_XK channel on the byte-fed Host and native tiers; `BlockingSession`
@@ -261,10 +273,10 @@ between these choices.
 checksummed records with typed local edges, and a portable core for
 transactions and leases.
 
-**Backends.** Loam has a volatile backend and an optional native LMDB module.
+**Backends.** Loam has a volatile backend and an optional LMDB module.
 Both share batch validation, atomic updates to records and roots, exact
-encoded-byte totals, and the decisions for completion and recovery. The native
-profile uses BSD `flock` locking and synchronous LMDB commits in the LMDB 1.x
+encoded-byte totals, and the decisions for completion and recovery. The LMDB
+module uses BSD `flock` locking and synchronous commits in the LMDB 1.x
 disk format.
 
 **Transactions.** A transaction may propose a record again after staging it,
@@ -272,41 +284,109 @@ and can read its own proposals back. Several operations can therefore update a
 shared record, such as an owner header or a parent row, in one transaction,
 while the submitted batch still holds one change per record. Each exclusive
 open reserves a new incarnation, and committed object names survive reopen.
+Atomic bootstrap opening admits missing metadata or the exact existing store
+identity. Rust staging exposes provisional resource metadata before commit;
+aborted names never repeat, and unsubmitted guards abort on retirement.
 Resident and pending record buffers have explicit bounds that do not grow
 with the number of stored objects.
 
-**Crash tests.** Native tests cover reopening cyclic graphs, map exhaustion,
-and custody. Process tests send SIGKILL before commit, and after commit but
+**Crash tests.** Native tests cover cyclic graphs, map exhaustion and custody.
+Process tests send SIGKILL before commit, and after commit but
 before local installation, then verify the complete graph in a fresh process.
 
 **Sleepy actors.** The `hosting` module runs record-backed sleepy actors on an
 existing Host and Vat. An actor's state lives in a record and loads when a
-message arrives.
+message arrives. Cold activations coalesce, calls are bounded and replies wait
+for commit. Nested capability arguments retain custody through cold reads,
+preparation restarts and session loss. Unsupported durable captures refuse
+before content writes. The [reference guide](loam/references.md) owns saving,
+restoration and disclosure contracts.
 
-- Cold activations are coalesced, retained calls are bounded, local and
-  foreign capability fields are checked, and replies wait for the commit.
-- Nested Host capability arguments stay in custody through cold reads,
-  preparation restarts, and session loss. A durable capture that is not
-  supported is refused before any content is written.
-- Durable publication descriptors and retirement tombstones keep discovery
-  decisions across reopen. The attachment's write lane owns the step from
-  commit to registry. A name leaves discovery at the terminal outcome, and an
-  unknown outcome fails closed. A recovery that proves the batch never landed
-  restores the earlier discovery state.
-- Opt-in cold lookup coalesces fetches, rechecks current authority, and
-  restores one exact target, without listing every name at startup or keeping
-  a permanent registry row. Both backends index names atomically and keep the
-  reservations after collection.
-- Native process proofs kill an actor invoked over CapTP around its commit,
-  then fetch its unregistered publication and follow its cyclic capability
-  graph. Pressure tests cover allocation refusal, lease lifetime,
-  cancellation, and growth in cold objects without growth in endpoints.
+Explicit live fields retain exact Host custody under graph-owned recipes.
+Zig and C/Rust epoch activation use the existing storage lane; unknown writes
+preserve reservations and committed custody survives reply refusal.
+Warm lookup checks the lifetime; restart refuses old fields. Bounded collection
+retirement releases custody. Rooms proves publication, invitation, membership
+and private direct/IRC custody. The [session guide](rooms/session.md) describes production ownership and recovery.
+
+The [Rooms managed browser module](rooms/session.md)
+opens a per-tab IndexedDB workspace with independent use/control handles.
+The production page and process startup use this owner. The complete shipped
+browser inventory, runtime contracts and external protocol checks exercise these
+production consumers. [Session measurements](../bench/rooms/session-costs.md) cover sole Host
+locator ownership, membership snapshot reuse and linear UI custody projection.
+Its inboxes check initiating grants, bound queued input and drain calls on close.
+Managed directory and room workers install their actual callback, register or
+subscribe, and acquire the exact committed results. They retain failed stages
+for retry and retire when their installed selection changes. The session owns
+cleanup after a view disappears. A managed aggregate reconciles requested
+directory, room and direct rows, preserving sibling workers and shared field aliases.
+An owned workspace observation continuously reconciles these rows, interrupting
+readiness waits when intent changes and retaining failed cleanup for retry.
+Direct workers announce their actual reciprocal inbox through a retained command.
+Their bounded callbacks preserve posted-line capabilities and refuse retired routes.
+The viewer matches introduction readiness to the original registration and opening.
+Pending waits have a 30-second deadline, and closing or cancelling a wait refuses it.
+Directory registration preserves the requested nickname separately from the
+assigned name. Nickname edits retire the worker; assignment does not restart it.
+Rooms retain the current name and registration identity. Pending nickname
+requests preserve their seats; assignment changes fence callbacks and rejoin.
+Directory readers expose listing, location and member metadata through the exact
+acquiring grant; retained readers cannot be redirected by workspace edits.
+The exported managed browser application starts directory, room and direct consumers
+and reports readiness or admission failures. Notifications contain descriptive
+data and bounded file handles. Each file retains its exact initiating workspace
+endpoint; its dependent reader checks that grant and the upstream file authority.
+Explicit release prevents disclosure from a pending read. The application owns
+consumer shutdown and retains failed cancellation for retry.
+Membership workers share private content and grant-inventory feeds and check their exact held
+source after a wake, without per-membership observation registrations. Runtime observers are
+fenced by the session's live marker and reclaim expired quota on registration.
+Idle retained calls stay independent of membership
+count; callbacks and retained readers still check their exact acquiring grant.
+Worker sources must address their owning session. Arbitrary foreign session
+custody remains importable but cannot start a local membership worker.
+Direct consumers return real posted lines and project reciprocal routes, typing
+and room/archive handoffs. Line changes recheck the original grant and installed
+route. Opaque incoming handles prepare exact-authority acquisition; source pause,
+replacement and callback retirement fence retained lines. Directory introduction
+and publication use exact managed receipts. Production page proofs exercise
+scoped outage reporting, recovery and retention of uncertain send receipts.
+Recovery resumes the exact retained executor before reading its result. Paused
+executors and uncertain result acquisitions retain their original receipt custody.
+Failed activity reads wait for a later change or explicit retry with the same reader.
+The real-server browser journey covers selected text previews, acquisition of
+posted-line custody, exact edit/withdrawal and history under enabled server policy.
+Directory acquisition retains the fetched target and the exact invoking workspace
+endpoint in one revision-checked candidate. The shared client and generated
+browser front preserve that source across a remote caller's capability reflection.
+Main-page and process startup use the managed Loam owner. Browser presentation
+consumes managed intent and activity; prepared actions retain exact custody through
+refusal and recovery. The access editor holds independent controls and submits
+revision-checked issuance, policy, label and lifecycle operations.
+Supervised memberships retain exact upstream name/seat retirement custody
+through source revocation and interrupted leave waits. Public results remain
+source-dependent; unknown subscriptions refuse cleanup and retain ownership.
+The managed browser application publishes its independent management branch;
+issued and narrowed controls have exact durable names distinct from use.
+Prepared policy, label and lifecycle changes retain their exact control and
+receipt identity across resubmission. Replaying an old pause after resume
+recovers its outcome without pausing the grant again.
+Known local issued use and control handles expose those names at their owner's
+relay. Attached or restored custody requires its original publication address.
+
+Durable publication descriptors preserve discovery decisions across reopen.
+Unknown retirement fails closed; confirmed absence restores prior discovery.
+Cold lookup coalesces fetches and restores one exact target without a startup
+population scan. Both backends retain name reservations after collection.
+Process proofs fetch unregistered publications and cyclic graphs after killing
+writers around commit. Pressure tests cover custody, cancellation and capacity.
 
 **Garbage collection.** Bounded batches trace durable roots, live custody and
 historical edges through a stored queue, reclaiming cycles without waking actors.
 Each cycle captures live custody once and reuses its scratch, so later batches
 skip that work. Writes join tracing atomically; kill tests show safe recovery.
-The [collection contract](loam.md#collecting-unreachable-records) owns admission,
+The [collection contract](loam/collection.md) owns admission,
 receipt recovery and cost limits.
 
 **Performance.** Commit installation reuses unchanged cached records while
@@ -365,192 +445,22 @@ not a performance comparison.
 and Rust's `loam` feature project the first complete resource lifecycle into the
 existing Host. The [consumer guide](loam/c-and-rust.md)
 records create/share/edit/restart/cold-reopen evidence and ownership. The
-[browser profile](loam/browser.md) executes that lifecycle through IndexedDB
-with exclusive Web Lock custody, commit-gated installation and retained callbacks.
-Its Chromium proof reloads the page and cold-fetches the same derived publication;
-quota rollback, abandoned observers and unrelated-actor progress are covered.
+[browser profile](loam/browser.md) uses IndexedDB with exclusive Web Lock custody.
+Shared resumable batch evaluation bounds inputs; terminal events gate installation.
+Its Chromium proof covers reload, cold publication fetch, quota rollback,
+abandoned observers and unrelated-actor progress.
 Both consumers execute the same [managed-control trace](../bindings/proofs/_support/loam_management.rs):
 bounded child issuance, explicit policy/lifecycle powers, policy edits that
 preserve pause and child configuration, independent control retirement,
 management receipt replay after restart and retained descendant revocation.
+Rust lends typed management descriptions and indexed inventory [views](loam/c-and-rust.md).
 
 ### Managed access
 
-Managed access is Loam's layer for resources, grants, and the references that
-use and control them. Native Zig exposes it as `glowcap.loam.access`. Owner
-retirement and terminal cleanup are described under
-[resource models](#resource-models). C and Rust project fixed-resource creation,
-managed registration, shared-policy descriptors, storage completions and held
-use/control capabilities, managed children, policy edits, control attenuation
-and strong reference fields. A shared LMDB/IndexedDB trace checks transactional
-field authoring, exact and dependent disclosure, removal and cold restoration.
-General graph and owner APIs remain outside that profile.
-
-**Resource graph.** `glowcap.loam.access.core` holds bounded resource graphs
-with owner and generation identity, reparenting that refuses cycles, and
-exact, selected, or subtree scope evaluation. Graph mutations check revisions
-and allocate only at initialization
-([resource structure](decisions/adr/ADR-0153-access-resource-core.md)).
-
-**Grant ledger.** Runtime schemas, unsigned bounds, issuance ceilings, bounded delegation,
-editable terms, pause/resume and branch revocation evaluate one current grant path
-([grant lifecycle](decisions/adr/ADR-0154-access-local-grant-lifecycle.md)). Persisted
-[permission dependencies](decisions/adr/ADR-0190-declarative-permission-dependencies.md)
-constrain direct issuance, edits and control ceilings independently of partial effect demands.
-
-- A successful mutation returns owned change events. A failed or unchanged
-  request produces none.
-- A prepared write reserves its scope and keeps its inputs until an exact
-  completion ([prepared writes](decisions/adr/ADR-0155-access-prepared-grant-writes.md)).
-  An unknown storage outcome blocks protected access until it is resolved.
-
-**Use and control references.** Native opaque use and control references each
-carry authority over one committed grant. Controls enforce independent
-lifecycle powers and copied management ceilings, through the same
-prepared-write path
-([native grant capabilities](decisions/adr/ADR-0156-access-native-grant-capabilities.md)).
-Resident and durable bindings share control powers and ceiling checks, and
-the durable endpoints described below expose those checks over CapTP.
-
-**Record views.** Resource scope and grant evaluation read revision-checked
-record views, shared with the resident graph and ledger. An unloaded record
-produces an explicit read demand. Known absence, malformed rows, and stale rows
-are refused separately. `GrantPlan` prepares a mutation the same way for
-every source: it produces the affected grant, an optional parent update, and
-the proposed event, without publishing anything.
-`glowcap.loam.access.records` encodes resources, grants, and change events in
-the existing Syrup syntax. Decoding is bounded. Only selected grant scopes
-allocate, with at most two exact-sized lists and no retained input bytes
-([resource record views](decisions/adr/ADR-0158-access-resource-record-views.md),
-[grant records and plans](decisions/adr/ADR-0166-access-grant-records-and-plans.md)).
-
-**Owner storage.** `glowcap.loam.access.storage` keeps owner headers, policy
-descriptors, allocation counters, and sparse resource and grant directories in
-ordinary Loam records
-([managed owner storage](decisions/adr/ADR-0167-managed-owner-storage.md)).
-
-- A bounded read pins model records and resumes directory traversal after a
-  storage miss.
-- Resource creation and shared grant plans stage metadata and bounded change
-  history alongside content, in the caller's transaction.
-- Each owner keeps 32 batches of at most 16 effects. Grant, resource, content,
-  and independent control changes can share one batch. Separate stamps for
-  authority, lifecycle, inventory, placement, subtree, and content tie each
-  scoped view to committed batch positions. An unchanged effect adds no
-  history.
-- Native observation loads bounded replay and returns owned, scoped snapshots
-  with opaque cursors bound to their context. Hidden commits leave a cursor
-  unchanged. Expired visible history asks the reader to resynchronize.
-- Native LMDB tests cover reopen, recovery from a lost acknowledgement after
-  both commit and abort, refusal on batch overflow, and collection of expired
-  batches. Portable tests cover a 258-resource directory with two cache slots,
-  stale completions, malformed paths, allocation failure, and cleanup. Loaded
-  grant evaluation uses fixed scratch space and never calls the allocator.
-
-**Durable references.** `storage.Capabilities` restores opaque use and control
-references from committed descriptor leases
-([durable managed capability bindings](decisions/adr/ADR-0168-durable-managed-capability-bindings.md)).
-Each descriptor keeps its exact owner and grant records, and each live
-reference uses Loam retention without pinning the record. Bounded operations
-load current authority, expose their read work, and admit only the edits their
-role allows: use, delegation, or control. Derivation stages the child grant and
-its separate use and control descriptors atomically with content. Native LMDB
-tests cover reopening with roles intact, uncertain revocation during cold
-reads, and descriptor collection after final release. Portable tests cover
-ceilings, allocation failures, quotas, and cleanup.
-
-**Hosted endpoints.** `access.hosting.Service` connects managed preparation to
-the existing durable Host attachment
-([managed Host turns](decisions/adr/ADR-0169-managed-host-turns.md)).
-
-- Fixed-resource use endpoints check current authority before calling the
-  application, and commit content replacements before replying.
-- Each content registration and service decoder receives the application's
-  own context, borrowed. A preparation keeps its content descriptor and sharing
-  entropy source bound across storage reads; [registration tests](../test/loam/access/registration_test.zig)
-  prove instance isolation, callback routing and teardown lifetime.
-- Control endpoints stage permitted lifecycle or policy edits through the
-  shared grant rules.
-- Ordinary durable publications keep and restore these endpoints.
-- Tests cover held CapTP references across pause, resume, and revoke; stale
-  queued and cold activation; role separation; commit gating; and cleanup.
-  Native LMDB tests restore endpoints and publications after reopen, and block
-  calls through lost acknowledgements after both commit and abort.
-
-**Derivation.** Fixed-resource `derive` adds hidden publication reservations
-and keeps eight retry receipts per source endpoint
-([durable facet derivation](decisions/adr/ADR-0170-durable-facet-derivation.md)).
-Tests cover narrowing of permissions and delegation, expiry without reissuing,
-publication custody, and native recovery from a lost reply after reopen
-without duplicate grants.
-
-**Crash proof.** The [managed process proof](../test/loam_managed_crash.zig)
-repeats issuance, control attenuation, revocation, content mutation, reference
-removal, resource movement, and leaf deletion, killing the process with
-SIGKILL at commit, at installation, and before the reply is delivered. Fresh
-processes then fetch the durable names, keep the use and control roles, and
-verify the committed events.
-
-**Returned capabilities.** A managed content method can hand over the exact
-saved authority in a stored reference field, through a declared disclosure
-([explicit disclosure](decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)).
-Any capability value the method did not declare fails closed before
-settlement, both in process and over a live CapTP session.
-
-- Dependent disclosure keeps both the invoking endpoint and a stored target.
-  It admits each target method through the current authority of both
-  ([dependent returned capabilities](decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)).
-- Strong reference fields can be replaced or removed inside the content
-  transaction, with evidence for aborted writes and LMDB reopen.
-- [Typed restoration recipes](loam/references.md) add bounded attachment
-  dependencies and checked foreign sturdyrefs, with exact identity checks
-  before any field write. Native compaction and restart tests keep the
-  original, use, and control roles. Nine process-kill cases cover installing
-  foreign fields.
-- Foreign dependent calls use owned Host results, and nested replies go
-  through ordinary handoff staging.
-
-**Lifecycle and receipts.**
-[Managed lifecycle](decisions/adr/ADR-0178-managed-lifecycle-and-mutation-receipts.md)
-adds persistent child indexes, moves checked for cycles and depth, and stable
-leaf deletion.
-
-- Native child cursors filter candidates through admission and refuse stale
-  continuations.
-- Resource and content effects commit with shared receipts. Mutation windows
-  keep eight exact results per endpoint, reject conflicts and expired
-  sequences, and check current authority before replay.
-- Controls support narrowing, independent revocation, and scoped inspection.
-- `derive-managed` keeps the issuer's control separately, and the recipient's
-  use cannot recover it.
-- Preparations in the same batch validate the combined owner state, including
-  independent control revocation. Exact completion tickets keep pending read
-  custody, and prepared structural changes keep their resource bindings
-  through close.
-- CapTP and LMDB proofs cover lost issuance and attenuation replies, exact
-  control recovery, hidden children, and rollback.
-
-**Describing access.** `describe-access()` reports a use endpoint's own and
-effective policy, using the same evaluator as protected calls
-([scoped access descriptions](decisions/adr/ADR-0171-scoped-access-descriptions.md)).
-An inactive endpoint reports only its status, and no ancestor identity or
-owner revision is disclosed. Resident and stored native use APIs share this
-contract. Tests cover ancestor restrictions, activity from unrelated owners,
-stale queued inspection, exact large bounds, and LMDB recovery and reopen.
-`describe-control()` reports current management powers without resource or
-ancestor identities.
-
-**Observing access.** `mutate(sequence, "observe")` registers a durable
-receiver and a separate canceller over an exact descriptor. Receivers poll or
-wait inside existing Attachment preparation. Cancelling closes the retained
-context and retires both names atomically, and a retried registration recovers
-the same references. Tests cover status-only delivery while inactive, ancestor
-revocation, hidden activity, overflow, aborted writes, stale reads, allocation
-failure, quotas, and 32 parked receivers within declared budgets. LMDB and
-process-loss tests cover cold discovery, exact retry, and cancellation at the
-commit and publication boundaries. The
-[observation guide](loam/access.md#observing-held-access) covers the methods
-and their costs.
+Loam supplies independently held use and control capabilities, scoped policy,
+durable issuance and exact recovery, paged management and access observations.
+The [managed access coverage](loam/coverage.md) records its implementation and
+proofs; [remaining consumer boundaries](boundaries.md#managed-access) stay explicit.
 
 ## Actors and hosting
 
@@ -558,9 +468,35 @@ and their costs.
 return vows, hosted objects, forwarding, attenuation, and revocation. Optional snapshots and restore apply only to local
 actor state; they never rewind a network session.
 
-A Host owns one Vat and gives each session Port its own ingress, so one connection's runaway local work is condemned
-without draining a sibling's. Queued turns are admitted under per-ingress budgets
+A Host owns one Vat and gives each session Port its own ingress. Queued turns are admitted under per-ingress budgets
 ([ADR-0099](decisions/adr/ADR-0099-shared-vat-scheduling.md)).
+
+Far-vow observation is one-shot. After a notification is delivered or discarded,
+a late listener is refused without keeping a history of completed answers.
+Canceling a listener leaves the pending notification available for another observer.
+During bulk failure, callbacks can cancel other pending listeners before their
+contexts are retired. The drain allocates nothing and releases its storage.
+
+Releasing a Host vow or cancelling its owned call also works while a foreign
+argument is awaiting gift preparation. The pending queue owns the answer release
+through success or failure. Caller cancellation cannot retract the admitted send.
+
+A failed turn finishes participant rollback before notifying failure listeners.
+Those listeners can start new turns without publishing the failed turn's sends.
+Local turns preserve replies that borrow replaced actor state before committing
+their sends. If that copy fails, the turn drops its sends and staged replacement.
+`become` records the next state before freeing a superseded pending state.
+Snapshot restore installs the restored table before freeing discarded state.
+Destructors can reenter or spawn actors without invalidating a live table borrow.
+Reply interceptors run after the handler commits. Nested actor calls keep their
+effects whether the interceptor forwards, claims or refuses the reply.
+Answered far sends reserve notification storage during admission, shared across
+the Vat's Ports. Rollback keeps each listener cancellable until it is invoked.
+Forwarding to an existing vow registers a turn participant. A failed turn detaches
+that continuation and breaks its own answer, leaving the source vow independently
+observable and settleable. Local and wire callers receive the failure once.
+An answerless forwarded turn preserves handler failure for payload retirement,
+even though there is no caller waiting for a reply.
 
 The same hosting model is available in each language binding. The browser peer can answer a caller over the connection
 the call arrived on, so a peer with no listening socket can still receive replies and participate in a handoff.
@@ -581,8 +517,18 @@ the call arrived on, so a peer with no listening socket can still receive replie
   close and reopen a direct conversation: the current inbox is advertised
   again, fresh reply capabilities replace prior routes, and superseded owned
   connections close when no route uses them.
+  A fresh session Host retires saved directory registrations, direct routes and
+  publication leases before exposing the workspace. Nickname choices, history and drafts remain;
+  registration readiness follows the new callback's acquisition. Reconnect checks the
+  peer's exact directory registration and reuses that conversation. A replacement
+  registration gets separate history. Closing an already closed rail entry
+  removes it from the workspace.
+  Send transfers the submitted text and files out of the editable composer.
+  A queued submission survives earlier receipt settlement and later typing.
+  Refusal restores an untouched draft; recovery selects the original gesture
+  by its operation identity, including when another message has identical text.
   `zig build rooms-web-shared-session` attaches two real browser profiles to
-  the session service and proves the mirrored member, lines, files, and
+  the Rust managed owner and proves the mirrored member, lines, files, and
   issued, paused, and revoked access. The other browser proofs under
   `rooms-web-*` cover joining, direct messages on every transport, private
   rooms, routes, reconnect, and archives on the shipped page. Rooms ships as
@@ -591,54 +537,18 @@ the call arrived on, so a peer with no listening socket can still receive replie
   On Linux, the checkout launcher selects that prepared product for deployment
   without extra flags. Deployment configuration stays in host state across
   source builds and product installations.
+  [What Rooms ships](../apps/rooms/shipped.md) describes each part in detail.
+- Host trace replay reports currently open sessions without retaining message history. Callback and queue installation
+  in the C ABI replay after publishing the new consumer. Trace callbacks refuse Host-driving reentry.
 - ocapnviz can open a read-only trace sturdyref as a browser OCapN peer. Its production Chromium check covers replay,
   subsequent live observations, and exclusion of the observer session from its own topology. The rooms trace endpoint
   behind that sturdyref requires the trace capability from both viewers and
-  trace producers
-  (ADR-0120).
+  trace producers (ADR-0120). The exporter advertises the browser CapTP channel
+  and telemetry route separately. Channel admission supplies no trace authority;
+  the ordinary Swiss fetch acquires the object.
 - The accountability example layers signed identity and an audit log above ordinary capabilities without changing CapTP.
   Its three-Host loopback proof redeems a real handoff and attributes the resulting call to the recipient, not the
   introducer.
-
-### Rooms in detail
-
-Rooms is a chat application built on glowcap. The [Rooms page](../apps/rooms/README.md) is the
-way in, and [operating Rooms](../apps/rooms/operating.md) covers its grants, services, and limits.
-
-- *One implementation.* A single Rust implementation owns room and directory policy, durable authority, the session
-  and its recovery, files, archives, operations, peering, IRC, and the bounded CommonMark message rendering. It runs
-  as the room server, the session service, the archive service, the web front, and the two IRC edges. In the
-  browser it runs as Wasm, linked with glowcap's Zig Host in one module, and React renders what Rust observes.
-- *Managed session declarations.* `rooms-application::content` defines version-one workspace intent, typed custody
-  and effect records, session permission requirements and presets. The same application proofs run on Linux and
-  in Wasm, and Rust generates the browser metadata. [Remaining integration](planning/rooms/integration.md)
-  covers production storage, admission and management; the production session still uses its existing authority model.
-  Bounded workspace/custody/effect codecs pair data coordinates with separately held strong fields and retain
-  original effect targets. Portable proofs check fragments, generations and aggregate capacity; Linux opens the
-  complete schema family. Browser metadata comes from that registry; Rooms permission dependencies project into Loam on Linux and Wasm.
-- *Messages.* A message keeps its authored source on the wire and in archives. Raw HTML stays inert, remote images
-  never load on their own, and links may use only approved schemes. A message can preview at most five validated
-  URLs, which readers fetch through a same-origin service that refuses unsafe redirects and private addresses.
-- *Sending.* A native room sender rebuilds its ordered receipt from retained text, and releases rejected requests even
-  after the caller cancels. It reuses acknowledged, immutable upload bytes for local display and recording, while
-  other members still receive the complete message.
-- *History.* Room history is stored in files or PostgreSQL behind one index.
-- *Failure reporting.* Operations credentials follow the retry class of their failure, and IRC numerics follow stable
-  failure codes. Direct-message cleanup tells a departed registration apart from a partner whose close stalled.
-- *Sessions and skills.* `glowcap apps rooms session` exposes the Rooms session through the Zig command tree. The
-  individual and team skills share its lifecycle and local inbox. They observe every joined room and DM and keep each
-  event until it is acknowledged. One `session listen` consumer delivers each event once per run, replays
-  unacknowledged events after a restart, and stays quiet between changes. A failed inbox observer reports its gap
-  without stopping other views of the session. The process proof covers several rooms, private replies, and
-  restarting with unread events.
-- *Packaging.* The [glowcap product package](../apps/rooms/host.md) includes the CLI, the private Rooms runtimes, the
-  prepared browser application, and both skills. `glowcap-pack` serves the browser assets and repeats the process
-  proof from an extracted installation, with no checkout tooling or library-path overrides. `glowcap-package-test`
-  checks the package and image inventories and the archive publication fixtures, including checksum failures, rename
-  failures, and termination signals. These checks do not claim that any archive or release has been published.
-- *Running from a checkout.* The checkout launcher builds the product if it is missing, then runs the complete staged
-  installation without build tools. After editing source, run `rooms-build` explicitly. The runtime proof exercises
-  this path without a binary override.
 
 [`docs/cli.md`](cli.md) is the command-line guide. The [examples](../examples/README.md) and [apps](../apps/README.md)
 pages list the programs.

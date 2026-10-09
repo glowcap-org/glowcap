@@ -1,5 +1,6 @@
 //! Host reference, vow, and abandoned-reply retirement. Distributed reference
-//! GC (ADR-0063) is opt-in; vow and deferred-reply cleanup are always active.
+//! GC (ADR-0063) is on by default and set per Host; vow and deferred-reply
+//! cleanup are always active.
 //! Owns the
 //! [`CapabilityGuard`] death rite, recursive application-value tracking, and the
 //! `glowcap_host_ref_release` drain. Session holds only the opt-in flag; the
@@ -116,6 +117,10 @@ pub(crate) fn retire(host: &HostShared) {
 	host.resolver_abandon_pending.borrow_mut().clear();
 }
 
+/// One shared guard owns each occurrence transferred by C, including local
+/// callback observations. Clones share its native retain; equal ids received
+/// independently must retain separate guards. The Rc lets behavior state
+/// outlive its argument tree, and Weak prevents a native actor/Host cycle.
 pub(crate) fn owned_guard(host: &Rc<HostShared>, id: u64) -> Rc<CapabilityGuard> {
 	Rc::new(CapabilityGuard {
 		token: id,
@@ -136,7 +141,7 @@ pub(crate) fn disarm(reference: &Ref) {
 /// Each native occurrence owns one Host retain, so repeated equal ids remain
 /// distinct guards rather than being deduplicated in the binding.
 pub(crate) fn track_argument(shared: &Rc<SessionShared>, argument: &mut Argument) {
-	if !shared.gc.get() {
+	if !shared.host.release_on_drop.get() {
 		return;
 	}
 	track_owned_argument(&shared.host, argument);

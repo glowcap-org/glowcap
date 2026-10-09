@@ -6,6 +6,7 @@ import type { Page } from "playwright";
 
 import { fail } from "./fail.ts";
 import { delay } from "./wait.ts";
+import { namedRoomRow } from "./conversation_row.ts";
 
 /** Name a room in the rail's own field, privately or not. */
 export async function makeRoom(tab: Page, label: string, privately: boolean): Promise<void> {
@@ -62,18 +63,13 @@ export function railRooms(tab: Page): Promise<{ name: string; locked: boolean; h
  * whose access was changed to moderated is marked too, and asking for the
  * unmarked row would look past it. */
 export async function openRailRoom(tab: Page, name: string, marked: boolean): Promise<void> {
-	const opened = await tab.evaluate(({ name, marked }) => {
-		const row = [...document.querySelectorAll("#roomList li")].find((li) =>
-			(li.querySelector(".rname")?.textContent ?? "") === name &&
-			(li.querySelector(".hash svg") !== null) === marked
-		);
-		if (row === undefined) return false;
-		((row.querySelector(".rname") ?? row) as HTMLElement).click();
-		return true;
-	}, { name, marked });
-	if (!opened) {
-		fail(`no ${marked ? "marked" : "open-access"} room called ${JSON.stringify(name)} to stand in`);
-	}
+	// A reload can realize the saved row before its live policy arrives.
+	// Wait for the requested policy mark before choosing between equal names.
+	const mark = tab.locator(".hash svg");
+	const row = namedRoomRow(tab, name).filter(marked ? { has: mark } : { hasNot: mark });
+	await row.locator(".rname").click({ timeout: 15_000 }).catch(() =>
+		fail(`no ${marked ? "marked" : "open-access"} room called ${JSON.stringify(name)} to stand in`)
+	);
 	await tab.waitForFunction(
 		({ name, marked }) =>
 			[...document.querySelectorAll("#roomList li")].some((li) =>
@@ -124,6 +120,13 @@ export async function roomLink(tab: Page, who: string): Promise<string> {
 		await tab.waitForSelector("#convcardRoomLink", { timeout: 30_000 })
 			.catch(() => fail(`pressing Create room link did not expose ${who}'s link`));
 	}
+	// The control appears while the managed command settles. Its content is
+	// the evidence that the room minted a link, rather than the pending shell.
+	await tab.waitForFunction(
+		() => document.querySelector("#convcardRoomLink")?.textContent?.includes("/s/"),
+		undefined,
+		{ timeout: 30_000 },
+	).catch(() => fail(`the room did not finish minting ${who}'s link`));
 	const shown = (await tab.textContent("#convcardRoomLink"))?.trim() ?? null;
 	if (typeof shown !== "string" || !shown.includes("/s/")) {
 		fail(`the Capabilities tab did not expose a link to ${who}'s room: ${JSON.stringify(shown)}`);

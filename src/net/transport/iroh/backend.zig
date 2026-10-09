@@ -32,8 +32,8 @@ const connRemoteKey = sidecar.connRemoteKey;
 
 /// An iroh completion adapter over `Platform`. The sidecar's one readiness fd
 /// and non-blocking try-I/O share the wrapped backend's wait primitive with
-/// delegated transports, so one `completion.Loop`, `driver.Bridge`, and Host
-/// action consumer can drive all of them (ADR-0076 convergence).
+/// delegated transports, so one completion resident and Host action consumer
+/// can drive all of them.
 ///
 /// Construct with `initBound` over a `Resident`'s endpoint, then
 /// `completion.Loop(Backend, DialResolver).initWithBackend`. `initBound` builds
@@ -244,8 +244,12 @@ pub fn CompletionBackend(comptime Platform: type) type {
             };
         }
 
-        pub fn openListener(self: *Self, port: u16) !Fd {
-            _ = port;
+        /// An endpoint accepts on its node id; there is nothing to choose.
+        pub const ListenTarget = void;
+
+        pub fn loopListenTarget(_: u16) ListenTarget {}
+
+        pub fn openListener(self: *Self, _: ListenTarget) !Fd {
             if (sidecar.glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) != 0)
                 return error.ListenFailed;
             self.accept_enabled = true;
@@ -314,8 +318,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
         }
 
-        /// Synthetic ids here never wrap, unlike the wrapped relay, sealing,
-        /// and onion legs: an id doubles as the sidecar request id a dial is
+        /// Synthetic ids here never wrap, unlike the wrapped relay and onion
+        /// legs: an id doubles as the sidecar request id a dial is
         /// canceled and finished under, so a reused id could let a stale
         /// sidecar record name a fresh dial.
         fn reserveFd(self: *Self) !Fd {

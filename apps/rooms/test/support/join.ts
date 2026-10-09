@@ -11,6 +11,7 @@ import type { Browser, Page } from "playwright";
 import { fail } from "./fail.ts";
 import { reachDirectoryOnCard } from "../page/harness.ts";
 import { establishLocalSession } from "./session_setup.ts";
+import { acquireTraceCapability } from "../trace/viewer.ts";
 
 /** The room every proof joins unless it says otherwise. */
 export const ROOM = "lobby";
@@ -21,9 +22,8 @@ export interface JoinOptions {
 	/** A query string for the page address, such as `?dm=webrtc`, which picks
 	 * the transport the tab advertises for direct messages. */
 	query?: string;
-	/** A localStorage row written before the page loads, the way a reader's
-	 * "Remember on this device" would have left it. */
-	seed?: { key: string; value: string };
+	/** Acquire this exact trace capability before joining. */
+	trace?: string;
 	/** Press through the join card's directory question before naming the
 	 * room. A locator is pasted into the card first, the way a visitor to
 	 * somebody else's room arrives; `null` presses through for the page's own
@@ -38,9 +38,6 @@ export interface JoinOptions {
  * close when that member leaves for good. */
 export async function joinAs(browser: Browser, port: number, nick: string, options: JoinOptions = {}): Promise<Page> {
 	const context = await browser.newContext(options.viewport === undefined ? {} : { viewport: options.viewport });
-	if (options.seed !== undefined) {
-		await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), options.seed);
-	}
 	const tab = await context.newPage();
 	tab.on("pageerror", (error) => console.error(`  [${nick} page error]`, error.message));
 	tab.on("console", (message) => {
@@ -50,6 +47,7 @@ export async function joinAs(browser: Browser, port: number, nick: string, optio
 	});
 	await tab.goto(`http://127.0.0.1:${port}/${options.query ?? ""}`);
 	await establishLocalSession(tab);
+	if (options.trace != null) await acquireTraceCapability(tab, options.trace);
 	if (options.directory !== undefined) {
 		if (options.directory !== null) await tab.fill("#locator", options.directory);
 		await tab.fill("#nick", nick);

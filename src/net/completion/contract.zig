@@ -14,8 +14,15 @@
 //!     read_buffer_bytes: u32) !Backend;` — the backend owns a shared pool of
 //!     `read_buffers` buffers with `read_buffer_bytes` bytes each.
 //!   * `pub fn deinit(self: *Backend) void;`
-//!   * `pub fn openListener(self: *Backend, port: u16) !Fd;` — bind and listen
-//!     for TCP, or arm a userspace transport acceptor.
+//!   * `pub const ListenTarget;` — the backend-owned listen target, the
+//!     listening counterpart of `ConnectTarget`. A platform backend's is the
+//!     port it binds on its construction-time interface; an adapter's wraps its
+//!     platform's beside the adapter's own listener.
+//!   * `pub fn loopListenTarget(port: u16) ListenTarget;` — the listener
+//!     `completion.Loop`'s `listen` option opens: the platform listener on
+//!     `port`, or a transport's own acceptor where it has no port.
+//!   * `pub fn openListener(self: *Backend, target: ListenTarget) !Fd;` — bind
+//!     and listen for TCP, or arm a userspace transport acceptor.
 //!   * `pub const ConnectTarget;` — the backend-owned dial target. There is no
 //!     shared union through which one backend could receive another's target.
 //!   * `pub fn startDial(self: *Backend, user_data: u64,
@@ -56,6 +63,17 @@
 //!   * `pub fn poll(self: *Backend, out: []Completion,
 //!     timeout_ms: i32) !usize;` — flush submissions and wait; a timeout or
 //!     explicit wake with no completions returns zero.
+//!
+//! A platform backend also provides one readiness verb for adapters that run
+//! I/O on descriptors they do not own (`net/transport/external/completion.zig`).
+//! The loop never calls it:
+//!
+//!   * `pub fn submitPoll(self: *Backend, user_data: u64, fd: Fd,
+//!     interest: Interest) !void;` — complete once with a non-negative
+//!     result when `fd` is readable or writable, or has failed or hung up,
+//!     consuming nothing. It is one-shot, it
+//!     occupies that direction of `fd` like a recv or send, `submitCancel`
+//!     retires it, and it never closes `fd`.
 //!
 //! A `submit*` refusal must mint no completion for that `user_data`. The loop
 //! counts an operation only after successful submission; violating this rule
@@ -238,6 +256,9 @@ pub fn AdapterNamespace(comptime Platform: type) type {
     };
 }
 
+/// The direction a `submitPoll` waits on.
+pub const Interest = enum { readable, writable };
+
 /// Compile-check the total backend surface once, before the loop calls it.
 /// Soft optionality at call sites is forbidden: a missing member fails here,
 /// not as a latent special case on one path.
@@ -245,6 +266,8 @@ pub fn validateBackend(comptime Backend: type) void {
     const required = .{
         "Fd",
         "ConnectTarget",
+        "ListenTarget",
+        "loopListenTarget",
         "ListenerAddress",
         "deinit",
         "openListener",

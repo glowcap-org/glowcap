@@ -18,6 +18,33 @@ const crypto = glowcap.foundation.crypto;
 const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
+
+test "core host retained work refuses completed and cancelled leases before effects" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, @splat(0x76), .{});
+    defer host.deinit();
+    const actor = try host.vat.spawn(Widget, .{});
+    const target = try host.retainLocalCapability(actor);
+    defer host.releaseCapabilityTerminal(target, null);
+    const sturdy = harness.tcpSturdyref("127.0.0.1:7991", "held");
+    var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    var work = try host.admitPendingWork();
+    work.complete();
+    try std.testing.expectError(error.NoPendingWork, work.fork());
+    try std.testing.expectError(error.NoPendingWork, work.call(failing.allocator(), target, "get", &.{}, 512));
+    try std.testing.expectError(error.NoPendingWork, work.enliven(&host, failing.allocator(), sturdy));
+    work = try host.admitPendingWork();
+    defer work.complete();
+    host.beginClose(.cancel, 0);
+    try std.testing.expectError(error.HostClosing, work.fork());
+    try std.testing.expectError(error.HostClosing, work.call(failing.allocator(), target, "get", &.{}, 512));
+    try std.testing.expectError(error.HostClosing, work.enliven(&host, failing.allocator(), sturdy));
+    try std.testing.expect(!failing.has_induced_failure);
+    try std.testing.expectEqual(@as(usize, 1), host.pending_operations);
+    try std.testing.expectEqual(@as(usize, 0), host.pending_enliven_count);
+    try std.testing.expectEqual(@as(usize, 0), host.pendingVowCount());
+    try std.testing.expectEqual(@as(usize, 0), host.vat.local_ingress.pending_turns);
+}
 const SessionOpenFailingAllocator = harness.SessionOpenFailingAllocator;
 const TaggedRow = harness.TaggedRow;
 const frame_cap = harness.frame_cap;
@@ -372,7 +399,7 @@ test "driver and Host failure tables agree on every name both classify" {
 
 test "hosted Host-wide publication consumes its context on preflight failure" {
     const Hosted = struct {
-        fn handle(_: *anyopaque, _: *actors.Turn, _: actors.Message) anyerror!model.Argument {
+        fn handle(_: *anyopaque, _: *actors.Turn, _: actors.Message) actors.HostedActor.Result {
             unreachable;
         }
 
@@ -386,13 +413,13 @@ test "hosted Host-wide publication consumes its context on preflight failure" {
     defer host.deinit();
     host.beginClose(.cancel, 0);
 
-    var giftable_freed = false;
-    try std.testing.expectError(error.HostClosing, host.publishHostedGiftable("closed", .{
-        .ctx = &giftable_freed,
+    var publication_freed = false;
+    try std.testing.expectError(error.HostClosing, host.publishHosted("closed", .{
+        .ctx = &publication_freed,
         .handle = Hosted.handle,
         .free = Hosted.free,
     }));
-    try std.testing.expect(giftable_freed);
+    try std.testing.expect(publication_freed);
 
     var durable_freed = false;
     try std.testing.expectError(error.HostClosing, host.publishHostedDurable(

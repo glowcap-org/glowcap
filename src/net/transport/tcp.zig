@@ -45,6 +45,7 @@ pub const parseHostPort = addressing.parseHostPort;
 pub const parseDesignator = addressing.parseDesignator;
 pub const DialResolver = addressing.DialResolver;
 pub const resolveProfile = addressing.resolveProfile;
+pub const CompletionPolicy = @import("tcp/completion_policy.zig").Policy;
 
 /// The complete archive-owned TCP profile inventory. Native and C projections
 /// consume this one declaration; adding a profile cannot silently update only

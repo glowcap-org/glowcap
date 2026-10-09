@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // Two browser tabs direct-message over Rooms' server-reachable DM mode. Both
 // advertise noise-relay locators, so one Wasm Host dials through the managed
 // relay connector, the other accepts through its held rendezvous socket, and
@@ -7,11 +8,10 @@
 
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
-import { fail } from "../page/harness.ts";
+import { directOpened, fail } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const FIRST = "hello through sealed relay rendezvous";
@@ -39,7 +39,7 @@ async function openDirect(tab: Page, peer: string): Promise<void> {
 		fail(`the room never offered a direct line to ${peer}`)
 	);
 	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 5_000 });
+	await directOpened(tab, peer, 5_000);
 }
 
 async function send(tab: Page, text: string): Promise<void> {
@@ -58,7 +58,7 @@ async function sees(tab: Page, text: string, who: string): Promise<void> {
 const deadline = setTimeout(() => fail("Rooms noise-relay DM scenario exceeded 120 seconds"), 120_000);
 const httpPort = freePort();
 const roomPort = freePort();
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",

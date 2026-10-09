@@ -15,6 +15,10 @@ pub const Control = struct {
     revoke: bool,
     ceiling: ?core.Policy.Value,
     subtree: bool,
+    inspect: bool = false,
+    issue_ceiling: ?core.Policy.Value = null,
+    delegate_control: bool = false,
+    revision: core.Revision = @fromBackingInt(0),
 };
 pub const Snapshot = union(enum) { use: op.Operation.Description, control: Control };
 pub const Prepared = struct {
@@ -49,6 +53,10 @@ pub fn prepare(operation: *op.Operation, target: ?core.ResourceId) !Prepared {
             .pause = description.powers.pause,
             .resume_access = description.powers.resume_access,
             .revoke = description.powers.revoke,
+            .inspect = description.powers.inspect,
+            .issue_ceiling = if (description.powers.issue_ceiling) |ceiling| ceiling.policy else null,
+            .delegate_control = description.powers.delegate_control,
+            .revision = description.revision,
             .ceiling = if (description.powers.policy_ceiling) |ceiling| ceiling.policy else null,
             .subtree = if (description.powers.policy_ceiling) |ceiling| ceiling.scope == .owned_subtree else false,
         } };

@@ -8,6 +8,7 @@ const driver_core = @import("driver_core");
 
 const contract = @import("contract.zig");
 const provider_package = @import("provider_package.zig");
+const runtime_transports = @import("transports.zig");
 const runtime = @import("../host_runtime.zig");
 const HostRuntime = runtime.HostRuntime;
 const Internal = runtime.Internal;
@@ -34,13 +35,14 @@ pub fn transportName(self: *const HostRuntime, transport: []const u8) ?[]const u
     return (providerFor(self, transport) orelse return null).transport;
 }
 
+/// Construct the runtime over the transports one value names.
 pub fn init(
     allocator: std.mem.Allocator,
     io: std.Io,
-    netlayers: []const net.netlayer.Netlayer,
+    transports: runtime_transports.Transports,
     identity: driver_core.Identity,
     opts: HostRuntime.Options,
-) HostRuntime.InitError!HostRuntime {
+) !HostRuntime {
     if (opts.frame_cap == 0 or opts.wire_buffer_bytes == 0 or opts.max_pending_opens == 0)
         return Error.InvalidBufferConfiguration;
     const seed: [foundation.crypto.SEED_BYTES]u8 = switch (identity) {
@@ -68,24 +70,7 @@ pub fn init(
     // The drive is chosen inside the teardown's scope: a stepped face that
     // cannot open its readiness set fails construction whole.
     result.drive = try HostRuntime.Drive.init(opts.drive);
-    try registerNetlayers(&result, netlayers);
-    return result;
-}
-
-/// Construct the same runtime over borrowed stream or multiplexed providers.
-/// Provider contexts remain stable until every runtime lease is retired.
-pub fn initProviders(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    providers: []const HostRuntime.ProviderRegistration,
-    identity: driver_core.Identity,
-    opts: HostRuntime.Options,
-) !HostRuntime {
-    var result = try init(allocator, io, &.{}, identity, opts);
-    errdefer result.deinit();
-    const indices = try allocator.alloc(?usize, providers.len);
-    defer allocator.free(indices);
-    try result.addProviders(providers, indices);
+    try runtime_transports.install(&result, transports);
     return result;
 }
 
@@ -93,9 +78,9 @@ pub fn initWithCore(
     allocator: std.mem.Allocator,
     io: std.Io,
     core: *driver_core.Host,
-    netlayers: []const net.netlayer.Netlayer,
+    transports: runtime_transports.Transports,
     adoption: HostRuntime.AdoptionOptions,
-) HostRuntime.AdoptionInitError!HostRuntime {
+) !HostRuntime {
     const opts = HostRuntime.Options{
         .frame_cap = core.opts.limits.max_frame_bytes,
         .wire_buffer_bytes = adoption.wire_buffer_bytes,
@@ -121,33 +106,18 @@ pub fn initWithCore(
     };
     errdefer result.deinitAfterFailedAdoption();
     result.drive = try HostRuntime.Drive.init(adoption.drive);
-    try registerNetlayers(&result, netlayers);
+    try runtime_transports.install(&result, transports);
     return result;
 }
 
-fn registerNetlayers(self: *HostRuntime, netlayers: []const net.netlayer.Netlayer) HostRuntime.ProviderRegistrationError!void {
-    if (netlayers.len == 0) return;
-    const registrations = try self.allocator.alloc(HostRuntime.ProviderRegistration, netlayers.len);
-    defer self.allocator.free(registrations);
-    const indices = try self.allocator.alloc(?usize, netlayers.len);
-    defer self.allocator.free(indices);
-    for (netlayers, registrations) |netlayer, *registration| registration.* = .{ .stream = netlayer };
-    try addProvidersAfterAdmission(self, registrations, indices);
-}
-
-pub fn addNetlayer(self: *HostRuntime, netlayer: net.netlayer.Netlayer) !void {
-    var index: [1]?usize = undefined;
-    try addProviders(self, &.{.{ .stream = netlayer }}, &index);
-}
-
 pub fn addResident(self: *HostRuntime, profile: model.transport.Metadata, resident: net.MultiplexedResident) !usize {
-    var index: [1]?usize = undefined;
-    try addProviders(self, &.{.{ .multiplexed = .{ .profile = profile, .resident = resident } }}, &index);
-    return index[0].?;
+    var index: [1]usize = undefined;
+    try addProviders(self, &.{.{ .profile = profile, .resident = resident }}, &index);
+    return index[0];
 }
 
 /// Install a provider package only after all validation and capacity succeeds.
-pub fn addProviderPackage(self: *HostRuntime, package: HostRuntime.ProviderPackage, indices: []?usize) !bool {
+pub fn addProviderPackage(self: *HostRuntime, package: HostRuntime.ProviderPackage, indices: []usize) !bool {
     try Internal.admitApplicationOperation(self);
     if (package.registrations.len == 0 or indices.len != package.registrations.len)
         return error.InvalidProviderPackage;
@@ -162,26 +132,25 @@ pub fn addProviderPackage(self: *HostRuntime, package: HostRuntime.ProviderPacka
     try self.provider_packages.ensureUnusedCapacity(self.allocator, 1);
     try addProvidersAfterAdmission(self, package.registrations, indices);
     for (package.registrations, profiles) |registration, *profile| {
-        profile.* = try contract.canonicalProviderProfile(registration.profile());
+        profile.* = try contract.canonicalProviderProfile(registration.profile);
         profile.symbol = self.transportName(profile.symbol).?;
     }
     self.provider_packages.appendAssumeCapacity(.{ .profiles = profiles, .owner = package.owner });
     return true;
 }
 
-pub fn addProviders(self: *HostRuntime, registrations: []const HostRuntime.ProviderRegistration, indices: []?usize) !void {
+pub fn addProviders(self: *HostRuntime, registrations: []const HostRuntime.ProviderRegistration, indices: []usize) !void {
     try Internal.admitApplicationOperation(self);
     try addProvidersAfterAdmission(self, registrations, indices);
 }
 
-fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRuntime.ProviderRegistration, indices: []?usize) !void {
+fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRuntime.ProviderRegistration, indices: []usize) !void {
     if (registrations.len == 0 or indices.len != registrations.len) return error.InvalidProviderPackage;
     const Prepared = struct {
         profile: model.transport.Metadata,
-        source: union(enum) { stream, resident: usize, new_resident: struct { index: usize, readiness_fd: i32 } },
-        fn residentIndex(plan: @This()) ?usize {
+        source: union(enum) { resident: usize, new_resident: struct { index: usize, readiness_fd: i32 } },
+        fn residentIndex(plan: @This()) usize {
             return switch (plan.source) {
-                .stream => null,
                 .resident => |index| index,
                 .new_resident => |value| value.index,
             };
@@ -193,45 +162,39 @@ fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRun
     defer self.allocator.free(profiles);
     var new_resident_count: usize = 0;
     for (registrations, prepared, 0..) |registration, *plan, i| {
-        const profile = try contract.canonicalProviderProfile(registration.profile());
+        const profile = try contract.canonicalProviderProfile(registration.profile);
         if (self.hasTransport(profile.symbol)) return error.TransportAlreadyRegistered;
         for (prepared[0..i]) |prior|
             if (std.mem.eql(u8, prior.profile.symbol, profile.symbol)) return error.TransportAlreadyRegistered;
-        switch (registration) {
-            .stream => plan.* = .{ .profile = profile, .source = .stream },
-            .multiplexed => |multiplexed| {
-                var index: ?usize = null;
-                for (self.residents.items, 0..) |existing, existing_index| if (existing.resident.eql(multiplexed.resident)) {
-                    index = existing_index;
-                    break;
-                };
-                if (index == null) for (registrations[0..i], 0..) |prior, prior_index| switch (prior) {
-                    .stream => {},
-                    .multiplexed => |prior_resident| if (prior_resident.resident.eql(multiplexed.resident)) {
-                        index = prepared[prior_index].residentIndex().?;
-                        break;
-                    },
-                };
-                if (index) |existing_index| {
-                    plan.* = .{ .profile = profile, .source = .{ .resident = existing_index } };
-                    continue;
-                }
-                const readiness_fd = multiplexed.resident.readinessFd();
-                if (readiness_fd < 0) return error.ReadinessUnavailable;
-                if (Internal.descriptorInUse(self, readiness_fd)) return error.ReadinessDescriptorConflict;
-                for (prepared[0..i]) |prior| switch (prior.source) {
-                    .new_resident => |value| if (value.readiness_fd == readiness_fd)
-                        return error.ReadinessDescriptorConflict,
-                    else => {},
-                };
-                const new_index = self.residents.items.len + new_resident_count;
-                new_resident_count += 1;
-                plan.* = .{ .profile = profile, .source = .{ .new_resident = .{
-                    .index = new_index,
-                    .readiness_fd = readiness_fd,
-                } } };
-            },
+        var index: ?usize = null;
+        for (self.residents.items, 0..) |existing, existing_index| if (existing.resident.eql(registration.resident)) {
+            index = existing_index;
+            break;
+        };
+        if (index == null) for (registrations[0..i], 0..) |prior, prior_index| {
+            if (prior.resident.eql(registration.resident)) {
+                index = prepared[prior_index].residentIndex();
+                break;
+            }
+        };
+        if (index) |existing_index| {
+            plan.* = .{ .profile = profile, .source = .{ .resident = existing_index } };
+            continue;
         }
+        const readiness_fd = registration.resident.readinessFd();
+        if (readiness_fd < 0) return error.ReadinessUnavailable;
+        if (Internal.descriptorInUse(self, readiness_fd)) return error.ReadinessDescriptorConflict;
+        for (prepared[0..i]) |prior| switch (prior.source) {
+            .new_resident => |value| if (value.readiness_fd == readiness_fd)
+                return error.ReadinessDescriptorConflict,
+            else => {},
+        };
+        const new_index = self.residents.items.len + new_resident_count;
+        new_resident_count += 1;
+        plan.* = .{ .profile = profile, .source = .{ .new_resident = .{
+            .index = new_index,
+            .readiness_fd = readiness_fd,
+        } } };
     }
     for (prepared, profiles) |plan, *profile| profile.* = plan.profile;
     const canonical = try self.allocator.alloc([]const u8, registrations.len);
@@ -255,34 +218,23 @@ fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRun
         },
     }
     try self.core.defineTransports(profiles, canonical);
-    for (registrations, prepared, canonical, indices) |registration, plan, transport, *out_index| switch (registration) {
-        .stream => |stream| {
-            self.providers.appendAssumeCapacity(.{
-                .transport = transport,
-                .designator_scheme = stream.designatorScheme(),
-                .source = .{ .stream = stream },
-            });
-            out_index.* = null;
-        },
-        .multiplexed => |multiplexed| {
-            const index = plan.residentIndex().?;
-            switch (plan.source) {
-                .new_resident => |value| {
-                    std.debug.assert(value.index == self.residents.items.len);
-                    self.residents.appendAssumeCapacity(.{
-                        .resident = multiplexed.resident,
-                        .readiness_fd = value.readiness_fd,
-                    });
-                },
-                .resident => {},
-                .stream => unreachable,
-            }
-            self.providers.appendAssumeCapacity(.{
-                .transport = transport,
-                .designator_scheme = multiplexed.profile.designator_scheme,
-                .source = .{ .resident = index },
-            });
-            out_index.* = index;
-        },
-    };
+    for (registrations, prepared, canonical, indices) |registration, plan, transport, *out_index| {
+        const index = plan.residentIndex();
+        switch (plan.source) {
+            .new_resident => |value| {
+                std.debug.assert(value.index == self.residents.items.len);
+                self.residents.appendAssumeCapacity(.{
+                    .resident = registration.resident,
+                    .readiness_fd = value.readiness_fd,
+                });
+            },
+            .resident => {},
+        }
+        self.providers.appendAssumeCapacity(.{
+            .transport = transport,
+            .designator_scheme = registration.profile.designator_scheme,
+            .resident = index,
+        });
+        out_index.* = index;
+    }
 }

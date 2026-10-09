@@ -6,21 +6,27 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
-    var relay: native_relay.Provider = undefined;
-    switch (relay.init(
-        io,
-        allocator,
-        "wss://relay.example/relay",
-        "wss://relay.example/register",
-        .system,
-    )) {
-        .ready => {},
+    var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+        .ready => |ready| ready.owner,
         .failed => return error.RelayUnavailable,
-    }
-    defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
+    };
+    defer switch (tls.release()) {
+        .released => {},
+        .busy, .failed => std.log.err("relay TLS teardown failed", .{}),
+    };
+    var entropy: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
+    try io.randomSecure(&entropy);
     const server = try glowcap.driver.listen(
         allocator,
-        relay.resident(.noise).netlayer(),
+        io,
+        .{ .symbols = &.{.noise_relay}, .relay = .{
+            .url = "wss://relay.example/relay",
+            .entropy_seed = entropy,
+            .resolver_io = io,
+            .tls_owner = tls,
+            .registration = .{ .url = "wss://relay.example/register" },
+        } },
+        glowcap.ocapn.model.transport.noise_relay,
         .{ .designator = "" },
         .{ .keyed = secret },
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -44,7 +50,7 @@ const Greeter = struct {
 };
 
 fn serve(server: *glowcap.driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
+    try server.publish("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();
         defer session.deinit();

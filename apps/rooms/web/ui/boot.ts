@@ -97,7 +97,7 @@ export function standAtFrontOfPrivilegedAddress(): void {
 }
 
 /** A session that is over must not reopen on a room or `/ops`. Search and hash
- * still name this tab's dm/trace configuration. */
+ * still preserve this tab's page configuration. */
 function standAtFront(): void {
 	if (typeof location === "undefined" || typeof history === "undefined") return;
 	const url = new URL(location.href);

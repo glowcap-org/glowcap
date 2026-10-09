@@ -13,33 +13,8 @@
 
 import { abortable } from "@glowcap/runtime";
 
-/** A partner accepted a request and did not answer it in time. */
-export class Unanswered extends Error {
-	constructor(what: string) {
-		super(what);
-		this.name = "Unanswered";
-	}
-}
-
-/** `answer`, or `Unanswered` once `ms` has passed.
- *
- * The abandoned request stays outstanding on the session, which is the honest
- * cost of a partner that will not answer: there is nothing to cancel it with,
- * and waiting for it instead is what this exists to stop. `Promise.race` reacts
- * to both, so a rejection that arrives afterwards is still handled rather than
- * surfacing as an unhandled one.
- */
-export async function answerWithin<T>(answer: Promise<T>, what: string, ms: number): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const late = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => reject(new Unanswered(what)), ms);
-	});
-	try {
-		return await Promise.race([answer, late]);
-	} finally {
-		clearTimeout(timer);
-	}
-}
+import { Unanswered } from "./answer_within.ts";
+export { answerWithin, Unanswered } from "./answer_within.ts";
 
 /** `answerWithin`, with an owner for a successful answer transferred after the
  * caller's deadline. CapTP cannot cancel an accepted send, so timing out ends

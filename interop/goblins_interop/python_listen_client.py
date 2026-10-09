@@ -25,7 +25,7 @@ def greeter(_verb: str, args: list[Argument]) -> str:
 async def main() -> None:
     server = await tcp.listen("127.0.0.1", 0)
     try:
-        server.host.publish_giftable(ACTOR_SWISS, greeter)
+        server.host.publish(ACTOR_SWISS, greeter)
         print(f"GOBLINS-LISTENER-READY {server.port}", flush=True)
         accepted = await server.__anext__()
         async with accepted as session:

@@ -11,7 +11,7 @@ names the work between here and that destination.
 
 A glowcap peer should hold a complete, correct conversation with any conforming
 OCapN peer, including [Spritely Goblins](https://spritely.institute/goblins/).
-That conversation should work whether the application uses native Zig, the C
+That conversation should work whether the application uses Zig, the C
 ABI, or a language binding.
 
 Correctness comes first. Once the protocol is correct, performance and
@@ -37,7 +37,7 @@ provenance and upstream-contact policy live in
   operations rather than wire-protocol bookkeeping.
 - **Replaceable edges.** Codecs, transports, and runtime adapters meet the core
   through narrow contracts. The long-term goal is to make those contracts
-  usable from every supported surface, not only native Zig.
+  usable from every supported surface, including language bindings.
 
 ## Scale
 
@@ -45,11 +45,12 @@ The destination is 500,000 live CapTP sessions on one node, for every way an
 application can run glowcap.
 
 A recorded run has held that many signed sessions on the TCP completion loop.
-`driver.Session`, `HostRuntime`, and the bindings run a different loop that
-gives every connection its own read and write buffers, so the number does not
-carry over to them yet. Per-session footprint checks and allocation budgets
-cover the rest of the design. [The route to 1.0](ladder.md) records the
-measured numbers.
+The product's `HostRuntime` now runs stream transports through completion
+residents that hold no read or write buffer on an idle connection. Its TCP
+path has been measured at 100,000 sessions. The 500,000-session run remains to
+be repeated on that runtime. Per-session footprint checks and allocation
+budgets cover the rest of the design. [The route to 1.0](ladder.md) records
+the measured numbers and their scope.
 
 The core cannot create scale by itself; the connection loop and operating
 system do the serving. Its responsibility is to avoid making the target
@@ -116,7 +117,7 @@ turning a relay into an application-level authority.
 
 Interoperability means:
 
-- native glowcap and Goblins can dial, host, call, and hand off to each other;
+- glowcap and Goblins can dial, host, call, and hand off to each other;
 - every language binding can act as both client and host with outside peers;
 - glowcap peers using different bindings, codecs, and transports preserve the
   same capability semantics.

@@ -3,7 +3,7 @@ use super::write_property;
 use rooms_application::{
 	content::{
 		permissions::Permission,
-		session::{self, custody, records, requirements, workspace},
+		session::{self, custody, local, records, requirements, workspace},
 	},
 	session::{
 		checkpoint::commands,
@@ -60,6 +60,29 @@ pub fn generate() -> String {
 	write_property(&mut output, "custodyRoles", json!(custody::Role::ALL));
 	write_property(
 		&mut output,
+		"operationsInterfaces",
+		json!(rooms_application::session::operations::mutation::Kind::ALL),
+	);
+	write_property(
+		&mut output,
+		"localCommands",
+		json!(
+			commands::Command::ALL
+				.iter()
+				.copied()
+				.map(Route::Checkpoint)
+				.chain(commands::results::Command::ALL.iter().copied().map(Route::Result))
+				.filter(|&route| local::recognizes(route))
+				.map(|route| match route {
+					Route::Checkpoint(command) => json!(command),
+					Route::Result(command) => json!(command),
+					Route::Effect(_) => unreachable!("local command catalog"),
+				})
+				.collect::<Vec<_>>()
+		),
+	);
+	write_property(
+		&mut output,
 		"recordSchemas",
 		json!(
 			records::SCHEMAS
@@ -82,6 +105,7 @@ pub fn generate() -> String {
 		("recordPages", records::MAX_PAGES),
 		("recordFieldsPerPage", records::FIELDS_PER_PAGE),
 		("fieldsPerRole", custody::MAX_FIELDS_PER_ROLE),
+		("custodyFields", custody::MAX_CUSTODY_FIELDS),
 		("effects", custody::MAX_EFFECTS),
 		("resultFields", custody::MAX_RESULT_FIELDS),
 		("targetFields", custody::MAX_TARGET_FIELDS),
@@ -95,6 +119,10 @@ pub fn generate() -> String {
 	output.push_str("\t},\n\tgroups: {\n");
 	for &group in session::Group::ALL {
 		write_property(&mut output, &json!(group).to_string(), json!(group.fields()));
+	}
+	output.push_str("\t},\n\tgroupLabels: {\n");
+	for &group in session::Group::ALL {
+		write_property(&mut output, &json!(group).to_string(), json!(group.label()));
 	}
 	output.push_str("\t},\n\tpresets: {\n");
 	for &preset in session::Preset::ALL {

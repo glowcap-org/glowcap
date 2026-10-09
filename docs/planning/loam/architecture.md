@@ -266,7 +266,7 @@ atomically for tracing, including additions to already-marked records. Sweep
 drains those obligations before reclaiming another candidate. New or changed
 records survive the active trace. Deletion and reclamation totals commit
 together. Reopen starts a fresh trace rather than trusting an incomplete sweep.
-The [cleanup contract](../../loam.md#collecting-unreachable-records) owns the
+The [cleanup contract](../../loam/collection.md) owns the
 shipped APIs and costs. Typed foreign recipes retain local URI records; their
 remote publication owners retain remote targets. Local tracing cannot collect
 another peer's heap. [Reference preparation](../../loam/references.md) retains

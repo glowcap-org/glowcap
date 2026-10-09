@@ -134,14 +134,17 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 	if (state == null) return null;
 	const more = (category: OperatorCategory) =>
 		state.next[category] != null && (
-			<div className="actions">
-				<Button
-					variant="quiet"
-					busy={acts.busy(`more:${category}`)}
-					onClick={() => acts.run(`more:${category}`, () => session.loadMoreOperator(category))}
-				>
-					{operatorLoadMore}
-				</Button>
+			<div>
+				<div className="actions">
+					<Button
+						variant="quiet"
+						busy={acts.busy(`more:${category}`)}
+						onClick={() => acts.run(`more:${category}`, () => session.loadMoreOperator(category))}
+					>
+						{operatorLoadMore}
+					</Button>
+				</div>
+				{acts.why[`more:${category}`] != null && <Said kind="failure">{acts.why[`more:${category}`]}</Said>}
 			</div>
 		);
 	return (
@@ -164,7 +167,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 											<div className="actions">
 												<Button
 													variant="quiet"
-													disabled={acts.confirming === key}
+													disabled={acts.confirming === key || acts.locked}
 													onClick={() => acts.ask(key)}
 												>
 													{operatorRemoveAsk}
@@ -222,7 +225,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 												<div className="actions">
 													<Button
 														variant="quiet"
-														disabled={acts.confirming === key}
+														disabled={acts.confirming === key || acts.locked}
 														onClick={() => acts.ask(key)}
 													>
 														{operatorRemoveAsk}
@@ -286,7 +289,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 													{!row.you && (
 														<Button
 															variant="quiet"
-															disabled={acts.confirming === key}
+															disabled={acts.confirming === key || acts.locked}
 															onClick={() => acts.ask(key)}
 														>
 															{operatorDisconnectAsk}
@@ -343,7 +346,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 											<div className="actions">
 												<Button
 													variant="quiet"
-													disabled={acts.confirming === key}
+													disabled={acts.confirming === key || acts.locked}
 													onClick={() => acts.ask(key)}
 												>
 													{action}…
@@ -420,7 +423,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 														? (
 															<Button
 																variant="quiet"
-																disabled={acts.confirming === key}
+																disabled={acts.confirming === key || acts.locked}
 																onClick={() => acts.ask(key)}
 															>
 																{operatorRotateAsk}
@@ -484,7 +487,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 							<div className="actions">
 								<Button
 									variant="quiet"
-									disabled={acts.confirming === "trouble:all"}
+									disabled={acts.confirming === "trouble:all" || acts.locked}
 									onClick={() => acts.ask("trouble:all")}
 								>
 									{operatorTroubleClearAsk}
@@ -516,7 +519,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 										<div className="actions">
 											<Button
 												variant="quiet"
-												disabled={acts.confirming === key}
+												disabled={acts.confirming === key || acts.locked}
 												aria-label={label + "…"}
 												onClick={() => acts.ask(key)}
 											>

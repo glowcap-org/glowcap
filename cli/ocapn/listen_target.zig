@@ -1,4 +1,4 @@
-//! Select and own the CLI's direct TCP or relay listener transport.
+//! Select the CLI's direct TCP or relay listener transport.
 
 const glowcap = @import("glowcap");
 const ctx_mod = @import("../ctx.zig");
@@ -7,7 +7,8 @@ const relay_runtime = @import("relay_runtime.zig");
 const Ctx = ctx_mod.Ctx;
 
 pub const ListenTarget = struct {
-    netlayer: glowcap.net.netlayer.Netlayer,
+    transports: glowcap.driver.Transports,
+    transport: []const u8,
     designator: []const u8,
 };
 
@@ -16,12 +17,11 @@ pub fn select(
     bind_designator: []const u8,
     register_url_opt: ?[]const u8,
     relay_url_opt: ?[]const u8,
-    tcp: *glowcap.net.tcp.Resident,
     relay: *?relay_runtime.Provider,
 ) !ListenTarget {
-    tcp.* = .{ .io = ctx.io };
     const register_url = register_url_opt orelse return .{
-        .netlayer = tcp.netlayer(),
+        .transports = .{ .symbols = &.{.tcp} },
+        .transport = glowcap.ocapn.model.transport.tcp,
         .designator = bind_designator,
     };
     _ = glowcap.net.relay.RelayUrl.parse(register_url) catch {
@@ -40,13 +40,14 @@ pub fn select(
         return error.Usage;
     };
 
-    relay.* = .{};
+    relay.* = @as(relay_runtime.Provider, undefined);
     relay_runtime.init(ctx, &relay.*.?, dial_url, register_url) catch |err| {
         relay.* = null;
         return err;
     };
     return .{
-        .netlayer = relay.*.?.netlayers()[0],
+        .transports = .{ .symbols = &.{.keyed_relay}, .relay = try relay.*.?.options(ctx.io) },
+        .transport = glowcap.ocapn.model.transport.keyed_relay,
         .designator = "",
     };
 }

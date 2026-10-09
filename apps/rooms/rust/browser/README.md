@@ -15,28 +15,30 @@ The exports fall into two layers, and the split is deliberate: the first
 layer opens no Host, so a page can admit its saved state and choose a
 controller before it owns a runtime.
 
-**Setup, before any Host exists** (`entry.rs`). `readWorkspace` and
-`exportWorkspace` decode, normalize, and export a saved workspace document;
-an invalid one is refused and the page leaves the stored bytes intact.
-`directoryAuthority` and `directConversationId` derive stable identities with
-the same parsers native Rooms uses.
+**Setup, before any Host exists** (`entry.rs`). Address inspection and stable
+identity helpers use the same parsers as the process services. They validate
+routes without enlivening authority or installing a JavaScript ABI adapter.
 
-**A running application** (`attached.rs`). `RoomsBrowserApplication` owns one
-continuously driven local executor and its Host. `RoomsBrowserSession` is one
-session on it: the page calls its verbs to join, send, edit, invite, share, and
-so on, and listens to its lines, history, and operations through the same
-typed events the native fronts read. Slash commands, composer admission, bridge
-forms, room-access policy, and the room snapshot all come from here; the page
-does not keep a second reducer for any of them. `RoomsBrowserFile`,
-`RoomsBrowserFileView`, and `RoomsBrowserSource` carry files across the
-boundary as bounded readers.
+**A running application** (`attached/managed.rs`).
+`RoomsManagedApplication` owns the tab's IndexedDB workspace, continuously
+driven executor and Host. It exposes separate use and control handles, retained
+commands and atomic acquisitions. Local, published and remotely attached
+workspaces share the same typed application contract. React projects admitted
+intent/activity and submits reader gestures through these handles.
 
-**Persistence** (`workspace_persistence.rs`, `storage/`).
+`RoomsManagedBlob` and managed archive/history readers retain exact source and
+upstream custody. `RoomsBrowserFileView` and `RoomsBrowserSource` carry bounded
+file display and upload sources across the UI boundary. Selected source leases
+stay owned through committed upload settlement. The
+[session guide](../../../../docs/rooms/session.md) maps startup, publication,
+reconnect, management and recovery.
+
+**Persistence** (`storage/`).
 
 
-- `RoomsWorkspacePersistence` applies the shared workspace save policy to
-  browser storage and cancellable timers. A refused write keeps the previous
-  document, and a successful write shuts out the earlier writer.
+- `storage::Session` opens the managed Loam Store with strict IndexedDB durability
+  and an exclusive Web Lock. Bootstrap metadata fences delayed writers.
+- `storage::Credentials` keeps private bridge answers under that same owner.
 - `storage::Database` opens the `rooms-history` IndexedDB schema, and
   `storage::Archive` implements the shared archive backend on top of it.
   Replacing a record, blob positions, byte accounting, and the revision
@@ -53,9 +55,11 @@ boundary as bounded readers.
 
 `platform::Platform` gives `rooms-runtime` monotonic time from
 `performance.now`, task custody on the page's local executor, and entropy from
-`crypto.getRandomValues`. A tab-hosted session keeps its checkpoint and effects
-in `rooms_runtime::documents::VolatileDocuments`, which lives exactly as long
-as the Host; preferences and archive records persist through the owners above.
+`crypto.getRandomValues`. A tab-hosted session persists its managed workspace,
+capability fields, grants and effect receipts in IndexedDB. Live workers and
+callbacks have one document lifetime; a reload restores the graph and starts a
+fresh Host lifetime before exposing access. Preferences and archive records
+retain separate storage owners.
 
 `transport::open` composes one glowcap `Runtime` around the application's
 Host. `WebFront::deployment` names the page's own native web front and
@@ -113,8 +117,8 @@ Chromium. It covers:
 - calls in both directions over keyed and Noise relay registrations;
 - native TCP and iroh forwarding to distinct rooms;
 - shutdown while an ICE request is pending.
- Those scenarios
-check socket closure and callback retirement; they do not establish live
-keyed or Noise TCP or onion forwarding through this crate. The same step runs
-the shared session, grant, and directory workers over volatile documents and
-the IndexedDB archive, so retention and erasure are proven where they run.
+These scenarios check socket closure and callback retirement. The managed
+session executor has separate LMDB/IndexedDB contracts through
+`rooms-rust-test` and `rooms-session-executor-browser-test`. Production page
+journeys establish reload, shared-session attachment, retained results, scoped
+erasure and current-source management.

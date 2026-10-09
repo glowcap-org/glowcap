@@ -65,6 +65,11 @@ hard to guess. The examples publish short names like `"greeter"` to keep them
 readable, and anyone can fetch those. Give anything private a long random
 name.
 
+A name can be published for one partner or for everyone. A `Session`
+publication answers only the partner on that session. A Host-wide publication
+answers every session, so an introduction can hand it to a third peer. When
+both use the same name, the partner gets the one its own session published.
+
 A sturdyref still works after a restart only if the peer comes back with the
 same identity and can still answer for that swiss number. The standard
 `Host`'s default bootstrap registry lives only as long as the process, so on
@@ -168,10 +173,11 @@ Each session keeps tables of the references it has exported and the answers
 it is holding. An export slot counts how many times it was handed out. An
 answer slot holds one reference and is released all at once.
 
-Distributed garbage collection is off by default, and you turn it on per
-session. When it is on and your program drops a far reference, glowcap tells
-the peer with `op:gc-exports` or `op:gc-answers`, and the peer frees the
-unused slot. This covers fetch results, fulfilled far answers, and
+When your program drops a far reference, distributed garbage collection tells
+the peer with `op:gc-exports` or `op:gc-answers`, and the peer frees the unused
+slot. Rust does this by default for every session on a Host, because `Drop`
+runs at a known point. TypeScript, Python, and Racket release through
+finalizers that run on their own schedule, so you turn it on per session. This covers fetch results, fulfilled far answers, and
 capabilities nested inside delivered arguments. When it is off, table entries
 stay until the session ends. The
 [GC](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/05-gc.md)

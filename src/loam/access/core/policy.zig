@@ -4,6 +4,7 @@
 //! owns their set and bound algebra. It performs no allocation or callbacks.
 
 const std = @import("std");
+const KindId = @import("identity.zig").KindId;
 
 pub const Policy = struct {
     id: Id,
@@ -15,21 +16,30 @@ pub const Policy = struct {
     /// keep declaration ownership with the copied policy across cold reads and
     /// foreign calls; no retained borrow, callback or heap allocation is needed.
     prerequisite_masks: [max_permissions]u64 = @splat(0),
+    kind_rules: [max_kinds]KindRule = undefined,
+    kind_count: usize = 0,
 
     pub const Id = enum(u128) { _ };
     pub const Key = enum(u64) { _ };
     pub const max_permissions = 64;
     pub const max_constraints = 16;
+    pub const max_kinds = 16;
+    /// Masks use the complete vocabulary's stable ordering. Subtree support
+    /// includes future descendants and must contain exact-object support.
+    pub const KindRule = struct { kind: KindId, permissions: u64, subtree_permissions: u64 };
     pub const Operator = enum { lower_bound, upper_bound };
     pub const Constraint = struct { key: Key, operator: Operator };
     pub const Bound = struct { key: Key, value: u64 };
     pub const Dependency = struct { permission: Key, required: Key };
     pub const Descriptor = struct {
-        /// A schema identity fixes key meanings, ordering, operators and dependencies.
+        /// A schema identity fixes keys, operators, dependencies and kind support.
         id: Id,
         permissions: []const Key,
         constraints: []const Constraint = &.{},
         dependencies: []const Dependency = &.{},
+        /// Empty means kind-independent vocabulary. A nonempty declaration
+        /// refuses every kind it does not name.
+        kinds: []const KindRule = &.{},
     };
     pub const Value = struct {
         schema: Id,
@@ -53,6 +63,10 @@ pub const Policy = struct {
         WrongSchema,
         MissingPrerequisite,
         InvalidDependency,
+        UnknownKind,
+        InapplicablePermission,
+        InvalidKindRule,
+        InvalidPlacement,
     };
 
     /// Copies a bounded, strictly key-sorted descriptor into an immutable value.
@@ -82,7 +96,36 @@ pub const Policy = struct {
             if (self.prerequisite_masks[index] & bit != 0) return error.DuplicateKey;
             self.prerequisite_masks[index] |= bit;
         }
-        return self;
+        return self.withKinds(descriptor.kinds);
+    }
+
+    /// Copy declarative applicability; no schema callback or borrowed table
+    /// survives. Both masks obey the same permission dependencies as terms.
+    pub fn withKinds(self: Policy, rules: []const KindRule) Error!Policy {
+        if (rules.len > max_kinds) return error.PolicyLimit;
+        for (rules, 0..) |rule, i| {
+            if (i != 0 and @backingInt(rules[i - 1].kind) >= @backingInt(rule.kind)) return error.NonCanonicalSchema;
+            try self.validate(.{ .schema = self.id, .permissions = rule.permissions, .bounds = @splat(null) });
+            try self.validate(.{ .schema = self.id, .permissions = rule.subtree_permissions, .bounds = @splat(null) });
+            if (rule.permissions & ~rule.subtree_permissions != 0) return error.InvalidKindRule;
+        }
+        var result = self;
+        result.kind_count = rules.len;
+        @memcpy(result.kind_rules[0..rules.len], rules);
+        return result;
+    }
+
+    pub fn supported(self: *const Policy, kind: KindId, subtree: bool) Error!u64 {
+        if (self.kind_count == 0) return self.declaredMask();
+        for (self.kind_rules[0..self.kind_count]) |rule| if (rule.kind == kind) return if (subtree) rule.subtree_permissions else rule.permissions;
+        return error.UnknownKind;
+    }
+
+    /// A child's future support must fit its parent's future support. This
+    /// composes along containment without loading the current descendants.
+    pub fn validatePlacement(self: *const Policy, kind: KindId, parent: ?KindId) Error!void {
+        const child = try self.supported(kind, true);
+        if (parent) |value_| if (child & ~try self.supported(value_, true) != 0) return error.InvalidPlacement;
     }
 
     /// Decode the persisted/ABI matrix after constructing its vocabulary.
@@ -99,7 +142,7 @@ pub const Policy = struct {
         }
         var result = self;
         result.prerequisite_masks = masks;
-        return result;
+        return result.withKinds(self.kind_rules[0..self.kind_count]);
     }
 
     /// Constructs explicit policy terms from declared keys. Inputs are borrowed
@@ -107,6 +150,14 @@ pub const Policy = struct {
     pub fn value(self: *const Policy, permissions: []const Key, bounds: []const Bound) Error!Value {
         const result = try self.shape(permissions, bounds);
         try self.validate(result);
+        return result;
+    }
+
+    /// Construct exact-interface terms. This descriptive check supplies no
+    /// capability and cannot replace scoped admission against current resources.
+    pub fn valueForKind(self: *const Policy, kind: KindId, permissions: []const Key, bounds: []const Bound) Error!Value {
+        const result = try self.value(permissions, bounds);
+        if (result.permissions & ~try self.supported(kind, false) != 0) return error.InapplicablePermission;
         return result;
     }
 
@@ -169,8 +220,15 @@ pub const Policy = struct {
     /// Checks one application's declared effect. Unknown keys and duplicate
     /// facts refuse even if an earlier permission or fact already denies it.
     pub fn allows(self: *const Policy, terms: Value, requirement: Requirement) Error!bool {
+        return self.allowsSupported(terms, self.declaredMask(), requirement);
+    }
+
+    /// Admission reuses the target's already resolved support. Effects remain
+    /// partial demands; malformed facts still refuse before a negative verdict.
+    pub fn allowsSupported(self: *const Policy, terms: Value, supported_: u64, requirement: Requirement) Error!bool {
         try self.validate(terms);
         const requested = try self.shape(requirement.permissions, requirement.facts);
+        if (requested.permissions & ~supported_ != 0) return error.InapplicablePermission;
         var allowed = requested.permissions & ~terms.permissions == 0;
         for (self.constraint_fields[0..self.constraint_count], 0..) |field, i| {
             if (requested.bounds[i]) |fact| {

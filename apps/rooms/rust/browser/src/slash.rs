@@ -85,3 +85,36 @@ pub fn composer_line_refusal(text: js_sys::JsString, maximum: Option<u32>) -> Re
 		maximum.map(|value| value as usize),
 	))
 }
+
+/// A proved revision conflict permits re-preparation only when the original
+/// command selection remains unchanged. This comparison grants no authority.
+#[wasm_bindgen(js_name = commandSelectionUnchanged)]
+pub fn command_selection_unchanged(
+	name: &str,
+	arguments: js_sys::Array,
+	before: js_sys::JsString,
+	after: js_sys::JsString,
+) -> Result<bool, JsValue> {
+	let parse = |raw: js_sys::JsString| -> Result<serde_json::Value, JsValue> {
+		let raw = crate::js_text::scalar(&raw, rooms_application::content::session::custody::MAX_AUTHORITY_BYTES)
+			.map_err(|error| js_sys::Error::new(&error.to_string()))?;
+		serde_json::from_str(&raw).map_err(|error| js_sys::Error::new(&error.to_string()).into())
+	};
+	if arguments.length() > rooms_application::session::command::MAX_ARGUMENTS as u32 {
+		return Err(js_sys::Error::new("Command has too many arguments").into());
+	}
+	let arguments = arguments
+		.iter()
+		.map(|value| {
+			value
+				.as_string()
+				.ok_or_else(|| js_sys::Error::new("Command argument must be text"))
+		})
+		.collect::<Result<Vec<_>, _>>()?;
+	Ok(rooms_application::session::command::selection::unchanged(
+		name,
+		&arguments,
+		&parse(before)?,
+		&parse(after)?,
+	))
+}

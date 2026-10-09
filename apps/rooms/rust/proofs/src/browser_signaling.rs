@@ -77,7 +77,7 @@ async fn runtime_dial(url: &str, location: &str, handoff: bool) {
 			}
 		}
 		observed.set(observed.get() + 1);
-		Ok(directory)
+		Ok(directory.signaling())
 	};
 	let runtime = rooms_browser::transport::open(
 		&caller,
@@ -88,7 +88,7 @@ async fn runtime_dial(url: &str, location: &str, handoff: bool) {
 	.await
 	.unwrap();
 	receiver
-		.publish_giftable("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
+		.publish("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
 		.unwrap();
 	let left_name = if handoff {
 		"rust-handoff-left"
@@ -106,13 +106,16 @@ async fn runtime_dial(url: &str, location: &str, handoff: bool) {
 	if handoff {
 		let inbox = right.client().session().published_ref("echo").unwrap().unwrap();
 		let recipient = right.member_registration(left_name).await.unwrap();
-		right.offer_inbox(left_name, &recipient, &inbox).await.unwrap();
+		right
+			.offer_inbox(left_name, &recipient, "signaling-handoff", &inbox)
+			.await
+			.unwrap();
 	}
 	let locator = glowcap::Locator::bare(glowcap::TRANSPORT_WEBRTC, &receiver.designator().unwrap());
 	let (accepted, incoming) = tokio::sync::oneshot::channel();
 	let mut accepted = Some(accepted);
 	let (stop, stopped) = tokio::sync::oneshot::channel();
-	let listener = signaling::Listener::open(right.clone(), Duration::from_secs(5))
+	let listener = signaling::Listener::open(right.signaling(), Duration::from_secs(5))
 		.await
 		.unwrap();
 	let serving = listener.serve(
@@ -133,7 +136,10 @@ async fn runtime_dial(url: &str, location: &str, handoff: bool) {
 	);
 	let dialing = async {
 		let (session, echo) = if handoff {
-			let introduced = left.introduce(right_name, None).await.unwrap();
+			let introduced = left
+				.introduce_opening(right_name, None, "signaling-handoff")
+				.await
+				.unwrap();
 			assert!(!introduced.session().same_session(left.client().session()));
 			let session = introduced
 				.session()
@@ -181,10 +187,13 @@ pub async fn rooms_browser_signaling_cancel_contract(url: String, location: Stri
 			let receiver = Host::with_options(Default::default()).unwrap();
 			let (left, a) = registered(&caller, &url, &location, "rust-cancel-left").await;
 			let (right, b) = registered(&receiver, &url, &location, "rust-cancel-right").await;
-			let listener = signaling::Listener::open(right.clone(), Duration::from_secs(5))
+			let listener = signaling::Listener::open(right.signaling(), Duration::from_secs(5))
 				.await
 				.unwrap();
-			let exchange = left.signaling_exchange(&receiver.designator().unwrap()).unwrap();
+			let exchange = left
+				.signaling()
+				.signaling_exchange(&receiver.designator().unwrap())
+				.unwrap();
 			let mut peer =
 				browser::RtcPeer::new(&caller, browser::RtcRole::Offerer, &web_sys::RtcConfiguration::new()).unwrap();
 			let description =

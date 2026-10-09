@@ -1,10 +1,11 @@
+import { spawnWeb } from "../support/web_front.ts";
 // The rooms web page as a real browser peer, end to end. A headless Chromium
 // loads the ACTUAL page rooms-web serves — the
 // bundled `@glowcap/web` graph, `glowcap_host.wasm`, and the UI — joins a
 // room, sends a line, and sees the room echo it back. Every hop is the shipped
-// path: the page's wasm Host holds the room capability, dials the room server
-// through rooms-web's `/relay`, and drives `lib/room/client.ts` directly. No JSON
-// bridge is on the page's path.
+// path: its managed Wasm owner retains exact authority, runs receipt-backed
+// effects and dials the room server through rooms-web's `/relay`. The UI
+// projects the managed workspace and its admitted activity.
 //
 // Before that it watches the load itself, frame by frame from the first one,
 // because what a reader sees on the way in is part of the page too: the screen
@@ -20,9 +21,9 @@
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (the web front and room server run Rust), and a Playwright Chromium
 // (the devcontainer image ships one).
-// Run: `deno run --allow-all apps/rooms/test/web/page_test.ts`.
+// Run: `zig build rooms-web-page`.
 
-import { SERVER, WEB } from "../support/paths.ts";
+import { SERVER } from "../support/paths.ts";
 import { chromium } from "playwright";
 import { fail, freePort, ROOT, waitForHttp } from "../page/harness.ts";
 import * as opening from "../page/opening.ts";
@@ -48,6 +49,7 @@ const httpPort = freePort();
 // The trace port is fixed so `/trace` can answer it, which is how the page's
 // take of the trace capability finds the endpoint to present the swiss to.
 const opsState = await Deno.makeTempDir({ prefix: "glowcap-rooms-page-ops-" });
+const foreignState = await Deno.makeTempDir({ prefix: "glowcap-rooms-page-foreign-" });
 const tracePort = freePort();
 const roomPort = freePort();
 const foreignRoomPort = freePort();
@@ -67,13 +69,13 @@ const holding = (async () => {
 // production cross-server joins use authenticated iroh, whose destinations do
 // not need an address allow-list.
 const foreignRoom = spawnOwned(SERVER, {
-	args: ["--transport=tcp", `--port=${foreignRoomPort}`],
+	args: ["--transport=tcp", `--port=${foreignRoomPort}`, `--state=${foreignState}`],
 	cwd: ROOT,
 	stdout: "null",
 	stderr: "inherit",
 });
 
-spawnOwned(WEB, {
+spawnWeb({
 	args: [
 		"--transport=tcp",
 		String(httpPort),
@@ -99,7 +101,22 @@ spawnOwned(WEB, {
 // below, so the `finally` there cleans up nothing on this path. What reaps the
 // servers instead is `support/children.ts`, which answers the uncaught error
 // this raises.
-const deadline = setTimeout(() => fail("web-page scenario timed out after 240s"), 240_000);
+// The timeout names the phase it interrupted and how long each finished phase
+// took, so one failed run says where it stopped instead of only that it did.
+const seconds = (since: number) => ((performance.now() - since) / 1000).toFixed(1);
+const finished: string[] = [];
+let running = "startup";
+const deadline = setTimeout(
+	() => fail(`web-page scenario timed out after 240s in ${running}; finished: ${finished.join(", ") || "none"}`),
+	240_000,
+);
+async function phase<T>(name: string, work: () => Promise<T>): Promise<T> {
+	running = name;
+	const at = performance.now();
+	const result = await work();
+	finished.push(`${name} ${seconds(at)}s`);
+	return result;
+}
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 
@@ -125,28 +142,30 @@ try {
 	// One conversation, driven in order: each phase leaves the page where the
 	// next one expects to find it, which is why they are calls in a list rather
 	// than tests that could be run on their own.
-	await opening.run(tab, httpPort, browser);
-	await proveFocusKeepsMobileViewport(browser, httpPort);
-	await firstRail.run(tab);
-	await details.run(tab);
-	const second = await rails.run(tab, browser, httpPort);
-	await completion.run(tab, second);
-	const descendersIntact = await files.run(tab, second);
-	await layout.run(tab, second, descendersIntact);
-	const foreignLocator = await foreign.run(tab, httpPort, foreignRoomPort, hangPort);
-	await directories.run(
-		tab,
-		second,
-		foreignLocator,
-		foreignRoom,
-		foreignRoomPort,
-		roomPort,
-		descendersIntact,
-	);
-	await standing.run(tab, foreignLocator, httpPort, browser, second);
-	await operations.run(tab, opsState, foreignLocator);
-	await registration.run(tab);
-	await memberCard.run(tab);
+	await phase("opening", () => opening.run(tab, httpPort, browser));
+	await phase("mobile focus", () => proveFocusKeepsMobileViewport(browser!, httpPort));
+	await phase("first rail", () => firstRail.run(tab));
+	await phase("details", () => details.run(tab));
+	const second = await phase("rails", () => rails.run(tab, browser!, httpPort));
+	await phase("completion", () => completion.run(tab, second));
+	const descendersIntact = await phase("files", () => files.run(tab, second));
+	await phase("layout", () => layout.run(tab, second, descendersIntact));
+	const foreignLocator = await phase("foreign", () => foreign.run(tab, httpPort, foreignRoomPort, hangPort));
+	await phase("directories", () =>
+		directories.run(
+			tab,
+			second,
+			foreignLocator,
+			foreignRoom,
+			foreignState,
+			foreignRoomPort,
+			roomPort,
+			descendersIntact,
+		));
+	await phase("standing", () => standing.run(tab, foreignLocator, httpPort, browser!, second));
+	await phase("operations", () => operations.run(tab, opsState, foreignLocator));
+	await phase("registration", () => registration.run(tab));
+	await phase("member card", () => memberCard.run(tab));
 	if (invalidMarkup.length !== 0) {
 		fail(`the page rendered invalid nested markup: ${invalidMarkup.join(" | ")}`);
 	}
@@ -176,5 +195,6 @@ try {
 	if (browser) await browser.close().catch(() => {});
 	await reapOwned();
 	await Deno.remove(opsState, { recursive: true }).catch(() => {});
+	await Deno.remove(foreignState, { recursive: true }).catch(() => {});
 }
 Deno.exit(0);

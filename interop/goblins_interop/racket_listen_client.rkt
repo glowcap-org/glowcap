@@ -7,7 +7,7 @@
 (define ACTOR-SWISS "glowcapActorSwissnumABCDEFGH1234")
 (define server (listen "127.0.0.1" 0))
 
-(host-publish-giftable
+(host-publish
  (server-host server)
  ACTOR-SWISS
  (lambda (_method . args)

@@ -299,18 +299,11 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .needles = &.{
             "releaseSession(row.session) catch unreachable",
             "releaseSession(session) catch unreachable",
-            "runtime.registerNetlayers(netlayers) catch",
+            "runtime_transports.install(&result, transports) catch",
             ".addProvidersAfterAdmission(registrations, resident_indices) catch",
         },
         .check = "nonfatal-release-paths",
         .why = "runtime construction returns registration failure and session retirement retains cleanup failure instead of terminating the process owner",
-    },
-    .{
-        .where = .{ .file = "src/driver/bridge.zig" },
-        .kind = .forbid,
-        .needles = &.{ "releaseSession(session) catch unreachable", "releaseSession(shell.session) catch unreachable" },
-        .check = "nonfatal-release-paths",
-        .why = "completion-loop rollback and release retain Host cleanup refusal for the next driver turn instead of terminating the process owner",
     },
     .{
         .where = .{ .file = "src/driver/session.zig" },

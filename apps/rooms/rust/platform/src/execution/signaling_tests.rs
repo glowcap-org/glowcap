@@ -42,7 +42,7 @@ async fn scenario() {
 		.unwrap();
 	let locator = server.locator().unwrap();
 	let (connected, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let peer = Rc::new(accepted.unwrap().with_gc());
+	let peer = Rc::new(accepted.unwrap());
 	let serving_peer = peer.clone();
 	let serving = tokio::task::spawn_local(async move { serving_peer.serve().await });
 	let platform = Platform::default();
@@ -104,7 +104,7 @@ async fn scenario() {
 	let offer = Description::parse("offer").unwrap();
 	let ice = Candidate::parse("local ice").unwrap();
 	let id = Id::parse("exchange").unwrap();
-	let mut inbox = directory.signaling_inbox().await.unwrap();
+	let mut inbox = directory.signaling().signaling_inbox().await.unwrap();
 	assert!(matches!(
 		inbox.next().await.unwrap(),
 		Some(signal::Incoming::Offer { .. })
@@ -118,14 +118,15 @@ async fn scenario() {
 		Some(signal::Incoming::Candidate { .. })
 	));
 	directory
+		.signaling()
 		.signal_answer(&id, &Description::parse("local answer").unwrap())
 		.unwrap();
 	assert_eq!(calls.recv().await, Some("answer"));
-	directory.signal_candidate(&id, &ice).unwrap();
+	directory.signaling().signal_candidate(&id, &ice).unwrap();
 	assert_eq!(calls.recv().await, Some("candidate"));
-	let exchange = directory.signaling_exchange("peer").unwrap();
+	let exchange = directory.signaling().signaling_exchange("peer").unwrap();
 	assert!(matches!(
-		directory.signaling_exchange("peer"),
+		directory.signaling().signaling_exchange("peer"),
 		Err(Error::Signaling(signal::Error::Duplicate))
 	));
 	let mut early = Box::pin(exchange.candidate(&ice));
@@ -158,9 +159,9 @@ async fn scenario() {
 		.unwrap();
 	assert_eq!(done.get(), 1);
 	assert!(peer.send(&reply, "candidate", &["late".into()]).await.is_err());
-	assert!(directory.take_signaling_failure().is_none());
+	assert!(directory.signaling().take_signaling_failure().is_none());
 
-	let timed = directory.signaling_exchange("peer").unwrap();
+	let timed = directory.signaling().signaling_exchange("peer").unwrap();
 	timed.offer(&offer).unwrap();
 	assert_eq!(calls.recv().await, Some("offer"));
 	let timed_reply = replies.borrow().last().unwrap().clone();
@@ -179,7 +180,7 @@ async fn scenario() {
 	assert!(matches!(timed.candidate(&ice).await, Err(Error::Timeout(_))));
 	timed.close().unwrap();
 
-	let crowded = directory.signaling_exchange("crowded").unwrap();
+	let crowded = directory.signaling().signaling_exchange("crowded").unwrap();
 	let mut observers: Vec<_> = (0..signal::MAX_EVENTS)
 		.map(|_| Box::pin(crowded.candidate(&ice)))
 		.collect();
@@ -207,7 +208,7 @@ async fn scenario() {
 	assert_eq!(crowded.answer().await.unwrap().as_str(), "under pressure");
 	drop(crowded_reply);
 	crowded.close().unwrap();
-	let dropped = directory.signaling_exchange("dropped").unwrap();
+	let dropped = directory.signaling().signaling_exchange("dropped").unwrap();
 	dropped.offer(&offer).unwrap();
 	assert_eq!(calls.recv().await, Some("offer"));
 	let dropped_reply = replies.borrow().last().unwrap().clone();
@@ -227,17 +228,17 @@ async fn scenario() {
 	let other = Directory::new(client.clone(), client.session().fetch("other-directory").await.unwrap());
 	let mut held = Vec::new();
 	for i in 0..signal::MAX_EXCHANGES {
-		held.push(directory.signaling_exchange(&format!("peer-{i}")).unwrap());
+		held.push(directory.signaling().signaling_exchange(&format!("peer-{i}")).unwrap());
 	}
 	assert!(matches!(
-		directory.signaling_exchange("overflow"),
+		directory.signaling().signaling_exchange("overflow"),
 		Err(Error::Signaling(signal::Error::Full))
 	));
-	let independent = other.signaling_exchange("peer-0").unwrap();
+	let independent = other.signaling().signaling_exchange("peer-0").unwrap();
 	drop((independent, other));
 	peer.release(other_root).unwrap();
 	drop(held);
-	let slow = directory.signaling_exchange("slow").unwrap();
+	let slow = directory.signaling().signaling_exchange("slow").unwrap();
 	slow.offer(&offer).unwrap();
 	assert_eq!(calls.recv().await, Some("offer"));
 	let slow_reply = replies.borrow().last().unwrap().clone();
@@ -271,7 +272,7 @@ async fn scenario() {
 			.is_err()
 	);
 	refuse_inbox.set(true);
-	assert!(directory.signaling_inbox().await.is_err());
+	assert!(directory.signaling().signaling_inbox().await.is_err());
 	let refused = incoming.borrow().clone().unwrap();
 	assert!(
 		peer.send(&refused, "offer", &["exchange".into(), "late".into()])
@@ -280,9 +281,9 @@ async fn scenario() {
 	);
 	drop(refused);
 	refuse_inbox.set(false);
-	let mut live_inbox = directory.signaling_inbox().await.unwrap();
+	let mut live_inbox = directory.signaling().signaling_inbox().await.unwrap();
 	live_inbox.next().await.unwrap();
-	let live = directory.signaling_exchange("live").unwrap();
+	let live = directory.signaling().signaling_exchange("live").unwrap();
 	live.offer(&offer).unwrap();
 	assert_eq!(calls.recv().await, Some("offer"));
 	client

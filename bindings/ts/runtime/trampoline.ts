@@ -1,6 +1,6 @@
 // The behavior trampoline: the ONE native callback in the whole binding. Every
 // hosted object — a `Session.spawn`/`publish` actor, a caretaker or
-// attenuator proxy, a host-wide giftable — registers here and shares a single
+// attenuator proxy, a Host publication — registers here and shares a single
 // process-lifetime `GlowcapHostBehavior` whose ctx is the entry's registry id
 // packed as a pointer-sized integer. Host-wide publications also pass the one
 // shared context-free callback, so the native Vat retires their JS ownership
@@ -140,7 +140,7 @@ export function sendLocal(
 		try {
 			const hosted = runHosted(ctx, verb, args);
 			// Reached when the entry's connection tore down: `closeTransport`
-			// unregisters every hosted actor and `Host.close` every giftable.
+			// unregisters every hosted actor and `Host.close` every Host publication.
 			// It agrees with the wire semantics (a trampoline breaks), so the
 			// two dispatch paths cannot drift apart.
 			if (hosted === undefined) throw new VowBroken("no such hosted object");

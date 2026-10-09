@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // A reader selects the standalone archive peer in Settings, writes a direct
 // message into it, and disappears. A fresh browser profile selects the same
 // sturdyref and recovers the line, proving the peer is a member feature rather
@@ -16,12 +17,12 @@
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
-import { confirmTitleLeave } from "../page/harness.ts";
+import { reapOwned } from "../support/children.ts";
+import { confirmTitleLeave, directOpened } from "../page/harness.ts";
 import { namedDirectRow } from "../support/conversation_row.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
-import { WEB } from "../support/paths.ts";
+
 import { startArchivePeer } from "../support/archive_peer.ts";
 const ROOM = "archive-room";
 const KEPT = "this line outlives the browser that wrote it";
@@ -109,7 +110,7 @@ async function chooseArchive(tab: Page, sturdyref: string): Promise<void> {
 				holdings?.contains(document.getElementById("opsLegend")) ===
 					true &&
 				data === null && history === null,
-			sessionOwned: remember === null && (form?.textContent ?? "").includes("shared session retains"),
+			sessionOwned: remember === null && (form?.textContent ?? "").includes("session retains"),
 			contained: form?.contains(document.getElementById("archivePeerLink")) === true,
 			copy: (card?.textContent ?? "") + (document.getElementById("archivePeerLinkHint")?.textContent ?? ""),
 		};
@@ -143,7 +144,7 @@ async function openDm(tab: Page, nick: string): Promise<void> {
 	if (!await button.isVisible().catch(() => false)) await tab.click("#backBtn").catch(() => {});
 	await button.waitFor({ state: "visible", timeout: 60_000 });
 	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 15_000 });
+	await directOpened(tab, nick, 15_000);
 }
 
 async function send(tab: Page, text: string): Promise<void> {
@@ -162,7 +163,7 @@ const state = await Deno.makeTempDir();
 const httpPort = freePort();
 const roomPort = freePort();
 const archive = startArchivePeer(state, ["--reachability=direct"], "inherit");
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",
@@ -183,7 +184,7 @@ try {
 	const firstDm = alice.tab.locator('#members li:has-text("archive-bob") button.dm-btn');
 	await firstDm.waitFor({ state: "visible", timeout: 90_000 });
 	await firstDm.click();
-	await alice.tab.waitForSelector("#line:not([disabled])", { timeout: 15_000 });
+	await directOpened(alice.tab, "archive-bob", 15_000);
 	await send(alice.tab, KEPT_DEVICE);
 	await see(alice.tab, KEPT_DEVICE, "Alice before archive selection");
 	await chooseArchive(alice.tab, sturdyref);

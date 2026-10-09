@@ -76,13 +76,13 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * null when nothing is published there.
 	 *
 	 * {@link publish} returns its own `Ref`, so this is for the other publisher:
-	 * {@link Host.publishGiftable} hosts one actor under a Host-wide alias and
+	 * {@link Host.publish} hosts one actor under a Host-wide alias and
 	 * returns nothing. Reading its Host identity lazily projects it onto this
 	 * session so an application can pass it as an ordinary capability argument;
 	 * no enrollment step exists.
 	 *
 	 * A `send` to the returned `Ref` runs the behavior in process rather than over
-	 * the wire, and a giftable registered no session, so `currentSession()` inside
+	 * the wire, and a Host publication registered no session, so `currentSession()` inside
 	 * it is null. Pass it on as a capability argument; a behavior
 	 * written to answer over the connection its call arrived on will not answer a
 	 * local send. */
@@ -99,11 +99,11 @@ export abstract class SessionApplication extends SessionLifecycle {
 		if (code === NOT_FOUND) return null;
 		checkHost(code);
 		const ref = refFromId(outU64(out));
-		// Join the host's giftable to the identity this session surfaced, so a
+		// Join the Host publication to the identity this session surfaced, so a
 		// later local send to the returned Ref composes in process. Skipped when the
 		// identity is already known: `publish` on this session recorded its own.
 		if (!this.hostedActors.has(ref.id)) {
-			const ctx = this.hostOwner.giftableCtx(name);
+			const ctx = this.hostOwner.publicationCtx(name);
 			if (ctx !== undefined) {
 				this.hostedActors.set(ref.id, ctx);
 			}

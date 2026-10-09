@@ -27,6 +27,7 @@ const State = struct {
     cancellation: ?*Cancellation = null,
     terminal: ?records.TerminalRecord = null,
     grant_path: ?grant_retirement.Path = null,
+    grant_child_edit: ?Edit = null,
     publication_ids: [2]?loam.ObjectId = @splat(null),
     observation_index: ?records.ObservationIndexRecord = null,
     remove: bool = false,
@@ -177,6 +178,17 @@ const State = struct {
             if (classified != .ready) return classified;
         }
         if (self.remove) {
+            if (self.grant_path) |path| if (path.count > 1) {
+                if (self.grant_child_edit == null) {
+                    const row = try @import("history.zig").row(&self.read, .{ .grant = path.ids[1] });
+                    var parent = try records.GrantRecord.decodeOwned(self.read.allocator, row.view.payload);
+                    defer parent.deinit(self.read.allocator);
+                    self.grant_child_edit = Edit.init(&self.read, .grant, parent.value.children, entry.slot);
+                }
+                const child_step = try self.grant_child_edit.?.advance();
+                if (child_step != .ready) return child_step;
+            };
+
             if (self.edit == null) self.edit = Edit.init(&self.read, family, root, entry.slot);
             const prepared = try self.edit.?.advance();
             if (prepared != .ready) return prepared;
@@ -309,7 +321,7 @@ pub const Maintenance = opaque {
         for (value.publication_ids) |id| if (id != null and retirement == null) return error.RetirementRequired;
         errdefer if (store.phase == .staging) store.abort() catch unreachable;
         value.read.transaction = store.ticket;
-        if (value.grant_path) |*path| try grant_retirement.stage(&value.read, path);
+        if (value.grant_path) |*path| try grant_retirement.stage(&value.read, path, if (value.grant_child_edit) |*edit| edit else null);
         if (value.cancellation) |cancellation| {
             _ = try cancellation.stage(retirement);
         } else if (value.remove and value.lease != null and value.terminal != null) {
@@ -376,6 +388,7 @@ pub const Maintenance = opaque {
         }
         if (value.query) |*query| if (query.load.pending != null) return query.completeRead(ticket, completion);
         if (value.edit) |*edit| if (edit.load.pending != null) return edit.completeRead(ticket, completion);
+        if (value.grant_child_edit) |*edit| if (edit.load.pending != null) return edit.completeRead(ticket, completion);
         if (value.probe) |*probe| if (probe.load.pending != null) return probe.load.complete(value.read.store, ticket, completion);
         if (value.cancellation) |cancellation| return cancellation.completeRead(ticket, completion);
         return error.StaleCompletion;
@@ -386,6 +399,7 @@ pub const Maintenance = opaque {
         try value.load.cancel(value.read.store);
         if (value.query) |*query| try query.load.cancel(value.read.store);
         if (value.edit) |*edit| try edit.cancel();
+        if (value.grant_child_edit) |*edit| try edit.cancel();
         if (value.probe) |*probe| try probe.load.cancel(value.read.store);
         if (value.cancellation) |cancellation| try cancellation.cancel();
     }
@@ -393,6 +407,7 @@ pub const Maintenance = opaque {
         const value = backing(self);
         const store = value.read.store;
         const allocator = value.read.allocator;
+        if (value.grant_child_edit) |edit| if (edit.load.pending != null) return error.Busy;
         if (value.read.hasPendingRead() or value.load.pending != null or (if (value.query) |query| query.load.pending != null else false) or (if (value.edit) |edit| edit.load.pending != null else false) or (if (value.probe) |probe| probe.load.pending != null else false)) return error.Busy;
         if (value.cancellation) |cancellation| try cancellation.deinit();
         if (value.lease) |lease| try store.release(lease);

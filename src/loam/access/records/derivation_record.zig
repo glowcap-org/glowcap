@@ -12,18 +12,21 @@ pub const DerivationRecord = struct {
     endpoint: loam.ObjectId,
     publication: loam.ObjectId,
     control: ?loam.ObjectId = null,
-    pub const max_encoded_bytes = 32 * 1024;
+    pub const max_encoded_bytes = 64 * 1024;
 
     pub fn encodeIntent(allocator: std.mem.Allocator, owner: core.OwnerId, request: core.GrantLedger.Issue) ![]u8 {
+        try request.label.validate();
         try terms.validate(request.ceiling, owner);
         try terms.validate(request.configured, owner);
         return syrup.render.renderRecordExact(allocator, write, .{ request, @as(?core.Control.Powers, null) });
     }
 
     pub fn encodeManagedIntent(allocator: std.mem.Allocator, owner: core.OwnerId, request: core.GrantLedger.Issue, powers: core.Control.Powers) ![]u8 {
+        try request.label.validate();
         try terms.validate(request.ceiling, owner);
         try terms.validate(request.configured, owner);
         if (powers.policy_ceiling) |ceiling| try terms.validate(ceiling, owner);
+        if (powers.issue_ceiling) |ceiling| try terms.validate(ceiling, owner);
         return syrup.render.renderRecordExact(allocator, write, .{ request, @as(?core.Control.Powers, powers) });
     }
 
@@ -46,10 +49,15 @@ pub const DerivationRecord = struct {
         try terms.write(sink, request.configured);
         try s.writePositiveInt(sink, request.delegation_depth);
         try s.writeSymbol(sink, @tagName(request.initial_status));
+        try s.writeBytes(sink, request.label.slice());
         try s.writeBool(sink, powers != null);
         if (powers) |control| {
             try s.writeBool(sink, control.policy_ceiling != null);
             if (control.policy_ceiling) |ceiling| try terms.write(sink, ceiling);
+            try s.writeBool(sink, control.issue_ceiling != null);
+            if (control.issue_ceiling) |ceiling| try terms.write(sink, ceiling);
+            try s.writeBool(sink, control.inspect);
+            try s.writeBool(sink, control.delegate_control);
             try s.writeBool(sink, control.pause);
             try s.writeBool(sink, control.resume_access);
             try s.writeBool(sink, control.revoke);

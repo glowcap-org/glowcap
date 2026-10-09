@@ -69,7 +69,7 @@ impl<P: Platform> Receiver<P> {
 					},
 				)
 			}
-			admission::Request::Attachment(reader) => self
+			admission::Request::Attachment { reader, .. } => self
 				.spawn_reader(session, reader, authority.descendant())
 				.map(Into::into),
 			admission::Request::Digest { scope, digest } => self.enqueue(

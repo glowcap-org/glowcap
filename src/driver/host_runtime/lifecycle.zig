@@ -11,26 +11,13 @@ const net = @import("net");
 const driver_core = @import("driver_core");
 const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 
-/// One bound listener, independent of the provider's execution model.
+/// One bound listener: a profile's listener on a registered resident.
 pub const TransportListener = struct {
     transport: []const u8,
     designator_scheme: net.netlayer.DesignatorScheme,
-    source: Source,
-
-    const Source = union(enum) {
-        stream: StreamListener,
-        resident: ResidentSource,
-    };
-
-    const StreamListener = struct {
-        handle: net.netlayer.Listener,
-        observation: ?SessionAcceptObservation = null,
-    };
-
-    const ResidentSource = struct {
-        runtime: usize,
-        listener: net.MultiplexedResident.Listener,
-    };
+    /// The resident's index in the runtime's registry.
+    resident: usize,
+    listener: net.MultiplexedResident.Listener,
 
     pub fn transportName(self: *const TransportListener) []const u8 {
         return self.transport;
@@ -38,18 +25,6 @@ pub const TransportListener = struct {
 
     pub fn designatorScheme(self: *const TransportListener) net.netlayer.DesignatorScheme {
         return self.designator_scheme;
-    }
-
-    /// Transfer a stream-backed listener into the caller's ownership.
-    pub fn takeStream(self: *TransportListener) ?net.netlayer.Listener {
-        return switch (self.source) {
-            .stream => |stream| blk: {
-                const listener = stream.handle;
-                self.* = undefined;
-                break :blk listener;
-            },
-            .resident => null,
-        };
     }
 };
 

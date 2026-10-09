@@ -55,6 +55,7 @@ permissions! {
 	ReadArchive = 32 => "readArchive", None;
 	ManagePublicOffer = 33 => "managePublicOffer", None;
 	ManagePublication = 34 => "managePublication", None;
+	ShareCustody = 35 => "shareCustody", Some(Self::ManageCustody);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

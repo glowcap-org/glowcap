@@ -29,8 +29,6 @@ that uses the node id as the peer's identity.
 A native Zig fetch-and-call over sealed TCP:
 
 ```zig
-var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
-const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
 var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 const peer_key = "<64 lowercase hex characters from the server>";
 const partner = glowcap.net.tcp.noise.locator(
@@ -40,7 +38,8 @@ const partner = glowcap.net.tcp.noise.locator(
 );
 const session = try glowcap.driver.connect(
     allocator,
-    &netlayers,
+    io,
+    .{ .symbols = &.{.noise_tcp} },
     partner,
     .ephemeral,
     .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },

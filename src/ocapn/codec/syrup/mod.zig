@@ -56,5 +56,6 @@ pub const RecordSyntax = struct {
     pub const writeSymbol = scalar.writeSymbol;
     pub const writePositiveInt = scalar.writePositiveInt;
     pub const writeBytes = scalar.writeBytes;
+    pub const byteStringSize = scalar.byteStringSize;
     pub const writeBool = scalar.writeBool;
 };

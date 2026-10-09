@@ -50,12 +50,12 @@ edit, restart and reopen must work together through the consumer.
 | Lane | Next action and prerequisite |
 | --- | --- |
 | Loam | Maintainer-owned macOS acceptance remains in the [completion queue](loam/completion.md#execution-order). |
-| Rooms | Session declarations, saved-reference fields, bounded codecs and persisted permission dependencies are proved. Project scope-aware applicability, exact targets and management in the [dependency order](rooms/integration.md#shared-prerequisite-and-remaining-order), then replace session authority and follow the Rooms phases. |
+| Rooms | The [managed session](../rooms/session.md) owns production startup, browser state, retained admission and shared management. Replace recursive room and directory resources. |
 | Visualizer | Re-measure on the reporting machine's real GPU before deciding whether further renderer changes are needed. |
 | Publication | Follow the maintainer account checklist, then exact-commit release evidence and archive publication. These external actions do not block local engineering. |
 | Crypto-version transition | Resume when the upstream wire contract is agreed; the upstream watch owns that condition. |
 | A2A | Deferred by ADR-0084; do not expand it while picking up ready work. |
-| Runtime semantics | Write the outbound prepare/commit ADR; the other items in the [runtime semantics plan](runtime-semantics.md) wait on maintainer decisions. |
+| Runtime semantics | Local sends commit with the turn under ADR-0191. The [runtime semantics plan](runtime-semantics.md) orders what remains: far-send retraction (ADR-0194), then one I/O runtime (ADR-0193). |
 
 The [roadmap](../roadmap.md) also tracks independent platform and reachability
 work outside these plans. Its release and platform requirements still apply;
@@ -118,7 +118,7 @@ memory models and the measurement program.
 
 The selected direction builds the shared object/capability layer over an
 existing engine. LMDB is implemented, and the
-[native workload](../../bench/loam/README.md) measures managed lifecycle, ancestry, sustained native workers, foreign restoration, retention and process memory.
+[LMDB workload](../../bench/loam/README.md) measures managed lifecycle, ancestry, sustained workers, foreign restoration, retention and process memory.
 The [completion queue](loam/completion.md) retains macOS acceptance. Compare
 another backend if measurements identify a physical-engine constraint, under
 matching durability and workload. A custom pager requires
@@ -133,7 +133,8 @@ owns the layer stages and the implementation readiness checkpoint. Much of the r
 LMDB, actor and managed integration is already implemented; use the
 [roadmap](../roadmap.md#durable-applications) to extend it in priority
 order rather than restart those stages. The Zig implementation and first C/Rust and browser lifecycles
-have consumer integration evidence. Rooms is ready for application integration.
+have consumer integration evidence. Rooms uses them for its managed session;
+recursive room and directory resources are the next application integration.
 Outstanding macOS acceptance remains a maintainer-owned
 platform obligation, not an agent scheduling prerequisite.
 Research supplies measurements and failure cases throughout. The access

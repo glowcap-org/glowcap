@@ -19,6 +19,7 @@ use crate::{
 use alloc::{collections::BTreeMap, format, string::String};
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
+mod publications;
 
 /// The Host derives a durable swiss name from this many embedder bytes.
 pub const ENTROPY_BYTES: usize = 16;
@@ -67,6 +68,7 @@ pub struct Authority {
 	managers: BTreeMap<String, Issue>,
 	managed: BTreeMap<String, Managed>,
 	managed_by_name: BTreeMap<String, String>,
+	publications: BTreeMap<String, String>,
 	topics: BTreeMap<String, (String, String)>,
 }
 
@@ -101,6 +103,7 @@ impl Authority {
 			managers: BTreeMap::new(),
 			managed: BTreeMap::new(),
 			managed_by_name: BTreeMap::new(),
+			publications: BTreeMap::new(),
 			topics: BTreeMap::new(),
 		};
 		for name in document.linked_rooms.as_slice() {
@@ -148,6 +151,7 @@ impl Authority {
 			let name = utf8(row.name.text())?;
 			authority.topics.insert(fold(&name), (name, utf8(row.topic.text())?));
 		}
+		authority.reindex_publications();
 		Ok(authority)
 	}
 	/// The document this authority persists as.
@@ -212,10 +216,11 @@ impl Authority {
 
 	/// A successor stands only if its document still holds the relations
 	/// `Document::validate` checks.
-	fn admitted(next: Self) -> Result<Self, Refusal> {
+	fn admitted(mut next: Self) -> Result<Self, Refusal> {
 		next.document()
 			.validate()
 			.map_err(|error| Refusal::plain(format!("rooms state change is invalid: {error}")))?;
+		next.reindex_publications();
 		Ok(next)
 	}
 	fn file_managed(&mut self, room: Managed) {

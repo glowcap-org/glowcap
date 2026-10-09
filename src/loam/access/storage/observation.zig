@@ -25,6 +25,7 @@ const State = struct {
     batch_index: usize = 0,
     flags: Notices = .{},
     cancelled: bool = false,
+    lifetime_checked: bool = false,
     pub const Cursor = cursors.Cursor;
     pub const Snapshot = snapshots.Snapshot;
     pub const Control = snapshots.Control;
@@ -50,6 +51,18 @@ const State = struct {
         if (store.metadata.revision != self.revision) return error.RevisionConflict;
         if (store.phase != .idle) return .waiting;
         if (self.result != null) return .ready;
+        if (!self.lifetime_checked) {
+            if (self.context.lifetime) |lifetime| {
+                const row = switch (try self.load.resolve(store, lifetime.marker)) {
+                    .read => |request| return .{ .read = request },
+                    .waiting => return .waiting,
+                    .ready => |row| row,
+                };
+                defer row.release(store);
+                if (row.view.revision != lifetime.revision) return error.ObservationClosed;
+            }
+            self.lifetime_checked = true;
+        }
         if (self.operation == null) {
             const lease = switch (try self.load.acquire(store, self.context.descriptor.?)) {
                 .read => |request| return .{ .read = request },

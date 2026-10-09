@@ -150,10 +150,7 @@ pub(crate) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 
 #[cfg(feature = "async")]
 pub(crate) fn retain_cleanup_failure(primary: Error, cleanup: Result<()>) -> Error {
-	match cleanup {
-		Ok(()) => primary,
-		Err(cleanup) => primary.with_secondary(cleanup),
-	}
+	primary.with_cleanup(cleanup)
 }
 
 impl Error {
@@ -215,6 +212,16 @@ impl Error {
 		self.detail.as_deref()
 	}
 
+	/// Identify the owning operation while preserving the code, abort,
+	/// transport cause and cleanup consequences of the original refusal.
+	pub fn with_context(mut self, operation: &str) -> Self {
+		self.detail = Some(match self.detail.take() {
+			Some(detail) => format!("{operation}: {detail}"),
+			None => operation.to_owned(),
+		});
+		self
+	}
+
 	/// The bootstrap rejected an unknown publication. Keep this exact protocol
 	/// refusal distinct from an application break or a transport failure.
 	pub fn is_publication_not_found(&self) -> bool {
@@ -236,6 +243,17 @@ impl Error {
 	/// Total consequences observed, including any beyond the bounded exact list.
 	pub fn secondary_error_count(&self) -> u32 {
 		self.secondary_count
+	}
+
+	/// Preserve this primary cause and retain a failed cleanup in the existing
+	/// bounded consequence list. Successful cleanup changes nothing. Embedding
+	/// owners use this when retiring their Host, attachment and storage together.
+	#[cfg(any(feature = "async", feature = "onion"))]
+	pub fn with_cleanup(self, cleanup: Result<()>) -> Self {
+		match cleanup {
+			Ok(()) => self,
+			Err(cleanup) => self.with_secondary(cleanup),
+		}
 	}
 
 	/// Carrier phase and neutral secure-transport detail, when the selected

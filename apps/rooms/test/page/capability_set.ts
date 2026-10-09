@@ -1,5 +1,19 @@
 import type { Page } from "playwright";
 import { fail } from "./harness.ts";
+import { OPERATIONS_CAPABILITIES } from "../../lib/boot_caps.ts";
+
+export async function savedCapabilityNames(tab: Page): Promise<string[]> {
+	const wasOpen = await tab.locator("#settingsTitle").isVisible();
+	if (!wasOpen) await tab.click("#settingsBtn");
+	await tab.click("#holdingsTab");
+	const names: string[] = [];
+	for (const name of OPERATIONS_CAPABILITIES) {
+		const id = `#ops${name[0].toUpperCase()}${name.slice(1)}Toggle`;
+		if (await tab.getAttribute(id, "aria-checked") === "true") names.push(name);
+	}
+	if (!wasOpen) await tab.click("#settingsClose");
+	return names;
+}
 
 export async function addCapability(tab: Page, toggle: string, swiss: string): Promise<void> {
 	// The value card stacks over Settings, like every other settings card:
@@ -41,14 +55,7 @@ export async function saveCapabilitySet(tab: Page): Promise<void> {
 			const button = document.querySelector<HTMLButtonElement>("#opsCapabilitySetSave");
 			return {
 				url: location.href,
-				traceOverride: (() => {
-					try {
-						return JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null")?.session
-							?.traceOverride;
-					} catch {
-						return "invalid workspace";
-					}
-				})(),
+				traceEndpoint: document.querySelector<HTMLInputElement>("#traceEndpoint")?.value ?? null,
 				label: button?.textContent?.trim() ?? "",
 				disabled: button?.disabled ?? null,
 				busy: button?.hasAttribute("data-busy") ?? null,

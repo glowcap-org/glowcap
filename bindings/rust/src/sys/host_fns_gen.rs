@@ -65,6 +65,12 @@ unsafe extern "C" {
 	) -> c_int;
 	pub fn glowcap_host_set_session_limits(host: *mut GlowcapHost, options: *const GlowcapSessionLimitOptions)
 	-> c_int;
+	pub fn glowcap_host_set_ingress_limits(
+		host: *mut GlowcapHost,
+		max_pending_turns: c_uint,
+		max_pending_bytes: c_uint,
+		max_chunk_bytes: c_uint,
+	) -> c_int;
 	pub fn glowcap_host_session_open_dialed_locator(
 		host: *mut GlowcapHost,
 		locator: *const GlowcapLocatorView,
@@ -202,6 +208,13 @@ unsafe extern "C" {
 		ctx: *mut c_void,
 		free: GlowcapHostCtxFree,
 	) -> c_int;
+	pub fn glowcap_host_spawn(
+		host: *mut GlowcapHost,
+		behavior: GlowcapHostBehavior,
+		ctx: *mut c_void,
+		free: GlowcapHostCtxFree,
+		out_ref: *mut GlowcapReference,
+	) -> c_int;
 	pub fn glowcap_host_unpublish(host: *mut GlowcapHost, name: *const c_uchar, name_len: usize) -> c_int;
 	pub fn glowcap_host_publish_durable(
 		host: *mut GlowcapHost,
@@ -210,6 +223,14 @@ unsafe extern "C" {
 		behavior: GlowcapHostBehavior,
 		ctx: *mut c_void,
 		free: GlowcapHostCtxFree,
+		out_swiss: *mut c_uchar,
+		swiss_cap: usize,
+	) -> c_int;
+	pub fn glowcap_host_publish_reference(
+		host: *mut GlowcapHost,
+		reference: *const GlowcapReference,
+		entropy: *const c_uchar,
+		entropy_len: usize,
 		out_swiss: *mut c_uchar,
 		swiss_cap: usize,
 	) -> c_int;
@@ -297,6 +318,23 @@ unsafe extern "C" {
 		args: *const GlowcapArgument,
 		args_len: usize,
 	) -> c_int;
+	pub fn glowcap_host_tell(
+		host: *mut GlowcapHost,
+		target: *const GlowcapReference,
+		verb: *const c_uchar,
+		verb_len: usize,
+		args: *const GlowcapArgument,
+		args_len: usize,
+	) -> c_int;
+	pub fn glowcap_host_send(
+		host: *mut GlowcapHost,
+		target: *const GlowcapReference,
+		verb: *const c_uchar,
+		verb_len: usize,
+		args: *const GlowcapArgument,
+		args_len: usize,
+		out_vow: *mut u64,
+	) -> c_int;
 	pub fn glowcap_host_vow_send(
 		host: *mut GlowcapHost,
 		vow: u64,
@@ -341,6 +379,7 @@ unsafe extern "C" {
 		out_reply: *mut GlowcapArgument,
 	) -> c_int;
 	pub fn glowcap_host_turn_defer(turn: *mut GlowcapHostTurn, out_resolver_id: *mut u64) -> c_int;
+	pub fn glowcap_host_turn_defer_if_answer(turn: *mut GlowcapHostTurn, out_resolver_id: *mut u64) -> c_int;
 	pub fn glowcap_host_turn_spawn(
 		turn: *mut GlowcapHostTurn,
 		behavior: GlowcapHostBehavior,

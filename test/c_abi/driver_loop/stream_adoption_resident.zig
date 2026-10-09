@@ -49,12 +49,12 @@ pub const StreamAdoptionResident = struct {
         return c.GLOWCAP_OK;
     }
 
-    pub fn read(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]u8, _: usize) callconv(.c) isize {
+    pub fn tryRead(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]u8, _: usize) callconv(.c) isize {
         return -1;
     }
 
-    pub fn writeAll(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]const u8, _: usize) callconv(.c) i32 {
-        return c.GLOWCAP_ERR_IO;
+    pub fn tryWrite(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]const u8, _: usize) callconv(.c) isize {
+        return -1;
     }
 
     pub fn closeConnection(ctx: ?*anyopaque, _: ?*anyopaque, out: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
@@ -91,8 +91,8 @@ pub const StreamAdoptionResident = struct {
             .listener_restoration_state = null,
             .accept = null,
             .listener_close = null,
-            .read = read,
-            .write_all = writeAll,
+            .try_read = tryRead,
+            .try_write = tryWrite,
             .conn_close = closeConnection,
             .conn_take_failure = takeFailure,
         };

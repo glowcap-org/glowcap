@@ -41,12 +41,12 @@ pub fn live(store: *h.loam.core.Store, backend: anytype) !void {
     const batch = try server.untilWrite(backend);
     try std.testing.expect(registration.value == null and !registration.failed);
     var active: usize = 0;
-    var names = server.host.giftables.valueIterator();
+    var names = server.host.publications.valueIterator();
     while (names.next()) |entry| if (entry.active) {
         active += 1;
     };
     try std.testing.expectEqual(@as(usize, 1), active);
-    try std.testing.expectEqual(@as(u32, 3), server.host.giftables.count());
+    try std.testing.expectEqual(@as(u32, 3), server.host.publications.count());
     try server.attached.completeWrite(batch.ticket, backend.commit(batch));
     try server.drain(backend);
     try client.pump();
@@ -117,7 +117,7 @@ pub fn live(store: *h.loam.core.Store, backend: anytype) !void {
     try client.pump();
     try std.testing.expectEqual(@as(?bool, true), close.changed);
     try std.testing.expect(blocked.failed);
-    try std.testing.expectEqual(@as(u32, 1), server.host.giftables.count());
+    try std.testing.expectEqual(@as(u32, 1), server.host.publications.count());
     const cancelled_revision = store.metadata.revision;
     var again: h.Answer = .{};
     try client.send(canceller, "cancel", &.{}, &again);
@@ -131,6 +131,28 @@ pub fn live(store: *h.loam.core.Store, backend: anytype) !void {
     try client.pump();
     try std.testing.expect(retired.failed);
     try std.testing.expectEqual(cancelled_revision, store.metadata.revision);
+    // A freshly opened paused viewer must discover its exact receipt sequence
+    // and register observation without invoking content or widening access.
+    var next: d.Capture = .{ .arena = arena };
+    try client.send(client.parent, "mutation-sequence", &.{}, &next);
+    try server.drain(backend);
+    try client.pump();
+    const sequence = (try next.require()).integer;
+    var reopened: d.Capture = .{ .arena = arena };
+    try client.send(client.parent, "mutate", &.{ .{ .integer = sequence }, .{ .string = "observe" } }, &reopened);
+    try server.drain(backend);
+    try client.pump();
+    const fronts = try @import("observation_fixture.zig").Fronts.from(try reopened.require());
+    var paused: d.Capture = .{ .arena = arena };
+    try client.send(fronts.receiver, "poll", &.{}, &paused);
+    try server.drain(backend);
+    try client.pump();
+    _ = try response(try paused.require(), "paused", true);
+    var cancelled: h.Answer = .{};
+    try client.send(fronts.canceller, "cancel", &.{}, &cancelled);
+    try server.drain(backend);
+    try client.pump();
+    try std.testing.expectEqual(@as(?bool, true), cancelled.changed);
 }
 
 pub fn fanout(store: *h.loam.core.Store, backend: anytype) !void {

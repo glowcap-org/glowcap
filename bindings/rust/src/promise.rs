@@ -22,9 +22,7 @@ pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64, track_gc:
 	let _release = crate::gc::VowGuard::new(&shared.host, vow);
 	shared.attend_inbound()?;
 	shared.host.vow_minted(vow, track_gc.then_some(shared));
-	let settled = shared.host.await_vow(vow);
-	shared.host.kick_actions().await?;
-	settled.await
+	shared.host.observe_vow(vow).await
 }
 
 /// The one mint/await/classify body under `fetch` and `enliven`: mint the
@@ -455,9 +453,7 @@ impl IntoFuture for RemotePromise {
 					// synchronously (the row already exists — the mint was the
 					// registration), then the kick puts the queued batch on the
 					// wire and routes any already-arrived outcome.
-					let settled = self.session.host.await_vow(vow);
-					self.session.host.kick_actions().await?;
-					settled.await
+					self.session.host.observe_vow(vow).await
 				}
 			}
 		})

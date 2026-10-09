@@ -29,8 +29,11 @@ pub const Terms = struct {
     }
 
     pub fn validate(self: Terms, graph: *ResourceView, policy: *const Policy) Error!void {
-        try self.scope.validate(graph);
         try policy.validate(self.policy);
+        var supported: u64 = 0;
+        var selected = self.scope.targets(graph);
+        while (try selected.next()) |resource| supported |= try policy.supported(resource.kind, self.scope == .owned_subtree);
+        if (self.policy.permissions & ~supported != 0) return error.InapplicablePermission;
     }
 
     pub fn isSubsetOf(self: Terms, graph: *ResourceView, policy: *const Policy, parent: Terms) Error!bool {

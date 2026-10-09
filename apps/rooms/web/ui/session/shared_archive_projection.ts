@@ -5,6 +5,7 @@ import type { Item } from "../types.ts";
 import type { ArchiveLine, ArchiveRecord } from "../../../lib/archive/protocol.ts";
 import { archivedAttachmentsMatch, archivedAttachmentViews } from "../archive_attachments.ts";
 import { sharedArchiveDivider, sharedArchiveStanding } from "../../../lib/text/attached.ts";
+import type { AttachedSessionFiles, FileDescription, HeldFile } from "./attached_files.ts";
 
 const samePreviews = (current: readonly string[] | undefined, next: readonly string[]) =>
 	(current?.length ?? 0) === next.length && next.every((url, index) => current?.[index] === url);
@@ -17,6 +18,8 @@ export function reconcileSharedArchive(
 	key: string,
 	records: readonly ArchiveRecord[],
 	from: string,
+	files?: Pick<AttachedSessionFiles<FileDescription>, "holdArchived" | "adoptArchived" | "release">,
+	source?: (record: ArchiveLine, index: number) => HeldFile | null,
 ): void {
 	const groups = new Map<string, {
 		source: string;
@@ -55,6 +58,7 @@ export function reconcileSharedArchive(
 				// The account's takedown reaches a line it showed earlier; a line it
 				// never showed stays unshown.
 				if (current != null && current.withdrawn !== true) {
+					files?.release(current.attachments ?? []);
 					store.reviseItem(page.projection, key, current.id, {
 						at: record.at,
 						text: "",
@@ -76,9 +80,12 @@ export function reconcileSharedArchive(
 				!samePreviews(current.previewUrls, record.previewUrls) || attachmentsChanged ||
 				current.withdrawn === true
 			) {
+				if (attachmentsChanged) files?.release(current.attachments ?? []);
 				const attachments = attachmentsChanged
-					? archivedAttachmentViews(record.attachments).map((attachment) =>
-						store.attachmentView(page.projection, attachment)
+					? record.attachments.map((attachment, index) =>
+						files == null
+							? store.attachmentView(page.projection, archivedAttachmentViews([attachment])[0])
+							: files.holdArchived(record, index, source)
 					)
 					: null;
 				store.reviseItem(page.projection, key, current.id, {
@@ -91,6 +98,11 @@ export function reconcileSharedArchive(
 					previewUrls: record.previewUrls.length === 0 ? undefined : record.previewUrls,
 					...(attachments == null ? {} : { attachments: attachments.length === 0 ? undefined : attachments }),
 				});
+			}
+			if (!attachmentsChanged && files != null) {
+				for (let index = 0; index < (current.attachments?.length ?? 0); index++) {
+					files.adoptArchived(key, current.attachments![index].id, record, index, source);
+				}
 			}
 		}
 		if (
@@ -109,7 +121,9 @@ export function reconcileSharedArchive(
 					history: { source: record.source, generation: record.generation, id: record.id },
 					edited: record.state === "edited",
 					previewUrls: record.previewUrls,
-					attachments: archivedAttachmentViews(record.attachments),
+					attachments: files == null
+						? archivedAttachmentViews(record.attachments)
+						: record.attachments.map((_attachment, index) => files.holdArchived(record, index, source)),
 				})),
 				divider,
 				group,

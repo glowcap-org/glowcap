@@ -14,6 +14,19 @@ use rooms_application::{
 use rooms_glowcap::Value;
 use std::{cell::Cell, rc::Rc};
 
+/// Own the two-element post reply until CapTP consumes it. The notification ID
+/// and line capability must settle together so a sender can acquire exact edit
+/// authority without correlating callback arrival or text. One fixed list spine
+/// carries a scalar ID and moves the existing capability occurrence; neither
+/// payload nor capability custody is copied. Text and file posts share it.
+pub(super) fn posted_reply(state: &State, key: LineKey, actor: glowcap::Ref) -> Argument {
+	let id = state
+		.rooms
+		.line_id(key)
+		.expect("published line owns its notification identity");
+	Argument::List(vec![(id.get() as i64).into(), Argument::Reference(actor)])
+}
+
 /// The line capability `post` answers: `edit`, `refile`, and `withdraw`.
 pub(super) fn line(
 	shared: Shared,

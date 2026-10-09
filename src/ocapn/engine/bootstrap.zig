@@ -23,10 +23,10 @@ pub const FetchRequest = struct {
 };
 
 /// Session-stamped context borrowed by the composition during fetch admission.
+/// The composition sees only names the session's own publications missed.
 pub const FetchContext = struct {
     swissnum: []const u8,
     answer: session_mod.AnswerTarget,
-    session_fallback: ?model.ExportPosition,
 };
 pub const FetchOutcome = union(enum) {
     found: model.ExportPosition,
@@ -176,14 +176,17 @@ pub fn resolveForSwissnum(
     scope: ?PeerHandle,
     request: FetchRequest,
 ) !?model.Resolution {
-    const fallback = session.bootstrapLookup(request.swissnum);
-    const outcome: FetchOutcome = if (local_projection) |p|
+    // The session's own publication answers first, so no publication made
+    // outside the session can take over a name inside it.
+    const outcome: FetchOutcome = if (session.bootstrapLookup(request.swissnum)) |position|
+        .{ .found = position }
+    else if (local_projection) |p|
         try p.resolve_fetch(p.ctx, scope orelse return session_mod.Error.InvalidGift, .{
             .swissnum = request.swissnum,
             .answer = session.answerTargetNamed(request.answer) orelse return error.InvalidReference,
-            .session_fallback = fallback,
         })
-    else if (fallback) |position| .{ .found = position } else .missing;
+    else
+        .missing;
     return switch (outcome) {
         .found => |position| .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = position } } } },
         .deferred => null,

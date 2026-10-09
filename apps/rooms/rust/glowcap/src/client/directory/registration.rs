@@ -14,8 +14,6 @@ mod registry;
 pub(crate) use registry::Registry;
 
 struct Inbox {
-	ack: Option<Result<Grant, policy::Error>>,
-	ack_waiter: Option<Waker>,
 	events: policy::Events,
 	event_waiter: Option<Waker>,
 }
@@ -93,11 +91,12 @@ impl<D: Deadline> Directory<D> {
 			.await?;
 		Ok(())
 	}
-	pub async fn offer_inbox(&self, peer: &str, id: &Id, inbox: &Ref) -> Result<(), Error> {
+	pub async fn offer_inbox(&self, peer: &str, id: &Id, opening: &str, inbox: &Ref) -> Result<(), Error> {
 		let pending = {
 			let args = [
 				Argument::String(peer.into()),
 				Argument::String(id.as_str().into()),
+				Argument::String(opening.into()),
 				inbox.clone().into(),
 			];
 			self.client.call(
@@ -258,14 +257,11 @@ async fn attempt<D: Deadline>(
 		voucher,
 	} = request;
 	let inbox = Rc::new(RefCell::new(Inbox {
-		ack: None,
-		ack_waiter: None,
 		events: Default::default(),
 		event_waiter: None,
 	}));
 	let weak = Rc::downgrade(&inbox);
 	let owner = state.clone();
-	let expected_nick = nick.clone();
 	let root = client.session.spawn_owned(move |verb, args| {
 		let state = owner.upgrade().ok_or("the name registration has ended")?;
 		if state.borrow().custody.ended() {
@@ -276,28 +272,21 @@ async fn attempt<D: Deadline>(
 		if let Some(Notice::Event(event)) = &notice
 			&& event.kind == policy::Kind::Introducible
 		{
-			notifications.notify(&event.registration);
+			notifications.notify(
+				&event.registration,
+				event
+					.opening
+					.as_ref()
+					.expect("validated opening")
+					.text()
+					.as_str()
+					.expect("opening text"),
+			);
 		}
 		let (waiter, result) = {
 			let mut i = inbox.borrow_mut();
 			match notice {
-				Some(Notice::Registered { nick, id }) => {
-					if i.ack.is_none() {
-						i.ack = Some(
-							if allocation == NicknameAllocation::Exact
-								&& nick.text().as_str() != Some(expected_nick.as_str())
-							{
-								Err(policy::Error::Grant)
-							} else {
-								Ok(Grant { nick, id })
-							},
-						)
-					}
-					(
-						i.ack_waiter.take(),
-						i.ack.as_ref().expect("filed acknowledgement").clone().map(|_| ()),
-					)
-				}
+				Some(Notice::Registered { .. }) => (None, Ok(())),
 				Some(Notice::Event(event)) => {
 					let result = i.events.push(event);
 					(i.event_waiter.take(), result)
@@ -311,80 +300,51 @@ async fn attempt<D: Deadline>(
 		result.map_err(|e| e.to_string())?;
 		Ok(Argument::Void)
 	})?;
-	let reply = {
-		let mut args = vec![nick.into(), locator.into(), root.clone().into()];
-		if allocation == NicknameAllocation::Automatic {
-			args.push(Argument::String(allocation.wire().into()));
-		}
-		if let Some(voucher) = voucher {
-			args.push(Argument::Bytes(voucher));
-		}
-		client.call(
-			directory,
-			policy::REGISTER,
-			&args,
-			"the directory did not answer with a name capability",
-		)
-	};
-	let acknowledgement = client.deadline.within(
-		policy::ACK_MS,
-		poll_fn(|cx| {
-			let mut i = inbox.borrow_mut();
-			if let Some(grant) = &i.ack {
-				Poll::Ready(grant.clone())
-			} else {
-				i.ack_waiter = Some(cx.waker().clone());
-				Poll::Pending
-			}
-		}),
+	let expected_nick = nick.clone();
+	let mut args = vec![nick.into(), locator.into(), root.clone().into()];
+	if allocation == NicknameAllocation::Automatic {
+		args.push(Argument::String(allocation.wire().into()));
+	}
+	if let Some(voucher) = voucher {
+		args.push(Argument::Bytes(voucher));
+	}
+	let reply = client.call(
+		directory,
+		policy::REGISTER,
+		&args,
+		"the directory did not answer with a committed registration",
 	);
-	let (mut reply, mut acknowledgement) = (std::pin::pin!(reply), std::pin::pin!(acknowledgement));
+	let mut reply = std::pin::pin!(reply);
 	let mut closed = std::pin::pin!(client.session.closed());
-	let (mut accepted, mut ack) = (false, None);
-	poll_fn(|cx| {
+	let reply = poll_fn(|cx| {
 		if closed.as_mut().poll(cx).is_ready() {
 			return Poll::Ready(Err(policy::Error::Ended.into()));
 		}
-		// Poll the acknowledgement clock from the first turn, independently of
-		// when the capability reply becomes observable.
-		if ack.is_none()
-			&& let Poll::Ready(result) = acknowledgement.as_mut().poll(cx)
-		{
-			ack = Some(match result {
-				Some(result) => result.map_err(Error::from),
-				None => Err(Error::Timeout("the directory did not acknowledge registration")),
-			});
-		}
-		if !accepted {
-			match reply.as_mut().poll(cx) {
-				Poll::Ready(Ok(reply)) => {
-					let Argument::Reference(reference) = reply.0 else {
-						return Poll::Ready(Err(policy::Error::Name.into()));
-					};
-					let Some(state) = state.upgrade() else {
-						return Poll::Ready(Err(policy::Error::Ended.into()));
-					};
-					let result = state.borrow_mut().custody.replace(Name {
-						reference,
-						inbox: inbox.clone(),
-						_root: root.clone(),
-					});
-					if let Err(error) = result {
-						return Poll::Ready(Err(error.into()));
-					}
-					admission.committed();
-					accepted = true;
-				}
-				Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-				Poll::Pending => {}
-			}
-		}
-		if accepted && let Some(result) = ack.take() {
-			return Poll::Ready(result);
-		}
-		Poll::Pending
+		reply.as_mut().poll(cx)
 	})
-	.await
+	.await?;
+	let Some([nick, id, Argument::Reference(reference)]) = reply.0.as_list() else {
+		return Err(policy::Error::Name.into());
+	};
+	let nick = nick
+		.as_str()
+		.filter(|nick| rooms_application::room::inbox::valid_nick(nick))
+		.ok_or(policy::Error::Peer)?;
+	if allocation == NicknameAllocation::Exact && nick != expected_nick {
+		return Err(policy::Error::Grant.into());
+	}
+	let grant = Grant {
+		nick: Text::new(nick.into()).ok_or(policy::Error::Peer)?,
+		id: Id::parse(id.as_str().unwrap_or(""))?,
+	};
+	let state = state.upgrade().ok_or(policy::Error::Ended)?;
+	state.borrow_mut().custody.replace(Name {
+		reference: reference.clone(),
+		inbox,
+		_root: root,
+	})?;
+	admission.committed();
+	Ok(grant)
 }
 fn close(state: &Rc<RefCell<State>>) {
 	let (waiter, event_waiter) = {

@@ -419,14 +419,11 @@ pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []
 /// this ceiling is a design event that raises the budget here and in
 /// `docs/ladder.md` step 2 together, with the bytes justified, never a check to
 /// route around.
-/// 464 rose to 496 for ADR-0097's per-session signing seed: 32 bytes of key
-/// material that is per-session state by definition. The session-minted
-/// outbound high-water adds one machine word, and the resumable local-turn
-/// epoch adds one optional word. ADR-0107's sealed-channel pointer adds the
-/// eight bytes that record budgets explicitly — the channel itself is boxed
-/// and paid only by sealed sessions — bringing the shell to 528 bytes: about
-/// 4 MiB across the 500,000-session target, and 0.5% of its warmed 2 KiB
-/// budget.
+/// The shell holds per-session identity, lifecycle, and Port state. Answer
+/// notification consumption lives on existing Session rows. The Port keeps
+/// one answer cutoff for bulk breaks. Its indexed listener map costs 16 bytes
+/// more than a hash map header and supports O(1) removal during a cancellable
+/// bulk drain. No completed-answer map is retained.
 pub const host_session_struct_budget_bytes = 528;
 comptime {
     if (@sizeOf(HostSession) > host_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(

@@ -50,7 +50,7 @@ def _wait_for_native_call(owner, label: str) -> None:
 
 async def _send_redeeming_surfaces_the_direct_exporter() -> None:
     """A three-party handoff with glowcap as all three parties, over loopback:
-    the exporter (Bob) publishes a host-wide giftable inbox, the broker holds it
+    the exporter (Bob) publishes a Host publication inbox, the broker holds it
     and introduces members to it, and the recipient (Carol) asks for an
     introduction with ``send_redeeming``.
 
@@ -81,7 +81,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
                 return Forward(args[1], "note", [f"bob got {args[0]}"])
             return None
 
-        bob.host.publish_giftable("dm", dm)
+        bob.host.publish("dm", dm)
 
         async def accept_all(server) -> None:
             async for session in server:
@@ -90,7 +90,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         accepting.append(asyncio.ensure_future(accept_all(bob)))
         accepting.append(asyncio.ensure_future(accept_all(broker)))
 
-        # The broker dials Bob under its own identity and fetches his giftable
+        # The broker dials Bob under its own identity and fetches his Host publication
         # inbox; returning that ref into a *different* session is what trips
         # the transparent gifter.
         broker_to_bob = await tcp_connect(tcp.locator("127.0.0.1", bob.port), host=broker.host)
@@ -101,12 +101,12 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         # must retain the exact inbox the broker holds, not whatever the name
         # resolves to at withdrawal (ADR-0096, on the binding path).
         decoy_delivered: list = []
-        bob.host.publish_giftable(
+        bob.host.publish(
             "dm",
             lambda verb, args: (decoy_delivered.append(args[0]) if verb == "dm" else None),
         )
 
-        broker.host.publish_giftable(
+        broker.host.publish(
             "introducer",
             lambda verb, args: bob_dm if verb == "introduce" else "no capability here",
         )
@@ -311,7 +311,7 @@ def _loop_archive_stepping_parity() -> None:
         try:
             server = DriverLoop.open(wire_buffer_bytes=1024, max_pending_opens=8)
             asyncio.run(tcp.provider().install(server))
-            server.wrapper_host().publish_giftable("widget", lambda verb, args: "poked through the loop tier")
+            server.wrapper_host().publish("widget", lambda verb, args: "poked through the loop tier")
             listener = server.listen("tcp", "127.0.0.1:0")
             while not listener.ready and listener.failure is None:
                 server.step(20)

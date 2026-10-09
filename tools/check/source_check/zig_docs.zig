@@ -292,7 +292,7 @@ pub fn checkMemoryLedgerSymbolClaims(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    for ([_][]const u8{ ".agents/skills/memory-ledger/SKILL.md", ".agents/skills/memory-ledger/references/loam.md" }) |path| {
+    for ([_][]const u8{ ".agents/skills/memory-ledger/SKILL.md", ".agents/skills/memory-ledger/references/loam.md", ".agents/skills/memory-ledger/references/rooms.md" }) |path| {
         try checkMemoryLedgerFile(io, gpa, root, violations, path);
     }
 }

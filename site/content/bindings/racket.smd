@@ -201,7 +201,7 @@ survives a restart; iroh binds a node id instead of a host and port.
 From here, the CapTP workflow is the same for every transport:
 
 ```scheme
-(host-publish-giftable host "greeter"
+(host-publish host "greeter"
   (methods [(greet who)
             (format "Hello, ~a" who)]))
 (let loop ()

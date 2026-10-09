@@ -164,7 +164,10 @@ test "a served behavior defers its answer onto a resolver vow; the partner hears
     // test body, which settles it later from the top level.
     const Deferring = struct {
         resolver: u64 = 0,
-        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+            return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
+        }
+        fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             _ = msg;
             const minted = try turn.vat.spawnVow();
@@ -236,7 +239,10 @@ test "a settle from inside a turn refuses, and the refusal crosses the wire as t
     // turn: the settle must refuse (the listener could open a nested drive
     // mid-turn), and returning the error breaks the answer with its name.
     const Impatient = struct {
-        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+            return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
+        }
+        fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
             _ = ctx;
             _ = msg;
             const minted = try turn.vat.spawnVow();
@@ -285,7 +291,10 @@ test "forwardVow refuses a local frame, and an unsettled deferral leaks nothing 
         var vat = actors.Vat.init(allocator);
         defer vat.deinit();
         const Local = struct {
-            fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+            fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+                return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
+            }
+            fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
                 _ = ctx;
                 _ = msg;
                 const minted = try turn.vat.spawnVow();
@@ -310,7 +319,10 @@ test "forwardVow refuses a local frame, and an unsettled deferral leaks nothing 
         defer host_port.deinit(&host_vat);
 
         const Deferring = struct {
-            fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+            fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+                return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
+            }
+            fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
                 _ = ctx;
                 _ = msg;
                 const minted = try turn.vat.spawnVow();
@@ -377,6 +389,112 @@ test "forwardVow checks vows that are settled or already observed" {
     };
     try std.testing.expectError(actors.Error.AlreadyListening, observed_turn.forwardVow(observed.vow));
     try std.testing.expect(!observed_turn.forwarded);
+}
+
+test "a failed turn retracts forwarding to an existing vow" {
+    try forwardingFailure(std.testing.allocator);
+}
+
+test "forwardVow allocation refusal leaves the source unobserved" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, forwardingFailure, .{});
+}
+
+const ForwardThenFail = struct {
+    vow: actors.Vow,
+    pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+        try turn.forwardVow(self.vow);
+        return error.Refused;
+    }
+};
+
+fn forwardingFailure(allocator: std.mem.Allocator) !void {
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    const source = try vat.spawnVow();
+    const actor = try vat.spawn(ForwardThenFail, .{ .vow = source.vow });
+    const result = try vat.send(actor, .{ .verb = "fail" });
+    var captured = Capture{};
+    try vat.on(result, .{ .ctx = &captured, .func = Capture.listener });
+    try vat.drive();
+    try std.testing.expect(captured.broke);
+    try std.testing.expect(!vat.listeners.contains(source.vow.local));
+    if (std.mem.eql(u8, "OutOfMemory", captured.buf[0..captured.len])) return error.OutOfMemory;
+    try std.testing.expectEqualStrings("Refused", captured.buf[0..captured.len]);
+    // The source still has independent settlement authority. Its next observer
+    // must not inherit the failed turn's forwarding continuation.
+    var later = Capture{};
+    try vat.on(source.vow, .{ .ctx = &later, .func = Capture.listener });
+    try vat.fulfillVow(source.resolver, .{ .bytes = "independent" });
+    try std.testing.expect(later.fulfilled);
+    try std.testing.expect(!captured.fulfilled);
+    try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
+    try std.testing.expectEqual(@as(usize, 0), vat.listeners.count());
+}
+
+test "a failed served turn retracts local and far forwarding without a second reply" {
+    const engine = glowcap.ocapn.engine;
+    const allocator = std.testing.allocator;
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        for ([_]bool{ false, true }) |far| {
+            var pair = switch (profile) {
+                .v1_0 => try engine.pairing.pairedV1_0Syrup(allocator),
+                .next => try engine.pairing.paired(allocator),
+            };
+            defer pair.deinit();
+            var host = actors.Vat.init(allocator);
+            defer host.deinit();
+            var host_port = actors.Port.init(allocator, &pair.p1);
+            defer host_port.deinit(&host);
+            var caller = actors.Vat.init(allocator);
+            defer caller.deinit();
+            var caller_port = actors.Port.init(allocator, &pair.p2);
+            defer caller_port.deinit(&caller);
+            const Echo = struct {
+                pub fn handle(_: *@This(), _: *Turn, _: Message) !model.Argument {
+                    return .{ .bytes = "independent" };
+                }
+            };
+            const echo = try caller.spawn(Echo, .{});
+            try caller_port.bindExport(&caller, echo, 7);
+            try pair.p2.exportObject(7);
+            try pair.p1.importObject(7);
+            const local = if (far) null else try host.spawnVow();
+            const source = if (local) |held| held.vow else try host_port.send(&host, .{
+                .far = model.FarRef.object(7),
+            }, .{ .verb = "source" });
+            const worker = try host.spawn(ForwardThenFail, .{ .vow = source });
+            try host_port.bindExport(&host, worker, 5);
+            try pair.p1.exportObject(5);
+            try pair.p2.importObject(5);
+            const result = try caller_port.send(&caller, .{ .far = model.FarRef.object(5) }, .{ .verb = "fail" });
+            var captured = Capture{};
+            try caller_port.on(&caller, result, .{ .ctx = &captured, .func = Capture.listener });
+            try cross_peer.pumpAll(&pair.p2, &pair.p1);
+            try servePending(&host_port, &host);
+            var later = Capture{};
+            try host_port.on(&host, source, .{ .ctx = &later, .func = Capture.listener });
+            if (local) |held| try host.fulfillVow(held.resolver, .{ .bytes = "independent" });
+            try cross_peer.pumpAll(&pair.p1, &pair.p2);
+            try servePending(&caller_port, &caller);
+            try cross_peer.pumpAll(&pair.p2, &pair.p1);
+            try servePending(&host_port, &host);
+            try std.testing.expect(captured.broke and !captured.fulfilled);
+            try std.testing.expectEqualStrings("Refused", captured.buf[0..captured.len]);
+            try std.testing.expect(later.fulfilled and !later.broke);
+            try std.testing.expectEqualStrings("independent", later.buf[0..later.len]);
+            try std.testing.expect(pair.p1.sessionIsOpen() and pair.p2.sessionIsOpen());
+            try std.testing.expectEqual(@as(usize, 0), host.listeners.count());
+            try std.testing.expectEqual(@as(usize, 0), host_port.far_listeners.count());
+        }
+    }
+}
+
+fn servePending(port: *actors.Port, vat: *actors.Vat) !void {
+    while (port.peer.pollEvent()) |event| {
+        var owned = event;
+        defer owned.deinit();
+        _ = try port.serve(vat, &owned);
+    }
 }
 
 test "a queued local answer can defer and preserves a dynamic break across listener reentry" {

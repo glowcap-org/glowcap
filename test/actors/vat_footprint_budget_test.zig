@@ -70,6 +70,10 @@ test "a burst-drained vat releases its burst capacity back under the steady boun
     // bounds is freed and only the one steady spare is retained.
     try std.testing.expect(vat.spare_chunk != null);
     const spare = vat.spare_chunk.?;
+    if (@sizeOf(usize) == 8) {
+        try std.testing.expectEqual(@as(usize, 72), @sizeOf(@TypeOf(spare.items[0])));
+        try std.testing.expectEqual(@as(usize, 56), spare.items.len);
+    }
     // One Vat-wide spare replaces the old queue list and monolithic arena. Its
     // fixed row array stays within one steady-list page plus a small header, and
     // its payload arena retains at most the declared Vat-wide spare bound. No

@@ -282,6 +282,8 @@
 ;; create behavior can settle its answer. The refusal must remain the Session's
 ;; one terminal result through serve and every close observer.
 (define qs-host (make-fresh-host))
+(host-set-ingress-limits! qs-host #:max-pending-turns 4096
+                         #:max-pending-bytes (* 1024 1024) #:max-chunk-bytes (* 128 1024))
 (host-set-session-limits! qs-host #:queue-cap 1 #:max-retained-sent-answer-bytes (* 8 1024 1024))
 (define qs-server (listen "127.0.0.1" 0 #:host qs-host))
 (define qs-ready (make-semaphore 0))
@@ -292,7 +294,7 @@
   (thread
    (lambda ()
      (define hsession (accept qs-server))
-     (host-publish-giftable
+     (host-publish
       (session-host hsession) "root"
       (lambda (method . _args)
         (unless (eq? method 'create) (error 'queue-saturation "unexpected method"))

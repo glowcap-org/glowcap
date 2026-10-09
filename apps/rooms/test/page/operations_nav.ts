@@ -4,7 +4,7 @@
 // proof and its whole-capability-set cleanup remain one readable subject.
 
 import type { Page } from "playwright";
-import { saveCapabilitySet } from "./capability_set.ts";
+import { saveCapabilitySet, savedCapabilityNames } from "./capability_set.ts";
 import { fail } from "./harness.ts";
 
 export interface OperationSecrets {
@@ -43,7 +43,7 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 			fail(`${label} did not survive the text-to-controls capability bundle switch`);
 		}
 	}
-	await tab.click('#opsCapabilitySetForm button[type="submit"]');
+	await saveCapabilitySet(tab);
 	for (const [toggle] of capabilities) {
 		await tab.waitForFunction(
 			(id) => document.querySelector(id)?.getAttribute("aria-checked") === "true",
@@ -51,14 +51,9 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 			{ timeout: 15_000 },
 		).catch(() => fail(`${toggle} did not retain its capability`));
 	}
-	await tab.waitForFunction(
-		() => {
-			const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
-			return state?.session?.capabilities?.operations?.length === 6;
-		},
-		undefined,
-		{ timeout: 10_000 },
-	).catch(() => fail("the complete capability set did not enter the session capability vault"));
+	if ((await savedCapabilityNames(tab)).length !== capabilities.length) {
+		fail("the complete capability set was not retained");
+	}
 	await tab.waitForFunction(() => {
 		const layer = document.querySelector<HTMLDialogElement>("dialog.modal[open]");
 		return layer !== null && getComputedStyle(layer).opacity === "1";
@@ -159,10 +154,9 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 		).catch(() => fail(`${toggle} did not release its capability`));
 	}
 	await saveCapabilitySet(tab);
-	await tab.waitForFunction(() => {
-		const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
-		return state?.session?.capabilities?.operations?.length === 0;
-	}).catch(() => fail("dropping the capability set left authority in the session vault"));
+	if ((await savedCapabilityNames(tab)).length !== 0) {
+		fail("dropping the capability set left saved authority selections");
+	}
 	await tab.waitForSelector("#opsBtn", { state: "detached" });
 	await tab.click("#settingsClose");
 }

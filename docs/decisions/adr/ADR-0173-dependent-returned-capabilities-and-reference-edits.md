@@ -7,7 +7,7 @@ decision: "A managed method can return a runtime facet that admits every call th
 supersedes: []
 superseded_by: []
 amends: [ADR-0169, ADR-0172]
-amended_by: [ADR-0182]
+amended_by: [ADR-0182, ADR-0205]
 ---
 
 # ADR-0173 Dependent returned capabilities and reference edits

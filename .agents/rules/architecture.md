@@ -34,6 +34,10 @@ fits no layer goes to the layer that owns the decision, not the layer where the
 symptom appeared. Export positions are minted only by `Peer.exportNextObject`;
 the C Host exposes opaque identities, never positions.
 
+Treat a named design pattern as a candidate when a request presents it as an
+example: derive the improvement from the actual code and constraints, then
+choose the smallest structure that earns its complexity.
+
 ## The core stays sync and no-I/O
 
 - Protocol modules take no sockets, scheduler, background tasks, `std.Io`, or

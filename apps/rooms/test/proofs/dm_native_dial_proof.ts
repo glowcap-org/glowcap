@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // A native peer direct-messages a browser member by cold-dial rendezvous, end
 // to end (ADR-0088 capability 5, the native-dialer row). The browser tab opens
 // no listening socket, so it cannot be dialed the ordinary way: it registers
@@ -36,11 +37,10 @@ import * as tcp from "@glowcap/tcp";
 import { dial, roomsHost } from "../../lib/locator.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../../lib/room/client.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { awaitBubble, fail, openDmTo, until } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi web-bob, from a native peer that cold-dialed your identity";
@@ -82,7 +82,7 @@ const roomPort = freePort();
 
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`), so the proof needs no cargo.
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",
@@ -133,9 +133,10 @@ try {
 
 	// Cold-dial: opening the DM redeems the room's introduction, and the Host
 	// dials web-bob's identity through the relay rendezvous, off-room. The
-	// noise-relay session opens native-to-tab; her line lands on the tab's giftable.
+	// noise-relay session opens native-to-tab; her line lands on the tab's Host publication.
 	const replies: string[] = [];
 	const line = await DirectMessage.open(carol, "web-bob", {
+		ready: (session, reply) => session.release(reply),
 		message: (text) => {
 			replies.push(text);
 			return null;

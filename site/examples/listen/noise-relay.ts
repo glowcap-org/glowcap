@@ -19,7 +19,7 @@ function greeter(verb: string, args: Argument[]): string {
 	return `Hello, ${args[0]}`;
 }
 
-server.host.publishGiftable("greeter", greeter);
+server.host.publish("greeter", greeter);
 for await (const accepted of server) {
 	await using session = accepted;
 	await session.serve();

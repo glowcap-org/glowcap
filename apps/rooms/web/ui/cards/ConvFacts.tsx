@@ -10,8 +10,7 @@
 // Capabilities tab.
 
 import { type Conv, conversationCarries, conversationTakesFiles, type DirView, membersHere } from "../types.ts";
-import { useConversationMembers, useRoomsPage } from "../hooks.ts";
-import { roomBearer } from "../session/bearer.ts";
+import { useConversationMembers, useRoomBearer } from "../hooks.ts";
 import { conversationReach, dirConnection } from "../text.ts";
 import { roomLinkTitle } from "../../../lib/text/room_authority.ts";
 import {
@@ -45,6 +44,7 @@ import {
 } from "../../../lib/text/conversation.ts";
 import { grantedNameSaid } from "./DirectoryFacts.tsx";
 import { dmMode } from "../prefs.ts";
+import { useManagedSession } from "../session/managed/context.tsx";
 import { CopyField } from "../Copy.tsx";
 import { Button } from "../Button.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
@@ -60,10 +60,6 @@ function lineSaid(line: "introducing" | "live" | "closed"): string {
 	return factLineNotOpen;
 }
 
-function dmPath(): string {
-	return dmMode() === "relay" ? factDmRelay : factDmDirect;
-}
-
 export function ConvFacts(
 	{ conv, dir, directory, bridgeOrigin = null }: {
 		conv: Conv;
@@ -73,13 +69,14 @@ export function ConvFacts(
 	},
 ) {
 	const browser = useRoomsBrowser();
+	const managed = useManagedSession();
 	const rooms = useRoomsSession();
 	const roster = useConversationMembers(conv.type === "room" ? conv.key : null);
 	const phase = dir?.session;
 	const connection = dir == null ? null : dirConnection(dir.session, dir.statusText);
 	const here = conv.type === "room" ? membersHere(roster) : 0;
-	const page = useRoomsPage();
-	const roomLink = conv.type === "room" && conv.held ? roomBearer(page, conv, "link") ?? undefined : undefined;
+	const bearer = useRoomBearer(conv.type === "room" && conv.held ? conv : null, "link");
+	const roomLink = bearer ?? undefined;
 	const locator = roomLink ?? (dir === null ? null : rooms.dirAddress(dir.id));
 	const locatorKind = roomLink === undefined ? factDirectoryLocator : roomLinkTitle;
 	const locatorLabel = roomLink === undefined ? factCopyLocatorFor(directory) : factCopyRoomLink;
@@ -163,7 +160,7 @@ export function ConvFacts(
 						<dt>{factLine}</dt>
 						<dd>{lineSaid(conv.line)}</dd>
 						<dt>{factPath}</dt>
-						<dd>{dmPath()}</dd>
+						<dd>{dmMode(managed.current?.intent.connection) === "relay" ? factDmRelay : factDmDirect}</dd>
 					</>
 				)}
 			</dl>

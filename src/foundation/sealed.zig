@@ -2,14 +2,12 @@
 //! machine driven over a byte stream, with the record framing, the prologue,
 //! and the identity payload the record specifies.
 //!
-//! It lives in `foundation` for the same reason `foundation.Spill` does: both
-//! stream tiers need one and neither imports the other. The byte-fed host
-//! core boxes one per sealed `HostSession` and runs it inside `Host.feedBytes`
-//! and `HostSession.takeTransportOutbound`; the completion-loop tier composes
-//! the same machine inside a sealing completion-backend adapter
-//! (`net.noise_completion`), which finishes the handshake before the loop
-//! ever sees the connection open. One channel type, one authority for channel
-//! state per connection, two thin owners.
+//! It lives in `foundation` because the record framing is codec- and
+//! transport-neutral bytes, below every layer that owns a session. The
+//! byte-fed host core boxes one per sealed `HostSession` and runs it inside `Host.feedBytes`
+//! and `HostSession.takeTransportOutbound`, so every transport resident carries
+//! sealed bytes unchanged. One channel type, one authority for channel state
+//! per connection.
 //!
 //! The channel is byte-stream in, byte-stream out. What rides inside the
 //! sealed records is exactly the plaintext stream an unsealed byte pipe
@@ -80,10 +78,8 @@ pub const SealedError = error{
 
 /// One connection's sealed channel: the handshake while it runs, the two
 /// transport ciphers after `open`, the inbound wire staging, and the one
-/// pending outbound handshake message. Owned by exactly one shell per tier —
-/// a `HostSession`'s nullable boxed pointer on the byte-fed tier, a sealing
-/// completion adapter's per-connection state on the loop tier — and freed by
-/// `deinit`.
+/// pending outbound handshake message. Owned by exactly one shell — a
+/// `HostSession`'s nullable boxed pointer — and freed by `deinit`.
 ///
 /// Cost derivation (the memory rule's ledger points here): the struct is a
 /// few hundred bytes and exists only for sealed connections. Normal ingestion

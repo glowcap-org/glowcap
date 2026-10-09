@@ -20,6 +20,7 @@ pub mod room;
 pub mod server;
 pub mod session;
 pub mod text;
+pub mod web_channel;
 pub mod web_relay;
 pub mod workspace;
 

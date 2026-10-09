@@ -11,6 +11,16 @@ const clock = @import("../../../clock.zig");
 const completion = @import("../../../completion/loop.zig");
 const onion_control = @import("../control.zig");
 const socks5 = @import("../socks5.zig");
+const onion_session = @import("../session.zig");
+
+/// A published service: its id, and the key that restores it. Tor returns the
+/// key only for a service it minted; a restored service keeps the key it was
+/// given.
+pub const Published = struct {
+    service_id: [socks5.service_id_len]u8,
+    key: [onion_session.service_key_cap]u8,
+    key_len: usize,
+};
 
 /// Bind the setup transaction to one completion backend shape. Capturing the
 /// adapter vocabulary once keeps every stage on the same namespace and
@@ -28,7 +38,7 @@ pub fn Transaction(
             target: Inner.ConnectTarget,
             port: u16,
             config: Types.ConfigType,
-        ) ![socks5.service_id_len]u8 {
+        ) !Published {
             const fd = try backend.inner.startDial(Types.setup_connect_ud, target);
             backend.control_fd = fd;
             errdefer {
@@ -56,7 +66,10 @@ pub fn Transaction(
                 try onion_control.writeAddOnionRestore(&request, config.service_key, .{ .address = forward });
             try setupSend(backend, fd, add, deadline_ms);
 
-            var service_id: [socks5.service_id_len]u8 = undefined;
+            var published: Published = .{ .service_id = undefined, .key = undefined, .key_len = 0 };
+            if (config.service_key.len > published.key.len) return error.ControlProtocolViolation;
+            @memcpy(published.key[0..config.service_key.len], config.service_key);
+            published.key_len = config.service_key.len;
             var have_id = false;
             var lines: usize = 0;
             while (true) {
@@ -68,13 +81,17 @@ pub fn Transaction(
                 if (reply.field()) |field| if (std.mem.eql(u8, field.key, "ServiceID")) {
                     if (field.value.len != socks5.service_id_len) return error.ControlProtocolViolation;
                     socks5.checkServiceId(field.value) catch return error.ControlProtocolViolation;
-                    @memcpy(&service_id, field.value);
+                    @memcpy(&published.service_id, field.value);
                     have_id = true;
+                } else if (std.mem.eql(u8, field.key, "PrivateKey")) {
+                    if (field.value.len > published.key.len) return error.ControlProtocolViolation;
+                    @memcpy(published.key[0..field.value.len], field.value);
+                    published.key_len = field.value.len;
                 };
                 if (reply.continuation == .end) break;
             }
             if (!have_id) return error.ControlProtocolViolation;
-            return service_id;
+            return published;
         }
 
         fn waitSetup(

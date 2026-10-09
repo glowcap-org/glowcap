@@ -189,68 +189,6 @@ test "failed Host adoption rolls runtime ownership back" {
     try std.testing.expect(counting.balanced());
 }
 
-test "failed stream connection adoption returns rollback failure to the dial" {
-    const CountingHost = @import("../../support/c_abi_counting_alloc.zig").CountingHost;
-    var counting = CountingHost{};
-    const spec = counting.spec();
-    var context: ?*c.GlowcapContext = null;
-    try expectOk(c.glowcap_context_new_with_allocator(&spec, &context));
-
-    const seed = hostSeed(0x71);
-    var host: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new_in(
-        context,
-        &seed,
-        seed.len,
-        frame_cap,
-        1,
-        c.GLOWCAP_CODEC_SYRUP,
-        c.GLOWCAP_CAPTP_V1_0,
-        c.GLOWCAP_FEATURE_FULL,
-        0,
-        &host,
-    ));
-    var loop: ?*cdrv.GlowcapDriverLoop = null;
-    try expectOk(cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop));
-
-    var resident = StreamAdoptionResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
-    defer resident.wake.deinit();
-    var table = resident.table();
-    try expectOk(addStreamProvider(loop, &table, "adoption-stream"));
-
-    var operation_id: u64 = 0;
-    try std.testing.expectEqual(
-        c.GLOWCAP_OK,
-        try dialParts(loop, "adoption-stream", "endpoint", "", &operation_id),
-    );
-    // Prime retained readiness storage before the failure injection. The next
-    // allocation belongs to connection adoption, not poll construction.
-    try expectStep(cdrv.glowcap_driver_step(loop, 0));
-    _ = try resident.wake.nudge();
-    // The runtime owns its two wire buffers before the provider's connection
-    // wrapper is admitted. Fail the following wrapper allocation so rollback
-    // owns the already-finished provider connection.
-    counting.allocations_before_failure = 2;
-    try expectStep(cdrv.glowcap_driver_step(loop, 0));
-    counting.allocations_before_failure = null;
-
-    var event: cdrv.GlowcapDriverEvent = undefined;
-    try expectOk(cdrv.glowcap_driver_next_event(loop, &event));
-    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_OPEN_FAILED, event.kind);
-    try std.testing.expectEqual(operation_id, event.operation_id);
-    try std.testing.expectEqualStrings("OutOfMemory", event.primary_name.?[0..event.primary_name_len]);
-    try std.testing.expectEqual(@as(u32, 1), event.secondary_count);
-    try std.testing.expectEqualStrings(
-        "StreamAdoptionCloseFailed",
-        event.secondary_name.?[0..event.secondary_name_len],
-    );
-    try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
-
-    try expectOk(harness.releaseLoop(loop));
-    c.glowcap_context_release(context);
-    try std.testing.expect(counting.balanced());
-}
-
 test "a closing byte-fed Host cannot transfer to a new driver" {
     const host = try newByteFedHost(0x3b);
     try expectOk(cd.glowcap_host_close(host, &close_cancel, 0));

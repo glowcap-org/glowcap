@@ -221,6 +221,8 @@ pub fn Projection(
             transport_len: usize,
             requested_designator: ?[*]const u8,
             requested_designator_len: usize,
+            identity_designator: ?[*]const u8,
+            identity_designator_len: usize,
             options: ?*const c.GlowcapTransportOperationOptions,
             out_result: ?*c.GlowcapListenResult,
             out_failure: ?*c.GlowcapProviderFailure,
@@ -234,7 +236,9 @@ pub fn Projection(
                 return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
             const requested = c.sliceFromC(requested_designator, requested_designator_len) catch
                 return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-            const listener = switch (runtime.listen(route_id, transport_bytes, requested)) {
+            const identity = c.sliceFromC(identity_designator, identity_designator_len) catch
+                return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+            const listener = switch (runtime.listen(route_id, transport_bytes, requested, identity)) {
                 .admitted => |admitted| admitted,
                 .failed => |failure| {
                     const code = failure_projection.listen(failure.cause);
@@ -455,7 +459,7 @@ pub fn Projection(
             if (state.raw_closed or state.closed.load(.acquire) or
                 state.release_requested.load(.acquire)) return -1;
             const wrote = state.raw.tryWrite(source[0..len]);
-            if (wrote < 0 and wrote != c.multiplexed_transport.GLOWCAP_MULTIPLEXED_WOULD_BLOCK) state.noteFailure(
+            if (wrote < 0 and wrote != c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK) state.noteFailure(
                 state.raw.takeFailure() orelse foundation.FailureChain.init(error.ConnectionLost),
             );
             if (state.raw.hasPendingWrite()) runtime.signalControl();

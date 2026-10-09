@@ -2,24 +2,24 @@
 /// <reference lib="dom" />
 
 import type { Attachment } from "../../lib/attachment.ts";
-import type { RoomsSessionLineEvent } from "../../lib/session/client.ts";
-import type { AttachedRoomsController } from "../../web/ui/session/attached.ts";
+import type { PresentedLine } from "../../web/ui/session/line_projection.ts";
+type RoomsSessionLineEvent = PresentedLine<Attachment>;
+import type { FileSources } from "../../web/ui/session/attached_files.ts";
 
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
 	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 });
 
-const { emptyRoomsSessionState } = await import("../../lib/rooms_state.ts");
 const { AttachedSessionFiles, EARLIER_CONNECTION_BYTES_UNAVAILABLE } = await import(
 	"../../web/ui/session/attached_files.ts"
 );
-const { AttachedSessionProjection } = await import("../../web/ui/session/projection.ts");
+const { AttachedLineProjection } = await import("../../web/ui/session/line_projection.ts");
+const { dirId } = await import("../../web/ui/types.ts");
 const { reconcileAttachedHistory } = await import("../../web/ui/session/history_reconciliation.ts");
 const store = await import("../../web/ui/store.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { assertEquals } = await import("../assert.ts");
-const { roomsSessionSnapshot } = await import("../support/session_snapshot.ts");
 
 function attachment(name: string): Attachment {
 	return { name, mime: "text/plain", size: 1, width: 0, height: 0, blob: {} as Attachment["blob"] };
@@ -27,8 +27,6 @@ function attachment(name: string): Attachment {
 
 function event(name: string, overrides: Partial<RoomsSessionLineEvent> = {}): RoomsSessionLineEvent {
 	return {
-		source: "lines",
-		sequence: 1,
 		conversationId: "room-id",
 		from: "bo",
 		text: name,
@@ -57,26 +55,17 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 	const released: string[] = [];
 	const controller = {
 		releaseAttachment: (file: Attachment) => released.push(file.name),
-	} as unknown as AttachedRoomsController;
+	} as unknown as FileSources<Attachment>;
 	const files = new AttachedSessionFiles(controller, page.projection);
-	const projection = new AttachedSessionProjection(page, files);
-	const checkpoint = {
-		...emptyRoomsSessionState(),
-		directories: [{ id: "directory", locator: "127.0.0.1:1", home: true, nick: "ada", standing: null }],
-		conversations: [{
-			kind: "room" as const,
-			id: "room-id",
-			directory: "directory",
-			name: "general",
-			held: false,
-			standing: null,
-			draft: "",
-		}],
-		active: "room-id",
-	};
-	projection.apply(roomsSessionSnapshot({ checkpoint }));
-	const room = store.activeConv(page.projection);
-	if (room?.type !== "room") throw new Error("the line-custody fixture created no room");
+	const directory = dirId("directory");
+	store.openDir(page.projection, directory, "127.0.0.1:1");
+	const room = store.ensureRoom(page.projection, directory, "general", { persistId: "room-id" });
+	store.switchTo(page.projection, room.key);
+	const projection = new AttachedLineProjection(
+		(id) => store.convByPersistId(page.projection, id)?.key ?? null,
+		files,
+		page,
+	);
 	store.patchDir(page.projection, room.dir, { nick: "ada", session: "connected" });
 	const optimistic = store.chatItem(
 		page.projection,
@@ -91,7 +80,7 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 	const optimisticAt = optimistic.at;
 	const optimisticHistory = { source: "archive", generation: "pending", id: "pending-line" };
 	store.deliver(page.projection, room.key, optimistic);
-	projection.line(event("unused", {
+	projection.apply(event("unused", {
 		from: "ada",
 		text: "pending words",
 		at: optimisticAt + 60_000,
@@ -100,6 +89,7 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 		attachments: [],
 		editable: true,
 	}));
+	store.confirmSentLine(page.projection, room.key, optimistic.id, { id: 2, held: true });
 	const confirmed = store.historyOf(page.projection, room.key).find((item) => item.id === optimistic.id);
 	assertEquals(
 		confirmed?.kind === "chat"
@@ -118,7 +108,7 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 			true,
 			optimisticAt,
 			optimisticHistory,
-			[],
+			undefined,
 		],
 	);
 	assertEquals(
@@ -152,20 +142,60 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 		"archive replay duplicated the confirmed optimistic intent",
 	);
 
-	projection.line(event("unknown.txt", { conversationId: "unknown" }));
-	projection.line(event("typing.txt", {
+	const placeholder = store.attachmentView(page.projection, { name: "pending.txt", mime: "text/plain", size: 1 });
+	const uploading = store.chatItem(page.projection, "ada", "pending upload", true, "sending", [placeholder]);
+	store.deliver(page.projection, room.key, { ...uploading, awaitingReceipt: true });
+	const uploadHistory = { source: "upload", generation: "generation", id: "4" };
+	projection.apply(event("pending.txt", { from: "ada", text: "pending upload", lineId: 4, history: uploadHistory }));
+	const pending = store.historyOf(page.projection, room.key).find((item) => item.id === uploading.id);
+	assertEquals(
+		pending?.kind === "chat" ? pending.state : null,
+		"sending",
+		"the echo cannot settle the upload receipt",
+	);
+	store.confirmSentLine(page.projection, room.key, uploading.id, { id: 4, held: true });
+	const echoed = store.historyOf(page.projection, room.key).find((item) => item.id === uploading.id);
+	assertEquals(echoed?.kind === "chat" ? echoed.state : null, undefined);
+	assertEquals(
+		echoed?.kind === "chat" && files.retains(echoed.attachments![0].id),
+		true,
+		"metadata is not file custody",
+	);
+	assertEquals(released.includes("pending.txt"), false);
+	assertEquals(echoed?.kind === "chat" ? echoed.history : null, uploadHistory);
+	projection.apply(event("pending.txt", { from: "ada", text: "pending upload", lineId: 4 }));
+	assertEquals(
+		released.filter((name) => name === "pending.txt").length,
+		1,
+		"replay releases only the extra occurrence",
+	);
+	projection.apply(event("replacement.txt", {
+		from: "ada",
+		text: "refiled upload",
+		lineId: 4,
+		history: uploadHistory,
+		change: "refiled",
+	}));
+	const refiledUpload = store.historyOf(page.projection, room.key).find((item) => item.id === uploading.id);
+	assertEquals(refiledUpload?.kind === "chat" ? refiledUpload.text : null, "refiled upload");
+	// Retire this independently exercised send before the rejection inventory.
+	store.clearHistory(page.projection, room.key);
+	released.length = 0;
+
+	projection.apply(event("unknown.txt", { conversationId: "unknown" }));
+	projection.apply(event("typing.txt", {
 		text: "",
 		lineId: null,
 		change: null,
 		system: true,
 		presence: { kind: "typing", name: "bo", on: true },
 	}));
-	projection.line(event("system.txt", { system: true }));
-	projection.line(event("missing-refile.txt", { lineId: 99, change: "refiled" }));
-	projection.line(event("oversized-name.txt", { from: "x".repeat(257) }));
+	projection.apply(event("system.txt", { system: true }));
+	projection.apply(event("missing-refile.txt", { lineId: 99, change: "refiled" }));
+	projection.apply(event("oversized-name.txt", { from: "x".repeat(257) }));
 	assertEquals(released, ["unknown.txt", "typing.txt", "system.txt", "missing-refile.txt", "oversized-name.txt"]);
 	store.patchDir(page.projection, room.dir, { session: "disconnected" });
-	projection.line(event("late.txt", { lineId: 3 }));
+	projection.apply(event("late.txt", { lineId: 3 }));
 	const late = store.historyOf(page.projection, room.key).find((item) =>
 		item.kind === "chat" && item.text === "late.txt"
 	);
@@ -184,14 +214,14 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 		...store.chatItem(page.projection, "bo", "archived", false, undefined, [oldView]),
 		history,
 	});
-	projection.line(event("live.txt", { history }));
+	projection.apply(event("live.txt", { history }));
 	assertEquals(released.at(-1), oldFile.name);
 	const live = store.historyOf(page.projection, room.key).find((item) =>
 		item.kind === "chat" && item.history?.id === "line"
 	);
 	assertEquals(live?.kind === "chat" ? live.attachments?.[0]?.name : null, "live.txt");
 	const liveView = live?.kind === "chat" ? live.attachments?.[0] : undefined;
-	projection.line(event("live.txt", { history }));
+	projection.apply(event("live.txt", { history }));
 	const replayed = store.historyOf(page.projection, room.key).find((item) =>
 		item.kind === "chat" && item.history?.id === "line"
 	);
@@ -204,7 +234,7 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 
 	const firstPreview = "https://example.com/first";
 	const secondPreview = "https://example.com/second";
-	projection.line(event("previews", {
+	projection.apply(event("previews", {
 		text: `${firstPreview} ${secondPreview}`,
 		lineId: 4,
 		previewUrls: [firstPreview, secondPreview],
@@ -217,7 +247,7 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 		return item?.kind === "chat" ? item.previewUrls : null;
 	};
 	assertEquals(previewUrls(), [firstPreview, secondPreview]);
-	projection.line(event("previews-edited", {
+	projection.apply(event("previews-edited", {
 		text: secondPreview,
 		lineId: 4,
 		change: "edited",
@@ -225,7 +255,7 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 		attachments: [],
 	}));
 	assertEquals(previewUrls(), [secondPreview]);
-	projection.line(event("previews-withdrawn", {
+	projection.apply(event("previews-withdrawn", {
 		text: "",
 		lineId: 4,
 		change: "withdrawn",

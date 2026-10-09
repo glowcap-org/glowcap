@@ -25,7 +25,7 @@ pub use registry::{InboxOffer, Register};
 pub use signaling::{Offered, Relay, Route};
 
 pub const MAX_WATCHERS: usize = 256;
-/// Inboxes one member may offer, one per peer it chose, and the reciprocal
+/// Inboxes one member may offer across peer openings, and the reciprocal
 /// direct requests it may track.
 pub const MAX_DM_INBOXES: usize = 256;
 pub const MAX_NAME_VOUCHERS: usize = 8;
@@ -45,9 +45,9 @@ pub enum Notice {
 	/// The name is filed; the registration id names this exact holding.
 	Registered { nick: String, id: Id },
 	/// A peer offered an inbox for this member; `introduce` may be retried.
-	Introducible { nick: String, id: Id },
+	Introducible { nick: String, id: Id, opening: String },
 	/// A peer asked to be introduced and no inbox was offered for it yet.
-	MintInboxFor { nick: String, id: Id },
+	MintInboxFor { nick: String, id: Id, opening: String },
 	/// A peer asks this member to open the route from its side.
 	DirectRequested { nick: String, id: Id },
 }
@@ -195,19 +195,26 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 		connection: C,
 		for_nick: &str,
 		for_id: &str,
+		opening: &str,
 		offered: R,
 	) -> Result<Effects<C, R>, Refusal> {
-		let offer = self.prepare_inbox(connection, for_nick, for_id)?;
+		let offer = self.prepare_inbox(connection, for_nick, for_id, opening)?;
 		self.complete_inbox(offer, offered)
 	}
-	pub fn prepare_inbox(&self, connection: C, peer: &str, id: &str) -> Result<InboxOffer<C>, Refusal> {
-		self.registry.prepare_inbox(connection, peer, id)
+	pub fn prepare_inbox(&self, connection: C, peer: &str, id: &str, opening: &str) -> Result<InboxOffer<C>, Refusal> {
+		self.registry.prepare_inbox(connection, peer, id, opening)
 	}
 	pub fn complete_inbox(&mut self, offer: InboxOffer<C>, inbox: R) -> Result<Effects<C, R>, Refusal> {
 		self.registry.complete_inbox(offer, inbox)
 	}
-	pub fn introduce(&self, connection: C, nick: &str, id: &str) -> Result<Introduction<C, R>, Refusal> {
-		self.registry.introduce(connection, nick, id)
+	pub fn introduce(
+		&mut self,
+		connection: C,
+		nick: &str,
+		id: &str,
+		opening: &str,
+	) -> Result<Introduction<C, R>, Refusal> {
+		self.registry.introduce(connection, nick, id, opening)
 	}
 	pub fn request_direct(
 		&mut self,
@@ -225,6 +232,27 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 	/// drew. The name capability answers only while this registration stands.
 	pub fn voucher(&mut self, id: &Id, bytes: [u8; NAME_VOUCHER_BYTES]) -> Result<(), Refusal> {
 		self.registry.voucher(id, bytes)
+	}
+	pub fn registration_connection(&self, id: &Id) -> Result<C, Refusal> {
+		self.registry.registration_connection(id)
+	}
+	/// Retire only the registration selected by its actual name capability.
+	/// Repeating retirement is a no-op, including after the same nickname or
+	/// connection acquires a replacement registration. Discovery watchers have
+	/// independent custody and remain until their own cancellation or disconnect.
+	pub fn retire_registration(&mut self, id: &Id) -> Effects<C, R> {
+		let (connection, mut withdrawn) = self.registry.withdraw_id(id);
+		withdrawn
+			.effects
+			.dropped
+			.extend(self.exchanges.drop_targeting(&withdrawn.withdrawn_keys));
+		if let Some(connection) = connection {
+			withdrawn
+				.effects
+				.dropped
+				.extend(self.exchanges.drop_originated_by(connection));
+		}
+		withdrawn.effects
 	}
 	/// The nick `connection` registered, when it registered one.
 	pub fn registered_nick(&self, connection: C) -> Option<&str> {
@@ -254,6 +282,16 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 		let replaced = self.watchers.push(connection, observer, shape)?;
 		let snapshot = discovery::snapshot(&self.registry, rooms, shape);
 		Ok((snapshot, replaced.map(|capability| Release { connection, capability })))
+	}
+	/// Cancel exactly this connection's observer. A delayed cancellation of a
+	/// replaced observer cannot retire its successor; repeated cancellation is empty.
+	pub fn unwatch(&mut self, connection: C, observer: &R) -> Option<Release<C, R>>
+	where
+		R: PartialEq,
+	{
+		self.watchers
+			.remove_exact(connection, observer)
+			.map(|capability| Release { connection, capability })
 	}
 	/// The baseline `watch` answers: the listed rooms the server hosts and
 	/// the members registered here, under one row ceiling.
@@ -287,7 +325,7 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 		effects.extend(withdrawn.effects);
 		effects
 	}
-	pub fn release_offered(&mut self, nick: &str, peer: &str) -> Option<Release<C, R>> {
+	pub fn release_offered(&mut self, nick: &str, peer: &str) -> Option<Vec<Release<C, R>>> {
 		self.registry.release_offered(nick, peer)
 	}
 	pub fn release_signaling(&mut self, nick: &str) -> Option<Release<C, R>> {

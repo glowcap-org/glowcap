@@ -59,7 +59,7 @@ fn prepare(call: *hosting.Call, verb: []const u8, args: []const driver.Value) !h
     if (call.dependent_target != null) return error.NoSuchMethod;
     const command: storage.Maintenance.Command = if (std.mem.eql(u8, verb, "retire-owner")) .retire else if (std.mem.eql(u8, verb, "sweep")) .sweep else if (std.mem.eql(u8, verb, "maintenance-step")) .step else return error.NoSuchMethod;
     if (args.len != 1 or args[0] != .integer or args[0].integer < 0) return error.InvalidArguments;
-    const value = try call.arena.create(State);
+    const value = try call.arena().create(State);
     value.* = .{ .call = call, .config = config, .operation = try storage.Maintenance.init(config.capabilities.allocator, config.capabilities.store, call.view.id, command, @intCast(args[0].integer), config.record_capacity) };
     return .{ .context = value, .advanceFn = advance, .completeFn = complete, .deinitFn = deinit };
 }
@@ -88,7 +88,7 @@ fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const dri
     const value = backing(call.preparation.?.context);
     if (!value.ready) return error.NotPrepared;
     const result = try value.operation.result();
-    const parts = try call.arena.alloc(driver.Value, 4);
+    const parts = try call.arena().alloc(driver.Value, 4);
     parts[0] = .{ .integer = std.math.cast(i64, result.sequence) orelse return error.SequenceExhausted };
     parts[1] = .{ .symbol = @tagName(result.phase) };
     parts[2] = .{ .boolean = result.retired };

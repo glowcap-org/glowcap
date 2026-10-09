@@ -8,7 +8,12 @@ extern "C" {
 typedef struct GlowcapLoamStore GlowcapLoamStore;
 typedef struct GlowcapLoamAttachment GlowcapLoamAttachment;
 typedef struct GlowcapLoamCall GlowcapLoamCall;
+typedef struct GlowcapLoamContinuationReservation GlowcapLoamContinuationReservation;
+typedef struct GlowcapLoamPendingContinuation GlowcapLoamPendingContinuation;
+typedef struct GlowcapLoamContinuation GlowcapLoamContinuation;
+typedef struct GlowcapLoamEffectExecution GlowcapLoamEffectExecution;
 typedef struct GlowcapLoamReferences GlowcapLoamReferences;
+typedef struct GlowcapLoamPageHandle GlowcapLoamPageHandle;
 typedef struct GlowcapLoamWork GlowcapLoamWork;
 typedef struct GlowcapLoamInvocation GlowcapLoamInvocation;
 typedef struct GlowcapLoamRequirement GlowcapLoamRequirement;
@@ -25,14 +30,89 @@ typedef struct GlowcapLoamSchema {
     size_t max_payload;
     size_t max_edges;
 } GlowcapLoamSchema;
+typedef struct GlowcapLoamValueBounds {
+    /* All value nodes, including roots and struct values. */
+    size_t values;
+    /* Struct keys, counted separately from their values. */
+    size_t struct_entries;
+    /* Total copied leaves, keys, tags, digits and error text. */
+    size_t bytes;
+    /* Capability occurrences, including repeated identities. */
+    size_t capabilities;
+} GlowcapLoamValueBounds;
+typedef struct GlowcapLoamContinuationBounds {
+    /* Shared immutable custody contribution to continuation_bytes. */
+    size_t custody_bytes;
+    /* Independent C observer metadata, held until Pending or Continuation releases. */
+    size_t observer_bytes;
+    /* Temporary target decoding contribution to the source call_bytes. */
+    size_t call_bytes;
+} GlowcapLoamContinuationBounds;
+typedef struct GlowcapLoamEffectExecutionBounds {
+    /* Owning result, C observer and bounded projection storage. Constructor input spines are separate. */
+    size_t caller_bytes;
+    /* Shared Host dispatch metadata; queue, actors and registry have separate owners. */
+    size_t host_dispatch_bytes;
+} GlowcapLoamEffectExecutionBounds;
+typedef struct GlowcapLoamEffectResult {
+    /* Zero pending, one ready, two unsent, three unknown. */
+    uint32_t state;
+    /* Failure return code for unsent/unknown; zero otherwise. */
+    int32_t result;
+    /* Ready value: spines borrow until next result query; leaves until execution release. Each query grants independent capability occurrences. */
+    GlowcapArgument value;
+    /* Failure text borrows execution. */
+    const uint8_t *message;
+    /* Failure text bytes. */
+    size_t message_len;
+} GlowcapLoamEffectResult;
+typedef struct GlowcapLoamInvocationBounds {
+    /* Complete inbound vector, including mutate sequence/method wrappers. */
+    GlowcapLoamValueBounds arguments;
+    /* Fresh and persisted receipt results for this profile's lifetime. */
+    GlowcapLoamValueBounds reply;
+    /* Retained incoming verb bytes. */
+    size_t verb_bytes;
+    /* Application custody acquisitions, including repeated fields. */
+    size_t held_occurrences;
+    /* Zero or one: include mutation receipt creation and replay. */
+    uint32_t receipt;
+    /* Zero or one: include a local dependent target. */
+    uint32_t dependent;
+} GlowcapLoamInvocationBounds;
+typedef struct GlowcapLoamStagingBounds {
+    /* Unique staged rows in one transaction. */
+    size_t changes;
+    /* Retained complete encoded proposals, excluding temporary encoding and backend metadata. */
+    size_t staging_bytes;
+    /* Largest contributing complete encoded record. */
+    size_t record_bytes;
+} GlowcapLoamStagingBounds;
 typedef struct GlowcapLoamLimits {
     size_t resident_bytes;
     size_t staging_bytes;
     size_t cache_slots;
     size_t max_leases;
     size_t max_changes;
+    /* Live attachment endpoints, independent of Store retention tokens. */
     size_t max_references;
     size_t max_operations;
+    size_t call_bytes;
+    size_t pending_bytes;
+    size_t ingress_bytes;
+    size_t record_capacity;
+    size_t max_reference_saves;
+    size_t record_bytes;
+    /* Live Store roots, including restored recipes held through settlement. */
+    size_t max_retentions;
+    /* Live receipt continuations, independent of pending call admission; zero disables reservations. */
+    size_t max_continuations;
+    /* Complete immutable intent and exact-target custody per continuation. Host actors, registry and application executor buffers have separate owners. */
+    size_t continuation_bytes;
+    /* Exact target occurrences per continuation, including repeated identities. */
+    size_t max_continuation_targets;
+    /* Fixed owning reply allowance per forwarded target execution; must be nonzero and fit its owning Call. */
+    size_t forward_reply_bytes;
 } GlowcapLoamLimits;
 typedef struct GlowcapLoamBound {
     uint64_t key;
@@ -42,6 +122,11 @@ typedef struct GlowcapLoamConstraint {
     uint64_t key;
     uint32_t operator;
 } GlowcapLoamConstraint;
+typedef struct GlowcapLoamKindRule {
+    uint64_t kind;
+    uint64_t permissions;
+    uint64_t subtree_permissions;
+} GlowcapLoamKindRule;
 typedef struct GlowcapLoamPolicy {
     uint8_t identity[16];
     uint64_t permissions[64];
@@ -49,6 +134,8 @@ typedef struct GlowcapLoamPolicy {
     size_t permission_count;
     size_t constraint_count;
     uint64_t prerequisite_masks[64];
+    GlowcapLoamKindRule kind_rules[16];
+    size_t kind_count;
 } GlowcapLoamPolicy;
 struct GlowcapLoamRequirement {
     uint64_t permissions[64];
@@ -56,7 +143,77 @@ struct GlowcapLoamRequirement {
     size_t permission_count;
     size_t fact_count;
 };
+typedef struct GlowcapLoamResourceId {
+    /* Authority domain, in big-endian byte order. */
+    uint8_t owner[16];
+    /* Resource slot within that domain. */
+    uint32_t slot;
+    /* Exact slot incarnation. */
+    uint64_t generation;
+} GlowcapLoamResourceId;
+typedef struct GlowcapLoamBoundResource {
+    /* Descriptive canonical identity, never authority. */
+    GlowcapLoamResourceId id;
+    /* Current resource kind. */
+    uint64_t kind;
+    /* Canonical resource row in the Store. */
+    GlowcapLoamObject object;
+    /* Owner resource-graph revision, not grant admission. */
+    uint64_t revision;
+} GlowcapLoamBoundResource;
+typedef struct GlowcapLoamGraphVerb {
+    /* Registered source method whose forwarded requirement reads current scalar graph pages. Attachment creation copies at most 128 nonempty names, each at most 256 bytes; callbacks borrow pages and restore no fields. */
+    const uint8_t *verb;
+    /* Method name bytes. */
+    size_t verb_len;
+} GlowcapLoamGraphVerb;
+typedef struct GlowcapLoamGraph {
+    /* Allowed graph page schemas; copied at attachment creation. */
+    const GlowcapLoamGraphSchema *schemas;
+    /* Schema count. */
+    size_t schema_count;
+    /* Maximum pages excluding the root. */
+    size_t max_pages;
+    /* Maximum aggregate payload bytes including the root. */
+    size_t max_payload_bytes;
+    /* Maximum graph edges. */
+    size_t max_edges;
+    /* Original source methods requiring current graph pages before forwarding admission. Undeclared methods prepare no graph on forwarding. Names must be unique and registered in the method table. */
+    const GlowcapLoamGraphVerb *requirement_verbs;
+    /* Declared source method count; at most 128. Zero permits a null pointer. */
+    size_t requirement_verb_count;
+} GlowcapLoamGraph;
+typedef struct GlowcapLoamGraphSchema {
+    uint64_t id;
+    uint32_t version;
+} GlowcapLoamGraphSchema;
+typedef struct GlowcapLoamPage {
+    const GlowcapLoamPageHandle *handle;
+    uint64_t schema;
+    uint32_t version;
+    const uint8_t *payload;
+    size_t payload_len;
+    size_t field_count;
+} GlowcapLoamPage;
+typedef struct GlowcapLoamGraphField {
+    const GlowcapLoamPageHandle *page;
+    size_t index;
+    GlowcapReference reference;
+} GlowcapLoamGraphField;
+typedef struct GlowcapLoamPageReplacement {
+    const GlowcapLoamPageHandle *keep;
+    uint64_t schema;
+    uint32_t version;
+    const uint8_t *payload;
+    size_t payload_len;
+    const GlowcapLoamGraphField *fields;
+    size_t field_count;
+} GlowcapLoamPageReplacement;
 struct GlowcapLoamInvocation {
+    GlowcapLoamBoundResource bound_resource;
+    uint32_t delivery;
+    GlowcapLoamObject content;
+    uint64_t content_revision;
     const uint8_t *payload;
     size_t payload_len;
     const uint8_t *verb;
@@ -64,12 +221,31 @@ struct GlowcapLoamInvocation {
     const GlowcapArgument *args;
     size_t args_len;
     size_t field_count;
+    uint32_t graph_prepared;
+    const GlowcapLoamPage *pages;
+    size_t page_count;
 };
 typedef struct GlowcapLoamMethod {
     const uint8_t *verb;
     size_t verb_len;
     uint32_t retry;
 } GlowcapLoamMethod;
+typedef struct GlowcapLoamReadMethod {
+    /* Trusted read verb. */
+    const uint8_t *verb;
+    /* Verb bytes. */
+    size_t verb_len;
+    /* Interface index for each returned capability in depth-first Value traversal order. */
+    const size_t *results;
+    /* Exact capability occurrence count; zero forbids capability results. */
+    size_t result_count;
+} GlowcapLoamReadMethod;
+typedef struct GlowcapLoamReadInterface {
+    /* Allowed read methods; effect methods require receipt execution. */
+    const GlowcapLoamReadMethod *methods;
+    /* Method count. */
+    size_t method_count;
+} GlowcapLoamReadInterface;
 typedef struct GlowcapLoamContent {
     uint64_t schema;
     uint32_t version;
@@ -80,6 +256,7 @@ typedef struct GlowcapLoamContent {
     GlowcapLoamInvokeFn invoke;
     GlowcapLoamReferencesFn references;
     GlowcapLoamRequirementFn dependent_requirement;
+    const GlowcapLoamGraph *graph;
 } GlowcapLoamContent;
 typedef struct GlowcapLoamResource {
     GlowcapLoamObject owner;
@@ -93,7 +270,7 @@ typedef struct GlowcapLoamPolicyValue {
     uint16_t bound_mask;
 } GlowcapLoamPolicyValue;
 typedef struct GlowcapLoamBytes {
-    /* Borrowed bytes, valid through the plan call. */
+    /* Inputs are consumed synchronously; callback output lasts until the next callback. */
     const uint8_t *data;
     /* Byte count. */
     size_t len;
@@ -102,7 +279,8 @@ typedef struct GlowcapLoamBytes {
 } GlowcapLoamBytes;
 typedef int32_t (*GlowcapLoamKvFn)(void *, uint32_t, const uint8_t *, size_t, const GlowcapLoamBytes *, GlowcapLoamBytes *);
 #define GLOWCAP_LOAM_METADATA_SIZE 174
-#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 5737936828047317520
+#define GLOWCAP_LOAM_MAX_URI_BYTES 4096
+#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 16039683410332576438
 /* Construct a portable Store from exclusively claimed encoded metadata. Schema descriptors are copied. Inputs borrow for this call; out_store owns one release. No backend is opened. */
 int32_t glowcap_loam_store_new(const uint8_t *metadata, size_t metadata_len, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamStore **out_store);
 /* Construct a portable Store using the Context allocator for every Store and attachment allocation. The Context and its allocator callbacks outlive the Store and all its borrows. Metadata and schema rules match store_new. */
@@ -125,12 +303,50 @@ int32_t glowcap_loam_work_release(GlowcapLoamWork *raw);
 int32_t glowcap_loam_call_reply(GlowcapLoamCall *call, const GlowcapArgument *value);
 /* Copy a replacement payload into the retained call arena. The shared transaction persists it with the admitted operation. Inputs borrow for this call. */
 int32_t glowcap_loam_call_replace_copying(GlowcapLoamCall *call, const uint8_t *bytes, size_t len);
+/* Copy a complete owned-page candidate. A keep token borrows this preparation: null payload preserves the page, non-null payload updates its bytes while preserving exact fields; schema, version and fields must be zero. New pages carry exact held fields. Root binding, pages, recipes and managed receipt commit together as one content effect. No provisional capability escapes. A write field with null page captures reference (index must be zero); a non-null page copies that prepared page capability field (reference must be zero). Index zero excludes the resource binding. Retained fields preserve exact recipe edges without restoring their targets. Foreign tokens, invalid indices and weak fields refuse before capture. */
+int32_t glowcap_loam_call_replace_graph_copying(GlowcapLoamCall *call, const uint8_t *payload, size_t payload_len, const GlowcapLoamPageReplacement *pages, size_t count);
+/* Borrow a prepared page's exact saved field through callback return. Indices omit its protected resource binding. This does not authorize reply disclosure or retain authority after settlement. */
+int32_t glowcap_loam_call_page_reference(GlowcapLoamCall *call, const GlowcapLoamPageHandle *page, size_t index, GlowcapReference *out_reference);
+/* Return one owned occurrence of the actual invoking endpoint for comparison with saved receipt custody. This declares no reply disclosure. Release it through glowcap_host_ref_release. */
+int32_t glowcap_loam_call_source(GlowcapLoamCall *call, GlowcapReference *out_reference);
+/* Own one occurrence of exact prepared reference custody beyond callback return. Preparation validates its recipe; this grants no disclosure. Release the returned occurrence through glowcap_host_ref_release. Output zeroes on refusal. */
+int32_t glowcap_loam_call_retain_prepared_reference(GlowcapLoamCall *call, const GlowcapReference *reference, GlowcapReference *out_reference);
+/* Read callback only: copy the original admitted source intent and declared recursive read interfaces. Return a callback-borrowed declared facade over the exact target; current source and upstream admission govern each later call. Returned capabilities are recursively mediated; wrong counts and undeclared verbs refuse. A bounded weak cache preserves exact target/interface identity while facets survive. The facade owns no durable recipe and refuses after its actual source lifetime ends. Output zeroes on refusal; no raw target is disclosed. */
+int32_t glowcap_loam_call_disclose_reads_copying(GlowcapLoamCall *call, const GlowcapReference *target, const GlowcapLoamReadInterface *interfaces, size_t interface_count, size_t role, GlowcapReference *out_reference);
+/* Derive the shared physical continuation_bytes allowance for one read scope, copied source intent, interface declarations and weak target cache. Counts cover all methods and result occurrences; verb_bytes sums declared method names. targets matches max_continuation_targets. Host actors/registry and temporary C/Rust declaration projection are separately owned. */
+int32_t glowcap_loam_read_scope_size_bound(const GlowcapLoamValueBounds *arguments, size_t source_verb_bytes, size_t interfaces, size_t methods, size_t verb_bytes, size_t result_roles, size_t targets, size_t *out_bytes);
+/* Declare exact or dependent page-field authority in the reply. Tokens belong to this preparation. Shared disclosure and commit confirmation govern settlement. */
+int32_t glowcap_loam_call_disclose_page(GlowcapLoamCall *call, const GlowcapLoamPageHandle *page, size_t index, uint32_t dependent, GlowcapArgument *out_value);
+/* Declare restoration of a prepared page field before invocation. Token selection cannot address arbitrary object names; field indices omit the resource binding. */
+int32_t glowcap_loam_references_restore_page(GlowcapLoamReferences *references, const GlowcapLoamPageHandle *page, size_t index);
+/* Declare exact page restoration and retain its canonical foreign URI through callback return. Local recipes return null metadata; live recipes have no durable URI. This opt-in copy uses the retained Call budget and releases recipe residency before restoring the next field. */
+int32_t glowcap_loam_references_restore_page_with_uri(GlowcapLoamReferences *references, const GlowcapLoamPageHandle *page, size_t index);
+/* Inspect a prepared field's canonical recipe without restoring authority or dialing its exporter. Retained URI bytes use the same bounded Call allowance as restore_page_with_uri. Local and live recipes return null metadata, including expired live custody. Inspection grants no capability disclosure. */
+int32_t glowcap_loam_references_inspect_page_uri(GlowcapLoamReferences *references, const GlowcapLoamPageHandle *page, size_t index);
+/* Borrow a prepared field's canonical foreign URI through callback return. Requires explicit restore_page_with_uri or inspect_page_uri declaration. Local and live recipes return null/zero. Metadata grants no capability disclosure. */
+int32_t glowcap_loam_call_page_saved_uri(GlowcapLoamCall *call, const GlowcapLoamPageHandle *page, size_t index, const uint8_t **out_uri, size_t *out_len);
 /* Declare a strong saved application field in the current reply. Application indices omit the protected resource binding. dependent=1 returns a facet mediated by both the invoking grant and saved authority. The returned value borrows the call arena. */
 int32_t glowcap_loam_call_disclose(GlowcapLoamCall *call, size_t index, uint32_t dependent, GlowcapArgument *out_value);
 /* Declare a stored field for restoration after current grant admission. The token borrows only through the reference callback. Duplicate or absent fields refuse. */
 int32_t glowcap_loam_references_restore(GlowcapLoamReferences *raw, size_t index);
 /* Declare exact held authority for saving. Local targets need no URI. A foreign target needs an established sturdy URI verified through Host before content staging. URI bytes copy before return; declarations are bounded. */
 int32_t glowcap_loam_references_save_copying(GlowcapLoamReferences *raw, const GlowcapReference *reference, const uint8_t *uri, size_t uri_len);
+/* Declare exact held authority for Host-lifetime storage. Shared preparation reserves bounded actual capability custody before waits. Live startup must confirm before admission. Storage contains a recipe and lifetime marker, never the runtime handle; restart refuses old live fields. */
+int32_t glowcap_loam_references_save_live(GlowcapLoamReferences *raw, const GlowcapReference *reference);
+/* Declare a live dependent facet from an actual managed source and exact target. Preparation constructs and reserves the facet before waits. Its calls check both authorities; its recipe contains no runtime handles. */
+int32_t glowcap_loam_references_save_live_dependent(GlowcapLoamReferences *raw, const GlowcapReference *source, const GlowcapReference *target);
+/* Borrow only the facet from this callback's matching prepared declaration. The borrow ends with the callback. Obtaining it grants no reply disclosure. */
+int32_t glowcap_loam_call_prepared_live_dependent(GlowcapLoamCall *call, const GlowcapReference *source, const GlowcapReference *target, GlowcapReference *out_reference);
+/* Compare a committed live facet's actual guarded pair for exact settlement retry. Returns zero on mismatch; constructs and discloses no authority. */
+int32_t glowcap_loam_call_matches_live_dependent(GlowcapLoamCall *call, const GlowcapReference *facet, const GlowcapReference *source, const GlowcapReference *target, uint32_t *out_matches);
+/* Borrow the Host-owned exporter of a committed live dependent facet in this attachment. Null means no exporter. No target capability is disclosed and no retain is created. Do not release the session handle; its lifetime belongs to the existing Host session. */
+int32_t glowcap_loam_call_live_dependent_exporter(GlowcapLoamCall *call, const GlowcapReference *facet, GlowcapHostSession **out_session);
+/* Reserve the bounded live-reference inventory and initiate a new lifetime through this attachment's existing work lane. Null prior creates a marker; a non-null prior is trusted stored startup metadata and advances its checked current row. Drive advance, work and recovery until live_marker succeeds. Repeated start refuses. No live authority is admitted before exact commit confirmation. */
+int32_t glowcap_loam_live_start(GlowcapLoamAttachment *raw, const GlowcapLoamObject *prior, uint32_t capacity);
+/* Return the confirmed generation of this live marker. The generation advances on each Host restart; the marker name remains stable. Pending and failed startup zero output. Together marker and generation identify an incarnation but confer no invocation or restoration authority. */
+int32_t glowcap_loam_live_generation(GlowcapLoamAttachment *raw, uint64_t *out_generation);
+/* Return the confirmed lifetime's descriptive marker name. WouldBlock keeps output zero until startup's storage work and recovery retire. Failure also zeroes output. Persist the name with trusted startup metadata; it carries no invocation or restoration authority. */
+int32_t glowcap_loam_live_marker(GlowcapLoamAttachment *raw, GlowcapLoamObject *out_marker);
 /* Append a strong saved field after surviving committed fields. Foreign targets need declared preparation. Payload and fields share one transaction; no authority escapes before confirmed commit. */
 int32_t glowcap_loam_call_append_reference(GlowcapLoamCall *call, const GlowcapReference *reference);
 /* Replace a committed strong field with exact held authority. Indices name the committed list throughout invocation; duplicate edits refuse. Foreign targets need declared preparation. */
@@ -156,19 +372,21 @@ int32_t glowcap_loam_work_report_unknown(GlowcapLoamWork *raw);
 int32_t glowcap_loam_has_pending_work(GlowcapLoamAttachment *raw, uint32_t *out_pending);
 /* Validate a bounded descriptor and construct policy terms from declared keys and bounds. Inputs borrow for this call; the shared Zig policy algebra produces the allocation-free output. */
 int32_t glowcap_loam_policy_value(const GlowcapLoamPolicy *policy, const GlowcapLoamRequirement *requirement, GlowcapLoamPolicyValue *out_value);
+/* Construct terms supported by one declared exact interface. Kind is schema data; this check supplies no authority or reusable admission for an effect. */
+int32_t glowcap_loam_policy_value_for_kind(const GlowcapLoamPolicy *policy, uint64_t kind, const GlowcapLoamRequirement *requirement, GlowcapLoamPolicyValue *out_value);
 /* After proving a submitted executor job never ran, report failure without inventing a commit. A write completes unchanged; an unstarted recovery leaves the existing indeterminate barrier intact. Complete and release the work on the Host thread. */
 int32_t glowcap_loam_work_report_unstarted(GlowcapLoamWork *raw);
 /* Clear this archive's thread-local diagnostic slot. */
 void glowcap_loam_clear_last_error(void);
-/* Compute a fresh exclusive claim from stored metadata or explicit creation. The adapter atomically persists the GLOWCAP_LOAM_METADATA_SIZE output under its exclusive lock before exposing a constructed Store. Existing data never resets or changes identity. */
+/* Compute a fresh exclusive claim. create=0 requires existing metadata, create=1 requires absence, and create=2 atomically initializes absence or opens the exact persisted identity. Only previous=NULL with previous_len=0 represents absence; a present empty row is corrupt. The adapter atomically persists the GLOWCAP_LOAM_METADATA_SIZE output under its exclusive lock before exposing a constructed Store. Existing data never resets or changes identity. */
 int32_t glowcap_loam_metadata_claim(const uint8_t *identity, uint32_t create, const uint8_t *previous, size_t previous_len, uint8_t *out_metadata, size_t out_len);
-/* Evaluate startup commit or recovery in the adapter atomic transaction. KV operations 0=get, 1=put, 2=remove borrow through this call. Get returns WOULD_BLOCK for an unloaded row, OK with present=0 for absence. Tentative writes must be discarded before retry. No terminal outcome or installation is implied. */
+/* Evaluate startup commit or recovery in the adapter atomic transaction. KV operations 0=get, 1=put, 2=remove consume borrows synchronously; returned rows remain valid until the next callback. Only get may return WOULD_BLOCK for an unloaded row; OK with present=0 means absence. Preserve emitted writes in the same transaction across resumption. Other failures require abort and terminal finish. Callbacks cannot reenter or retire this Loam owner. No installation is implied. */
 int32_t glowcap_loam_store_plan(GlowcapLoamStore *raw, uint32_t recovery, GlowcapLoamKvFn callback, void *context);
 /* After the startup transaction retires, report 0=completed plan, 1=known abort, 2=indeterminate write. Recovery refuses indeterminate or aborted outcomes and preserves its barrier. Only successful installation permits exposing provisional resource names. */
 int32_t glowcap_loam_store_finish(GlowcapLoamStore *raw, uint32_t recovery, uint32_t outcome);
 /* Report 0=read, 1=write, 2=name lookup, 3=recovery. Only writes need a readwrite transaction; recovery observes committed metadata. */
 int32_t glowcap_loam_work_kind(GlowcapLoamWork *raw, uint32_t *out_kind);
-/* Evaluate a submitted effect through transaction-local KV callbacks. Borrowed rows remain valid through the call; put copies into an adapter overlay. WOULD_BLOCK requests another input without consuming work. Discard the overlay on retry. Successful evaluation retains a plan until the terminal event; it does not install or retire work. */
+/* Evaluate a submitted effect through transaction-local KV callbacks. Returned rows remain valid until the next callback; put/remove synchronously consume key/value bytes. Only get may return WOULD_BLOCK, preserving emitted writes in the same transaction. Other failures require abort and terminal finish. Callbacks cannot reenter or retire this Loam owner. Successful evaluation retains a plan until the terminal event; it does not install or retire work. */
 int32_t glowcap_loam_work_plan(GlowcapLoamWork *raw, GlowcapLoamKvFn callback, void *context);
 /* After physical database retirement, report 0=completed plan, 1=known abort, 2=indeterminate write. Then complete and release work on the Host thread. Only writes admit an indeterminate outcome. Duplicate retirement refuses. */
 int32_t glowcap_loam_work_finish(GlowcapLoamWork *raw, uint32_t outcome);
@@ -176,6 +394,48 @@ int32_t glowcap_loam_work_finish(GlowcapLoamWork *raw, uint32_t outcome);
 int32_t glowcap_loam_restore_plan(GlowcapLoamAttachment *raw, const GlowcapLoamObject *object, GlowcapLoamKvFn callback, void *context, GlowcapReference *out_ref);
 /* Validate copied schema descriptors and bounded Store configuration without opening or claiming physical storage. */
 int32_t glowcap_loam_validate_configuration(const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits);
+/* Receipt callback only: copy original intent and retain exact source/target custody before staging its durable effect record. Reservation borrows only through callback return; Pending owns an independent observer and must be taken or released. Confirmed commit activates custody, unknown commit keeps it reserved, absence cancels it. No foreign activation callback or executor admission occurs at confirmation. Refusal leaves both outputs null and no observer ownership escapes. */
+int32_t glowcap_loam_call_reserve_continuation_copying(GlowcapLoamCall *call, const GlowcapReference *targets, size_t target_count, GlowcapLoamContinuationReservation **out_reservation, GlowcapLoamPendingContinuation **out_pending);
+/* During the receipt callback, acquire one independent retain of the actual invoking source. Release this occurrence through Host ref_release after copying or staging it. Refusal zeroes output. */
+int32_t glowcap_loam_continuation_reservation_source(GlowcapLoamContinuationReservation *reservation, GlowcapReference *out_reference);
+/* During the receipt callback, acquire one independent retain of the exact selected target occurrence. No descriptor lookup or substitute target. Release through Host ref_release; refusal zeroes output. */
+int32_t glowcap_loam_continuation_reservation_target(GlowcapLoamContinuationReservation *reservation, size_t index, GlowcapReference *out_reference);
+/* Top-level synchronous poll. WouldBlock preserves unconfirmed Pending; Unchanged preserves canceled Pending until release. Success consumes Pending and transfers the identical preallocated observer as an owned Continuation. It performs no work or allocation. Refusal leaves output null. */
+int32_t glowcap_loam_pending_continuation_take(GlowcapLoamPendingContinuation *pending, GlowcapLoamContinuation **out_continuation);
+/* Observer release, null-safe and valid during content callbacks. Does not cancel an uncertain storage outcome. Kernel confirmation retains its own custody until confirmed activation or absence; inert observer metadata and attachment borrow end only on final release. */
+int32_t glowcap_loam_pending_continuation_release(GlowcapLoamPendingContinuation *pending);
+/* Consuming release, null-safe and valid during content callbacks. Independent endpoints and admitted executions retain their own custody. */
+int32_t glowcap_loam_continuation_release(GlowcapLoamContinuation *continuation);
+/* Create one independently owned public dispatch front for the exact target. Each invocation rechecks original source intent and current target admission; public completion rechecks source after waits. Release its occurrence through Host ref_release. Refusal zeroes output. */
+int32_t glowcap_loam_continuation_project(GlowcapLoamContinuation *continuation, size_t index, GlowcapReference *out_reference);
+/* Copy declared read interfaces over an exact activated target. The read scope retains immutable continuation custody without copying source intent or arguments. Every invocation and recursive result rechecks original admission. The independently owned facade survives release of the executor observer; release through Host ref_release. Undeclared methods and capability results refuse. Output zeroes on refusal. */
+int32_t glowcap_loam_continuation_project_reads_copying(GlowcapLoamContinuation *continuation, size_t index, const GlowcapLoamReadInterface *interfaces, size_t interface_count, size_t role, GlowcapReference *out_reference);
+/* Top-level private receipt execution through original source and exact target admission. Copies input into the existing owning Host queue before return; borrows no callback or wire Session. Fixed reply and C projection storage are independently bounded. Execution independently borrows the attachment until release; Continuation may release immediately. Refusal leaves output null and admits no target effect. */
+int32_t glowcap_loam_continuation_execute_copying(GlowcapLoamContinuation *continuation, size_t index, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, size_t reply_bytes, GlowcapLoamEffectExecution **out_execution);
+/* Top-level synchronous observation, no driving or redispatch. Ready preserves exact completed custody despite later source pause/revoke. Unsent proves no target admission; unknown requires application receipt recovery. Spines expire at next result query, leaves and failure text at execution release. Every successful ready query grants independent exact capability occurrences; release each through Host ref_release. Projection refusal zeroes output, rolls back new grants and preserves ready for retry without changing execution outcome. */
+int32_t glowcap_loam_effect_execution_result(GlowcapLoamEffectExecution *execution, GlowcapLoamEffectResult *out_result);
+/* Top-level consuming observer release, null-safe. WouldBlock during a content callback preserves the complete owner for a later boundary. Detaches observation without undoing an admitted effect. Result borrows expire; independently projected capability occurrences remain owned by their consumers. */
+int32_t glowcap_loam_effect_execution_release(GlowcapLoamEffectExecution *execution);
+/* Derive shared continuation custody, independent C observer metadata and source-call target decoding contributions. Pure scalar query; does not admit work. Host actors/registry and application executor buffers are separate. Refusal zeroes every output. */
+int32_t glowcap_loam_continuation_size_bound(const GlowcapLoamValueBounds *arguments, size_t verb_bytes, size_t targets, GlowcapLoamContinuationBounds *out_bounds);
+/* Derive complete caller result/observer/projection allowance and separate Host dispatch metadata from fixed reply_bytes. Temporary C input conversion, queue, endpoint actors and registry are separate owners. No allocation or admission. Refusal zeroes every output. */
+int32_t glowcap_loam_effect_execution_result_size_bound(size_t reply_bytes, GlowcapLoamEffectExecutionBounds *out_bounds);
+/* Derive the maximum encoded record bytes for this schema, including envelope and checksum, from the shared writer. No allocation, payload scan or storage access. Sizing does not admit a schema or guarantee backend capacity. Overflow refuses and leaves output zero. */
+int32_t glowcap_loam_schema_size_bound(const GlowcapLoamSchema *raw, size_t *out_bytes);
+/* Derive retained encoded proposals for one managed content effect: target and ancestors, owner, change batch and history, plus optional mutation receipt and invoking endpoint. resource_path includes the target and must fit the managed path limit; receipt is zero or one. Add application root/pages and fresh reference recipes separately. Creation, resource/control edits, multiple effects, temporary encoding and backend metadata are separate. No allocation, reads or admission. Refusal zeroes every output field. */
+int32_t glowcap_loam_content_staging_size_bound(size_t resource_path, uint32_t receipt, GlowcapLoamStagingBounds *out_bounds);
+/* Derive retained encoded proposals for at most one canonical local/foreign recipe per fresh save. Reused committed fields need no new row. Add application and managed participants separately. Zero saves produces zero demand. Temporary encoding and backend metadata are separate. No allocation, reads or admission. Overflow zeroes every output field. */
+int32_t glowcap_loam_reference_staging_size_bound(size_t saves, GlowcapLoamStagingBounds *out_bounds);
+/* Derive extra Call bytes for explicitly requested restoration URI copies, including allocation overhead. Add normal reference preparation separately. No allocation or I/O; overflow or excessive URI size refuses with zero output. */
+int32_t glowcap_loam_reference_uri_call_size_bound(size_t count, size_t uri_bytes, size_t *out_bytes);
+/* Derive a conservative reference contribution to call_bytes for one declared preparation and staging attempt, including C request spines, supplied URI copies, shared save/restore state, recipe payloads and one temporary parser window. Counts bound every declared occurrence, not distinct targets. uri_bytes bounds supplied and stored input lengths; canonical expansion is included, up to GLOWCAP_LOAM_MAX_URI_BYTES. Block headers, alignment and growth slack are included. Add invocation projections, snapshots, candidates, held fields, application callbacks and replies separately. Host network budgets remain independent. No allocation, storage or admission. Overflow or excessive URI size refuses with zero output. */
+int32_t glowcap_loam_reference_call_size_bound(size_t restores, size_t saves, size_t uri_bytes, size_t *out_bytes);
+/* Derive a conservative graph contribution to call_bytes for one complete preparation and replacement attempt. Each bound covers both the old and new population: pages counts children excluding the root, payload_bytes includes root and children, fields counts capability fields excluding resource bindings and page links. Includes streamed child snapshots, view and candidate inventories, C payload/field copies, both prepared callback page projections, and staged edges, with block headers, alignment and growth slack. The pinned old root stays borrowed. Add reference preparation, managed state, receipt data, argument projections, held occurrences, application callbacks and replies separately. Store staging, Rust buffers and Host network state remain independent. No allocation, storage or admission. Overflow refuses with zero output. */
+int32_t glowcap_loam_graph_call_size_bound(size_t pages, size_t payload_bytes, size_t fields, size_t *out_bytes);
+/* Derive a conservative managed-content contribution to call_bytes for one attempt. Counts retained input, private managed state, held occurrences, optional receipt encoding/replay, three C argument projections, policy output copies and owning reply conversion with physical block overhead. Argument bounds include the complete inbound vector; reply bounds must cover persisted receipts for the profile lifetime. Add reference preparation, graph work and application allocations separately. Single-record content/reference edits, resource/control edits, sharing, observation and external forwarding are separate paths. Store staging, Capabilities operations, registration, settlement arenas, Rust buffers and Host network state have independent owners. Pure scalar query: no allocation, traversal or admission. Overflow or invalid bounds refuse with zero output. */
+int32_t glowcap_loam_invocation_call_size_bound(const GlowcapLoamInvocationBounds *bounds, size_t *out_bytes);
+/* Derive a fixed Host reply allowance and its retained Loam call contribution from the declared result shape. Includes owning value copies, placement padding, Call state, arena growth and block headers. Add inbound arguments, admission preparation and other callback demand separately. Private execution observers, C result projections, Host queues and transport storage have separate owners. Pure scalar query: no allocation, traversal or admission. Overflow or invalid bounds zero both outputs. */
+int32_t glowcap_loam_forwarding_size_bound(const GlowcapLoamValueBounds *bounds, size_t *out_reply_bytes, size_t *out_call_bytes);
 #ifdef __cplusplus
 }
 #endif

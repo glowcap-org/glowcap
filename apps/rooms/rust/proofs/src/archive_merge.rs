@@ -6,6 +6,63 @@ use rooms_application::archive::{
 	merge::{Account, Limits, merge},
 };
 use std::sync::Arc;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[tokio::test]
+async fn combined_archive_client_keeps_the_exact_winning_reader() {
+	tokio::task::LocalSet::new().run_until(combined_reader()).await;
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+async fn combined_reader() {
+	use glowcap::{Argument, Host};
+	use rooms_application::archive::{Filter, index::Index};
+	use rooms_glowcap::client::archive::Archive;
+	let host = Host::from_seed([81; 32]).unwrap();
+	let reader = |rows: Vec<Arc<Entry>>| {
+		let mut index = Index::new(16).unwrap();
+		for (position, row) in rows.iter().enumerate() {
+			index.apply(position as u64 + 1, (*row.record).clone()).unwrap();
+		}
+		host.spawn(move |verb, args| {
+			assert_eq!(verb, "read");
+			let [_, Argument::Integer(after), Argument::Integer(limit)] = args else {
+				panic!("archive read");
+			};
+			let filter = Filter::default();
+			let page = index.read(&filter, *after as u64, *limit as usize).unwrap();
+			Ok(rooms_glowcap::archive::page_row(&page, &filter, *after as u64, *limit as usize).unwrap())
+		})
+		.unwrap()
+	};
+	let peer = Archive::local(
+		host.clone(),
+		rooms_platform::HostPlatform,
+		reader(vec![
+			line("shared", "source", "directory", LineState::Present),
+			line("peer-only", "source", "directory", LineState::Present),
+		]),
+	);
+	let device = Archive::local(
+		host.clone(),
+		rooms_platform::HostPlatform,
+		reader(vec![
+			line("shared", "source", "directory", LineState::Edited),
+			line("device-only", "source", "directory", LineState::Present),
+		]),
+	);
+	let winners = peer.read_together(&device, &Filter::default()).await.unwrap();
+	assert_eq!(winners.len(), 3);
+	for winner in winners {
+		assert_eq!(
+			winner.keeper,
+			if winner.record.coordinates().id.as_str() == Some("peer-only") {
+				0
+			} else {
+				1
+			}
+		);
+	}
+}
 fn line(id: &str, source: &str, directory: &str, state: LineState) -> Arc<Entry> {
 	Arc::new(Entry {
 		revision: 1,

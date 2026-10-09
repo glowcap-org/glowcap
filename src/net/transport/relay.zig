@@ -46,6 +46,7 @@ pub const RawListener = resident.RawListener;
 
 pub const LoopConnectTarget = completion.LoopConnectTarget;
 pub const DialResolver = completion.DialResolver;
+pub const ResidentPolicy = completion.ResidentPolicy;
 pub const RelayOptions = completion.RelayOptions;
 pub const CompletionBackend = completion.CompletionBackend;
 pub const default_send_staging_bytes = completion.default_send_staging_bytes;

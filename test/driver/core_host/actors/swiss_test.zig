@@ -66,7 +66,7 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     var decoy_row = TaggedRow{ .tag = "decoy", .freed = &decoy_freed };
     try std.testing.expectError(
         error.ReservedDurableNamespace,
-        server.publishGiftable("glowcap-durable-1-not-actually-minted", Tagged, .{ .row = &decoy_row }),
+        server.publish("glowcap-durable-1-not-actually-minted", Tagged, .{ .row = &decoy_row }),
     );
     const pair = try openPair(allocator, &client, &server, "127.0.0.1:7071", &dials);
     try std.testing.expectError(
@@ -115,7 +115,7 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     defer client2.deinit();
     try std.testing.expectError(
         error.ReservedDurableNamespace,
-        restarted.publishGiftable(minted.slice(), Tagged, .{ .row = &decoy_row }),
+        restarted.publish(minted.slice(), Tagged, .{ .row = &decoy_row }),
     );
     const pair2 = try openPair(allocator, &client2, &restarted, "127.0.0.1:7072", &dials);
     var restart_miss = CapturedRef{};

@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot, watch};
 
 enum Work {
-	Event(Value),
-	Pending(oneshot::Sender<Result<Value, Failure>>),
+	Event(Value, oneshot::Sender<Result<u64, Failure>>),
+	Pending(u64, oneshot::Sender<Result<Value, Failure>>),
 	Ack(Vec<u64>, oneshot::Sender<Result<Value, Failure>>),
 	Gap(Failure),
 	Resume(oneshot::Sender<Result<Value, Failure>>),
@@ -38,16 +38,18 @@ impl Owner {
 			}
 			let mut cursor = 0u64;
 			while let Some(work) = rx.blocking_recv() {
-				let mutation = !matches!(&work, Work::Pending(_) | Work::Close);
+				let mutation = !matches!(&work, Work::Pending(..) | Work::Close);
 				match work {
-					Work::Event(event) => {
-						if let Err(error) = inbox.append(event) {
+					Work::Event(event, reply) => {
+						let result = inbox.append(event);
+						if let Err(error) = &result {
 							let persisted = inbox.mark_gap(error.clone());
-							changed.send_replace(Some(persisted.err().unwrap_or(error)));
+							changed.send_replace(Some(persisted.err().unwrap_or_else(|| error.clone())));
 						}
+						let _ = reply.send(result);
 					}
-					Work::Pending(reply) => {
-						let mut pending = inbox.pending();
+					Work::Pending(after_id, reply) => {
+						let mut pending = inbox.pending(after_id);
 						pending["cursor"] = cursor.into();
 						let _ = reply.send(Ok(pending));
 					}
@@ -113,16 +115,22 @@ impl Worker {
 	pub fn failure(&self) -> Option<Failure> {
 		self.failure.borrow().clone()
 	}
-	pub fn event(&self, event: Value) -> Result<(), Failure> {
+	pub async fn event(&self, event: Value) -> Result<u64, Failure> {
 		if let Some(error) = self.failure() {
 			return Err(error);
 		}
-		self.tx.try_send(Work::Event(event)).map_err(|error| match error {
-			mpsc::error::TrySendError::Full(_) => Failure::exhausted("inbox disk queue full; observation has a gap"),
-			mpsc::error::TrySendError::Closed(_) => {
-				Failure::uncertain("inbox disk worker ended; restart before resuming")
-			}
-		})
+		let (reply, result) = oneshot::channel();
+		self.tx
+			.try_send(Work::Event(event, reply))
+			.map_err(|error| match error {
+				mpsc::error::TrySendError::Full(_) => {
+					Failure::exhausted("inbox disk queue full; observation has a gap")
+				}
+				mpsc::error::TrySendError::Closed(_) => {
+					Failure::uncertain("inbox disk worker ended; restart before resuming")
+				}
+			})?;
+		result.await.map_err(Failure::uncertain)?
 	}
 	pub async fn gap(&self, error: Failure) -> Result<(), Failure> {
 		self.tx
@@ -130,10 +138,10 @@ impl Worker {
 			.await
 			.map_err(|_| Failure::uncertain("inbox worker ended"))
 	}
-	pub async fn pending(&self) -> Result<Value, Failure> {
+	pub async fn pending(&self, after_id: u64) -> Result<Value, Failure> {
 		let (reply, result) = oneshot::channel();
 		self.tx
-			.send(Work::Pending(reply))
+			.send(Work::Pending(after_id, reply))
 			.await
 			.map_err(|_| Failure::uncertain("inbox worker ended"))?;
 		result.await.map_err(Failure::uncertain)?

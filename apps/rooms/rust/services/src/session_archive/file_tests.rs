@@ -235,6 +235,41 @@ async fn scenario() {
 	let local = owner.read(Filter::default()).unwrap().wait().await.unwrap();
 	assert_eq!(local.len(), 2);
 	assert!(matches!(local[0].keeper, Keeper::Local(_)));
+	let facade = Archive::local(
+		runtime.host().clone(),
+		HostPlatform,
+		owner.local_reader(runtime.host(), Filter::default()).unwrap(),
+	);
+	let scoped = facade
+		.narrow(
+			&Filter {
+				conversation: Some("garden".into()),
+				..Default::default()
+			},
+			rooms_application::archive::Access::Read,
+		)
+		.await
+		.unwrap();
+	let shared_blob = scoped.attachment(&local[0].record, 0).await.unwrap();
+	assert_eq!(shared_blob.read(0, 1024).await.unwrap(), bytes[..1024]);
+	assert!(
+		scoped.put(&local[0].record).await.is_err(),
+		"local history cannot acquire archive write authority"
+	);
+	let excluded = facade
+		.narrow(
+			&Filter {
+				conversation: Some("other".into()),
+				..Default::default()
+			},
+			rooms_application::archive::Access::Read,
+		)
+		.await
+		.unwrap();
+	assert!(
+		excluded.attachment(&local[0].record, 0).await.is_err(),
+		"attachment metadata cannot bypass scope"
+	);
 	let sources = rooms_glowcap::client::sources::Sources::new(HostPlatform);
 	let forwarded_local = local[0].source(0).await.unwrap().unwrap();
 	assert_eq!(forwarded_local.description(), &description);
@@ -264,6 +299,34 @@ async fn scenario() {
 	);
 	reupload(&owner, &client, local_blob.clone(), description.clone(), "101", false).await;
 	owner.select(Some(link.clone())).unwrap().wait().await.unwrap();
+	assert_eq!(
+		shared_blob.read(0, 1024).await.unwrap(),
+		bytes[..1024],
+		"selection cannot retarget a local history reader"
+	);
+	let peer_facet = owner
+		.share(
+			client.session().borrowed(),
+			rooms_application::archive::Facet::new(
+				Filter {
+					conversation: Some("garden".into()),
+					..Default::default()
+				},
+				rooms_application::archive::Access::Read,
+			)
+			.unwrap(),
+		)
+		.unwrap()
+		.wait()
+		.await
+		.unwrap();
+	let peer_facet = Archive::local(runtime.host().clone(), HostPlatform, peer_facet);
+	let peer_shared_blob = peer_facet.attachment(&source.record, 0).await.unwrap();
+	assert_eq!(
+		peer_shared_blob.read(0, 1024).await.unwrap(),
+		bytes[..1024],
+		"peer shares preserve exact attachment custody"
+	);
 	let share = rooms_application::archive::shares::Share::new(
 		"12345678-1234-4234-8234-123456789abc".into(),
 		"Archive".into(),
@@ -444,6 +507,7 @@ async fn reupload(
 	let arrived = started.clone();
 	let gate = Rc::new(tokio::sync::Notify::new());
 	let released = gate.clone();
+	let source_host = client.session().host();
 	let proxy = client
 		.session()
 		.spawn_owned(move |verb, args| {
@@ -454,12 +518,7 @@ async fn reupload(
 				return Err("read range".into());
 			}
 			let (offset, length) = (*offset as u64, *length as usize);
-			let mut answer = glowcap::current_session()
-				.map_err(|e| e.to_string())?
-				.ok_or("caller")?
-				.host()
-				.defer_turn()
-				.map_err(|e| e.to_string())?;
+			let mut answer = source_host.defer_turn().map_err(|e| e.to_string())?;
 			let blob = blob.clone();
 			let gate = released.clone();
 			arrived.notify_one();

@@ -9,8 +9,7 @@ import { adoptableArchiveDigests, archivedAttachmentsMatch, archivedAttachmentVi
 import { fetchesOnArrival } from "../media.ts";
 import { type Item, silencedFrom } from "../types.ts";
 import type { RoomsPageContext } from "../page.ts";
-import type { AttachedSessionFiles } from "./attached_files.ts";
-import { workspaceControllerSelection } from "../workspace_state.ts";
+import type { AttachedSessionFiles, FileDescription, HeldFile } from "./attached_files.ts";
 
 const samePreviews = (current: readonly string[] | undefined, next: readonly string[]) =>
 	(current?.length ?? 0) === next.length && next.every((url, index) => current?.[index] === url);
@@ -20,8 +19,9 @@ export function reconcileAttachedHistory(
 	page: RoomsPageContext,
 	key: string,
 	records: readonly ArchiveRecord[],
-	files: AttachedSessionFiles | null,
+	files: Pick<AttachedSessionFiles<FileDescription>, "holdArchived" | "adoptArchived" | "release" | "open"> | null,
 	custody?: { readonly local: boolean; readonly peer: boolean },
+	source?: (record: ArchiveLine, index: number) => HeldFile | null,
 ): boolean {
 	const existing = new Map(
 		store.historyOf(page.projection, key)
@@ -41,7 +41,7 @@ export function reconcileAttachedHistory(
 			? archivedAttachmentViews(record.attachments).map((attachment) =>
 				store.attachmentView(page.projection, attachment)
 			)
-			: record.attachments.map((_attachment, index) => files.holdArchived(record, index)),
+			: record.attachments.map((_attachment, index) => files.holdArchived(record, index, source)),
 	});
 	const openLine = (line: ReturnType<typeof materialize>) => {
 		if (files == null) return;
@@ -82,7 +82,7 @@ export function reconcileAttachedHistory(
 		const adoptedDigests = exactAttachments ? null : adoptableArchiveDigests(current, record);
 		if (adoptedDigests != null) {
 			for (const [index, attachment] of (current.attachments ?? []).entries()) {
-				if (adoptedDigests.has(attachment.id)) files?.adoptArchived(key, attachment.id, record, index);
+				if (adoptedDigests.has(attachment.id)) files?.adoptArchived(key, attachment.id, record, index, source);
 			}
 			store.updateAttachments(page.projection, key, adoptedDigests);
 		}
@@ -109,10 +109,9 @@ export function reconcileAttachedHistory(
 		if (line !== null) openLine(line);
 	}
 	store.reviseItems(page.projection, key, revisions);
-	const device = workspaceControllerSelection(page).kind !== "attached";
-	const archivePeer = page.attachedSession.current?.current?.checkpoint.capabilities.archivePeer ?? null;
+	const device = page.controllerSelection.getSnapshot().kind !== "attached";
 	const local = custody?.local ?? true;
-	const peer = custody?.peer ?? archivePeer != null;
+	const peer = custody?.peer ?? false;
 	const keeper = peer && local
 		? device ? keeperPeerAndDevice : keeperPeerAndSession
 		: peer
@@ -125,7 +124,10 @@ export function reconcileAttachedHistory(
 	return retained;
 }
 
-import type { AttachedHistoryRead } from "./remote.ts";
+export type HistoryRead =
+	| { phase: "loading" }
+	| { phase: "ready"; records: ArchiveRecord[]; local: boolean; peer: boolean }
+	| { phase: "unavailable"; error: string };
 import {
 	keeperDevice,
 	keeperPeer,
@@ -138,8 +140,9 @@ import {
 export function projectAttachedHistoryRead(
 	page: RoomsPageContext,
 	key: string,
-	result: AttachedHistoryRead,
-	files: AttachedSessionFiles | null,
+	result: HistoryRead,
+	files: Pick<AttachedSessionFiles<FileDescription>, "holdArchived" | "adoptArchived" | "release" | "open"> | null,
+	source?: (record: ArchiveLine, index: number) => HeldFile | null,
 ): void {
 	const room = store.getConv(page.projection, key);
 	if (result.phase === "loading") {
@@ -150,7 +153,7 @@ export function projectAttachedHistoryRead(
 		const retained = reconcileAttachedHistory(page, key, result.records, files, {
 			local: result.local,
 			peer: result.peer,
-		});
+		}, source);
 		if (room?.type === "room") {
 			store.setEarlierHistory(page.projection, key, retained ? "shown" : "empty");
 		}

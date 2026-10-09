@@ -3,14 +3,49 @@
 use super::{Client, Deadline, Error, Reply};
 use glowcap::{Argument, Ref};
 
+/// Room posts return their authoritative line identity with the capability.
+/// Direct inboxes return a capability; their sender owns its local line ID.
+/// This borrows the reply and never duplicates capability custody.
+pub fn reply(value: &Argument) -> glowcap::Result<(Option<&Ref>, Option<rooms_application::room::message::LineId>)> {
+	match value {
+		Argument::Void => Ok((None, None)),
+		Argument::Reference(reference) => Ok((Some(reference), None)),
+		Argument::List(parts) => {
+			let [id, authority] = parts.as_slice() else {
+				return Err(glowcap::loam::refusal("invalid posted line reply"));
+			};
+			let id = id
+				.as_i64()
+				.and_then(|id| u64::try_from(id).ok())
+				.and_then(rooms_application::room::message::LineId::new)
+				.ok_or_else(|| glowcap::loam::refusal("invalid posted line identity"))?;
+			let authority = match authority {
+				Argument::Reference(reference) => Some(reference),
+				Argument::Void => None,
+				_ => return Err(glowcap::loam::refusal("invalid posted line authority")),
+			};
+			Ok((authority, Some(id)))
+		}
+		_ => Err(glowcap::loam::refusal("invalid posted line reply")),
+	}
+}
+
 pub struct PostedLine<D> {
 	client: Client<D>,
 	reference: Ref,
+	id: Option<rooms_application::room::message::LineId>,
 }
 impl<D: Deadline> PostedLine<D> {
 	/// Adopt an existing owned capability, including one handed to this caller.
 	pub fn new(client: Client<D>, reference: Ref) -> Self {
-		Self { client, reference }
+		Self {
+			client,
+			reference,
+			id: None,
+		}
+	}
+	pub fn id(&self) -> Option<rooms_application::room::message::LineId> {
+		self.id
 	}
 	pub fn reference(&self) -> &Ref {
 		&self.reference
@@ -58,10 +93,22 @@ impl<D: Deadline> PostedLine<D> {
 }
 impl<D> PostedLine<D> {
 	pub(super) fn from_reply(client: Client<D>, reply: Reply) -> Option<Self> {
+		let (_, id) = self::reply(&reply.0).ok()?;
 		match reply.0 {
-			Argument::Reference(reference) => Some(Self { client, reference }),
+			Argument::Reference(reference) => Some(Self { client, reference, id }),
+			Argument::List(mut parts) => match parts.pop()? {
+				Argument::Reference(reference) => Some(Self { client, reference, id }),
+				_ => None,
+			},
 			_ => None,
 		}
+	}
+	pub(super) fn from_room_reply(client: Client<D>, reply: Reply) -> Result<Option<Self>, Error> {
+		if matches!(reply.0, Argument::Reference(_)) {
+			return Err(glowcap::loam::refusal("room post omitted its line identity").into());
+		}
+		self::reply(&reply.0)?;
+		Ok(Self::from_reply(client, reply))
 	}
 }
 

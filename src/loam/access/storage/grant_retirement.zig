@@ -34,7 +34,7 @@ pub fn prepare(read: *Read, grant: core.GrantView.Record) !Path {
     }
     return result;
 }
-pub fn stage(read: *Read, path: *const Path) !void {
+pub fn stage(read: *Read, path: *const Path, child_edit: ?*@import("directory_edit.zig").DirectoryEdit) !void {
     if (path.count == 0) return error.NotPrepared;
     read.header.version.grants = @fromBackingInt(std.math.add(u64, @backingInt(read.header.version.grants), 1) catch return error.RevisionExhausted);
     if (path.count > 1) {
@@ -45,7 +45,7 @@ pub fn stage(read: *Read, path: *const Path) !void {
         value.value.grant.child_count -= 1;
         value.value.grant.revision = read.header.version.grants;
         value.value.inventory = try history.stamp(read, @backingInt(read.header.version.grants));
-        var edges: [514]loam.Edge = undefined;
+        var edges: [515]loam.Edge = undefined;
         var iterator = parent.view.edges();
         var count: usize = 0;
         while (iterator.next()) |edge| {
@@ -53,6 +53,13 @@ pub fn stage(read: *Read, path: *const Path) !void {
             edges[count] = edge;
             count += 1;
         }
+        const edit = child_edit orelse return error.NotPrepared;
+        try edit.rebaseProposed(value.value.children);
+        const root = try edit.stage(null);
+        const old = value.value.children orelse return error.InvalidRecord;
+        if (count == 0 or !edges[count - 1].target.eql(old)) return error.InvalidRecord;
+        if (root) |id| edges[count - 1] = .{ .target = id } else count -= 1;
+        value.value.children = root;
         try record.putEncoded(read.store, parent.view.id, records.profile.grant, value.value, edges[0..count], parent.expected, false);
         try history.touchGrants(read, path.ids[2..path.count]);
     }

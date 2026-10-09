@@ -113,8 +113,8 @@ class _IrohLoop:
     caller can then free the netlayer with no callback still touching it.
 
     This is the Python sibling of the Deno binding's ``IrohLoop`` and Zig's
-    ``completion.Loop(iroh.Backend)`` + ``driver.Bridge`` + ``driver_core.Host``:
-    one reactor multiplexes many connections."""
+    ``driver.HostRuntime`` over ``iroh.MultiplexedAdapter``: one reactor
+    multiplexes many connections."""
 
     def __init__(self, netlayer: IrohNetlayer):
         self._netlayer = netlayer

@@ -89,10 +89,11 @@ test "session capability targets: promise-kind is refused, an object still calls
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         dial_opts,
@@ -129,10 +130,11 @@ test "Session.deinit inside its hosted callback releases at the public method bo
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         dial_opts,
@@ -143,12 +145,11 @@ test "Session.deinit inside its hosted callback releases at the public method bo
     var dropped = std.atomic.Value(bool).init(false);
     var host_future = try io.concurrent(hostDropsServingSession, .{ server, &dropped });
 
-    var client_resident = tcp.Resident{ .io = io };
-    const netlayers = [_]net.netlayer.Netlayer{client_resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const client = try driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
         dial_opts,
@@ -172,10 +173,11 @@ test "Session.close keeps its session alive through callback-deferred release" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         dial_opts,
@@ -185,12 +187,11 @@ test "Session.close keeps its session alive through callback-deferred release" {
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
     var host_future = try io.concurrent(hostOnce, .{server});
 
-    var client_resident = tcp.Resident{ .io = io };
-    const netlayers = [_]net.netlayer.Netlayer{client_resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     var owned: ?*driver.Session = try driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
         dial_opts,
@@ -220,10 +221,11 @@ test "Session finish drives an ignored Promise admitted before close" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     const server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         dial_opts,
@@ -233,12 +235,11 @@ test "Session finish drives an ignored Promise admitted before close" {
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
     var host_future = try io.concurrent(hostOnce, .{server});
 
-    var client_resident = tcp.Resident{ .io = io };
-    const netlayers = [_]net.netlayer.Netlayer{client_resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const session = try driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
         dial_opts,
@@ -260,10 +261,11 @@ test "Session finish waits for an admitted beginSendNamed chain" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     const server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         dial_opts,
@@ -273,12 +275,11 @@ test "Session finish waits for an admitted beginSendNamed chain" {
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
     var host_future = try io.concurrent(hostOnce, .{server});
 
-    var client_resident = tcp.Resident{ .io = io };
-    const netlayers = [_]net.netlayer.Netlayer{client_resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const session = try driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
         dial_opts,
@@ -302,12 +303,11 @@ test "Session finish waits for an admitted beginSendNamed chain" {
 }
 
 fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress) !void {
-    var tcp_resident = tcp.Resident{ .io = io };
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
     var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
     const client = try driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
         dial_opts,

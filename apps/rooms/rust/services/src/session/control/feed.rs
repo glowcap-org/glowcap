@@ -1,69 +1,64 @@
+//! The local journal records presentation only. Live event custody remains
+//! independently held until acknowledgment or observer retirement.
 use super::{failure::Failure, worker};
-use rooms_runtime::{
-	rooms::ConversationEvent,
-	service::{Local, LocalObserver as Observer},
-};
+use crate::session::{Event, Local};
 use serde_json::json;
-use std::cell::RefCell;
-pub(super) type Application = Local<rooms_platform::HostPlatform>;
+use std::{
+	cell::{Cell, RefCell},
+	collections::BTreeMap,
+};
+pub(super) type Application = Local;
 pub(super) struct Feed {
 	pub app: Application,
 	pub inbox: worker::Worker,
 	pub failure: RefCell<Option<Failure>>,
+	live: RefCell<BTreeMap<u64, Event>>,
+	pub cursor: Cell<u64>,
 }
-impl Observer for Feed {
-	fn changed(&self) -> Result<(), rooms_runtime::Error> {
-		Ok(())
+impl Feed {
+	pub fn new(app: Application, inbox: worker::Worker) -> Self {
+		Self {
+			app,
+			inbox,
+			failure: RefCell::new(None),
+			live: RefCell::new(BTreeMap::new()),
+			cursor: Cell::new(0),
+		}
 	}
-	fn event(&self, event: &ConversationEvent) -> Result<(), rooms_runtime::Error> {
-		let snapshot = self.app.snapshot().inspect_err(|error| {
-			*self.failure.borrow_mut() = Some(Failure::from(error.clone()));
-		})?;
-		let room = snapshot
-			.checkpoint
-			.rooms()
-			.find(|r| r.id.text().as_str() == Some(&event.conversation_id));
-		let direct = snapshot
-			.checkpoint
-			.directs()
-			.find(|d| d.id.text().as_str() == Some(&event.conversation_id));
-		let files: Vec<_> = event
+	pub async fn receive(&self, token: u64, event: Event) -> Result<(), Failure> {
+		if self.live.borrow().len() >= 4096 {
+			return Err(Failure::exhausted("acknowledge retained local events"));
+		}
+		let files = event
 			.files
 			.iter()
-			.map(|f| {
-				let d = f.description();
-				json!({"name": d.name(), "mime": d.mime(), "size": d.size()})
+			.map(|file| {
+				json!({"name":file.description.name(),
+			"mime":file.description.mime(),"size":file.description.size()})
 			})
-			.collect();
-		let row = json!({"conversation": event.conversation_id, "author": event.from,
-			"channel": if direct.is_some() { "dm" } else if room.is_some() { "room" } else { "unknown" },
-			"room": room.and_then(|r| r.name.text().as_str()),
-			"peer": direct.and_then(|d| d.peer.text().as_str()),
-			"text": event.text, "at": event.at, "line": event.line_id,
-			"change": event.change.map(|c| c.event_change()), "system": event.system,
-			"editable": event.editable, "presence": event.presence, "facts": event.facts,
-			"files": files});
-		if let Err(error) = self.inbox.event(row) {
-			*self.failure.borrow_mut() = Some(error.clone());
-
-			return Err(rooms_runtime::Error::storage(error));
-		}
+			.collect::<Vec<_>>();
+		let mut data: serde_json::Value = serde_json::from_str(&event.data)?;
+		data["notice"]["history"] = event.history().map_or(
+			serde_json::Value::Null,
+			|history| json!({"source":history.source,"generation":history.generation,"id":history.id}),
+		);
+		let token = self.app.activity.token(token).map_err(Failure::uncertain)?;
+		let id = self
+			.inbox
+			.event(json!({"event":data,"live":token,"files":files,
+			"incoming":event.incoming.as_ref().map(|incoming|incoming.role())}))
+			.await?;
+		self.live.borrow_mut().insert(id, event);
 		Ok(())
 	}
-	fn history_changed(&self, _: &rooms_application::archive::change::Change) -> Result<(), rooms_runtime::Error> {
-		self.changed()
-	}
-	fn operations_changed(&self, _: &str) -> Result<(), rooms_runtime::Error> {
-		self.changed()
-	}
-	fn closed(&self) {
-		if self.failure.borrow().is_none() {
-			*self.failure.borrow_mut() = Some(Failure::new(
-				"closed",
-				"after-state-change",
-				"observation ended; inspect the session report",
-			));
+	pub async fn ack(&self, ids: Vec<u64>) -> Result<serde_json::Value, Failure> {
+		let result = self.inbox.ack(ids.clone()).await?;
+		for id in ids {
+			self.live.borrow_mut().remove(&id);
 		}
-		self.inbox.wake();
+		Ok(result)
+	}
+	pub fn retire(&self) {
+		self.live.borrow_mut().clear();
 	}
 }

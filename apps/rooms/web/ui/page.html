@@ -33,11 +33,7 @@
 		// the default face and repaints when the module runs, which for a reader
 		// who chose light is a visible flash of syrup.
 		//
-		// It is a guess, and it is allowed to be wrong. The session decides the
-		// theme, and an attached one may say something else once it is up; the
-		// bet is only that a reader's last theme is their next one, which it
-		// nearly always is. Being wrong costs the repaint we would have had
-		// anyway, so the guess is free and the odds are good.
+		// Theme is a browser preference, independent of the session it opens.
 		//
 		// What it does not do is check a schema version. It reads one string and
 		// accepts it only as "light" or "dark", which is the whole guard a
@@ -49,8 +45,8 @@
 		// ES5 only, so a parse error cannot take either of them out.
 		document.documentElement.dataset.boot = window.isSecureContext === true ? "opening" : "insecure";
 		try {
-			var saved = JSON.parse(localStorage.getItem("rooms.workspace-state") || "null");
-			var t = saved && saved.view ? saved.view.theme : null;
+			var saved = JSON.parse(localStorage.getItem("rooms.view-preferences") || "null");
+			var t = saved ? saved.theme : null;
 			if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
 		} catch (_) { /* private mode: the stylesheet's default face answers */ }
 		</script>

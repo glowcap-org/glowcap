@@ -4,6 +4,7 @@
 //! wire-delta retain. Resolution storage can also establish exports before a
 //! listener callback mentions them.
 
+const std = @import("std");
 const model = @import("model");
 const session = @import("../mod.zig");
 
@@ -38,6 +39,48 @@ pub fn retainMessage(self: *Session, message: model.Message) !void {
         // Exhaustive on purpose: a new sendable kind that can carry a `near`
         // export must declare the retain above.
         .gc_export, .gc_answer, .start_session, .abort => {},
+    }
+}
+
+/// Release exactly the retains `retainMessage` took for `message`, which never
+/// reached the wire (ADR-0194). Every row it names is live with this retain on
+/// top of its baseline, so no decrement can underflow or retire the row.
+pub fn releaseMessage(self: *Session, message: model.Message) void {
+    switch (message) {
+        .deliver => |deliver| {
+            releaseRef(self, deliver.target);
+            if (deliver.resolve_me_desc) |reference| releaseRef(self, reference);
+            for (deliver.args) |arg| releaseArg(self, arg);
+        },
+        // A promise proxy's home listen, withdrawn with the turn whose send
+        // created it.
+        .listen => |listen| {
+            releaseRef(self, listen.target);
+            releaseRef(self, listen.listener);
+        },
+        // Retraction covers the far sends a turn makes and the listens they
+        // queue; another kind here is a caller bug.
+        else => unreachable,
+    }
+}
+
+fn releaseRef(self: *Session, reference: model.Reference) void {
+    switch (reference) {
+        .near => |near| if (near.export_position.int() != BOOTSTRAP_POSITION) {
+            std.debug.assert(self.exports.count(near.export_position) >= 2);
+            self.exports.decrement(near.export_position, 1) catch unreachable;
+        },
+        else => {},
+    }
+}
+
+fn releaseArg(self: *Session, arg: model.Argument) void {
+    switch (arg) {
+        .reference => |reference| releaseRef(self, reference),
+        .list, .set => |items| for (items) |item| releaseArg(self, item),
+        .tagged => |tagged| for (tagged.value) |item| releaseArg(self, item),
+        .@"struct" => |entries| for (entries) |entry| releaseArg(self, entry.value),
+        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }
 }
 

@@ -18,6 +18,7 @@ export async function run(
 	second: Page,
 	foreignLocator: string,
 	foreignRoom: Deno.ChildProcess,
+	foreignState: string,
 	foreignRoomPort: number,
 	/** The port this page's own room server holds. The last phase takes that
 	 * server down and lets `serve.ts` stand it back up, which is the only
@@ -628,8 +629,12 @@ export async function run(
 		const theirs = namedRoomRow(second, "lobby");
 		await theirs.hover();
 		await theirs.locator(".room-leave").click();
+		await theirs.waitFor({ state: "hidden", timeout: 30_000 });
+		await second.click(".wordmark-link");
 		await second.waitForSelector("#joinBtn", { timeout: 30_000 })
-			.catch(() => fail("the second peer could not step back out of the room"));
+			.catch(async () =>
+				fail(`the second peer could not step back out of the room: ${await second.locator("body").innerText()}`)
+			);
 	}
 	// How much of all that a reader is looking at is theirs to say, and a
 	// directory is one of the things they can say it by. That belongs here
@@ -639,5 +644,5 @@ export async function run(
 	// join card, which is where this scene picked it up.
 	await filteringRun(tab, second, foreignRoomPort, descendersIntact);
 
-	await leavingRun(tab, foreignLocator, foreignRoom, foreignRoomPort, homeRoomPort, aboutOf);
+	await leavingRun(tab, foreignLocator, foreignRoom, foreignState, foreignRoomPort, homeRoomPort, aboutOf);
 }

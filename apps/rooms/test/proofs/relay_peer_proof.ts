@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // The rooms browser-peer proof:
 // a wasm browser peer drives the real room-directory capabilities through
 // serve.ts's `/relay` byte pipe, with no native dlopen anywhere in this process.
@@ -19,11 +20,10 @@
 import * as tcp from "@glowcap/tcp";
 import { init } from "@glowcap/web";
 import { roomsHostOptions } from "../../lib/profile.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const WASM = new URL("../../../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 
@@ -31,7 +31,7 @@ const deadline = setTimeout(() => fail("relay-peer scenario timed out after 30s"
 
 const httpPort = freePort();
 const roomPort = freePort();
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",

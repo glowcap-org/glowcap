@@ -15,7 +15,13 @@ use rooms_application::{
 	},
 };
 use serde_json::{Value, json};
+mod departure;
+mod dispatch;
+mod effects;
+mod local;
+mod operations;
 mod records;
+mod selection;
 
 fn nz(value: u64) -> NonZeroU64 {
 	NonZeroU64::new(value).unwrap()
@@ -27,22 +33,37 @@ fn key<K>(slot: u64, generation: u64) -> custody::FieldKey<K> {
 struct References;
 // Different fixture role types make custody coordinates type checked, even
 // though an adapter's transport may use one capability handle representation.
+#[derive(PartialEq)]
 struct Room(u64);
+#[derive(PartialEq)]
 struct Directory;
+#[derive(PartialEq)]
 struct Source(u64);
 impl custody::References for References {
 	type SessionAccess = Source;
+	type SessionControl = ();
 	type RoomAccess = Room;
 	type DirectoryAccess = Directory;
 	type DirectAccess = ();
+	type DirectInbox = ();
 	type ArchiveAccess = ();
 	type Operator = ();
+	type Operations = ();
+	type IrcConnection = ();
 	type Offer = ();
 	type AcceptedAccess = ();
 	type RoomControl = ();
 	type ArchiveControl = ();
 	type CreationReceipt = ();
 	type PublicationLease = ();
+	type RoomSeat = ();
+	type RoomTopic = ();
+	type RoomInbox = ();
+	type RoomFiles = ();
+	type Line = ();
+	type DirectoryName = ();
+	type DirectoryInbox = ();
+	type SourceBlob = ();
 }
 fn terms() {
 	let saved = session::Terms::new(&[ObserveWorkspace, InteractWorkspace, History, ReadFile]).unwrap();
@@ -200,7 +221,11 @@ fn mappings() {
 		}
 		assert_eq!(Route::parse(name.as_str().unwrap()), Some(route));
 		let requirement = requirements::command(route).unwrap();
-		assert!(requirement.workspace.contains(&InteractWorkspace));
+		if route == Route::Checkpoint(commands::Command::ClearWorkspace) {
+			assert_eq!(requirement.workspace, &[ReplaceWorkspace, ManageCustody]);
+		} else {
+			assert!(requirement.workspace.contains(&InteractWorkspace));
+		}
 		assert!(requirement.workspace.iter().all(|p| session::SUPPORTED.contains(p)));
 	}
 	for command in [
@@ -258,7 +283,7 @@ fn fixture() -> Value {
 		"directories": [{"id": "directory", "access": key::<custody::DirectoryAccess>(1, 1), "home": true,
 			"nick": "peer", "nickAllocation": "exact", "standing": null}],
 		"conversations": [{"kind": "room", "id": "conversation", "directory": "directory", "name": "room",
-			"access": key::<custody::RoomAccess>(1, 1), "control": null, "held": true, "reconnect": "requested",
+			"access": key::<custody::RoomAccess>(1, 1), "control": null, "reconnect": "requested",
 			"standing": null, "draft": "draft"}],
 		"invitations": [], "active": "conversation", "standing": "", "ignored": [], "keepHistory": true,
 		"connection": "relay", "archive": null, "archiveControl": null, "operators": [], "peering": []
@@ -336,6 +361,21 @@ fn workspace() {
 			.validate(&custody),
 		Err(workspace::InvalidIntent::Custody)
 	);
+	let mut moderation = fixture();
+	moderation["conversations"][0]["moderator"] = json!(key::<custody::RoomAccess>(1, 1));
+	assert!(
+		workspace::Intent::decode(&moderation.to_string())
+			.unwrap()
+			.validate(&custody)
+			.is_ok()
+	);
+	moderation["conversations"][0]["moderator"] = json!(key::<custody::RoomAccess>(1, 2));
+	assert_eq!(
+		workspace::Intent::decode(&moderation.to_string())
+			.unwrap()
+			.validate(&custody),
+		Err(workspace::InvalidIntent::Custody)
+	);
 	let literal = raw.replace("\"draft\":\"draft\"", "\"draft\":\"\\ud800\"");
 	let decoded = workspace::Intent::decode(&literal).unwrap();
 	assert_eq!(
@@ -360,9 +400,12 @@ fn workspace() {
 	assert!(custody.remove_room_access(key(1, 2)).is_none());
 	let original = custody.remove_room_access(key(1, 1)).unwrap();
 	let receipt = custody::EffectReceipt::<References> {
+		introduction: None,
+		adopted: false,
+		outgoing: None,
 		operation: rooms_application::session::state::OperationId::new("op".into()).unwrap(),
 		canonical_intent: rooms_application::fields::Text::new("canonical intent".into()).unwrap(),
-		attachment_generation: nz(1),
+		resource_generation: nz(1),
 		source: custody::Held {
 			key: key(1, 1),
 			reference: Source(3),
@@ -387,7 +430,7 @@ fn workspace() {
 	assert!(matches!(receipt.outcome, custody::Outcome::Unresolved));
 	let mut released = fixture();
 	released["conversations"][0]["access"] = Value::Null;
-	released["conversations"][0]["held"] = json!(false);
+	released["conversations"][0]["reconnect"] = json!("manual");
 	assert_eq!(
 		workspace::Intent::decode(&released.to_string())
 			.unwrap()
@@ -426,8 +469,22 @@ fn workspace() {
 	);
 }
 pub fn run() {
+	for &role in custody::Role::ALL {
+		let coordinate = custody::Coordinate { role, key: key(1, 1) };
+		assert_eq!(
+			custody::Coordinate::decode(&serde_json::to_string(&coordinate).unwrap()).unwrap(),
+			coordinate
+		);
+		assert!(custody::Coordinate::decode(&json!([role, coordinate.key]).to_string()).is_err());
+	}
 	terms();
 	mappings();
 	workspace();
 	records::run();
+	effects::run();
+	dispatch::run();
+	local::run();
+	operations::run();
+	selection::run();
+	departure::run();
 }

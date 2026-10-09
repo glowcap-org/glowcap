@@ -75,7 +75,7 @@ impl Inboxes {
 		if identity.durable_identity_authenticated() {
 			let waiter = self.waiting.borrow_mut().remove(&identity.designator);
 			if let Some(waiter) = waiter {
-				let _ = waiter.send(session.with_gc());
+				let _ = waiter.send(session);
 				return Ok(None);
 			}
 		}
@@ -103,7 +103,6 @@ impl Inboxes {
 			runtime
 				.connect(&self.local, ConnectOptions::default())
 				.await
-				.map(|s| s.with_gc())
 				.map_err(|e| e.to_string())
 		};
 		let (importer, exporter) =

@@ -21,7 +21,7 @@ const Spec = struct {
     }
 
     pub const const_docs = [_]struct { name: []const u8, doc: []const u8 }{
-        .{ .name = "GLOWCAP_MULTIPLEXED_WOULD_BLOCK", .doc = "try_read and try_write result when the operation cannot progress without blocking." },
+        .{ .name = "GLOWCAP_TRANSPORT_WOULD_BLOCK", .doc = "Stream and multiplexed try_read and try_write result when the operation cannot progress without blocking." },
         .{ .name = "GLOWCAP_MULTIPLEXED_EV_READABLE", .doc = "GlowcapMultiplexedReadyEvent.events: subject has readable bytes." },
         .{ .name = "GLOWCAP_MULTIPLEXED_EV_WRITABLE", .doc = "GlowcapMultiplexedReadyEvent.events: subject can resume writing." },
         .{ .name = "GLOWCAP_MULTIPLEXED_EV_CLOSED", .doc = "GlowcapMultiplexedReadyEvent.events: subject closed." },
@@ -86,8 +86,8 @@ const Spec = struct {
             .{ cp.GlowcapTransportListenerRestorationStateFn, "GlowcapTransportListenerRestorationStateFn" },
             .{ cp.GlowcapStreamAcceptFn, "GlowcapStreamAcceptFn" },
             .{ cp.GlowcapStreamListenerCloseFn, "GlowcapStreamListenerCloseFn" },
-            .{ cp.GlowcapStreamReadFn, "GlowcapStreamReadFn" },
-            .{ cp.GlowcapStreamWriteAllFn, "GlowcapStreamWriteAllFn" },
+            .{ cp.GlowcapStreamTryReadFn, "GlowcapStreamTryReadFn" },
+            .{ cp.GlowcapStreamTryWriteFn, "GlowcapStreamTryWriteFn" },
             .{ cp.GlowcapStreamConnCloseFn, "GlowcapStreamConnCloseFn" },
             .{ cp.GlowcapStreamConnTakeFailureFn, "GlowcapStreamConnTakeFailureFn" },
             .{ cp.GlowcapTransportProviderSameConfigurationFn, "GlowcapTransportProviderSameConfigurationFn" },
@@ -100,7 +100,7 @@ const Spec = struct {
             if (std.mem.eql(u8, field, "claim_external")) return "GlowcapMultiplexedClaimExternalFn";
         }
         if (Owner == cp.GlowcapStreamTransport) {
-            if (std.mem.eql(u8, field, "read")) return "GlowcapStreamReadFn";
+            if (std.mem.eql(u8, field, "try_read")) return "GlowcapStreamTryReadFn";
             if (std.mem.eql(u8, field, "conn_close")) return "GlowcapStreamConnCloseFn";
         }
         if (Owner == cp.GlowcapTransportProvider) {
@@ -147,7 +147,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
 
     inline for (.{
-        "GLOWCAP_MULTIPLEXED_WOULD_BLOCK",         "GLOWCAP_MULTIPLEXED_EV_READABLE",
+        "GLOWCAP_TRANSPORT_WOULD_BLOCK",           "GLOWCAP_MULTIPLEXED_EV_READABLE",
         "GLOWCAP_MULTIPLEXED_EV_WRITABLE",         "GLOWCAP_MULTIPLEXED_EV_CLOSED",
         "GLOWCAP_MULTIPLEXED_EV_ACCEPT",           "GLOWCAP_MULTIPLEXED_EV_CONNECT",
         "GLOWCAP_MULTIPLEXED_EV_LISTEN",           "GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION",
@@ -196,7 +196,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\typedef int32_t (*GlowcapMultiplexedStartConnectFn)(void *ctx, uint64_t request_id, const GlowcapLocatorView *locator, const GlowcapTransportOperationOptions *options, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapMultiplexedFinishConnectFn)(void *ctx, uint64_t request_id, uint64_t *out_conn, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapMultiplexedClaimExternalFn)(void *ctx, uint64_t subject, uint64_t *out_conn, GlowcapProviderFailure *out_failure);
-        \\typedef int32_t (*GlowcapMultiplexedListenFn)(void *ctx, uint64_t route_id, const uint8_t *transport, size_t transport_len, const uint8_t *requested_designator, size_t requested_designator_len, const GlowcapTransportOperationOptions *options, GlowcapListenResult *out_result, GlowcapProviderFailure *out_failure);
+        \\typedef int32_t (*GlowcapMultiplexedListenFn)(void *ctx, uint64_t route_id, const uint8_t *transport, size_t transport_len, const uint8_t *requested_designator, size_t requested_designator_len, const uint8_t *identity_designator, size_t identity_designator_len, const GlowcapTransportOperationOptions *options, GlowcapListenResult *out_result, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapMultiplexedFinishListenFn)(void *ctx, uint64_t route_id, void **out_listener, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapTransportListenerLocatorFn)(void *listener_ctx, void *sink_ctx, GlowcapLocatorSinkFn sink, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapTransportListenerAdvertiseFn)(void *listener_ctx, const GlowcapLocatorView *locator, void *sink_ctx, GlowcapLocatorSinkFn sink, GlowcapProviderFailure *out_failure);
@@ -220,8 +220,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "Consume pending listener construction on every return; present exactly with cancel_listen.",  "Cancel pending setup or claim an asynchronously stopped listener after LISTEN.",
         "Query canonical listener locator.",                                                           "Validate and canonicalize advertised locator.",
         "Query or copy opaque listener restoration state.",                                            "Finish accept.",
-        "Stop listener; asynchronous retirement emits LISTEN, then cancel_listen claims cleanup.",     "Read: 0..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_MULTIPLEXED_WOULD_BLOCK.",
-        "Write: 0..len bytes consumed, -1 when dead, or GLOWCAP_MULTIPLEXED_WOULD_BLOCK.",             "Close connection; asynchronous retirement emits CLOSED, then a repeated call claims cleanup.",
+        "Stop listener; asynchronous retirement emits LISTEN, then cancel_listen claims cleanup.",     "Read: 0..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.",
+        "Write: 0..len bytes consumed, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.",               "Close connection; asynchronous retirement emits CLOSED, then a repeated call claims cleanup.",
         "Atomically claim the connection's retained read/write failure.",                              "Copy proved remote key and return 1, or return 0; other statuses violate the contract.",
     });
 
@@ -237,8 +237,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\typedef int32_t (*GlowcapStreamListenerReadinessFdFn)(void *ctx, void *listener);
         \\typedef int32_t (*GlowcapStreamAcceptFn)(void *ctx, void *listener, void **out_conn, int32_t *out_readiness_fd, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapStreamListenerCloseFn)(void *ctx, void *listener, GlowcapProviderFailure *out_failure);
-        \\typedef intptr_t (*GlowcapStreamReadFn)(void *ctx, void *conn, uint8_t *out, size_t cap);
-        \\typedef int32_t (*GlowcapStreamWriteAllFn)(void *ctx, void *conn, const uint8_t *bytes, size_t len);
+        \\typedef intptr_t (*GlowcapStreamTryReadFn)(void *ctx, void *conn, uint8_t *out, size_t cap);
+        \\typedef intptr_t (*GlowcapStreamTryWriteFn)(void *ctx, void *conn, const uint8_t *bytes, size_t len);
         \\typedef int32_t (*GlowcapStreamConnCloseFn)(void *ctx, void *conn, GlowcapProviderFailure *out_failure);
         \\typedef void (*GlowcapStreamConnTakeFailureFn)(void *ctx, void *conn, GlowcapProviderFailure *out_failure);
         \\typedef uint8_t (*GlowcapTransportProviderSameConfigurationFn)(void *ctx, void *other_ctx);
@@ -257,23 +257,23 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "GLOWCAP_WIRE_FRAMING_*.",                "Maximum packet payload bytes, or 0 for no transport cap.",
     });
     try E.emitStructWithTypes(&b, gpa, cp.GlowcapStreamTransport, "GlowcapStreamTransport", &.{
-        "GLOWCAP_STREAM_TRANSPORT_ABI_VERSION.",                              "sizeof(GlowcapStreamTransport).",
-        "Provider-owned context; must outlive registration.",                 "Start a non-blocking stream connect.",
-        "Finish and consume a ready connect attempt.",                        "Cancel and consume a connect attempt.",
-        "Begin listener construction; PENDING requires the completion pair.", "Finish and consume a pending listener attempt on every return.",
-        "Cancel a pending listener attempt before finish.",                   "Wait for acceptable connection.",
-        "Listener readiness descriptor.",                                     "Query canonical listener locator.",
-        "Validate and canonicalize advertised locator.",                      "Query or copy opaque listener restoration state.",
-        "Accept raw stream.",                                                 "Close listener.",
-        "Read bytes.",                                                        "Write all bytes.",
-        "Close connection.",                                                  "Atomically claim the connection's retained read/write failure.",
+        "GLOWCAP_STREAM_TRANSPORT_ABI_VERSION.",                                         "sizeof(GlowcapStreamTransport).",
+        "Provider-owned context; must outlive registration.",                            "Start a non-blocking stream connect.",
+        "Finish and consume a ready connect attempt.",                                   "Cancel and consume a connect attempt.",
+        "Begin listener construction; PENDING requires the completion pair.",            "Finish and consume a pending listener attempt on every return.",
+        "Cancel a pending listener attempt before finish.",                              "Wait for acceptable connection.",
+        "Listener readiness descriptor.",                                                "Query canonical listener locator.",
+        "Validate and canonicalize advertised locator.",                                 "Query or copy opaque listener restoration state.",
+        "Accept raw stream.",                                                            "Close listener.",
+        "Read: 1..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.", "Write: 1..len bytes consumed, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.",
+        "Close connection.",                                                             "Atomically claim the connection's retained read/write failure.",
     }, &.{
         "",                                    "",                                           "",
         "GlowcapStreamStartConnectFn",         "GlowcapStreamFinishConnectFn",               "GlowcapStreamCancelConnectFn",
         "GlowcapStreamListenFn",               "GlowcapStreamFinishListenFn",                "GlowcapStreamCancelListenFn",
         "GlowcapStreamListenerWaitFn",         "GlowcapStreamListenerReadinessFdFn",         "GlowcapTransportListenerLocatorFn",
         "GlowcapTransportListenerAdvertiseFn", "GlowcapTransportListenerRestorationStateFn", "GlowcapStreamAcceptFn",
-        "GlowcapStreamListenerCloseFn",        "GlowcapStreamReadFn",                        "GlowcapStreamWriteAllFn",
+        "GlowcapStreamListenerCloseFn",        "GlowcapStreamTryReadFn",                     "GlowcapStreamTryWriteFn",
         "GlowcapStreamConnCloseFn",            "GlowcapStreamConnTakeFailureFn",
     });
     try E.emitStruct(&b, gpa, cp.GlowcapTransportProviderEntry, "GlowcapTransportProviderEntry", &.{

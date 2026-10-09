@@ -134,12 +134,12 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(hosted.swiss);
     if (!std.mem.eql(u8, hosted.swiss, rendezvous_swiss)) return error.WrongSwiss;
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var locator_buf: [tcp.designator_buf_len]u8 = undefined;
     const address = try tcp.parseHostPort(host, port);
     var session = try driver.connect(
         allocator,
-        &.{tcp_resident.netlayer()},
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&locator_buf, address),
         .ephemeral,
         opts,

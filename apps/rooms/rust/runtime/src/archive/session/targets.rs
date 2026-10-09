@@ -33,6 +33,65 @@ impl<P: Platform> Drop for Peer<P> {
 	}
 }
 impl<P: Platform> Peer<P> {
+	/// Retain an already admitted capability without publishing, resolving a
+	/// locator, or taking ownership of its shared exporter connection.
+	/// One Rc target and standing memo outlive capture and both storage writes;
+	/// the archive's existing MAX_PENDING bound limits these owners. Looking up
+	/// selection after either wait could redirect the record or its standing.
+	pub(super) fn held(host: glowcap::Host, platform: P, reference: glowcap::Ref) -> Self {
+		let target = Rc::new(Target {
+			archive: Archive::local(host, platform, reference.clone()),
+			standings: Default::default(),
+			link: String::new(),
+			reference,
+			session: RefCell::new(None),
+			closed: Cell::new(false),
+			uses: Cell::new(0),
+			notify: Rc::new(Notify::new()),
+			_watch: None,
+		});
+		target.lease()
+	}
+	pub(super) fn target(&self) -> &Target<P> {
+		&self.0
+	}
+	pub(super) async fn scoped_blob(&self, selection: &super::shared_blobs::Selection) -> Result<Blob<P>, Error> {
+		use super::shared_blobs::Selection;
+		if self.0.closed.get() {
+			return Err(Error::closed("archive source is closed"));
+		}
+		let reader = match selection {
+			Selection::Attachment { reader, record, index } => {
+				// The exact record and position survive the handoff. Scope also
+				// carries the original facet's restrictions, never the selected owner.
+				let scope = reader.scope();
+				self.0
+					.archive
+					.narrow(scope, rooms_application::archive::Access::Read)
+					.await
+					.map_err(Error::peer)?
+					.attachment(record, *index)
+					.await
+					.map_err(Error::peer)?
+			}
+			Selection::Digest { scope, digest } => self
+				.0
+				.archive
+				.narrow(scope, rooms_application::archive::Access::Read)
+				.await
+				.map_err(Error::peer)?
+				.blob(digest)
+				.await
+				.map_err(Error::peer)?,
+		};
+		if self.0.closed.get() {
+			return Err(Error::closed("archive source is closed"));
+		}
+		Ok(Blob {
+			reader,
+			keeper: self.clone(),
+		})
+	}
 	pub(super) async fn page(&self, filter: &Filter, after: u64, limit: usize) -> Result<Page, Error> {
 		if self.0.closed.get() {
 			return Err(Error::closed("archive source is closed"));
@@ -67,7 +126,11 @@ impl<P: Platform> Blob<P> {
 		if self.keeper.0.closed.get() {
 			return Err(Error::closed("archive source is closed"));
 		}
-		self.reader.read(offset, maximum).await.map_err(Error::peer)
+		let result = self.reader.read(offset, maximum).await.map_err(Error::peer);
+		if self.keeper.0.closed.get() {
+			return Err(Error::closed("archive source is closed"));
+		}
+		result
 	}
 }
 pub(super) struct Target<P: Platform> {
@@ -79,11 +142,11 @@ pub(super) struct Target<P: Platform> {
 	closed: Cell<bool>,
 	uses: Cell<usize>,
 	notify: Rc<Notify>,
-	_watch: P::Task,
+	_watch: Option<P::Task>,
 }
 impl<P: Platform> Target<P> {
 	fn is_open(&self) -> bool {
-		!self.closed.get() && self.session.borrow().as_ref().is_some_and(Session::is_open)
+		!self.closed.get() && self.session.borrow().as_ref().is_none_or(Session::is_open)
 	}
 	pub fn lease(self: &Rc<Self>) -> Peer<P> {
 		self.uses.set(self.uses.get() + 1);
@@ -132,6 +195,12 @@ pub(super) struct Targets<P: Platform> {
 	cleanup_failures: u64,
 }
 impl<P: Platform> Targets<P> {
+	pub(super) fn host(&self) -> glowcap::Host {
+		self.runtime.host().clone()
+	}
+	pub(super) fn selected_is(&self, peer: &Peer<P>) -> bool {
+		matches!(&self.selected, Selection::Peer(selected) if Rc::ptr_eq(selected, &peer.0))
+	}
 	pub fn new(platform: P, runtime: Rc<Runtime>) -> Self {
 		Self {
 			platform,
@@ -193,7 +262,7 @@ impl<P: Platform> Targets<P> {
 					closed: Cell::new(false),
 					uses: Cell::new(0),
 					notify: self.notify.clone(),
-					_watch: watch,
+					_watch: Some(watch),
 				}))
 			}
 			Err(primary) => {

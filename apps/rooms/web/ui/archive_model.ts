@@ -1,20 +1,14 @@
 // Presentation-only state for where this tab records member history. The live
 // Session and Ref stay below the store; this value is only what Settings draws.
 
-export type ArchiveOwner = "browser" | "session";
-
 export type ArchiveTargetView =
-	& { readonly owner: ArchiveOwner }
-	& (
-		| { readonly kind: "owned" }
-		| {
-			readonly kind: "peer";
-			readonly status: "connecting" | "connected" | "unavailable";
-			readonly label: string;
-			readonly remembered: boolean;
-			readonly error: string;
-		}
-	);
+	| { readonly kind: "owned" }
+	| {
+		readonly kind: "peer";
+		readonly status: "connecting" | "connected" | "unavailable";
+		readonly label: string;
+		readonly error: string;
+	};
 
 /** One archive account offered over a direct line. A live offer keeps its
  * reference in the Rust application; a lasting one is a link whose Host

@@ -23,7 +23,7 @@ async fn scenario() {
 		.unwrap();
 	let locator = server.locator().unwrap();
 	let (caller, peer) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let peer = Rc::new(peer.unwrap().with_gc());
+	let peer = Rc::new(peer.unwrap());
 	let service = peer.clone();
 	let serving = tokio::task::spawn_local(async move { service.serve().await });
 	let client = Client::new(caller.unwrap(), HostPlatform);

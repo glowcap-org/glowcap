@@ -18,6 +18,7 @@ const locator = value("locator", "Directory locator or HTTP(S) bootstrap URL");
 const id = value("id", "Pending event identifier");
 const conversation = value("conversation", "Exact conversation identifier from status");
 const operation = value("operation", "Stable operation identifier for inspecting an uncertain result");
+const base = value("base", "Original workspace revision; required with --operation for exact replay");
 const join = [_]Flag{ dir, nick, locator, rooms };
 const start = join ++ [_]Flag{
     value("transport", "iroh (default), tcp (cleartext tests), or onion"),
@@ -30,18 +31,19 @@ const team_start = start ++ [_]Flag{
     value("max", "Maximum roster size including lead (default 4)"),
 };
 pub const commands = [_]types.Command{
-    .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &(@import("commands.zig").transport ++ [_]Flag{ dir, value("checkpoint", "Adopt a session document for a new workspace"), value("readiness-file", "Write the session administrator capability here"), value("relay-url", "Browser rendezvous relay URL") }), .run = @import("mod.zig").run("rooms-session", .session_serve) },
+    .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &(@import("commands.zig").transport ++ [_]Flag{ dir, value("checkpoint", "Import managed workspace intent into an empty session"), value("readiness-file", "Write the workspace use capability here"), value("relay-url", "Browser rendezvous relay URL") }), .run = @import("mod.zig").run("rooms-session", .session_serve) },
     .{ .name = "ready", .short_help = "Read the foreground session's readiness capability", .flags = &.{value("file", "Readiness file (required)")}, .run = @import("mod.zig").run("rooms-session", .session_ready) },
     .{ .name = "start", .short_help = "Start or restore a durable Rooms workspace", .flags = &start, .run = run("start") },
     .{ .name = "join", .short_help = "Join rooms without leaving existing conversations", .flags = &join, .run = run("join") },
+    .{ .name = "recover", .short_help = "Resume an acquisition from its saved original request", .flags = &.{ dir, value("acquisition", "Exact acquisition identifier from the interrupted command") }, .run = run("recover") },
     .{ .name = "status", .short_help = "Show workspace, memberships, effects, and inbox health", .flags = &.{dir}, .run = run("status") },
-    .{ .name = "tick", .short_help = "Read pending events without acknowledging them", .flags = &.{ dir, value("wait", "Wait 0..30 seconds (default 30)") }, .run = run("tick") },
+    .{ .name = "tick", .short_help = "Read pending events without acknowledging them", .flags = &.{ dir, value("wait", "Wait 0..30 seconds (default 30)"), value("after-id", "Read the next page after this event identifier") }, .run = run("tick") },
     .{ .name = "listen", .short_help = "Stream unread events as JSONL without acknowledging them", .flags = &.{dir}, .run = run("listen") },
-    .{ .name = "reply", .short_help = "Send to one event, room, DM, or conversation", .flags = &.{ dir, id, room, conversation, value("dm", "Directory nickname for a private message"), value("text", "Message text"), locator, operation }, .run = run("reply") },
+    .{ .name = "reply", .short_help = "Send to one event, room, DM, or conversation", .flags = &.{ dir, id, room, conversation, value("dm", "Directory nickname for a private message"), value("text", "Message text"), locator, operation, base }, .run = run("reply") },
     .{ .name = "dismiss", .short_help = "Acknowledge reviewed events without sending", .flags = &.{ dir, many("id", "Reviewed event identifier; repeat for a batch") }, .run = run("dismiss") },
     .{ .name = "leave", .short_help = "Leave one room or direct conversation", .flags = &.{ dir, room, conversation }, .run = run("leave") },
     .{ .name = "resume", .short_help = "Resume observation after accepting its reported gap", .flags = &.{ dir, .{ .long = "accept-gap", .help = "Acknowledge that events during the gap were not retained" } }, .run = run("resume") },
-    .{ .name = "command", .short_help = "Invoke a shared Rooms application command", .flags = &.{ dir, operation }, .positionals = &.{.{ .name = "arguments", .help = "Command name followed by its arguments", .variadic = true }}, .run = run("command") },
+    .{ .name = "command", .short_help = "Invoke a shared Rooms application command", .flags = &.{ dir, operation, base }, .positionals = &.{.{ .name = "arguments", .help = "Command name followed by its arguments", .variadic = true }}, .run = run("command") },
     .{ .name = "stop", .short_help = "Stop the session and retain its workspace and unread events", .flags = &.{dir}, .run = run("stop") },
 };
 pub const team_commands = [_]types.Command{

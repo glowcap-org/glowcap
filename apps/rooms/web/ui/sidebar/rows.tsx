@@ -9,6 +9,7 @@ import { Icon } from "../icons.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
 import { roomPreset } from "../room_policy.ts";
 import { IconButton } from "../IconButton.tsx";
+import { useAsyncAction } from "../async_action.ts";
 import { Button } from "../Button.tsx";
 import {
 	directoryLeaveLabel,
@@ -54,9 +55,14 @@ export function RowClose(
 		said: string;
 		oneWay?: boolean;
 		disabled?: boolean;
-		onClose: () => void;
+		onClose: () => void | Promise<void>;
 	},
 ) {
+	// The row stays until its leave lands, so the × says it is working and
+	// does not ask a second time.
+	const closing = useAsyncAction(async () => {
+		await onClose();
+	});
 	return (
 		<IconButton
 			className="room-leave"
@@ -66,10 +72,11 @@ export function RowClose(
 			variant="ghost"
 			tone={oneWay ? "danger" : "neutral"}
 			title={title}
-			disabled={disabled}
+			busy={closing.busy}
+			disabled={disabled || closing.busy}
 			onClick={(e) => {
 				e.stopPropagation();
-				onClose();
+				void closing.run();
 			}}
 		/>
 	);
@@ -106,7 +113,7 @@ export function RoomRow(
 		phase: SessionPhase;
 		canInteract: boolean;
 		onPick: (conv: RoomConv) => void;
-		onLeave: (key: string) => void;
+		onLeave: (key: string) => void | Promise<void>;
 		onAbout: (dir: DirId) => void;
 	},
 ) {
@@ -235,7 +242,7 @@ export function InviteRow(
 		where: DirWhere;
 		canInteract: boolean;
 		onTake: (id: string) => Promise<void>;
-		onDrop: (id: string) => void;
+		onDrop: (id: string) => void | Promise<void>;
 	},
 ) {
 	const [taking, setTaking] = useState(false);
@@ -289,7 +296,7 @@ export function EmptyDirRow(
 		mark: string | undefined;
 		canInteract: boolean;
 		onJoinOn: (dir: DirId) => void;
-		onLeave: (dir: DirId) => void;
+		onLeave: (dir: DirId) => void | Promise<void>;
 		onAbout: (dir: DirId) => void;
 	},
 ) {

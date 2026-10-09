@@ -25,7 +25,6 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
 const model = glowcap.ocapn.model;
@@ -52,7 +51,7 @@ test "HostRuntime refuses zero frame, wire, and pending-open bounds" {
 
     try std.testing.expectError(
         driver.Error.InvalidBufferConfiguration,
-        driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, .{
+        driver.HostRuntime.init(allocator, io, .{}, .ephemeral, .{
             .frame_cap = 0,
             .handshake = .{ .ms = 1 },
             .settle = .{ .ms = 1 },
@@ -60,7 +59,7 @@ test "HostRuntime refuses zero frame, wire, and pending-open bounds" {
     );
     try std.testing.expectError(
         driver.Error.InvalidBufferConfiguration,
-        driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, .{
+        driver.HostRuntime.init(allocator, io, .{}, .ephemeral, .{
             .wire_buffer_bytes = 0,
             .handshake = .{ .ms = 1 },
             .settle = .{ .ms = 1 },
@@ -68,7 +67,7 @@ test "HostRuntime refuses zero frame, wire, and pending-open bounds" {
     );
     try std.testing.expectError(
         driver.Error.InvalidBufferConfiguration,
-        driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, .{
+        driver.HostRuntime.init(allocator, io, .{}, .ephemeral, .{
             .max_pending_opens = 0,
             .handshake = .{ .ms = 1 },
             .settle = .{ .ms = 1 },
@@ -118,41 +117,28 @@ fn exporterServe(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror
     }
 }
 
-/// The gifter, whole, on its own thread — one thread drives one host (the
-/// core's contract, held by its owner assert): build the host, dial the
-/// exporter and fetch the treasure, accept the recipient, publish the
-/// introducer around the fetched capability, and serve both wires from one
-/// blocking wait until the latch drops.
+/// The gifter on its own thread, over a Server the test thread built: its
+/// runtime dials the exporter and fetches the treasure, accepts the
+/// recipient, publishes the introducer around the fetched capability, and
+/// serves both wires until the latch drops.
 fn gifterServe(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    netlayers: []const net.netlayer.Netlayer,
+    gifter: *driver.Server,
     exporter_transport: []const u8,
     exporter_designator: []const u8,
     exporter_hint: []const u8,
-    listener: net.netlayer.Listener,
     done: *std.atomic.Value(bool),
 ) anyerror!void {
-    const local_locator = try listener.localLocator(allocator);
-    defer model.freePeerLocator(allocator, local_locator);
-
-    var runtime = try driver.HostRuntime.init(allocator, io, netlayers, .ephemeral, opts);
-    defer runtime.deinit();
-
-    try runtime.core.setAdvertisedLocator(local_locator);
-
     var hint_entry: [1]model.HintEntry = undefined;
-    const treasure_session = try runtime.connectLocator(.{
+    const treasure_session = try gifter.runtime.connectLocator(.{
         .transport = exporter_transport,
         .designator = exporter_designator,
         .hints = model.Hints.forDirectAddresses(exporter_hint, &hint_entry),
     }, .inherit);
-    const treasure_view = try driver.Session.adopt(&runtime, treasure_session);
+    const treasure_view = try driver.Session.adopt(gifter.runtime, treasure_session);
     defer treasure_view.deinit();
     const treasure = try treasure_view.fetch("treasure");
 
-    const hs = try runtime.acceptWire(listener, listener.transportName());
-    const view = try driver.Session.adopt(&runtime, hs);
+    const view = try gifter.accept();
     defer view.deinit();
     _ = try view.publish("introducer", Introducer, .{ .treasure = treasure });
     while (!done.load(.acquire)) {
@@ -203,27 +189,24 @@ test "front door handoff: a give settles live inside call, and the redeemed capa
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var done = std.atomic.Value(bool).init(false);
 
     // Exporter: a plain owning Server on its own thread.
-    var exporter = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var exporter = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
     defer exporter.deinit();
     var exporter_addr_buf: [64]u8 = undefined;
     const exporter_designator = try allocator.dupe(u8, try exporter.localDesignator(&exporter_addr_buf));
     defer allocator.free(exporter_designator);
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-
-    // The gifter's listener is bound here so the recipient can learn the
-    // address; the gifter host itself lives entirely on its thread.
-    var gifter_listener = try netlayer_test.listenBlocking(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" });
-    defer netlayer_test.close(gifter_listener);
-    const gifter_locator = try gifter_listener.localLocator(allocator);
+    // The gifter's Server is bound here so the recipient can learn its
+    // address; its runtime is driven entirely on the gifter's thread.
+    var gifter = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    defer gifter.deinit();
+    const gifter_locator = try model.clonePeerLocator(allocator, try gifter.advertisedLocator());
     defer model.freePeerLocator(allocator, gifter_locator);
 
     var exporter_future = try io.concurrent(exporterServe, .{ exporter, &done });
-    var gifter_future = try io.concurrent(gifterServe, .{ allocator, io, &netlayers, model.transport.tcp, exporter_designator, "", gifter_listener, &done });
+    var gifter_future = try io.concurrent(gifterServe, .{ gifter, model.transport.tcp, exporter_designator, "", &done });
     defer {
         done.store(true, .release);
         gifter_future.await(io) catch {};
@@ -233,7 +216,7 @@ test "front door handoff: a give settles live inside call, and the redeemed capa
     // The recipient: an ordinary one-call connect to the gifter. The call's
     // reply is a give; the settle wait answers the redeem dial to the
     // exporter and hands back the live capability.
-    const recipient = try driver.connect(allocator, &netlayers, .{
+    const recipient = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, .{
         .transport = model.transport.tcp,
         .designator = gifter_locator.designator,
         .hints = model.Hints.emptyFalse(),
@@ -273,14 +256,12 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
 
     const foundation = glowcap.foundation;
     const exporter_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.SEED_BYTES]u8, @splat(0x5b)));
-    var keyed_resident = net.tcp.keyed.Resident{ .io = io };
-    var tcp_resident = tcp.Resident{ .io = io };
     var done = std.atomic.Value(bool).init(false);
 
     // Exporter: an owning Server on keyed-tcp, signing with the key its
     // designator is. `Server.accept` advertises the bound address through the
     // listener's hint, and the give must carry that hint.
-    var exporter = try driver.listen(allocator, keyed_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .{ .keyed = exporter_secret }, opts);
+    var exporter = try driver.listen(allocator, io, .{ .symbols = &.{.keyed_tcp} }, model.transport.keyed_tcp, .{ .designator = "127.0.0.1:0" }, .{ .keyed = exporter_secret }, opts);
     defer exporter.deinit();
     var exporter_key_buf: [128]u8 = undefined;
     const exporter_designator = try allocator.dupe(u8, try exporter.localDesignator(&exporter_key_buf));
@@ -289,22 +270,20 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
     defer allocator.free(exporter_hint);
     try std.testing.expect(exporter_hint.len > 0);
 
-    const netlayers = [_]net.netlayer.Netlayer{ tcp_resident.netlayer(), keyed_resident.netlayer() };
-
-    var gifter_listener = try netlayer_test.listenBlocking(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" });
-    defer netlayer_test.close(gifter_listener);
-    const gifter_locator = try gifter_listener.localLocator(allocator);
+    var gifter = try driver.listen(allocator, io, .{ .symbols = &.{ .tcp, .keyed_tcp } }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    defer gifter.deinit();
+    const gifter_locator = try model.clonePeerLocator(allocator, try gifter.advertisedLocator());
     defer model.freePeerLocator(allocator, gifter_locator);
 
     var exporter_future = try io.concurrent(exporterServe, .{ exporter, &done });
-    var gifter_future = try io.concurrent(gifterServe, .{ allocator, io, &netlayers, net.tcp.keyed.transport_name, exporter_designator, exporter_hint, gifter_listener, &done });
+    var gifter_future = try io.concurrent(gifterServe, .{ gifter, model.transport.keyed_tcp, exporter_designator, exporter_hint, &done });
     defer {
         done.store(true, .release);
         gifter_future.await(io) catch {};
         exporter_future.await(io) catch {};
     }
 
-    const recipient = try driver.connect(allocator, &netlayers, .{
+    const recipient = try driver.connect(allocator, io, .{ .symbols = &.{ .tcp, .keyed_tcp } }, .{
         .transport = model.transport.tcp,
         .designator = gifter_locator.designator,
         .hints = model.Hints.emptyFalse(),
@@ -334,10 +313,11 @@ test "driver Server can replace listener-derived reachability with deployment ro
     const io = threaded.io();
 
     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(@as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x6b)));
-    var resident = net.tcp.keyed.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        resident.netlayer(),
+        io,
+        .{ .symbols = &.{.keyed_tcp} },
+        model.transport.keyed_tcp,
         .{ .designator = "127.0.0.1:0" },
         .{ .keyed = secret },
         opts,
@@ -379,19 +359,18 @@ test "front door handoff: a listening server redeems too, so both halves match e
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var done = std.atomic.Value(bool).init(false);
 
-    var exporter = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var exporter = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
     defer exporter.deinit();
     var exporter_addr_buf: [64]u8 = undefined;
     const exporter_designator = try allocator.dupe(u8, try exporter.localDesignator(&exporter_addr_buf));
     defer allocator.free(exporter_designator);
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
 
     // The party under test: an ordinary `driver.listen` server.
-    var redeemer = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var redeemer = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
     defer redeemer.deinit();
     var redeemer_addr_buf: [64]u8 = undefined;
     const redeemer_designator = try allocator.dupe(u8, try redeemer.localDesignator(&redeemer_addr_buf));
@@ -410,7 +389,7 @@ test "front door handoff: a listening server redeems too, so both halves match e
 
     // The gifter dials both peers, so the party under test is the accepting
     // half, and publishes the introducer on the session it dialed to it.
-    try dialingGifter(allocator, io, &netlayers, exporter_designator, redeemer_designator, &done);
+    try dialingGifter(allocator, io, transports, exporter_designator, redeemer_designator, &done);
     try redeem_future.await(io);
     done.store(true, .release);
     try exporter_future.await(io);
@@ -423,12 +402,12 @@ test "front door handoff: a listening server redeems too, so both halves match e
 fn dialingGifter(
     allocator: std.mem.Allocator,
     io: std.Io,
-    netlayers: []const net.netlayer.Netlayer,
+    transports: driver.Transports,
     exporter_designator: []const u8,
     redeemer_designator: []const u8,
     done: *std.atomic.Value(bool),
 ) anyerror!void {
-    var runtime = try driver.HostRuntime.init(allocator, io, netlayers, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, opts);
     defer runtime.deinit();
 
     const treasure_session = try runtime.connectLocator(.{

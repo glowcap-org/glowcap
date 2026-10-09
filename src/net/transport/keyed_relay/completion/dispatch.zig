@@ -10,6 +10,7 @@ const completion = @import("../../../completion/loop.zig");
 const carrier_failure = @import("../../../carrier_failure.zig");
 const protocol = @import("../../../websocket.zig").client_protocol;
 const buffers = @import("buffers.zig");
+const route = @import("../route.zig");
 const upgrade_request = @import("../upgrade_request.zig");
 
 pub fn Machine(
@@ -249,6 +250,7 @@ pub fn Machine(
             backend: *Backend,
             c: *RelayConn,
             relay_url: anytype,
+            leg: route.Leg,
             designator: []const u8,
         ) !void {
             var key_bytes: [16]u8 = undefined;
@@ -256,7 +258,7 @@ pub fn Machine(
             var key_b64: [24]u8 = undefined;
             _ = std.base64.standard.Encoder.encode(&key_b64, &key_bytes);
             protocol.acceptKey(&c.expected_accept, &key_b64);
-            const request = relay_url.openRequest(.rendezvous, designator);
+            const request = relay_url.openRequest(leg, designator);
             const upgrade = upgrade_request.formatter(request, &key_b64);
             buffers.clearSend(backend, c);
             try c.ws_out.ensureTotalCapacityPrecise(
@@ -271,6 +273,7 @@ pub fn Machine(
             switch (c.state) {
                 .reading_upgrade => try consumeUpgrade(backend, c),
                 .open => try Access.receiveBuffered(backend, c),
+                .parked => try Access.serviceParked(backend, c),
                 .closing, .connecting, .tls_handshake, .sending_upgrade => {},
             }
         }
@@ -314,6 +317,10 @@ pub fn Machine(
                 );
             c.upgrade_buf.deinit(backend.allocator);
             c.upgrade_buf = .empty;
+            if (Access.isRegistrationLeg(backend, c.id)) {
+                c.state = .parked;
+                return Access.serviceParked(backend, c);
+            }
             if (c.external_connect_ud != null)
                 try backend.ready.ensureUnusedCapacity(backend.allocator, 1);
             c.state = .open;

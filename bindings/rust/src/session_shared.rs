@@ -145,8 +145,6 @@ pub(crate) struct SessionShared {
 	pub(crate) torn: Cell<bool>,
 	// Wakes the serve task off its parked read when the connection closes.
 	pub(crate) closed: Notify,
-	// Distributed GC (ADR-0063), opt-in and off by default.
-	pub(crate) gc: Cell<bool>,
 	// The auto-started serve task's handle; `Session::serve` takes it.
 	serving: Cell<Option<tokio::task::JoinHandle<Result<()>>>>,
 }
@@ -193,7 +191,6 @@ impl SessionShared {
 			host_retained: Cell::new(false),
 			torn: Cell::new(false),
 			closed: Notify::new(),
-			gc: Cell::new(false),
 			serving: Cell::new(None),
 		});
 		// Join the host's registry so a FLUSH action can find the transport and
@@ -234,7 +231,6 @@ impl SessionShared {
 			host_retained: Cell::new(false),
 			torn: Cell::new(false),
 			closed: Notify::new(),
-			gc: Cell::new(false),
 			serving: Cell::new(None),
 		});
 		host.register_session(shared.key, Rc::clone(&shared));
@@ -484,7 +480,7 @@ impl SessionShared {
 		self.host.schedule_kick()
 	}
 
-	// ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
+	// ── Distributed GC (ADR-0063), on by default and set per Host ──────────────
 
 	// Drain the parked GC releases — see [`crate::gc::drain`].
 	pub(crate) fn drain_gc(&self) -> Result<()> {

@@ -2,14 +2,15 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    // glowcap starts no Tor. Name an already-running daemon's SOCKS and control endpoints.
-    var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
-        .socks = "/run/tor/socks",
-        .control_endpoint = "/run/tor/control",
-    } };
+    // glowcap starts no Tor. Name an already-running daemon's SOCKS and control ports.
     const server = try glowcap.driver.listen(
         allocator,
-        onion_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.onion}, .onion = .{
+            .socks = try glowcap.net.tcp.parseDesignator("127.0.0.1:9050"),
+            .control = try glowcap.net.tcp.parseDesignator("127.0.0.1:9051"),
+        } },
+        glowcap.ocapn.model.transport.onion,
         .{ .designator = "" },
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -39,7 +40,7 @@ const Greeter = struct {
 };
 
 fn serve(server: *glowcap.driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
+    try server.publish("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();
         defer session.deinit();

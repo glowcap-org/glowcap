@@ -1,9 +1,10 @@
 //! Storage owns commitment; this index applies committed revisions and preserves
-//! chronology. Its two ordered maps share immutable records without copying keys.
+//! chronology. Its ordered indexes share immutable records without copying keys.
 use super::{ConversationKind, Error, Filter, Kind, MAX_READ, MAX_RECORDS, Record, records::safe};
 use crate::text::DocumentText;
 use alloc::{borrow::Borrow, collections::BTreeMap, sync::Arc, vec::Vec};
 use core::cmp::Ordering;
+mod context;
 mod scan;
 pub use scan::Scan;
 
@@ -125,6 +126,7 @@ pub struct Index {
 	revision: u64,
 	keys: BTreeMap<Key, u64>,
 	entries: BTreeMap<u64, Arc<Entry>>,
+	contexts: context::Contexts,
 }
 impl Index {
 	pub fn new(capacity: usize) -> Result<Self, Error> {
@@ -136,6 +138,7 @@ impl Index {
 			revision: 0,
 			keys: BTreeMap::new(),
 			entries: BTreeMap::new(),
+			contexts: context::Contexts::default(),
 		})
 	}
 	pub fn revision(&self) -> u64 {
@@ -150,6 +153,15 @@ impl Index {
 	pub fn clear(&mut self) {
 		self.keys.clear();
 		self.entries.clear();
+		self.contexts.clear();
+	}
+	/// Owner-local erasure preserves revision chronology and unrelated accounts.
+	/// All indexes release the same immutable records without copying content.
+	pub fn clear_source(&mut self, source: &DocumentText) {
+		self.keys.retain(|key, _| &key.0.coordinates().source != source);
+		self.entries
+			.retain(|_, entry| &entry.record.coordinates().source != source);
+		self.contexts.clear_source(source);
 	}
 	pub fn snapshot(&self) -> impl ExactSizeIterator<Item = &Arc<Entry>> {
 		self.entries.values()
@@ -201,12 +213,15 @@ impl Index {
 		});
 		let retired = retired.map(|revision| {
 			let entry = self.entries.remove(&revision).expect("indexed revision");
+			self.contexts.remove(&entry);
 			self.keys.remove(entry.record.as_ref() as &dyn Identity);
 			entry.record.clone()
 		});
 		let record = Arc::new(record);
 		self.keys.insert(Key(record.clone()), revision);
-		self.entries.insert(revision, Arc::new(Entry { revision, record }));
+		let entry = Arc::new(Entry { revision, record });
+		self.contexts.insert(entry.clone());
+		self.entries.insert(revision, entry);
 		self.revision = revision;
 		Ok(retired)
 	}
@@ -227,7 +242,9 @@ impl Index {
 				return Err(Error::Record);
 			}
 			prior = entry.revision;
-			next.entries.insert(entry.revision, Arc::new(entry));
+			let entry = Arc::new(entry);
+			next.contexts.insert(entry.clone());
+			next.entries.insert(entry.revision, entry);
 		}
 		next.revision = revision;
 		*self = next;
@@ -240,10 +257,17 @@ impl Index {
 			return Err(Error::Page);
 		}
 		let limit = limit.min(MAX_READ);
-		let mut matching = self
-			.entries
-			.range((core::ops::Bound::Excluded(after), core::ops::Bound::Unbounded))
-			.map(|(_, entry)| entry)
+		let selected = context::Contexts::selected(filter);
+		let contextual = selected.then(|| self.contexts.range(filter, after));
+		let chronological = (!selected).then(|| {
+			self.entries
+				.range((core::ops::Bound::Excluded(after), core::ops::Bound::Unbounded))
+				.map(|(_, entry)| entry)
+		});
+		let mut matching = contextual
+			.into_iter()
+			.flatten()
+			.chain(chronological.into_iter().flatten())
 			.filter(|entry| filter.matches(&entry.record));
 		let records: Vec<_> = matching.by_ref().take(limit).cloned().collect();
 		let more = matching.next().is_some();

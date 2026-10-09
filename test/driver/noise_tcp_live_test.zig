@@ -49,10 +49,11 @@ test "noise-tcp: a sealed session opens over loopback and both legs hold the cha
     const io = threaded.io();
 
     const server_secret = try driver.drawSessionSecret(io);
-    var resident = net.tcp.noise.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        resident.netlayer(),
+        io,
+        .{ .symbols = &.{.noise_tcp} },
+        model.transport.noise_tcp,
         .{ .designator = "127.0.0.1:0" },
         .{ .keyed = server_secret },
         dial_opts,
@@ -79,15 +80,13 @@ test "noise-tcp: a sealed session opens over loopback and both legs hold the cha
 }
 
 fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, designator: []const u8, hint: []const u8) !void {
-    var resident = net.tcp.noise.Resident{ .io = io };
-    const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
     var entries: [1]model.HintEntry = undefined;
     const locator: model.PeerLocator = .{
         .transport = model.transport.noise_tcp,
         .designator = designator,
         .hints = model.Hints.forDirectAddresses(hint, &entries),
     };
-    const client = try driver.connect(allocator, &netlayers, locator, .ephemeral, dial_opts);
+    const client = try driver.connect(allocator, io, .{ .symbols = &.{.noise_tcp} }, locator, .ephemeral, dial_opts);
     defer client.deinit();
 
     // The dialing leg's proof comes from its own completed handshake.

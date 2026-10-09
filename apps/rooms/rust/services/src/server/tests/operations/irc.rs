@@ -105,8 +105,7 @@ async fn scenario() {
 			ConnectOptions::default(),
 		)
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	let swiss = running
 		.capabilities
 		.iter()
@@ -140,6 +139,25 @@ async fn scenario() {
 		);
 	}
 	let directory = session.fetch("directory").await.unwrap();
+	let listed = session
+		.send(&directory, rooms_application::directory::LIST, &[])
+		.await
+		.unwrap();
+	let rows = rooms_application::directory::rooms(&rooms_glowcap::Value(&listed)).unwrap();
+	let publication = rows
+		.iter()
+		.find(|row| row.name.text().as_str() == Some("net/#a"))
+		.unwrap();
+	let publication = publication.id.text().as_str().unwrap().to_owned();
+	let saved = session
+		.send(
+			&directory,
+			rooms_application::directory::creation::LINK_PUBLICATION,
+			&[publication.clone().into()],
+		)
+		.await
+		.unwrap();
+	assert!(saved.as_str().is_some_and(|uri| uri.starts_with("ocapn://")));
 	let mut memberships = Vec::new();
 	let notices = Rc::new(RefCell::new(Vec::new()));
 	for channel in ["a", "b"] {
@@ -250,6 +268,17 @@ async fn scenario() {
 		"{failures:?}"
 	);
 	session.send(&network, "removeLease", &["#a".into()]).await.unwrap();
+	assert!(
+		session
+			.send(
+				&directory,
+				rooms_application::directory::creation::LINK_PUBLICATION,
+				&[publication.into()]
+			)
+			.await
+			.is_err(),
+		"a retired publication cannot return a replacement link"
+	);
 	assert!(
 		session
 			.send(&memberships[0], "post", &["stale".into()])
@@ -531,8 +560,7 @@ async fn scenario() {
 			ConnectOptions::default(),
 		)
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	let moderator = session.fetch(&moderator_token).await.unwrap();
 	assert_eq!(session.send(&moderator, "governs", &[]).await.unwrap(), governs);
 	assert!(session.fetch(&token).await.is_err());

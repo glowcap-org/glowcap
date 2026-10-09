@@ -1,13 +1,17 @@
 // Commit a submission to its originating conversation. Rust interprets commands;
-// session effects return completion before the UI clears the submitted draft.
+// commands retain their submitted plan while the UI accepts the next draft.
 
 import * as store from "../store.ts";
 import type { CommandPowers } from "../commands.ts";
 import type { Conv } from "../types.ts";
 import type { PageProjection } from "../store/core.ts";
-import { type ComposerDraft, prepareComposerSend, type PreparedComposerSend } from "./send.ts";
-import { PHASE_SAID } from "../text.ts";
-import { composerNotConnected } from "../../../lib/text/controls.ts";
+import {
+	applyComposerPlan,
+	type ComposerDraft,
+	type ComposerPlan,
+	prepareComposerSend,
+	type PreparedComposerSend,
+} from "./send.ts";
 
 export type CommittedComposerSend = Extract<PreparedComposerSend, { kind: "handled" | "send" }>;
 
@@ -17,24 +21,13 @@ export function interpretComposerSend(
 	conv: Conv | null,
 	draft: ComposerDraft,
 	powers: CommandPowers,
+	plan?: ComposerPlan,
 ): CommittedComposerSend | null {
-	const prepared = prepareComposerSend(conv, draft, powers);
+	const prepared = plan == null ? prepareComposerSend(conv, draft, powers) : applyComposerPlan(plan, conv, powers);
 	if (prepared.kind === "nothing") return null;
 	if (prepared.kind === "refused") {
 		store.deliverActive(projection, store.sysItem(projection, prepared.why));
 		return null;
 	}
 	return prepared;
-}
-
-/** A disconnected session cannot send chat. */
-export const COMPOSER_NOT_CONNECTED = composerNotConnected(PHASE_SAID.disconnected);
-
-/** Empty the conversation that was just composed. A command that has already
- * left or dismissed that conversation is a no-op: last sent and the draft
- * die with it, and whoever came forward keeps theirs. */
-export function finishComposerSend(projection: PageProjection, key: string, submitted: string): void {
-	store.rememberLastSent(projection, key, submitted);
-	store.setDraft(projection, "", key);
-	store.clearDraftFiles(projection, key);
 }

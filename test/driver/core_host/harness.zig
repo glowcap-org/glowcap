@@ -259,7 +259,7 @@ pub fn retireClosedSession(host: *Host, session: *HostSession) !void {
     try std.testing.expect(saw_close);
 }
 
-/// One generation of a host-wide giftable. The reply is the tag its row carries,
+/// One generation of a Host publication. The reply is the tag its row carries,
 /// so a call says *which* registration answered rather than only that one did.
 pub const Tagged = struct {
     row: *TaggedRow,
@@ -283,7 +283,7 @@ pub const Tagged = struct {
     }
 };
 
-/// The `ctx` behind one giftable registration, which every actor it published
+/// The `ctx` behind one Host publication, which every actor it published
 /// borrows. `free` records the release instead of doing one, so a test can say
 /// when the host let go.
 /// `Host.partnerIdentity` keeps three facts distinct: the session key verified
@@ -444,7 +444,7 @@ pub const PublicationProbe = struct {
     pub fn handle(self: *PublicationProbe, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "publish")) return error.NoSuchMethod;
-        _ = self.host.publishGiftable("nested", Widget, .{}) catch |err| {
+        _ = self.host.publish("nested", Widget, .{}) catch |err| {
             if (err == driver.core.HostError.ReenteredHost) {
                 self.refused.* = true;
                 return .{ .boolean = true };

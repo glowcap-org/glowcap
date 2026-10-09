@@ -3,8 +3,6 @@ const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // Same TCP sockets as cleartext keyed dialing; Noise_XK seals the CapTP stream.
-    var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
-    const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
     // The designator is the peer's durable key; the hint is where to dial.
     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
     const peer_key = "<64 lowercase hex characters from the server>";
@@ -16,7 +14,8 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 
     const session = try glowcap.driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.noise_tcp} },
         partner,
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },

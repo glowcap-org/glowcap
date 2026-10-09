@@ -21,7 +21,7 @@ fn of(ctx: *anyopaque) *Adapter {
 pub fn tryRead(ctx: *anyopaque, conn: usize, buf: []u8) isize {
     const self = of(ctx);
     const got = self.table.try_read.?(self.table.ctx, @intCast(conn), buf.ptr, buf.len);
-    if (!validation.multiplexedIoResultValid(got, buf.len)) {
+    if (!validation.tryIoResultValid(got, buf.len)) {
         self.failContract(if (got < 0)
             "try_read returned an undocumented negative status"
         else
@@ -34,7 +34,7 @@ pub fn tryRead(ctx: *anyopaque, conn: usize, buf: []u8) isize {
 pub fn tryWrite(ctx: *anyopaque, conn: usize, bytes: []const u8) isize {
     const self = of(ctx);
     const wrote = self.table.try_write.?(self.table.ctx, @intCast(conn), bytes.ptr, bytes.len);
-    if (!validation.multiplexedIoResultValid(wrote, bytes.len)) {
+    if (!validation.tryIoResultValid(wrote, bytes.len)) {
         self.failContract(if (wrote < 0)
             "try_write returned an undocumented negative status"
         else

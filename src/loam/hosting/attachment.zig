@@ -13,15 +13,35 @@ pub const Work = union(enum) { read: core.Read, write: core.Batch, lookup: core.
 pub const Options = struct {
     max_endpoints: usize = 128,
     max_calls: usize = 64,
+    max_continuations: usize = 64,
+    /// Independent runtime effect custody, excluding graph snapshots and
+    /// storage leases. Each reservation charges this complete ceiling.
+    continuation_bytes: usize = 64 * 1024,
+    max_continuation_targets: usize = 32,
+    /// Complete acquired arena blocks per call, including headers and slack.
+    /// Admission reserves this ceiling; heap backing grows only as needed.
     call_bytes: usize = 64 * 1024,
+    /// Whole-call reservations for admitted operations, rather than live heap bytes.
     pending_bytes: usize = 4 * 1024 * 1024,
+    /// Per attachment and ingress, retained call bytes after the Vat turn has
+    /// dispatched. Null uses the Vat's queue byte allowance. An explicit budget
+    /// permits larger application working sets without changing message queues.
+    ingress_bytes: ?usize = null,
     max_retirements: usize = 16,
     max_reference_saves: usize = 64,
     forward_reply_bytes: usize = 16 * 1024,
     reference_scope: ?*@import("reference_scope.zig").Scope = null,
+    live_scope: ?*@import("live_scope.zig").Scope = null,
     /// Stable embedding-owned attachment name; borrowed until this attachment closes.
     attachment_name: ?[]const u8 = null,
     sleep_policy: enum { lru, every_turn } = .lru,
+
+    /// Shared admission laws also run before foreign storage construction.
+    pub fn validate(self: Options, default_ingress_bytes: usize) !void {
+        if (self.max_endpoints == 0 or self.max_calls == 0 or self.call_bytes == 0 or self.pending_bytes < self.call_bytes) return error.InvalidLimits;
+        if ((self.ingress_bytes orelse default_ingress_bytes) < self.call_bytes) return error.InvalidLimits;
+        _ = try @import("execution.zig").Execution.sizeBound(self.forward_reply_bytes);
+    }
 };
 pub const Stats = struct { loads: u64 = 0, invocations: u64 = 0, sleeps: u64 = 0 };
 
@@ -62,8 +82,16 @@ pub const Attachment = struct {
     writing: ?Writing = null,
     runner: actors.Ref,
     sequence: u64 = 0,
+    /// Reserved call ceilings. Nonzero even for calls with no acquired backing.
     pending_bytes: usize = 0,
     reference_saves: usize = 0,
+    continuations: usize = 0,
+    /// Continuations with an executor or dispatch-front retain. A continuation
+    /// held solely by read scopes is passive custody and does not prevent close.
+    effect_continuations: usize = 0,
+    /// Passive read scopes share the continuation budget, but hold only closed
+    /// routing metadata after destroy. Outstanding calls still own pending_bytes.
+    read_scopes: usize = 0,
     dependent_facets: usize = 0,
     advancing: bool = false,
     closing: bool = false,
@@ -73,7 +101,8 @@ pub const Attachment = struct {
     /// sharing a Store serialize through its single write lane and reprepare
     /// calls whenever another owner changes the committed revision.
     pub fn create(allocator: std.mem.Allocator, host: *driver.Host, store: *core.Store, behaviors: []const Behavior, options: Options) !*Attachment {
-        if (options.max_endpoints == 0 or options.max_calls == 0 or options.call_bytes == 0 or options.pending_bytes < options.call_bytes) return error.InvalidLimits;
+        if (store.phase != .idle) return error.Busy;
+        try options.validate(host.vat.queue_limits.max_pending_bytes);
         for (behaviors, 0..) |item, i| {
             var found = false;
             for (store.cache.schemas) |schema| if (schema.id == item.schema and schema.version == item.version) {
@@ -102,6 +131,8 @@ pub const Attachment = struct {
         errdefer host.vat.discardFreshActor(runner);
         self.* = .{ .allocator = allocator, .host = host, .store = store, .behaviors = behaviors, .options = options, .entries = entries, .operations = operations, .reads = reads, .retirements = retirements, .runner = runner };
         if (options.reference_scope) |scope| try scope.register(self);
+        errdefer if (options.reference_scope) |scope| scope.unregister(self);
+        if (options.live_scope) |scope| try scope.register(self);
         return self;
     }
 
@@ -110,9 +141,10 @@ pub const Attachment = struct {
     /// until their existing Host/Vat custody ends. Do not use self afterward.
     pub fn destroy(self: *Attachment) !void {
         try self.topLevel();
-        if (self.pending_bytes != 0 or self.writing != null or self.reference_saves != 0) return error.Busy;
+        if (self.pending_bytes != 0 or self.writing != null or self.reference_saves != 0 or self.effect_continuations != 0) return error.Busy;
         for (self.reads) |read| if (read != null) return error.Busy;
         for (self.retirements) |retirement| if (retirement != null) return error.Busy;
+        if (self.options.live_scope) |scope| if (scope.hasPendingWork()) return error.Busy;
         if (self.discovery) |discovery| try discovery.destroy();
         // Cross a normal Vat boundary to retire released proxy boxes before
         // freeing the entry storage their destructors reference.
@@ -123,6 +155,7 @@ pub const Attachment = struct {
             entry.retention = null;
         };
         if (self.options.reference_scope) |scope| scope.unregister(self);
+        if (self.options.live_scope) |scope| scope.unregister(self);
         self.closing = true;
         releaseClosed(self);
     }
@@ -205,6 +238,7 @@ pub const Attachment = struct {
         for (self.reads) |read| if (read != null) return true;
         for (self.retirements) |retirement| if (retirement != null) return true;
         if (self.discovery) |discovery| for (discovery.groups) |group| if (group != null) return true;
+        if (self.options.live_scope) |scope| if (scope.hasPendingWork()) return true;
         return false;
     }
 
@@ -251,6 +285,7 @@ pub fn restoreEdge(self: *Attachment, id: core.ObjectId) !driver.Capability {
 
 pub fn releaseClosed(self: *Attachment) void {
     if (!self.closing) return;
+    if (self.continuations != 0) return;
     if (self.dependent_facets != 0) return;
     for (self.entries) |entry| if (entry.actor != null) return;
     self.allocator.free(self.reads);

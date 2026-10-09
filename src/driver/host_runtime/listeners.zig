@@ -35,15 +35,6 @@ pub fn releaseListenerProfile(self: *HostRuntime, transport: []const u8) void {
     std.debug.assert(self.listener_profiles.remove(transport));
 }
 
-/// Transfer a stream listener out of Runtime ownership. The raw listener's
-/// owner becomes responsible for uniqueness above this Runtime.
-pub fn takeStreamListener(self: *HostRuntime, listener: *TransportListener) ?net.netlayer.Listener {
-    const transport = listener.transportName();
-    const stream = listener.takeStream() orelse return null;
-    releaseListenerProfile(self, transport);
-    return stream;
-}
-
 /// Materialize the complete locator an active listener publishes. The
 /// provider owns transport-specific hints; the driver validates the
 /// dispatch symbol and takes ownership of the returned model value.
@@ -51,11 +42,7 @@ pub fn listenerLocatorOutcome(
     self: *const HostRuntime,
     listener: *const TransportListener,
 ) net.netlayer.ListenerLocatorOutcome {
-    const outcome = switch (listener.source) {
-        .stream => |stream| stream.handle.localLocatorOutcome(self.allocator),
-        .resident => |resident| resident.listener.localLocatorOutcome(self.allocator),
-    };
-    const locator = switch (outcome) {
+    const locator = switch (listener.listener.localLocatorOutcome(self.allocator)) {
         .locator => |locator| locator,
         .failed => |failure| return .{ .failed = failure },
     };
@@ -75,10 +62,7 @@ pub fn listenerRestorationStateOutcome(
     out: []u8,
 ) net.netlayer.ListenerRestorationOutcome {
     _ = self;
-    return switch (listener.source) {
-        .stream => |stream| stream.handle.restorationStateOutcome(out),
-        .resident => |resident| resident.listener.restorationStateOutcome(out),
-    };
+    return listener.listener.restorationStateOutcome(out);
 }
 
 /// Validate and canonicalize a replacement locator through the provider
@@ -89,11 +73,7 @@ pub fn canonicalizeListenerLocatorOutcome(
     locator: model.PeerLocator,
 ) net.netlayer.ListenerLocatorOutcome {
     Internal.admitApplicationOperation(self) catch |err| return .{ .failed = .init(err) };
-    const outcome = switch (listener.source) {
-        .stream => |stream| stream.handle.canonicalizeLocatorOutcome(self.allocator, locator),
-        .resident => |resident| resident.listener.canonicalizeLocatorOutcome(self.allocator, locator),
-    };
-    const canonical = switch (outcome) {
+    const canonical = switch (listener.listener.canonicalizeLocatorOutcome(self.allocator, locator)) {
         .locator => |canonical| canonical,
         .failed => |failure| return .{ .failed = failure },
     };
@@ -119,26 +99,18 @@ pub fn activateListener(
     // listener's terminal failure and released by an explicit close.
     try observer.reserve(observer.ctx, tag);
     errdefer observer.release(observer.ctx, tag);
-    switch (listener.source) {
-        .stream => |*stream| {
-            std.debug.assert(stream.observation == null);
-            if (stream.handle.readinessFd()) |fd| try self.watchFd(fd);
-            stream.observation = observation;
-        },
-        .resident => |index| {
-            const key = ResidentListenerKey{
-                .resident = index.runtime,
-                .route = index.listener.route_id,
-            };
-            if (self.resident_listeners.contains(key)) return error.ListenerAlreadyActive;
-            try self.resident_listeners.ensureUnusedCapacity(self.allocator, 1);
-            self.resident_listeners.putAssumeCapacity(key, .{
-                .listener = index.listener,
-                .transport = listener.transport,
-                .observation = observation,
-            });
-        },
-    }
+    const key = residentKey(listener);
+    if (self.resident_listeners.contains(key)) return error.ListenerAlreadyActive;
+    try self.resident_listeners.ensureUnusedCapacity(self.allocator, 1);
+    self.resident_listeners.putAssumeCapacity(key, .{
+        .listener = listener.listener,
+        .transport = listener.transport,
+        .observation = observation,
+    });
+}
+
+fn residentKey(listener: *const TransportListener) ResidentListenerKey {
+    return .{ .resident = listener.resident, .route = listener.listener.route_id };
 }
 
 /// Prepare the exact complete locator this listener will publish. The
@@ -249,38 +221,21 @@ pub fn closeActiveListener(self: *HostRuntime, tag: u64, async_completion: bool)
             self.cancelAccepts(observation.tag);
     }
     var failure = active.terminal_failure;
-    switch (active.transport.source) {
-        .stream => if (closeListener(self, &active.transport)) |reported| {
+    switch (active.transport.listener.stopListenOutcome()) {
+        .pending => return .{ .found = true, .pending = true },
+        .complete => {},
+        .failed => |reported| {
             if (failure) |*primary|
-                primary.noteFailure(reported)
+                primary.noteChain(reported)
             else
-                failure = reported;
-        },
-        .resident => |resident| switch (resident.listener.stopListenOutcome()) {
-            .pending => return .{ .found = true, .pending = true },
-            .complete => {},
-            .failed => |reported| {
-                if (failure) |*primary|
-                    primary.noteChain(reported)
-                else
-                    failure = OperationFailure.fromChain(reported);
-            },
+                failure = OperationFailure.fromChain(reported);
         },
     }
     const removed = self.active_listeners.fetchRemove(tag) orelse unreachable;
     var listener = removed.value;
     const observation = activeListenerObservation(self, &listener.transport);
-    switch (listener.transport.source) {
-        .stream => {},
-        .resident => |resident| {
-            const key = ResidentListenerKey{
-                .resident = resident.runtime,
-                .route = resident.listener.route_id,
-            };
-            std.debug.assert(self.resident_listeners.remove(key));
-            releaseListenerProfile(self, listener.transport.transportName());
-        },
-    }
+    std.debug.assert(self.resident_listeners.remove(residentKey(&listener.transport)));
+    releaseListenerProfile(self, listener.transport.transportName());
     model.freePeerLocator(self.allocator, listener.locator);
     if (observation) |value| {
         if (async_completion and failure != null)
@@ -294,13 +249,7 @@ pub fn closeActiveListener(self: *HostRuntime, tag: u64, async_completion: bool)
 }
 
 fn activeListenerObservation(self: *const HostRuntime, listener: *const TransportListener) ?SessionAcceptObservation {
-    return switch (listener.source) {
-        .stream => |stream| stream.observation,
-        .resident => |resident| (self.resident_listeners.get(.{
-            .resident = resident.runtime,
-            .route = resident.listener.route_id,
-        }) orelse return null).observation,
-    };
+    return (self.resident_listeners.get(residentKey(listener)) orelse return null).observation;
 }
 
 pub fn failActiveListener(self: *HostRuntime, tag: u64, primary: OperationFailure) void {
@@ -350,79 +299,20 @@ pub fn detachClosingListeners(self: *HostRuntime) void {
         var listener = removed.value;
         std.debug.assert(listener.closing);
         const observation = activeListenerObservation(self, &listener.transport);
-        switch (listener.transport.source) {
-            .stream => unreachable,
-            .resident => |resident| {
-                std.debug.assert(self.resident_listeners.remove(.{
-                    .resident = resident.runtime,
-                    .route = resident.listener.route_id,
-                }));
-                releaseListenerProfile(self, listener.transport.transportName());
-            },
-        }
+        std.debug.assert(self.resident_listeners.remove(residentKey(&listener.transport)));
+        releaseListenerProfile(self, listener.transport.transportName());
         model.freePeerLocator(self.allocator, listener.locator);
         if (observation) |value| value.observer.retired(value.observer.ctx, value.tag);
     }
 }
 
-/// Stage every stream accept currently ready. Multiplexed accepts are drained
-/// by `serviceResident` and therefore require no caller-side branch.
-pub fn acceptReady(self: *HostRuntime, listener: *TransportListener) !usize {
-    const stream = switch (listener.source) {
-        .stream => |value| value,
-        .resident => return 0,
-    };
-    const observation = stream.observation orelse return error.ListenerNotActive;
-    if (!Internal.pendingOpenSlotAvailable(self)) return 0;
-    const acceptable = switch (stream.handle.waitAcceptableOutcome(0)) {
-        .ready => |ready| ready,
-        .failed => |failure| {
-            failActiveListener(self, observation.tag, OperationFailure.fromAcceptFailure(failure));
-            return 0;
-        },
-    };
-    if (!acceptable) return 0;
-    if (!observation.observer.can_accept(observation.observer.ctx)) return 0;
-    try self.startAcceptWire(stream.handle, listener.transport, observation.tag, observation.observer);
-    return 1;
-}
-
 pub fn closeListener(self: *HostRuntime, listener: *TransportListener) ?OperationFailure {
     const transport = listener.transportName();
-    const had_terminal_failure = self.terminal_failure != null;
-    var failure: ?OperationFailure = null;
-    switch (listener.source) {
-        .stream => |stream| {
-            if (stream.observation) |observation| self.cancelAccepts(observation.tag);
-            if (stream.handle.readinessFd()) |fd| self.unwatchFd(fd);
-            if (!had_terminal_failure and self.terminal_failure != null)
-                failure = self.terminal_failure;
-            if (stream.handle.close()) |close_failure| {
-                if (failure) |*first| {
-                    first.noteChain(close_failure);
-                    Internal.noteTerminalFailureChain(self, close_failure);
-                } else {
-                    failure = OperationFailure.fromChain(close_failure);
-                }
-            }
-        },
-        .resident => |resident| {
-            const key = ResidentListenerKey{
-                .resident = resident.runtime,
-                .route = resident.listener.route_id,
-            };
-            if (self.resident_listeners.fetchRemove(key)) |removed| {
-                std.debug.assert(std.mem.eql(u8, removed.value.transport, listener.transport));
-                self.cancelAccepts(removed.value.observation.tag);
-            }
-            if (resident.listener.stopListen()) |cleanup| {
-                if (failure) |*first|
-                    first.noteChain(cleanup)
-                else
-                    failure = OperationFailure.fromChain(cleanup);
-            }
-        },
+    if (self.resident_listeners.fetchRemove(residentKey(listener))) |removed| {
+        std.debug.assert(std.mem.eql(u8, removed.value.transport, listener.transport));
+        self.cancelAccepts(removed.value.observation.tag);
     }
+    const failure: ?OperationFailure = if (listener.listener.stopListen()) |cleanup| .fromChain(cleanup) else null;
     releaseListenerProfile(self, transport);
     return failure;
 }

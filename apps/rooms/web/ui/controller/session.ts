@@ -3,7 +3,6 @@
 
 import { createContext, useContext } from "react";
 import type { OperatorReferenceKind, OperatorResetScope } from "../../../lib/operator.ts";
-import type { RoomsSessionFacet } from "../../../lib/session/client.ts";
 import type { BridgeForm } from "../../../lib/bridge/form.ts";
 import type { RoomAuthorityKind } from "../../../lib/room/authority.ts";
 import type { RoomPolicy } from "../room_policy.ts";
@@ -20,15 +19,17 @@ export type JoinNicknameIntent =
 
 export interface RoomsDirectoryController {
 	readonly directoryReady: Promise<void>;
-	pickRoom(dir: DirId, name: string, key?: string): void;
-	openManagedRoom(dir: DirId, label: string, policy: RoomPolicy): void;
+	// Each verb below settles when its work does and never rejects; its
+	// failure has already been told. A control awaits one to show it busy.
+	pickRoom(dir: DirId, name: string, key?: string): Promise<void>;
+	openManagedRoom(dir: DirId, label: string, policy: RoomPolicy): Promise<void>;
 	acceptInvite(id: string): Promise<void>;
-	declineInvite(id: string): void;
-	leaveRoom(key: string): void;
-	leaveDirectory(dir: DirId): void;
+	declineInvite(id: string): Promise<void>;
+	leaveRoom(key: string): Promise<void>;
+	leaveDirectory(dir: DirId): Promise<void>;
 	openConv(key: string): Promise<void>;
-	closeDm(conv: DmConv): void;
-	endConv(): void;
+	closeDm(conv: DmConv): Promise<void>;
+	endConv(): Promise<void>;
 	releaseNick(dir: DirId): Promise<string>;
 	selfLocator(): string | null;
 	directoryLocator(): string | null;
@@ -45,7 +46,10 @@ export interface RoomsDirectoryController {
 }
 
 export interface RoomsConversationController {
-	startDm(who: string): void;
+	/** Settles when the conversation opens; its failure has already been told. */
+	startDm(who: string): Promise<void>;
+	/** Reconnect to the exact peer registration; an empty string is success. */
+	recoverDm(key: string): Promise<string>;
 	retry(key: string, id: number): void;
 	withdraw(key: string, id: number): void;
 	mention(who: string): void;
@@ -56,9 +60,9 @@ export interface RoomsConversationController {
 	openViewer(key: string, id: number): void;
 	stepViewer(direction: ViewerDirection): void;
 	setTyping(on: boolean): void;
-	setStanding(standing: string): void;
-	setDirStanding(dir: DirId, standing: string | null): void;
-	setRoomStanding(key: string, standing: string | null): void;
+	setStanding(standing: string): Promise<void>;
+	setDirStanding(dir: DirId, standing: string | null): Promise<void>;
+	setRoomStanding(key: string, standing: string | null): Promise<void>;
 }
 
 export interface RoomsRoomController {
@@ -97,12 +101,12 @@ export interface RoomsRoomController {
 }
 
 export interface RoomsWorkspaceController {
-	applySettings(next: { dm?: "webrtc" | "relay"; trace?: string }): Promise<boolean>;
-	exportRoomsState(includeCapabilities?: boolean): string;
+	applySettings(next: { dm?: "webrtc" | "relay" }): Promise<boolean>;
+	exportRoomsState(includeCapabilities?: boolean): Promise<string>;
 	importRoomsState(raw: string): Promise<string>;
 	clearRoomsState(): Promise<string>;
 	setKeepHistory(keep: boolean): Promise<void>;
-	takeArchivePeer(sturdyref: string, remember?: boolean): Promise<string>;
+	takeArchivePeer(sturdyref: string): Promise<string>;
 	retryArchivePeer(): Promise<string>;
 	useOwnedArchive(): Promise<void>;
 	shareArchiveHistory(key: string, peer?: string, records?: "line" | "standing"): Promise<string>;
@@ -142,16 +146,6 @@ export interface RoomsOperationsController {
 	releaseOperatorReference(id: string): Promise<string>;
 	clearOperatorTrouble(): Promise<string>;
 	resumeSessionEffect(id: string): Promise<string>;
-	resolveSessionEffect(id: string, outcome: "committed" | "abandoned"): Promise<string>;
-	issueSessionGrant(id: string, rights: RoomsSessionFacet, label: string, history: boolean): Promise<string>;
-	revokeSessionGrant(id: string): Promise<string>;
-	/** Change what an already-issued link carries: its access, whether it may
-	 * read earlier messages, and whether it is paused. Fields left out keep the
-	 * answer they had. The link itself never changes. */
-	changeSessionGrant(
-		id: string,
-		patch: { rights?: RoomsSessionFacet; history?: boolean; suspended?: boolean; note?: string },
-	): Promise<string>;
 	resetOperatorScope(scope: OperatorResetScope): Promise<string>;
 	loadMoreOperator(category: OperatorCategory): Promise<string>;
 	/** Read every inventory again through one search, empty for all of them. */

@@ -1,11 +1,15 @@
 # Loam storage and durable actors
 
 Loam is glowcap's storage layer for objects that must outlive their process.
-This guide is the full contract for Zig. C and Rust, and Rust in the
-browser, use a narrower profile described in the
-[C/Rust guide](loam/c-and-rust.md) and the [browser guide](loam/browser.md).
-The [Loam page](https://jimisaacs.github.io/glowcap/loam/) on the website explains
-the same ideas with diagrams, through the example used here.
+This guide is the way in. It explains the model, walks through a first
+durable actor, and then gives the Zig contract for actors, with links to a
+focused guide for each deeper subject. Read it top to bottom once and you
+know where every other Loam document fits.
+
+The [Loam page](https://jimisaacs.github.io/glowcap/loam/) on the website
+tells the same story with diagrams. C and Rust, and Rust in the browser, use a
+narrower profile described in the [C/Rust guide](loam/c-and-rust.md) and the
+[browser guide](loam/browser.md).
 
 ## What Loam is for
 
@@ -25,14 +29,26 @@ names peers use to reach them. After a restart the same objects come back and
 the same references reach them. It also lets an object sleep on disk while
 nobody is calling it, so the stored graph can be far larger than memory.
 
-## How it fits together
+## The pieces
+
+Loam sits between the Host you already run and a storage backend. Each layer
+owns one job:
+
+```mermaid
+flowchart TB
+    Peers["Peers: Bob, Carol"] -- CapTP --> Host["Host and Vat<br/>sessions, turns, promises"]
+    Host --> Attachment["Loam attachment<br/>wakes actors, saves state before replying,<br/>serves durable names"]
+    Attachment --> Store["core.Store<br/>records, transactions, bounded cache"]
+    Store -- "read requests, write batches" --> Worker["Your storage worker<br/>your threads, your executor"]
+    Worker --> Backend[("LMDB, IndexedDB,<br/>or in-memory Volatile")]
+```
 
 **Records and edges.** Loam stores each object as a record: its data, in a
 schema the application declares, plus edges to other records. "This column
 holds that card" is an edge. A strong edge keeps its target alive, and a weak
 edge only points at it. A record marked as a root, such as the board, is kept
-with nothing pointing at it. Anything a root cannot reach through strong edges
-is garbage, which [collection](#collecting-unreachable-records) removes.
+with nothing pointing at it. Anything a root cannot reach through strong
+edges is garbage, which [collection](loam/collection.md) removes.
 
 **Transactions.** Moving a card between columns changes two records, and a
 transaction saves both changes or neither. Each change names the version of
@@ -42,14 +58,14 @@ instead of overwriting a newer change.
 **Your code does the I/O.** Loam decides what to read and write but never
 touches the disk, for the same reasons glowcap's protocol core never opens a
 socket. It hands your storage worker read requests and write batches, and the
-worker reports back. The worker runs them against an in-memory `Volatile`
-backend or LMDB 1.0.2. Loam starts no thread and no event loop.
+worker reports back. Loam starts no thread and no event loop, so you choose
+where storage runs and how it is scheduled.
 
-**Sleepy actors.** A [durable actor](#durable-actors) keeps its state in a
-record and runs on the Host and Vat you already have. Its state can leave
-memory while every reference to it keeps working. A call loads the record,
-runs the actor's code, saves the new state, and only then replies, so no
-caller is told about a change the store could still lose.
+**Durable actors.** A [durable actor](#durable-actors), also called a sleepy
+actor, keeps its state in a record and runs on the Host and Vat you already
+have. Its state can leave memory while every reference to it keeps working. A
+call loads the record, runs the actor's code, saves the new state, and only
+then replies, so no caller is told about a change the store could still lose.
 
 **Durable names.** A [publication](loam/publications.md) saves an actor's
 secret name, the swiss number in a sturdyref, in an on-disk index. After a
@@ -60,233 +76,179 @@ wakes.
 and lets the owner pause, resume, or revoke that access later. The
 [managed-access guide](loam/access.md) covers it.
 
-The LMDB backend requires the LMDB 1.x disk format, so use a fresh database
-directory for prerelease stores created with LMDB 0.9. The
-[shipped inventory](shipped.md#resource-models) lists implemented behavior, and
-the [design guide](planning/README.md) maps the remaining application
-foundation.
+## Words used throughout
 
-## Modules
-
-| Surface | Responsibility |
+| Term | Meaning |
 | --- | --- |
-| `glowcap.loam.collections` | Immutable, structurally shared maps for actor state and snapshots. Requires no store. |
-| `glowcap.loam.records` | Store/object identities, schema limits, typed edges, and checksummed Syrup envelopes. |
-| `glowcap.loam.core` | Store transactions with re-proposable staged records, exact completion/recovery, and bounded record leases. Performs no I/O. |
-| `glowcap.loam.hosting` | Record-backed behavior, bounded pending calls, lazy local capability edges, and publication descriptors on an existing Host. |
-| `glowcap.loam.Volatile` | In-memory realization of the same batches, with its own storage-byte limit. |
-| `"glowcap_loam_lmdb"` | Optional Zig module exposing `Lmdb`; executes blocking storage work. |
-| `glowcap.loam.access` | Resource/grant views, shared grant preparation, bounded record codecs, and durable owner storage. Includes durable use/control custody, managed hosting, scoped observation and bounded owner retirement. |
+| store | One durable collection of records with its own identity, such as one LMDB directory. |
+| record | One object's saved state: schema, payload bytes, typed edges, and a root flag. |
+| edge | A reference from one record to another, by record identity rather than memory address. |
+| root | A record kept whether or not anything points at it. |
+| revision | The store's commit counter. Each change names the revision it replaces. |
+| lease | A short-lived borrow of one record version from the cache. |
+| batch | The writes one transaction commits, handed to your worker as one unit. |
+| worker | Your code that runs reads and batches against the backend. |
+| backend | The storage engine: `Lmdb`, IndexedDB in the browser, or the in-memory `Volatile`. |
+| attachment | The connection between one store and a Host. It wakes actors and saves their state. |
+| behavior | The function that runs one schema's actors: saved state and a call in, a reply out. |
+| publication | A durable secret name that peers fetch to reach an actor after a restart. |
+| recipe | A saved instruction for getting a reference back: a local record, another attachment, or a sturdyref. |
+| collection | The background deletion of records no root reaches. |
 
-The LMDB module is available from the same build dependency:
+## A first durable actor
+
+[Example 07](../examples/zig/07_durable_card.zig) is the smallest complete
+program. It stores one card in LMDB, moves it, shuts everything down, opens
+the same directory in a fresh Host, and finds the move still there. Its parts
+map onto the layers above.
+
+**A schema and a behavior.** The card's payload is one integer, how many
+times it has moved. Its behavior reads the saved record and proposes new
+state; the proposal counts only once Loam commits it.
 
 ```zig
-exe.root_module.addImport("glowcap", dependency.module("glowcap"));
-exe.root_module.addImport("glowcap_loam_lmdb", dependency.module("glowcap_loam_lmdb"));
+fn card(call_state: *hosting.Call, state: core.RecordView, verb: []const u8, args: []const driver.Value) !driver.Value {
+    if (args.len != 0) return error.InvalidArguments;
+    if (state.payload.len != 8) return error.InvalidCard;
+    const moves = std.mem.readInt(i64, state.payload[0..8], .little);
+    if (std.mem.eql(u8, verb, "moves")) return .{ .integer = moves };
+    if (std.mem.eql(u8, verb, "move")) {
+        const next = try call_state.arena().alloc(u8, 8);
+        std.mem.writeInt(i64, next[0..8], moves + 1, .little);
+        call_state.replace(next);
+        return .{ .integer = moves + 1 };
+    }
+    return error.NoSuchMethod;
+}
 ```
 
-The collections module uses “persistent” in the immutable-data-structure sense:
-old versions remain available through structural sharing. Disk storage encodes
-explicit records; it does not save process-local pointers or the map's allocator state.
+**A store and a first record.** The program opens LMDB, builds a `core.Store`
+with explicit limits, and writes one rooted record so collection always keeps
+it. The worker's whole job for a write is three lines: prepare, let the
+backend commit the batch, and report the outcome.
 
-## Opening and changing a store
+```zig
+const ticket = try store.prepare();
+const outcome = db.commit(try store.beginWrite(ticket));
+try store.completeWrite(ticket, outcome);
+```
 
-An LMDB store is one directory on disk, owned by one process at a time.
-Every change goes through a transaction that Loam prepares and your worker
+**An attachment and a capability.** `hosting.Attachment.create` connects the
+store to the Host and registers the behavior. `attachment.restore` turns the
+record back into an ordinary Host capability that can be called locally or
+handed to a peer.
+
+**A call, with its storage work.** The program sends `move` and then runs the
+loop every embedding runs: drive the Vat, call `attachment.advance()`, and
+carry out each item from `attachment.nextWork()`. The read wakes the card, the
+write saves its new state, and the reply is released only after the write
 commits.
 
-Create an existing empty directory, choose a fresh store identity, and call
-`Lmdb.open(path, .{ .mode = .{ .create = identity } })`. Reopening uses
-`.open = identity` and verifies that identity. Missing metadata, existing
-creation, identity mismatch, and unavailable exclusive custody are distinct
-failures. An error never selects volatile storage or resets an existing store.
-
-Construct `core.Store` from the backend's claimed metadata, schema descriptors,
-and explicit memory limits. Schemas are borrowed for the store's lifetime.
-Keep each store and backend at a stable address while a worker borrows them.
-One execution context owns each Store and delivers its completions; workers
-receive batches or read requests and do not mutate the Store. The volatile
-backend requires serialized calls. LMDB permits concurrent reads and one
-writer, while the core admits one outstanding write per store.
-
-A transaction proceeds through `begin`, `allocateId`, `putCopying` or `remove`,
-`prepare`, and `beginWrite`. Allocate all new IDs first when constructing a
-cycle. A record carries its schema/version, payload, typed edges, and retention
-root flag. `putCopying` takes an expected existing revision, or null for a new
-record. It copies the proposal and supplies the next committed revision.
-Replacing a record's root flag uses the same atomic mutation as its content.
-
-The returned batch borrows core-owned memory. The embedding runs
-`backend.commit(batch)` and delivers its outcome to `Store.completeWrite`.
-Inspect the outcome's failure cause; successful completion of the delivery
-method does not turn an unchanged backend result into a successful mutation.
-For a Host-based application, run LMDB storage on the existing executor
-outside the Host turn. Loam creates no worker or event loop.
-
-An unknown commit outcome retains the batch and fences reads and new writes.
-Join the original worker, obtain `Store.recoveryBatch`, call the backend's
-`recover`, then deliver the resolution through `Store.resolve`. A timeout or
-abandoned caller cannot prove an abort. The
-[LMDB tests](../test/loam/lmdb/storage_test.zig) exercise these paths using both
-complete and interrupted transactions.
-
-## Reads and memory
-
-Reading works like writing: Loam says which record it needs, your worker
-fetches it, and Loam keeps a bounded cache of what it has read.
-
-`Store.acquire` returns a lease for a resident version or an explicit read
-request. The embedding executes `backend.read(request)` and returns its result
-to `Store.completeRead`, then acquires the installed record. Another request
-for the same pending record reports `PendingRead` without issuing a second
-load. The embedding owns any waiting callers.
-
-`Store.view` borrows validated record bytes until `Store.release`. A held lease
-can retain an older data version after a commit. Released, foreign-store, and
-stale lease tokens refuse access. Canceling a read retains its buffer until the
-worker completes; the canceled completion cannot install data.
-
-Each cache slot holds either a pending read or immutable resident bytes with
-their checked record envelope. Completion validates the bytes once; later
-views borrow that envelope after checking the lease. Record integrity and
-current authority remain separate checks, so caching a decoded record never
-makes a historical lease current.
-
-The cache charges a maximum-record buffer for each read. A transaction can opt
-into `retainOnCommit`, transferring its prepared buffers into eligible cache
-slots at their actual encoded size. Installation allocates nothing and never
-displaces a pinned snapshot. `currentView` refuses a historical lease when
-restoring authority; `view` still permits historical data reads. The cache
-byte limit and its occupancy are independent of stored object count. Slot and
-lease tables have separate bounded initialization costs, including one checked
-envelope per slot; staged writes have a distinct byte and mutation limit.
-Encoding measures before allocating and copies each changed
-record once. LMDB readers copy into the reserved buffer and end before returning.
-The volatile backend's full data allocation and LMDB's mapped/OS-resident pages
-are separate from this cache budget.
-
-Metadata reports object count, root count, and exact encoded record bytes.
-These totals exclude indexes, database pages, cache metadata, and temporary
-writes. They are not reachable-graph size or total process memory measurements.
-Batch validation reads changed records and their strong targets. It scans the
-bounded mutation table to resolve references within the batch; it does not scan
-the whole store. Commit installation carries unchanged resident records into
-the new revision. Changed and removed records become stale; prepared replacements
-can become resident through `retainOnCommit`. Each lease keeps its acquisition
-revision, so reusing bytes never makes an old lease current. Pending reads still
-refuse completion across any committed revision change.
-
-## LMDB capacity and measurements
-
-LMDB maps its file into memory up to a size you choose, so a store can fill.
-This section is how to see how full it is, grow it, and shrink the file
-afterward.
-
-`Lmdb.inspect()` reports map size, allocated page high water, current tree pages,
-and key count. Tree pages exclude the free-page database and metadata pages.
-High water includes pages available for reuse; subtracting it from map size does
-not tell an application exactly how much its next write can consume.
-
-`Lmdb.grow(new_map_bytes)` increases the map between backend operations. It
-refuses while another backend operation is active and blocks new operations
-during remapping. A held Loam record lease remains usable because it owns copied
-bytes. Choose a larger page-aligned size, then commit normally; the next
-successful LMDB write persists the larger map setting. Size selection belongs
-to the embedding's storage budget, never an automatic unlimited retry.
-
-Resolve outstanding write outcomes before maintenance. If remapping fails,
-`ReopenRequired` fences backend admission because the old mapping may be gone.
-Close and reopen the backend and its Store through the normal opening contract.
-This refuses ambiguous use rather than continuing with invalid mapped memory.
-Collection reuses database pages. Offline compaction shrinks the physical file
-while keeping the configured map limit separate.
-
-Join storage workers, resolve outstanding write outcomes, and retire the attached
-Host work and Store before beginning replacement. The backend holds writer
-custody throughout copying, validation, installation and synchronization:
-
 ```zig
-try backend.compact();
-try backend.close();
-backend = try Lmdb.open(path, .{ .mode = .{ .open = expected_store_id } });
+while (try attachment.nextWork()) |work| switch (work) {
+    .read => |request| try attachment.completeRead(request.ticket, db.read(request)),
+    .lookup => |request| try attachment.completeLookup(request.ticket, db.lookup(request)),
+    .write => |batch| try attachment.completeWrite(batch.ticket, db.commit(batch)),
+};
 ```
 
-Installation leaves the old backend fenced, including when rename fails.
-Reopening resolves the installed file and claims a new incarnation.
-`beginCompaction` also exposes an owned operation with `prepare`, `install`,
-`finish` and `deinit` for callers that need explicit phase boundaries.
-`InstallOutcomeUnknown` from `finish` allows a sync retry without repeating
-installation. Canceling before installation leaves the source usable, unless a
-concurrent close has fenced it.
+**A restart.** The second run reopens the directory with the same store
+identity, restores the card, and asks how many moves it has made. The answer
+is the one the first run committed. A real program would publish the card
+under a durable name instead of keeping its record ID, so peers could fetch
+it after the restart.
 
-Only `data.mdb` is authoritative on reopen. An incomplete `loam-compact.mdb`
-is ignored; the next operation discards it under the same owner lock. The
-operation needs disk space for both data files and uses streaming comparisons
-with bounded engine copy buffers. It allocates no Zig row copies.
-The directory must stay at its opened path during validation.
-The [replacement contract](decisions/adr/ADR-0181-offline-lmdb-replacement.md)
-states the local filesystem, synchronization and failure assumptions.
-`zig build loam-compaction-crash-test` exercises process loss and copy capacity
-refusal. Linux results and macOS CI configuration do not establish macOS
-execution or tested hardware power-loss behavior.
+Run it with `zig build examples`.
 
-Run `zig build bench-loam -Doptimize=ReleaseFast` for the LMDB conversation
-workload. It measures hot/cold calls, unchanged records after edits, wakeup
-bursts, and collection beside queued reads. The
-[method and limits](../bench/loam/README.md) distinguish Loam residency, tracked
-Zig allocations, physical page geometry, and unmeasured process/OS memory.
+## The guides, in reading order
+
+| Guide | Read it when you want to know |
+| --- | --- |
+| This guide | The model, a first program, and how durable actors run. |
+| [Stores, transactions and reads](loam/store.md) | How a store opens, commits, reads through its cache, and recovers an unknown write. |
+| [Durable names](loam/publications.md) | How peers fetch actors by sturdyref after a restart, and how names retire. |
+| [Durable capability fields](loam/references.md) | How saved state holds references to other actors, attachments, and remote objects. |
+| [Collecting unreachable records](loam/collection.md) | How garbage is found and deleted in bounded batches while the program runs. |
+| [LMDB operations](loam/lmdb.md) | How to size, grow, compact, close, and measure the on-disk store. |
+| [Managed access](loam/access.md) | How grants, use and control references, revocation and retries work. |
+| [C and Rust](loam/c-and-rust.md) | How C and Rust programs create, share, edit, and restore a resource. |
+| [Browser storage](loam/browser.md) | How the Rust profile stores to IndexedDB. |
+
+The decision records behind these guides start at
+[ADR-0162](decisions/adr/ADR-0162-loam-record-transactions-and-lmdb.md) for
+records and LMDB and
+[ADR-0163](decisions/adr/ADR-0163-record-backed-sleepy-actors.md) for
+sleepy actors.
 
 ## Durable actors
 
-A durable actor, or sleepy actor, is an object whose state lives in a record.
-An attachment connects a store to an existing Host, wakes actors when calls
-arrive, and saves their new state before replying.
+A durable actor is an object whose state lives in a record. An attachment
+connects a store to an existing Host, wakes actors when calls arrive, and
+saves their new state before replying.
 
-`hosting.Attachment.create(allocator, &host, &store, behaviors, options)` attaches
-one store to an existing Host. Keep both at stable addresses and borrow the
-schema/behavior tables until attachment destruction. Each `Behavior` pairs a
-schema/version with a deterministic invocation function:
+### Attaching a store
+
+`hosting.Attachment.create(allocator, &host, &store, behaviors, options)`
+attaches one store to an existing Host. Keep the Host and Store at stable
+addresses, and keep the schema and behavior tables alive until the attachment
+is destroyed. Each `Behavior` pairs a schema and version with a deterministic
+invocation function:
 
 ```zig
 fn invoke(call: *hosting.Call, state: core.RecordView,
     verb: []const u8, args: []const driver.Value) !driver.Value
 ```
 
-For a simple actor, its portrait record contains its durable state. The callback decodes the
-fields it needs and may `call.replace(payload)` using bytes allocated from
-`call.arena` or borrowed from the current record. It must not perform I/O or
-external effects. Loam commits that replacement before fulfilling the reply;
-a callback error discards it. Replacement preserves the record's existing
-edges. This profile does not serialize arbitrary mutable Zig actor structs or
-thread stacks, and the callback contract is not an in-process security sandbox.
-Behaviors needing multiple records use the optional preparation and transaction
-participant seams described under [managed endpoints](#managed-endpoints-on-the-host).
+### What a behavior may do
 
-Restore a rooted actor through `attachment.restore(current_record_lease)`.
-This returns an ordinary held Host capability. `attachment.capture(capability)`
-converts held authority for an actor in this attachment into a stored strong
-edge. Raw record names identify data; they do not enter the remote call surface.
-`call.edge(index)` restores that exact stored local capability without loading
-the target's state. Sharing and cycles therefore require no recursive graph
-load. Returned capabilities borrow call custody through reply settlement.
-For dependencies on another attachment or Host/Vat, use the checked
-[durable field preparation](loam/references.md). Live-only references without a
-restoration contract fail before writing.
+For a simple actor, its record holds all of its durable state. The behavior
+decodes the fields it needs and may call `call.replace(payload)` with bytes
+from `call.arena()` or borrowed from the current record. Loam commits that
+replacement before fulfilling the reply, and a behavior error discards it.
+Replacement keeps the record's existing edges.
 
-Eventual calls use existing Vat/CapTP promises. Admission copies plain-data
-arguments into a fixed call buffer and retains the original ingress. The
-attachment coalesces cold reads, preserves pending-call order per actor, and
-queues ready invocations on the Vat. Network activations resume through
-`Host.flushSession`, preserving Host scheduling and session close decisions.
-The embedding progresses `attachment.advance()` at top-level boundaries and
-executes each work item obtained from `attachment.nextWork()`:
+A behavior performs no I/O and no outside effect, because a proposal that
+fails to commit is thrown away and an email already sent could not be. Loam
+saves records, not arbitrary mutable Zig structs or thread stacks, and the
+behavior contract is not an in-process security sandbox. Behaviors that
+change several records use the preparation and transaction participant hooks
+described under
+[managed endpoints](loam/access.md#managed-endpoints-on-the-host).
+
+### Restoring and saving references
+
+`attachment.restore(current_record_lease)` turns a rooted actor's record into
+an ordinary held Host capability. `attachment.capture(capability)` does the
+reverse for an actor in this attachment: it turns held authority into a
+stored strong edge. Raw record names identify data and never reach the remote
+call surface.
+
+`call.edge(index)` restores the exact local capability an edge stores without
+loading the target's state, so shared references and cycles never force a
+recursive load. Returned capabilities borrow the call's custody until its
+reply settles. For references to another attachment, another Host, or a
+remote object, use [stored capability fields](loam/references.md). Ordinary
+durable saves refuse unsupported live targets. Explicit live fields retain
+the exact capability for one hosting lifetime and refuse after restart.
+
+### How a call runs
+
+Eventual calls use the Vat and CapTP promises you already have. Admission
+copies plain-data arguments into bounded retained storage and keeps the
+original ingress. The attachment merges reads for the same cold actor, keeps
+each actor's pending calls in order, and queues ready invocations on the Vat.
+Network activations resume through `Host.flushSession`, so Host scheduling and
+session-close decisions still apply.
+
+Your program calls `attachment.advance()` at top-level boundaries and carries
+out each item from `attachment.nextWork()`:
 
 ```mermaid
 sequenceDiagram
     participant Peer
     participant Host as Existing Host/Vat
     participant Loam as Loam attachment
-    participant Worker as Embedding storage executor
+    participant Worker as Your storage worker
     Peer->>Host: eventual call
     Host->>Loam: admit bounded pending call
     Loam->>Worker: nextWork: read
@@ -299,215 +261,171 @@ sequenceDiagram
     Host->>Peer: reply
 ```
 
-Workers receive borrowed read/batch requests and return through
-`attachment.completeRead` or `completeWrite` on the owner context. They do not
-call into Host. Unknown write outcomes retain ownership and fence the store;
-join the worker, obtain `recoveryBatch`, query backend recovery, then call
-`attachment.resolve`. Resume Host actions through the embedding's usual pump.
-Purely local application ingress continues through the Vat's bounded drive.
-Loam adds neither an executor nor a networking loop. The
-[actor process proof](../test/loam_actors_crash.zig) demonstrates the complete
-LMDB call/commit/reopen path.
+Workers receive borrowed read and batch requests and answer through
+`attachment.completeRead` or `completeWrite` on the owning context. They never
+call into the Host. An unknown write outcome keeps ownership and fences the
+store: join the worker, get `recoveryBatch`, ask the backend to recover, then
+call `attachment.resolve`. Resume Host work through your usual pump. Purely
+local ingress keeps running through the Vat's bounded drive. Loam adds no
+executor and no networking loop. The
+[actor process test](../test/loam_actors_crash.zig) runs the complete LMDB
+call, commit and reopen path.
 
-A resident read-only near call borrows the cache; a cold near call returns
-`ResidencyRequired` without requesting I/O. Use eventual calls or `prefetch`
-and completion first. Near mutation returns `DurableTurnRequired`. Plain local
-Vat answers currently cannot carry owning capability values; those replies
-require the Host/CapTP path. That path also accepts nested capability arguments
-and retains them through reads, preparation restarts, and settlement. Receiving
-a capability does not establish durability: `capture` accepts a proven
-same-attachment target, while `hosting.references.beginSave` validates supported
-local or established foreign recipes. Raw local Vat reference/handoff arguments remain
-unsupported. Administrative transactions can change edges using `capture`
-while no actor calls are pending.
+### Call memory
 
-`attachment.sleep(capability)` evicts eligible state while preserving callable
-identity. Explicit `pin` returns a Store lease; pins and pending calls prevent
-sleep. The default cache policy retains hot records and reclaims eligible
-least-recently-used slots. `sleep_policy = .every_turn` exercises forced cold
-activation after each completed call. Sleeping is neither deletion nor
-revocation. With no held capabilities, endpoint boxes retire through ordinary
-Vat lifetime management; stored objects alone allocate no actor endpoints.
+Each call reserves its whole byte allowance at admission but takes heap
+blocks only as it needs them. Its immutable input and its restartable working
+storage share that one physical bound, including block headers and spare
+capacity. Reply data borrows the call's retained storage until the reply
+settles, and foreign callbacks copy their output before returning. When a
+newer commit forces the call to prepare again, its working blocks are
+released and its input arguments, with the capabilities they hold, are kept.
 
-Options bound endpoint count, pending-call count, each call's memory, and total
-pending-call bytes. Pending calls also have per-ingress count and byte ceilings
-derived from Vat queue limits, separately charged from the Vat's runnable
-queue. Cache, staging, endpoint metadata, Host custody, and LMDB/OS pages are
-separate costs. Endpoint/operation/cache lookups currently use bounded linear
-scans; per-actor ordering can scan the operation table quadratically. Cache
-installation scans its bounded slots against the transaction's changed objects.
-These are explicit performance limits to measure before increasing capacities.
-The 500,000-session target still requires connection-memory and live-socket
-measurements; sleepy state does not make active connections free.
+### Near calls and capability arguments
 
-### Publications and close
+A near call to a resident, read-only actor borrows the cache. A near call to
+a cold actor returns `ResidencyRequired` without requesting I/O; use an
+eventual call, or `prefetch` and wait for it, first. A near call that would
+change state or forward an invocation returns `DurableTurnRequired`. Forwarding
+needs the eventual-call path to retain its target and settle its reply.
 
-[Durable publication discovery](loam/publications.md) covers on-demand fetch,
-retirement barriers, index retention, storage work, and attachment shutdown.
+Owning local calls use `Host.callLocalCapability` on the existing Vat queue.
+Their arguments and results preserve exact nested capability identities without
+a Session. Queued custody survives observer cancellation; bounded reply
+preparation precedes state replacement or deferred resolver consumption.
+`ReplyCapacity` identifies a fixed reply allowance that cannot fit the result;
+heap allocation refusal remains `OutOfMemory`. A deferred resolver remains live
+after either refusal and can accept a different reply.
+Plain local Vat answers still use model values. The Host and CapTP paths accept nested
+capability arguments and keep them through reads, preparation restarts and
+settlement. Receiving a capability does not make it durable: `capture`
+accepts a proven target in the same attachment, and
+`hosting.references.beginSave` checks supported local and established
+foreign recipes. Raw local Vat reference and handoff arguments are not
+supported. Administrative transactions can change edges with `capture` while
+no actor calls are pending.
 
-## Collecting unreachable records
+### Retained continuations
 
-Collection deletes the records that no root reaches through strong edges,
-including cycles that only hold each other up. It runs in small batches that
-you schedule.
+A Zig content callback can reserve a continuation with its original source
+intent and exact targets. Confirmed receipt commit activates it; unknown commit
+keeps the reservation behind recovery. The reservation owns copied intent and
+capability retains under an independent allowance, and holds no Store lease
+through a target wait.
 
-Call `store.prepareCollection(work_limit)` to prepare one bounded collection
-batch, then use the ordinary `beginWrite`, backend commit, and `completeWrite`
-path. Inspect `store.metadata.collection.phase`; continue in later batches
-until it is `idle`. Unknown outcomes use the same recovery protocol as content
-writes. The embedding chooses when to schedule these batches; Loam owns the
-tracing and deletion decisions.
+Public projections recheck source admission before delivering completed results.
+The private executor retains the exact completed outcome after source loss so
+the application can settle its durable receipt. Its result distinguishes failure
+before target admission (`unsent`) from failure afterward (`unknown`). Neither a
+fulfilled reply nor a failure determines durable effect application; the
+application receipt owns that judgment. Canceling execution releases its
+observer while admitted work keeps its custody until settlement. The
+executor rejects an immutable reply that exceeds its allowance or contains a
+capability whose home retired. It retries temporary heap refusal while retaining
+the completed result and never redispatches the target. The
+[Rooms effect contract](rooms/session-effects.md)
+describes production receipt execution and recovery.
 
-```mermaid
-flowchart LR
-    Clear[Clear prior tracing work] --> Roots[Scan durable roots]
-    Roots --> Trace[Trace strong edges]
-    Trace --> Sweep[Reclaim unmarked records]
-    Sweep -->|New retention or edge| Trace
-    Sweep --> Finish[Remove tracing metadata]
-    Finish --> Idle[Idle]
-```
+### Sleeping
 
-The collector traces roots, strong edges, current live custody, pending reads,
-and pinned record versions. A pinned historical record also retains its old
-strong edges. Weak edges do not retain targets; unreachable cycles are reclaimed.
-Tracing reads stored records without invoking actor behavior or warming its
-cache. Each batch has a bounded record/phase work count; each traced record can
-add up to the configured edge limit. Durable marks and a FIFO queue live in the
-backend, so the work queue need not fit in application RAM.
+`attachment.sleep(capability)` evicts an eligible actor's state while keeping
+its callable identity. An explicit `pin` returns a Store lease, and pins or
+pending calls prevent sleep. By default the cache keeps hot records and
+reclaims eligible least-recently-used slots. `sleep_policy = .every_turn`
+forces a cold activation after each completed call, which is useful in tests.
+Sleeping is neither deletion nor revocation. With no held capabilities,
+endpoint boxes retire through ordinary Vat lifetime management, and stored
+objects alone allocate no actor endpoints.
 
-Use `store.retain(object_id)` and `releaseRetention(token)` for local custody
-outside leases. These checked tokens keep records alive independently of cache
-residency; they grant no remote call authority and do not survive restart.
-Actor endpoints register this custody automatically and release it when they
-retire or their attachment closes. A retained actor remains callable after
-collection even when it is asleep and has no durable root flag.
+### Capacity and cost
 
-The first preparation captures live custody once for the cycle. Between batches,
-Store reserves journal capacity before publishing a new retention, lease or
-pending read, then records its marking obligation. The first lease on an
-immutable resident portrait records its strong historical edges; repeated
-leases on that portrait add no work. Preparation freezes new leases and
-retention claims until that batch settles. Existing leases remain usable and
-may be released. Ordinary writes between batches record new strong edges in
-the same transaction as the content change. Once root scanning begins, new or
-changed records survive the current cycle. Sweep drains outstanding tracing
-work before deleting another candidate. Reopen discards incomplete tracing
-progress and starts from fresh roots; it never continues an old sweep blindly.
+Attachment options bound the endpoint count, the pending-call count, each
+call's memory, and total pending-call bytes. Pending calls also have
+per-ingress count and byte ceilings derived from the Vat's queue limits,
+charged apart from the Vat's runnable queue. The cache, staging, endpoint
+metadata, Host custody, and LMDB and OS pages are separate costs.
 
-Collection reuses one record-sized scratch buffer and a journal of at most
-`max_collection_roots` identifiers until the cycle finishes. Insufficient capacity
-refuses initial preparation or new custody before publication. Each tracing batch
-borrows all pending obligations; only a confirmed collection receipt acknowledges
-the submitted entries. Abort and uncertain outcomes preserve them. Unchanged
-custody is copied, fingerprinted and seeded once, rather than once per batch.
-Root shading has its own bound; the record/phase work limit does not bound all
-batch work. New custody during finishing needs no marking because deletion is
-over. A completed idle cycle starts directly with roots; an interrupted cycle
-clears old tracing rows in separate batches before submitting fresh obligations.
-[ADR-0189](decisions/adr/ADR-0189-loam-collection-custody-admission.md) owns this
-admission contract; the [cost profile](../bench/loam/README.md#collection-custody-cost)
-separates root work from tracing and commit counts.
-Storage must have headroom for marks, queue entries, and atomic writes;
-map exhaustion aborts the batch without deleting unproven garbage. The volatile
-backend charges internal rows to its byte limit; LMDB uses ordered cursors while
-the volatile test backend scans its hash table. These are different cost models.
-Collection batches that remove no objects preserve current resident bytes.
-A batch that sweeps objects conservatively invalidates the cache because its
-receipt does not enumerate deleted identities. Old leases remain historical
-after either kind of commit.
+Endpoint, operation and cache lookups use bounded linear scans, and per-actor
+ordering can scan the operation table quadratically. Cache installation scans
+its bounded slots against the transaction's changed objects. Measure these
+before raising capacities. Sleepy state does not make active connections
+free: the 500,000-session target still needs connection-memory and
+live-socket measurements.
 
-Reclamation updates object and encoded-record-byte totals atomically. These
-totals exclude backend indexes, tracing metadata, and mapped-page overhead.
-Reclamation is distinct from shrinking the database file. Offline compaction
-uses the maintenance operation above. Budget collection before storage is exhausted. The process-kill
-proof covers interrupted sweeps. The LMDB workload measures bounded collection
-service time and queued-read interference; a separate bounded storage executor
-workload measures transient and durable foreground calls during collection.
+### Durable names and shutdown
 
-## Managed access
+[Durable names](loam/publications.md) covers on-demand fetch, retiring a name,
+index retention, the lookup work item, and destroying an attachment.
 
-The [managed-access guide](loam/access.md) explains resource creation, moves,
-leaf deletion, filtered child queries, use/control custody and hosted mutation
-receipts. It uses the same Store, owner transaction and Host attachment described
-here. Applications opt into those records and authority checks; ordinary
-networking and actors do not allocate them.
+## Modules
 
-## LMDB workload measurements
+| Surface | Responsibility |
+| --- | --- |
+| `glowcap.loam.collections` | Immutable, structurally shared maps for actor state and snapshots. Requires no store. |
+| `glowcap.loam.records` | Store and object identities, schema limits, typed edges, and checksummed Syrup envelopes. |
+| `glowcap.loam.core` | Store transactions with re-proposable staged records, exact completion and recovery, and bounded record leases. Performs no I/O. |
+| `glowcap.loam.hosting` | Record-backed behavior, bounded pending calls, lazy local capability edges, and publication descriptors on an existing Host. |
+| `glowcap.loam.Volatile` | In-memory backend for the same batches, with its own storage-byte limit. |
+| `"glowcap_loam_lmdb"` | Optional module exposing `Lmdb`, which runs blocking storage work ([LMDB operations](loam/lmdb.md)). |
+| `glowcap.loam.access` | Resource and grant views, grant preparation, bounded record codecs, and durable owner storage, with use and control custody, managed hosting, scoped observation and bounded owner retirement. |
 
-`zig build bench-loam -Doptimize=ReleaseFast` measures ordinary actors and
-managed resources through the shipped Host/Vat and LMDB interfaces. The
-managed population covers resource creation, atomic Zig use/control issuance,
-control dependency chains, moves, child iteration, receipt-backed hosted content
-edits and grant revocation with shallow and deeper resource/grant ancestry.
-Its smoke run validates replies, warmed-record reuse, commit counts, revocation
-refusal and complete Zig memory release under `check`.
-The [workload method](../bench/loam/README.md) owns populations, limits,
-sampling and report interpretation. A shared four-worker executor measures
-sustained ordinary and managed calls, with deterministic admission refusal and
-unrelated actor progress. Further profiles measure checked foreign restoration
-through byte-fed sessions, larger held-facet working sets and offline compaction.
-The [recorded results](../bench/loam/results.md) preserve revision, durability,
-read/allocation counts and latency distributions. OS snapshots report whole-process
-memory independently of tracked Zig heap and LMDB page geometry. The offered
-load uses a bounded closed-loop window.
+The collections module uses "persistent" in the immutable-data-structure
+sense: old versions stay available through structural sharing. Disk storage
+encodes explicit records. It never saves process-local pointers or a map's
+allocator state.
 
-## Closing and current limits
+## Current limits
 
-Retire reads, settle writes, release leases, then deinitialize the Store.
-`Lmdb.close` stops new work and reports `Busy` while a backend operation retains
-the environment. Finish or abort that operation, join its worker, and retry
-close. The lifetime lock file remains in the directory so concurrent owners
-cannot acquire different lock inodes at the same path.
+**What a crash can lose.** Pending calls and replies can be lost when the
+process dies, and a committed write can survive even though its caller never
+hears back. A caller that retries then repeats the change. Managed derivation
+and mutations keep bounded receipts for exact retries, described in
+[retrying mutations](loam/access.md#retrying-mutations). Every other actor
+interface owns its own retry contract.
 
-This advisory lock coordinates cooperating Loam adapters for the entire open
-lifetime. LMDB separately serializes write transactions. All writers must use
-the adapter's custody protocol so cached Loam state remains current; direct
-external LMDB writes are outside this storage profile.
+**What can be saved.** Hosted fields keep direct local authority, checked
+dependencies on other attachments, and established foreign sturdyrefs.
+Timers, unresolved promises, subscriptions, and outside handles are not
+durable fields. General durable inboxes and outboxes, and general graph
+projections beyond the C, Rust and browser resource profile, are not built.
+Ordinary volatile actor snapshots stay independent of disk persistence.
 
-The LMDB adapter uses BSD `flock`, available on macOS and Linux, and an
-explicitly configured LMDB map size. Map exhaustion refuses the entire
-transaction; `grow` expands capacity under exclusive backend maintenance.
-The [browser profile](loam/browser.md) executes the same fixed-resource
-lifecycle through IndexedDB. Tracing collection is local to this exclusively
-owned store. Explicit deletion of an unrooted record leaves
-incoming references resolving as gone; object identity is never recycled.
+**One owner per store.** Collection traces only the store this process owns
+exclusively. Explicitly deleting an unrooted record leaves incoming
+references resolving as gone, and object identity is never reused. The
+[browser profile](loam/browser.md) runs the same fixed-resource lifecycle on
+IndexedDB.
 
-Managed owners retain 32 committed change batches of up to 16 effects each.
-Grant, resource, content and control changes share the caller's Store transaction;
-abort and unchanged effects add no history. Expired batches become collectible.
-The [access guide](loam/access.md) owns path limits, revision stamps and preparation.
-Scoped replay and Zig/hosted observation use these retained batches. Exact
-registration receipts recover separate receiver/canceller fronts, with opaque
-context-bound cursors, current authority checks and explicit resynchronization.
-The [observation guide](loam/access.md#observing-held-access) explains their
-cancellation and capacity budgets.
+**Managed history.** Managed owners keep 32 committed change batches of up to
+16 effects each. Grant, resource, content and control changes share the
+caller's Store transaction, and an abort or an unchanged effect adds no
+history. Expired batches become collectible. Scoped replay and observation
+read these batches; the [observation guide](loam/access.md#observing-held-access)
+covers cancellation and capacity. [Bounded owner cleanup](loam/access.md#bounded-owner-cleanup)
+closes owner admission, retires publications through the attachment,
+compacts terminal identities and prunes indexes without resetting allocation
+or receipt floors. Local tracing then reclaims the disconnected payloads. Each
+permanent name reservation keeps 58 logical bytes before backend overhead.
 
-Bounded [managed retirement](loam/access.md#bounded-owner-cleanup) closes owner
-admission, retires publications through the Attachment, compacts terminal
-identities and prunes indexes without resetting allocation or receipt floors.
-Local tracing then reclaims disconnected payloads; permanent name reservations
-remain 58 logical bytes each before backend overhead.
+The [shipped inventory](shipped.md#resource-models) lists what is built, and
+the [design guide](planning/README.md) maps the remaining application
+foundation.
 
-Hosted fields preserve direct local authority, checked attachment dependencies,
-and established foreign sturdyrefs. General durable inboxes/outboxes,
-and general graph projections beyond the fixed-resource C/Rust and browser
-profile, remain planned. Pending calls and replies can be lost on process failure;
-a committed write can survive even when its caller never receives the answer.
-Managed derivation and mutations use the bounded receipt windows in the
-[access guide](loam/access.md#retrying-mutations). Other actor interfaces own
-their retry contract. Timers, unresolved promises,
-subscriptions, and external handles are not durable fields in this profile.
-Ordinary volatile actor snapshots remain independent of disk persistence.
+## Evidence
 
-Run `zig build loam-lmdb-test` for LMDB storage contracts and
-`zig build loam-lmdb-crash-test` for process interruption.
-`zig build loam-actors-crash-test` additionally restores publications and
-cyclic actor references and calls them through CapTP after restart.
-`zig build loam-managed-crash-test` exercises managed issuance, revocation,
-control attenuation, content/reference edits, resource moves and leaf deletion.
-It interrupts before and after commit, after local installation, and after
-publication activation with an undelivered reply. Fresh processes fetch
-durable names and verify exact receipt recovery, role separation and atomic retained change batches.
-These prove SIGKILL recovery at the tested boundaries; they are not power-loss tests. LMDB is
-the first backend implementation; comparative performance remains unmeasured.
+These build steps kill the process at chosen points and check what a fresh
+process finds:
+
+- `zig build loam-lmdb-test` covers the LMDB storage contracts, and
+  `zig build loam-lmdb-crash-test` covers process interruption.
+- `zig build loam-actors-crash-test` restores publications and cyclic actor
+  references, then calls them through CapTP after the restart.
+- `zig build loam-managed-crash-test` covers managed issuance, revocation,
+  control attenuation, content and reference edits, resource moves and leaf
+  deletion. It interrupts before and after commit, after local installation,
+  and after publication activation with an undelivered reply. Fresh processes
+  fetch durable names and verify exact receipt recovery, role separation and
+  atomic change batches.
+
+These prove recovery from `SIGKILL` at the tested points. They are not
+power-loss tests.

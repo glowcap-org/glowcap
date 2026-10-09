@@ -85,6 +85,9 @@ impl<F> Line<F> {
 	pub fn files(&self) -> &[F] {
 		&self.files
 	}
+	pub fn id(&self) -> LineId {
+		self.id
+	}
 
 	pub fn is_withdrawn(&self) -> bool {
 		self.withdrawn

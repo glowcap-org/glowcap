@@ -4,11 +4,13 @@ use std::{future::poll_fn, task::Poll};
 impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 	pub(super) fn behavior(
 		&self,
-		blob: policy::Blob<Source>,
+		lease: policy::Lease<Source>,
+		host: glowcap::Host,
 	) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> + 'static {
 		let state = Rc::downgrade(&self.state);
 		let platform = self.platform.clone();
 		move |verb, args| {
+			let blob = lease.blob();
 			let [offset, length] = args else {
 				return Err(policy::Error::Arguments.to_string());
 			};
@@ -30,10 +32,8 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 				Backing::Reader(reader) => reader.read(range.start, range.len()),
 			};
 			let owner = state.upgrade().ok_or("the source owner has closed")?;
-			let session = glowcap::current_session()
-				.map_err(|e| e.to_string())?
-				.ok_or("no delivering session")?;
-			let mut resolver = session.host().defer_turn().map_err(|e| e.to_string())?;
+			let session = glowcap::current_session().map_err(|e| e.to_string())?;
+			let mut resolver = host.defer_turn().map_err(|e| e.to_string())?;
 			let job = Rc::new(Job { done: Cell::new(false) });
 			let completion = Completion {
 				state: state.clone(),
@@ -52,7 +52,13 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 					read.finish(bytes.len()).map_err(|e| e.to_string())?;
 					Ok::<_, String>(Argument::Bytes(bytes))
 				};
-				let (mut work, mut closed) = (std::pin::pin!(work), std::pin::pin!(session.closed()));
+				let closed = async move {
+					match session {
+						Some(session) => session.closed().await,
+						None => std::future::pending().await,
+					}
+				};
+				let (mut work, mut closed) = (std::pin::pin!(work), std::pin::pin!(closed));
 				let result = poll_fn(|cx| {
 					if closed.as_mut().poll(cx).is_ready() {
 						return Poll::Ready(None);

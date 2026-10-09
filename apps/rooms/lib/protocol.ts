@@ -46,8 +46,14 @@ export { SNAPSHOT } from "./protocol_data.ts";
  * `[name, count|null]` records.
  * `listPublications()` and `watchPublications(inbox)` are the rooms extension:
  * they add `[id, kind, origin, proof]`, and the exact `id` is accepted by
- * `enterPublication(id)`. Keeping this choice in the directory verb avoids
+ * `enterPublication(id)`. `linkPublication(id)` returns that exact publication's
+ * existing source-owned entry link, refusing a retired generation or a source
+ * that has no link. It does not create room management authority.
+ * Keeping this choice in the directory verb avoids
  * coupling an application record shape to CapTP transport negotiation.
+ * `unwatchPublications(inbox)` cancels only the caller's exact original observer.
+ * It answers void even when that observer already ended or was replaced, so
+ * delayed cleanup cannot remove a newer watch on the same connection.
  *
  * `open(name, true, recoveryKey)` makes a private room. The boolean is the
  * whole of what private means here, while the opaque key makes a lost request
@@ -82,7 +88,12 @@ export { OPEN_PRIVATE_LINK } from "./protocol_data.ts";
 export { ENTER } from "./protocol_data.ts";
 /** Enter the exact public-room generation named by a list/watch record. */
 export { ENTER_PUBLICATION } from "./protocol_data.ts";
-export { LIST, LIST_PUBLICATIONS, WATCH, WATCH_PUBLICATIONS } from "./protocol_data.ts";
+/** Subscribe to one exact public publication through the held directory.
+ * `subscribePublication(id, nick, inbox)` answers the ordinary membership tuple.
+ * Retaining the directory and publication is sufficient for cold recovery;
+ * a display name never resolves a replacement room. */
+export { SUBSCRIBE_PUBLICATION } from "./protocol_data.ts";
+export { LIST, LIST_PUBLICATIONS, UNWATCH_PUBLICATIONS, WATCH, WATCH_PUBLICATIONS } from "./protocol_data.ts";
 export type RoomRecordShape = "baseline" | "publication";
 /** The directory's preferred durable location, derived from live listeners. */
 export { ADVERTISED_LOCATION } from "./protocol_data.ts";
@@ -99,7 +110,7 @@ export { PUBLICATION_READY, REVOKE } from "./protocol_data.ts";
  * the location it authors for this exact session. Redeeming the link answers
  * an entrance; the first successful subscription reconstitutes the live room
  * after it has emptied or the server has restarted. */
-export { LINK } from "./protocol_data.ts";
+export { LINK, LINK_PUBLICATION } from "./protocol_data.ts";
 
 /** Room and membership methods a client sends. `subscribe(nick, inboxCap,
  * voucher?)` returns `[seat, kind, topic, files]`. The client sends
@@ -306,7 +317,7 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
 /** Directory introduction methods (three-party handoff, gifter side).
  *
  * `register(nick, locator, inboxCap, allocationMode?, reconnectVoucher?)` claims a name and answers
- * `notify("registered", grantedNick, registrationId)`. Calls without a mode retain the original
+ * `[grantedNick, registrationId, nameCapability]` after one committed allocation. Calls without a mode use the
  * exact-name contract. `"automatic"` treats `nick` as a base and atomically grants its first free
  * conventional spelling, such as `guest-2`; `"exact"` never changes the requested spelling. The
  * opaque registration ID identifies this exact
@@ -316,8 +327,8 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
  * the prior intro when it comes from the connection holding it. A new connection
  * may replace that exact live claim with a single-use voucher minted by the old
  * name capability; another caller is refused `nick-taken` while the holder remains open.
- * `introduce(nick, registrationId)` returns the inbox that registration offered for
- * *this* caller (see
+ * `introduce(nick, registrationId, opening)` returns the inbox that registration offered for
+ * this caller and opening (see
  * `offerInbox`) as a `desc:handoff-give`: the caller redeems by dialing the
  * member *directly*, and is refused `introduction-pending` until there is one. A
  * caller that has not registered cannot be introduced at all: the directory reads
@@ -349,7 +360,7 @@ export { REGISTER } from "./protocol_data.ts";
 export { INTRODUCE, VOUCHER } from "./protocol_data.ts";
 
 /** Offer the directory an inbox to introduce one registered peer to:
- * `offerInbox(forNick, forRegistrationId, inbox)`.
+ * `offerInbox(forNick, forRegistrationId, opening, inbox)`.
  *
  * This is where a direct message gets its sender. The member minted this inbox
  * for one peer, and the directory hands it to that peer alone, so the inbox a
@@ -365,7 +376,7 @@ export { INTRODUCE, VOUCHER } from "./protocol_data.ts";
  * decides who may reach *it* and nothing else; an unregistered caller is refused.
  * Offering again for the same peer replaces the previous inbox.
  *
- * The directory asks for one it needs with `notify("mintInboxFor", peer, registrationId)` on the
+ * The directory asks for one it needs with `notify("mintInboxFor", peer, registrationId, opening)` on the
  * member's register inbox. A member may also offer unasked; a client watching
  * the roster does so as members appear.
  *
@@ -402,6 +413,11 @@ export { OFFER_INBOX } from "./protocol_data.ts";
  * `signalDone(id)` retires that exact exchange after channel bring-up or
  * failure, so a late retirement cannot close a newer dial to the same peer. */
 export { OFFER_SIGNALING, SIGNAL_ANSWER, SIGNAL_CANDIDATE, SIGNAL_DONE, SIGNAL_OFFER } from "./protocol_data.ts";
+
+/** An exact registered name answers this without changing an exchange. A
+ * retained managed route uses it to recheck its source and registration before
+ * accepting an incoming transport. Retired names refuse. */
+export { SIGNAL_CHECK } from "./protocol_data.ts";
 
 /** The verbs a signaling inbox and a signaling reply capability answer:
  * `offer(id, sdp)` and `candidate(id, ice)` on the member's filed inbox;
@@ -517,7 +533,10 @@ export { DM } from "./protocol_data.ts";
 /** Establish the reply half of a direct line without inventing a chat message.
  * A peer that cannot dial the requester's advertised carrier may dial in the
  * other direction and hand this capability over; later messages and typing use
- * that direct route with the directory out of their path. */
+ * that direct route with the directory out of their path. Every direct inbox
+ * accepts this route delivery as part of its base protocol. A receiver retains
+ * it for later sends, or releases it when it replies only to messages, which
+ * carry their own routes. Refusal is a failed delivery, never readiness. */
 export { DIRECT_READY } from "./protocol_data.ts";
 
 /** Directory register-inbox notice that another member requested a direct
@@ -535,17 +554,20 @@ export { MEMBER_REGISTRATION } from "./protocol_data.ts";
  * `count` its members), and a member becoming `"registered"` / `"unregistered"`
  * for direct messages (where `name` is the member's nick, `count` is 1 or 0,
  * and `registrationId` identifies that registration).
- * A member's own register inbox also hears `notify("registered", nick, registrationId)`, the
- * signal that its name is granted. It hears
+ * A member's register inbox also hears `notify("registered", nick, registrationId)`, the
+ * discovery notification for the name granted in the committed reply. It hears
  * `notify("mintInboxFor", peer, registrationId)` when someone has asked to be introduced and
  * the member has offered no inbox for them yet: mint one and `offerInbox` it.
  * It hears `notify("directRequested", peer, registrationId)` whenever that peer requests an
  * introduction, so a target with the compatible carrier can establish the
  * reciprocal route before any user message is sent.
- * It hears `notify("introducible", peer, registrationId)` when a peer it was waiting on has
- * offered an inbox, so an `introduce` that was refused `introduction-pending`
+ * It hears `notify("introducible", peer, registrationId, opening)` when a peer it was waiting on has
+ * offered an inbox for that exact opening, so an `introduce` refused `introduction-pending`
  * is worth retrying.
  *
+ * Fresh openings use distinct identities; retries retain their original one.
+ * Introduction transfers the offer out of directory custody. A retired callback
+ * cannot be inherited by a later opening, and sibling readiness cannot wake it.
  * That notice can arrive before the refusal it belongs to, and a client which
  * parks the line rather than handing the refusal back to its caller has to
  * expect it. One `introduce` makes the room do two things: ask the member for an

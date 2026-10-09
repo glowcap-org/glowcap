@@ -12,7 +12,7 @@ const extractBraceBlock = util.extractBraceBlock;
 
 /// Apex for ADR-0076 iroh convergence: CapTP fan-out must not re-grow inside
 /// the iroh resident. The resident supplies the netlayer + completion
-/// `Backend` only; serving is `driver.Bridge` + Host. A reintroduced
+/// `Backend` only; serving is `driver.HostRuntime` + Host. A reintroduced
 /// `LoopHost` / `driver_core` / `actors` import fails the gate instead of
 /// shipping a second diverging serve spine.
 pub fn checkIrohLoopConvergence(
@@ -22,9 +22,9 @@ pub fn checkIrohLoopConvergence(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const forbidden = [_]struct { needle: []const u8, reason: []const u8 }{
-        .{ .needle = "LoopHost", .reason = "CapTP scale must stay on `driver.Bridge` + Host, not a resident-local serve loop" },
-        .{ .needle = "@import(\"driver_core\")", .reason = "the iroh resident must not import the serve core; Bridge owns CapTP" },
-        .{ .needle = "@import(\"actors\")", .reason = "the iroh resident must not mint vats; Bridge + Host own CapTP" },
+        .{ .needle = "LoopHost", .reason = "CapTP scale must stay on `driver.HostRuntime` + Host, not a resident-local serve loop" },
+        .{ .needle = "@import(\"driver_core\")", .reason = "the iroh resident must not import the serve core; HostRuntime owns CapTP" },
+        .{ .needle = "@import(\"actors\")", .reason = "the iroh resident must not mint vats; HostRuntime + Host own CapTP" },
     };
     const paths = [_][]const u8{
         "src/net/transport/iroh.zig",

@@ -235,6 +235,43 @@ test "failed enliven reservations leave earlier replies settleable" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, reserveConcurrentEnlivenments, .{});
 }
 
+test "sturdyref FIFO survives arbitrary invalidation and dense row relocation" {
+    for ([_]usize{ 1, 2, 3, 8, 32 }) |cap| {
+        var s = session.Session.initWith(std.testing.allocator, .{
+            .limits = .{ .max_sturdyref_cache_entries = cap },
+        });
+        defer s.deinit();
+        var expected: std.ArrayList(usize) = .empty;
+        defer expected.deinit(std.testing.allocator);
+        var names: [128][1]u8 = undefined;
+        for (&names, 0..) |*name, step| {
+            name.* = .{@intCast(step)};
+            if (step != 0 and step % 3 == 0) {
+                const retired = expected.items[(step / 3) % expected.items.len];
+                s.forgetSturdyrefEnlivenmentsAt(.from(retired + 1));
+                for (expected.items, 0..) |value, i| {
+                    if (value == retired) {
+                        _ = expected.orderedRemove(i);
+                        break;
+                    }
+                }
+            }
+            if (expected.items.len == cap) _ = expected.orderedRemove(0);
+            try expected.append(std.testing.allocator, step);
+            try s.cacheSturdyrefEnlivenment(name, .{
+                .import_position = .from(step + 1),
+                .kind = .object,
+            });
+            for (names[0 .. step + 1], 0..) |*prior, value| {
+                const retained = std.mem.indexOfScalar(usize, expected.items, value) != null;
+                const cached = s.sturdyrefCacheLookup(prior);
+                try std.testing.expectEqual(retained, cached != null);
+                if (cached) |entry| try std.testing.expectEqual(value + 1, entry.far.import_position.int());
+            }
+        }
+    }
+}
+
 fn reserveConcurrentEnlivenments(allocator: std.mem.Allocator) !void {
     var s = session.Session.init(allocator);
     defer s.deinit();

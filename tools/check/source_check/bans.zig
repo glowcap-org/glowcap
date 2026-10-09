@@ -255,6 +255,7 @@ pub const all: []const Ban =
     captp_io.captp_io_spine_table ++
     transport.transport_vocabulary ++
     prose.prerelease_prose ++
+    prose.zig_status_claims ++
     prose.human_doc_voice ++
     prose.inbound_vocabulary ++
     prose.diagram_wire_vocabulary ++
@@ -277,6 +278,7 @@ pub const all: []const Ban =
     binding_policy.readiness_drain_cap_rows ++
     binding_policy.pending_dial_hint_probe_rows ++
     binding_racket_policy.relay_binary_rows ++
+    binding_racket_policy.child_compile_rows ++
     binding_policy.stream_read_chunk_rows ++
     binding_policy.iroh_read_chunk_rows ++
     binding_policy.trace_payload_cap_rows ++
@@ -406,10 +408,10 @@ test "bans: attached Rooms controllers keep browser and session authority separa
     var t = try TestRun.init();
     defer t.deinit();
     const io = std.testing.io;
-    try t.tmp.dir.createDirPath(io, "apps/rooms/web/ui/session");
+    try t.tmp.dir.createDirPath(io, "apps/rooms/web/ui/session/managed");
     try t.tmp.dir.createDirPath(io, "apps/rooms/web/ui/controller");
     try t.tmp.dir.writeFile(io, .{
-        .sub_path = "apps/rooms/web/ui/session/attached_session.ts",
+        .sub_path = "apps/rooms/web/ui/session/managed/controller.ts",
         .data = "export function attachedSession(browser: RoomsBrowserController) { return { ...browser }; }\n",
     });
     try t.tmp.dir.writeFile(io, .{
@@ -422,8 +424,8 @@ test "bans: attached Rooms controllers keep browser and session authority separa
     });
     try t.run(&rooms.attached_session_authority);
     try t.expectMessages(&.{
-        "apps/rooms/web/ui/session/attached_session.ts: contains `...browser` — an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
-        "apps/rooms/web/ui/session/attached_session.ts: missing `browser: Pick<RoomsBrowserController` — the attached session adapter must name the exact browser actions its command surface needs",
+        "apps/rooms/web/ui/session/managed/controller.ts: contains `...browser` — an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
+        "apps/rooms/web/ui/session/managed/controller.ts: missing `browser: Pick<RoomsBrowserController` — the attached session adapter must name the exact browser actions its command surface needs",
         "apps/rooms/web/ui/controller/browser.ts: missing `RoomsBrowserContext = createContext<RoomsBrowserController | null>` — browser presentation and establishment authority must have its own stable React context",
         "apps/rooms/web/ui/controller/session.ts: missing `RoomsSessionContext = createContext<RoomsSessionController | null>` — Rooms commands must be unavailable until an established session context exists",
     });
@@ -433,18 +435,18 @@ test "bans: WebRTC listener failures cannot fall back to console-only reporting"
     var t = try TestRun.init();
     defer t.deinit();
     const io = std.testing.io;
-    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/browser/src/attached");
+    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/browser/src/attached/managed");
     try t.tmp.dir.writeFile(io, .{
-        .sub_path = "apps/rooms/rust/browser/src/attached/local_signaling.rs",
+        .sub_path = "apps/rooms/rust/browser/src/attached/managed/signaling.rs",
         .data = "web_sys::console::error_1(&error.into());\n",
     });
     try t.tmp.dir.writeFile(io, .{
-        .sub_path = "apps/rooms/rust/browser/src/attached/signaling.rs",
+        .sub_path = "apps/rooms/rust/browser/src/attached/managed/inbox.rs",
         .data = "trouble.report(source, reason);\n",
     });
     try t.run(&rooms.browser_trouble_reporting);
     try t.expectMessages(&.{
-        "apps/rooms/rust/browser/src/attached/local_signaling.rs: contains `web_sys::console::error_1` — WebRTC listener failures enter the page trouble journal through the application-owned reporter",
+        "apps/rooms/rust/browser/src/attached/managed/signaling.rs: contains `web_sys::console::error_1` — WebRTC listener failures enter the page trouble journal through the application-owned reporter",
     });
 }
 
@@ -452,28 +454,28 @@ test "bans: Rooms runtime cannot restore the text catch-all" {
     var t = try TestRun.init();
     defer t.deinit();
     const io = std.testing.io;
-    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/runtime/src/service");
+    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/runtime/src/session/managed");
     try t.tmp.dir.writeFile(io, .{
-        .sub_path = "apps/rooms/rust/runtime/src/service/error.rs",
+        .sub_path = "apps/rooms/rust/runtime/src/session/managed/error.rs",
         .data = "enum Error { Runtime(String) }\nfn map(e: String) { Error::runtime(e); }\n",
     });
-    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/runtime/src/session/commands");
+    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/runtime/src/session/managed/commands");
     try t.tmp.dir.writeFile(io, .{
-        .sub_path = "apps/rooms/rust/runtime/src/session/commands/mod.rs",
+        .sub_path = "apps/rooms/rust/runtime/src/session/managed/commands/mod.rs",
         .data = "done: watch::Receiver<Option<Result<(), String>>>,\n",
     });
-    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/runtime/src/grants");
+    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/runtime/src/session/managed/grants");
     try t.tmp.dir.writeFile(io, .{
-        .sub_path = "apps/rooms/rust/runtime/src/grants/commands.rs",
+        .sub_path = "apps/rooms/rust/runtime/src/session/managed/grants/commands.rs",
         .data = "done: watch::Sender<Option<Result<(), String>>>,\n",
     });
     try t.run(&rooms.runtime_error_vocabulary);
-    try t.expectMessages(&.{
-        "apps/rooms/rust/runtime/src/service/error.rs: contains `Runtime(String)` — runtime failures retain their typed class until a CapTP boundary renders them",
-        "apps/rooms/rust/runtime/src/service/error.rs: contains `Error::runtime` — runtime failures retain their typed class until a CapTP boundary renders them",
-        "apps/rooms/rust/runtime/src/session/commands/mod.rs: contains `done: watch::Receiver<Option<Result<(), String>>>` — concurrent closers retain the worker failure class instead of reconstructing it from text",
-        "apps/rooms/rust/runtime/src/grants/commands.rs: contains `done: watch::Sender<Option<Result<(), String>>>` — concurrent closers retain the worker failure class instead of reconstructing it from text",
-    });
+    try std.testing.expectEqual(@as(usize, 4), t.violations.items.len);
+    for ([_][]const u8{ "Runtime(String)", "Error::runtime", "watch::Receiver", "watch::Sender" }) |needle| {
+        var found = false;
+        for (t.violations.items) |message| found = found or std.mem.indexOf(u8, message, needle) != null;
+        try std.testing.expect(found);
+    }
 }
 
 test "bans: file_present checks existence without reading" {

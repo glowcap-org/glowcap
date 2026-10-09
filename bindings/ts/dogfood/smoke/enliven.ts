@@ -19,7 +19,7 @@ export async function run(managed: Runtime): Promise<void> {
 	// times.
 	{
 		await using serverHost = new Host();
-		serverHost.publishGiftable("greeter", (verb) => {
+		serverHost.publish("greeter", (verb) => {
 			assert(verb === "hello", `enliven server expected hello, got ${verb}`);
 			return new Sym("alive");
 		});
@@ -76,7 +76,7 @@ export async function run(managed: Runtime): Promise<void> {
 	// with an unreached peer, driven by the host's own DIAL action.
 	{
 		await using serverHost = new Host();
-		serverHost.publishGiftable("beacon", () => new Sym("lit"));
+		serverHost.publish("beacon", () => new Sym("lit"));
 		const server = await tcp.listen("127.0.0.1", 0, { host: serverHost });
 		const port = server.port;
 

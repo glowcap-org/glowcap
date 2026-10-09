@@ -235,6 +235,10 @@ pub const AnswerCell = struct {
     /// answer, so a stateless serve policy must not release it at settlement.
     /// Meaningless on inbound rows.
     application_release_claimed: bool = false,
+    /// The application consumed or discarded the one-shot notification. Wire
+    /// settlement can precede notification, so answer_status cannot own this
+    /// guard. Meaningless on inbound rows. Retired rows need no marker.
+    application_notification_consumed: bool = false,
     payload: ?*AnswerPayload = null,
     /// Next-profile local settling fan-out. The target import owns the ordered
     /// answer list; this back-link makes `op:gc-answers` removal O(1) without a

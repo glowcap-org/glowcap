@@ -23,7 +23,7 @@ fn conversation(call: *hosting.Call, view: core.RecordView, verb: []const u8, ar
     if (std.mem.eql(u8, verb, "read")) return .{ .integer = version };
     if (!std.mem.eql(u8, verb, "edit")) return error.NoSuchMethod;
     const next = try std.math.add(i64, version, 1);
-    const bytes = try call.arena.dupe(u8, view.payload);
+    const bytes = try call.arena().dupe(u8, view.payload);
     std.mem.writeInt(i64, bytes[0..8], next, .little);
     call.replace(bytes);
     return .{ .integer = next };
@@ -66,8 +66,51 @@ pub const Workload = struct {
     reads: u64 = 0,
     lookups: u64 = 0,
     writes: u64 = 0,
+    /// Leading `caps` entries that hold a restored endpoint.
+    restored: usize = 0,
 
+    /// Populate `count` conversations in a fresh database, each with one
+    /// restored endpoint, and leave every record cold.
     pub fn init(self: *Workload, allocator: std.mem.Allocator, db: *Lmdb, count: usize, payload_bytes: usize) !void {
+        try self.open(allocator, db, count);
+        errdefer self.deinit();
+        const payload: [4096]u8 = @splat('m');
+        for (self.ids) |*id| {
+            try self.store.begin();
+            errdefer if (self.store.phase == .staging) self.store.abort() catch unreachable;
+            id.* = try self.store.allocateId();
+            var previous: ?core.ObjectId = null;
+            for (0..messages_per_conversation) |_| {
+                const message = try self.store.allocateId();
+                var edges: [2]core.Edge = undefined;
+                edges[0] = .{ .target = id.*, .strength = .weak };
+                if (previous) |prior| edges[1] = .{ .target = prior };
+                try self.store.putCopying(.{
+                    .id = message,
+                    .revision = 0,
+                    .schema = 2,
+                    .payload = payload[0..payload_bytes],
+                    .edges = edges[0..if (previous == null) @as(usize, 1) else 2],
+                }, null);
+                previous = message;
+            }
+            try self.store.putCopying(.{
+                .id = id.*,
+                .revision = 0,
+                .schema = 1,
+                .rooted = true,
+                .payload = &@as([128]u8, @splat(0)),
+                .edges = &.{.{ .target = previous.? }},
+            }, null);
+            try self.finish(try self.store.prepare());
+            try self.restore(id.*);
+        }
+        self.store.evict();
+    }
+
+    /// Attach a Store, Host and hosting Attachment to `db` with room for
+    /// `count` endpoints, restoring none. A reopened database starts here.
+    pub fn open(self: *Workload, allocator: std.mem.Allocator, db: *Lmdb, count: usize) !void {
         self.* = .{
             .store = try core.Store.init(allocator, db.metadata, &schemas, .{
                 .records = .{ .max_record_bytes = 8192, .max_edges = 2 },
@@ -100,48 +143,18 @@ pub const Workload = struct {
             .call_bytes = 4096,
             .pending_bytes = 256 * 1024,
         });
-        errdefer self.attachment.destroy() catch unreachable;
-        var populated: usize = 0;
-        errdefer for (self.caps[0..populated]) |cap| self.host.releaseCapability(cap, 1) catch unreachable;
-        const payload: [4096]u8 = @splat('m');
-        for (self.ids, 0..) |*id, index| {
-            try self.store.begin();
-            errdefer if (self.store.phase == .staging) self.store.abort() catch unreachable;
-            id.* = try self.store.allocateId();
-            var previous: ?core.ObjectId = null;
-            for (0..messages_per_conversation) |_| {
-                const message = try self.store.allocateId();
-                var edges: [2]core.Edge = undefined;
-                edges[0] = .{ .target = id.*, .strength = .weak };
-                if (previous) |prior| edges[1] = .{ .target = prior };
-                try self.store.putCopying(.{
-                    .id = message,
-                    .revision = 0,
-                    .schema = 2,
-                    .payload = payload[0..payload_bytes],
-                    .edges = edges[0..if (previous == null) @as(usize, 1) else 2],
-                }, null);
-                previous = message;
-            }
-            try self.store.putCopying(.{
-                .id = id.*,
-                .revision = 0,
-                .schema = 1,
-                .rooted = true,
-                .payload = &@as([128]u8, @splat(0)),
-                .edges = &.{.{ .target = previous.? }},
-            }, null);
-            try self.finish(try self.store.prepare());
-            const lease = try self.load(id.*);
-            defer self.store.release(lease) catch unreachable;
-            self.caps[index] = try self.attachment.restore(lease);
-            populated += 1;
-        }
-        self.store.evict();
+    }
+
+    /// Restore an endpoint for the conversation `id` into the next `caps` slot.
+    pub fn restore(self: *Workload, id: core.ObjectId) !void {
+        const lease = try self.load(id);
+        defer self.store.release(lease) catch unreachable;
+        self.caps[self.restored] = try self.attachment.restore(lease);
+        self.restored += 1;
     }
 
     pub fn deinit(self: *Workload) void {
-        for (self.caps) |cap| self.host.releaseCapability(cap, 1) catch unreachable;
+        for (self.caps[0..self.restored]) |cap| self.host.releaseCapability(cap, 1) catch unreachable;
         self.attachment.destroy() catch unreachable;
         self.host.deinit();
         self.store.deinit() catch unreachable;

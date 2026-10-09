@@ -39,8 +39,7 @@ import {
 } from "../../../lib/text/archive.ts";
 import type { Conv, RoomConv } from "../types.ts";
 import type { ArchiveShareView } from "../archive_model.ts";
-import { useConversationMembers, useRoomsPage, useRoomsState } from "../hooks.ts";
-import { archiveShareBearer } from "../session/bearer.ts";
+import { useArchiveShareBearer, useConversationMembers, useRoomsState } from "../hooks.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { Button } from "../Button.tsx";
@@ -91,6 +90,10 @@ function ArchiveDoor(
 	);
 }
 
+function ArchiveOfferLink({ id }: { id: string }) {
+	const uri = useArchiveShareBearer(id);
+	return uri == null ? null : <CopyField id={`archiveShareLink-${id}`} text={uri} label={archiveShareCopy} />;
+}
 function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 	const session = useRoomsSession();
 	// Discarding drops a capability somebody handed over, and getting it back
@@ -102,7 +105,6 @@ function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 	 * came back with, which had nowhere to go. */
 	const [shareWhy, setShareWhy] = useState<Readonly<Record<string, string>>>({});
 	const [reading, setReading] = useState<ReadonlySet<string>>(() => new Set());
-	const page = useRoomsPage();
 	if (shares.length === 0) return null;
 	return (
 		<ul className="entries">
@@ -114,13 +116,7 @@ function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 							{archiveOfferedSaid(offered.custody, offered.kind, offered.scopeConversation ?? null)}
 						</span>
 					</div>
-					{offered.custody === "durable" && archiveShareBearer(page, offered.id) !== null && (
-						<CopyField
-							id={`archiveShareLink-${offered.id}`}
-							text={archiveShareBearer(page, offered.id) ?? ""}
-							label={archiveShareCopy}
-						/>
-					)}
+					{offered.custody === "durable" && <ArchiveOfferLink id={offered.id} />}
 					{offered.error !== "" && <Said kind="failure">{offered.error}</Said>}
 					{(shareWhy[offered.id] ?? "") !== "" && <Said kind="failure">{shareWhy[offered.id]}</Said>}
 					{discarding === offered.id

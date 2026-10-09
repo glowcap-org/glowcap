@@ -37,6 +37,9 @@ pub const Batches = struct {
     /// Future terminal action seats held by every live batch.
     action_reservations: usize = 0,
     next_id: u64 = 1,
+    /// Promise-proxy recipients committed by sends inside an open provisional
+    /// window, oldest first, kept or withdrawn with that window (ADR-0194).
+    provisional_proxies: std.ArrayListUnmanaged(proxy_admission.Receipt) = .empty,
 };
 
 pub const Destination = union(enum) {
@@ -205,6 +208,27 @@ pub fn stage(
         }
     }
 
+    // An outbound carrier keeps its place in the recipient's queue while it
+    // stages, so later sends to that recipient cannot overtake it.
+    const staged_row: ?engine.Peer.PendingReservation = if (destination.* == .outbound)
+        try recipient.reserveStagedRow()
+    else
+        null;
+    var staged_row_owned = staged_row != null;
+    errdefer if (staged_row_owned) recipient.cancelPendingReservation(staged_row.?);
+    const staged_deliver = switch (payload.*) {
+        .outbound => |carrier| carrier == .message and carrier.message == .deliver,
+        .relayed_resolution => false,
+    };
+
+    const staged_answer = switch (payload.*) {
+        .outbound => |carrier| if (carrier == .message and carrier.message == .deliver)
+            carrier.message.deliver.answer
+        else
+            null,
+        .relayed_resolution => null,
+    };
+
     // This is the last fallible step before publication. The Node-wide ticket
     // range commits once, then every batch row/action below publishes
     // infallibly without wrapping into an older effect generation.
@@ -232,6 +256,10 @@ pub fn stage(
     destination.* = undefined;
     batches.next_id += 1;
     batches.action_reservations += terminal_reservations;
+    if (staged_row) |row| {
+        recipient.pushPendingAssume(row, .{ .staged = .{ .batch = batch_id, .deliver = staged_deliver, .answer = staged_answer } });
+        staged_row_owned = false;
+    }
 
     for (gifts, 0..) |gift, index| {
         const ticket = first_ticket + @as(u64, @intCast(index));
@@ -251,6 +279,8 @@ pub fn stage(
                 return true;
             }
             var restored = (batches.rows.fetchRemove(batch_id) orelse unreachable).value;
+            // The caller gets its carrier back, so no row holds its place.
+            std.debug.assert(recipient.removeStagedRow(batch_id) != .absent);
             spendTerminalReservations(self, &restored);
             unclaimProjectionLeases(self, &restored);
             payload.* = restored.payload;
@@ -262,6 +292,30 @@ pub fn stage(
         };
     }
     return true;
+}
+
+/// A provisional window on `peer_handle` closed. Each proxy recipient its sends
+/// committed is kept or, on retraction, withdrawn newest first, after the
+/// Peer has already retracted the carriers that named them.
+pub fn provisionalClosed(self: *Node, peer_handle: PeerHandle, retract: bool) void {
+    const receipts = &self.inline_passable_batches.provisional_proxies;
+    var i = receipts.items.len;
+    while (i != 0) {
+        i -= 1;
+        if (receipts.items[i].peer != peer_handle) continue;
+        const receipt = receipts.orderedRemove(i);
+        if (retract) proxy_admission.withdraw(self, receipt) else proxy_admission.keep(self, receipt);
+    }
+}
+
+/// A retracted provisional window removed the row of a send `batch` is still
+/// staging (ADR-0194). Failing it cancels its gift tickets and leases and
+/// breaks its answer. No gift has been deposited yet: the embedder does not
+/// pump while the turn that made the send runs.
+pub fn stagedWithdrawn(self: *Node, peer_handle: PeerHandle, batch: passable.BatchId) void {
+    const row = self.inline_passable_batches.rows.get(batch) orelse return;
+    std.debug.assert(row.recipient_peer == peer_handle);
+    fail(self, batch, error.TurnAborted);
 }
 
 /// Retire batches charged to a recipient while that exact Peer is alive.
@@ -276,6 +330,11 @@ pub fn retireRecipient(self: *Node, peer_handle: PeerHandle) void {
         const batch_id = found orelse break;
         var batch = (self.inline_passable_batches.rows.fetchRemove(batch_id) orelse unreachable).value;
         gift_tickets.cancelBatch(self, batch_id);
+        if (batch.destination == .outbound) if (self.peer(peer_handle)) |recipient| {
+            // tolerant: a closed session may already have discarded the row,
+            // and a retiring recipient steps nothing more.
+            _ = recipient.removeStagedRow(batch_id);
+        };
         spendTerminalReservations(self, &batch);
         queueGiftLeaseReleases(self, batch.gifts);
         queuePromiseLeaseReleases(self, batch.promises);
@@ -324,6 +383,7 @@ pub fn deinitAll(self: *Node) void {
         batch.deinit(self);
     }
     self.inline_passable_batches.rows.deinit(self.allocator);
+    self.inline_passable_batches.provisional_proxies.deinit(self.allocator);
     std.debug.assert(self.inline_passable_batches.action_reservations == 0);
     std.debug.assert(self.inline_passable_batches.occurrences_by_recipient.count() == 0);
     self.inline_passable_batches.occurrences_by_recipient.deinit(self.allocator);
@@ -371,7 +431,12 @@ fn unclaimProjectionLeases(self: *Node, batch: *Batch) void {
 pub fn fail(self: *Node, batch_id: passable.BatchId, err: anyerror) void {
     var batch = takeForTerminal(self, batch_id) orelse return;
     switch (batch.destination) {
-        .outbound => if (self.peer(batch.recipient_peer) != null) {
+        .outbound => if (self.peer(batch.recipient_peer)) |recipient| {
+            // A row that was holding later carriers back releases them. The
+            // flush spends one of the completion seats this batch no longer
+            // needs. A retracted window removes the row before failing it.
+            if (recipient.removeStagedRow(batch_id) == .unblocked)
+                actions.pushReserved(self, .{ .flush = batch.recipient_peer });
             if (batch.failure_target) |target| actions.pushReserved(self, .{ .fail = .{
                 .dest = switch (target) {
                     .outbound_answer => |answer| .{ .answer = .{
@@ -450,6 +515,14 @@ fn finish(self: *Node, batch_id: passable.BatchId) !void {
 
     var promises = try proxy_admission.prepare(self, batch.recipient_peer, batch.promises);
     defer promises.deinit(self);
+    // A send inside an open window keeps a receipt for every proxy recipient
+    // it commits, so a failed turn can withdraw them.
+    const provisional = batch.destination == .outbound and recipient.stagedRowProvisional(batch_id);
+    if (provisional)
+        try self.inline_passable_batches.provisional_proxies.ensureUnusedCapacity(
+            self.allocator,
+            batch.promises.len,
+        );
     var projections_rewritten = true;
     errdefer if (projections_rewritten) walk.restore(batch);
     try walk.replace(self, batch);
@@ -463,10 +536,12 @@ fn finish(self: *Node, batch_id: passable.BatchId) !void {
                     try session_mod.validate.validateSend(&recipient.session_state, message);
                     recipient.cancelInlinePassableStaging(batch.staging_reservation.?);
                     batch.staging_reservation = null;
+                    const rows_before = recipient.pending_send.pending().len;
                     const send_result = recipient.send(message);
                     batch.payload_owned = false;
                     projections_rewritten = false;
                     try send_result;
+                    recipient.fillStagedRow(batch_id, recipient.pending_send.pending().len - rows_before);
                 },
                 .answer_settlement => |settlement| {
                     try recipient.session_state.validateAnswerSettlement(
@@ -474,6 +549,7 @@ fn finish(self: *Node, batch_id: passable.BatchId) !void {
                         settlement.payload,
                         settlement.resolution,
                     );
+                    const rows_before = recipient.pending_send.pending().len;
                     const enqueue_result = outbound.enqueueStagedAnswerSettlementOwned(
                         recipient,
                         settlement,
@@ -482,9 +558,13 @@ fn finish(self: *Node, batch_id: passable.BatchId) !void {
                     batch.payload_owned = false;
                     projections_rewritten = false;
                     try enqueue_result;
+                    recipient.fillStagedRow(batch_id, recipient.pending_send.pending().len - rows_before);
                 },
             }
-            promises.commit(self);
+            if (provisional)
+                promises.commitProvisional(self, &self.inline_passable_batches.provisional_proxies)
+            else
+                promises.commit(self);
             for (deposits.items) |*prepared| prepared.deposit.commit(prepared.peer);
             deposits.clearRetainingCapacity();
         },

@@ -131,22 +131,6 @@ export function liveRoom(projection: PageProjection, dir: DirId, name: string): 
 	return projection.get().dirs.get(dir)?.liveRooms.get(liveRoomKey(name)) ?? null;
 }
 
-/** The publication `name` must be entered through, or null to enter by name.
- *
- * Foreign and bridged rooms answer with their listing entry: the exact
- * publication generation is their identity in this directory, and retaining
- * it keeps presentation and re-entry tied to that room rather than to a
- * reusable human label. A local room is the opposite —
- * it is always reachable by name, and keying its conversation by a listing
- * entry made one room two conversations whenever the listing arrived after
- * the first entry, with the address mirror then re-entering whichever copy
- * the reader had just left. Every entry path asks this one question so that
- * split cannot come back. */
-export function enteredPublication(projection: PageProjection, dir: DirId, name: string): RoomInfo | null {
-	const live = liveRoom(projection, dir, name);
-	return live !== null && live.kind !== "local" ? live : null;
-}
-
 /** Where one exact bridged publication's channel lives, or null for every
  * other publication. Publication ids are non-bearer directory identity; the
  * gateway capability remains the authority to administer the bridge. */

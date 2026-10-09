@@ -5,6 +5,7 @@ const std = @import("std");
 const net = @import("net");
 const driver_core = @import("driver_core");
 
+const carrier = @import("carrier.zig");
 const lifecycle = @import("lifecycle.zig");
 const runtime = @import("../host_runtime.zig");
 
@@ -23,10 +24,7 @@ const FlagProbe = struct {
         if (!self.flag.*) return false;
         const wire = self.runtime.wires.get(self.session.peer_handle) orelse return true;
         if (wire.closed) return true;
-        return switch (wire.link) {
-            .stream => true,
-            .resident => |resident| resident.pending == null,
-        };
+        return wire.link.pending == null;
     }
 
     pub fn resumeSkip(self: *FlagProbe) ?*driver_core.HostSession {
@@ -61,38 +59,11 @@ pub fn stepSession(self: *HostRuntime, session: *driver_core.HostSession, timeou
     Internal.advancePendingListeners(self);
     const session_wire = self.wires.get(session.peer_handle) orelse return .closed;
     if (session_wire.closed) return .closed;
-    const source = try Internal.waitAnySource(self, timeout_ms, false) orelse return null;
-    switch (source) {
-        .wire => |wire| {
-            const fed_target = wire.session == session;
-            switch (try Internal.serviceReadyWire(self, wire, session)) {
-                .fed => |fed| {
-                    try self.drainActions();
-                    return if (fed_target) .{ .received = fed } else .idle;
-                },
-                .closed => return if (fed_target) .closed else .idle,
-            }
-        },
-        .resident => |index| {
-            const fed = try Internal.serviceResident(self, index, session);
-            try self.drainActions();
-            if (session_wire.closed) return .closed;
-            return if (fed > 0) .{ .received = fed } else .idle;
-        },
-        .stream_dial => |row| {
-            try Internal.adoptPendingStreamDial(self, row);
-            try self.drainActions();
-            return .idle;
-        },
-        .stream_listen => |row| {
-            Internal.finishPendingListener(self, row);
-            return .idle;
-        },
-        .stream_accept => |listener| {
-            _ = try self.acceptReady(listener);
-            return .idle;
-        },
-    }
+    const index = try Internal.waitAnySource(self, timeout_ms, false) orelse return null;
+    const fed = try Internal.serviceResident(self, index, session);
+    try self.drainActions();
+    if (session_wire.closed) return .closed;
+    return if (fed > 0) .{ .received = fed } else .idle;
 }
 
 /// One host-wide pump step (ADR-0112): apply the settle mailbox, drain actions,
@@ -119,6 +90,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     if (self.terminal_failure) |failure| {
         return stepAfterTerminalFailure(self, timeout_ms, goal, failure);
     }
+    const open_wires = self.open_wire_count;
     try Internal.progressSessionCloses(self);
     try Internal.progressClose(self, .operational);
     if (self.closeOutcome() != .pending) return null;
@@ -131,7 +103,11 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     // Immediate lifecycle work can satisfy a blocking convenience. Check its
     // barrier at the one boundary after which this step may park.
     if (goal.reached(self)) return null;
-    const source = try Internal.waitAnySource(self, timeout_ms, true) orelse {
+    // A carrier the prelude retired inline (a resident close that completed
+    // within its verb) leaves no descriptor to wake a park; the caller
+    // observes the closed session now.
+    if (self.open_wire_count < open_wires) return null;
+    const index = try Internal.waitAnySource(self, timeout_ms, true) orelse {
         // The park may have ended on a staged operation's clamped deadline;
         // settle it now rather than a step later.
         try Internal.advancePendingOpens(self);
@@ -141,17 +117,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
         nudgeIfWorkRemains(self);
         return null;
     };
-    var progress: net.Progress = .idle;
-    switch (source) {
-        .wire => |wire| switch (try Internal.serviceReadyWire(self, wire, null)) {
-            .fed => |fed| progress = .{ .received = fed },
-            .closed => {},
-        },
-        .resident => |index| _ = try Internal.serviceResident(self, index, null),
-        .stream_dial => |row| try Internal.adoptPendingStreamDial(self, row),
-        .stream_listen => |row| Internal.finishPendingListener(self, row),
-        .stream_accept => |listener| _ = try self.acceptReady(listener),
-    }
+    _ = try Internal.serviceResident(self, index, null);
     try self.drainActions();
     try Internal.advancePendingOpens(self);
     Internal.advancePendingListeners(self);
@@ -159,7 +125,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     try Internal.progressClose(self, .operational);
     if (self.terminal_failure) |failure| return failure.cause;
     nudgeIfWorkRemains(self);
-    return progress;
+    return .idle;
 }
 
 /// Keep core-owned close barriers executable after a provider violates its
@@ -170,6 +136,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
 pub fn stepAfterTerminalFailure(self: *HostRuntime, timeout_ms: i32, goal: StepGoal, failure: OperationFailure) !?net.Progress {
     if (!terminalCleanupPending(self)) return failure.cause;
     drainReadinessWake(self);
+    carrier.forceClosingCarriers(self, failure);
 
     try Internal.applySettleMailboxWith(self, .cleanup_only);
     try Internal.progressSessionCloses(self);
@@ -178,6 +145,7 @@ pub fn stepAfterTerminalFailure(self: *HostRuntime, timeout_ms: i32, goal: StepG
 
     try waitForTerminalSignal(self, timeout_ms);
     drainReadinessWake(self);
+    carrier.forceClosingCarriers(self, failure);
     try Internal.applySettleMailboxWith(self, .cleanup_only);
     try Internal.progressSessionCloses(self);
     try Internal.progressClose(self, .cleanup_only);
@@ -249,13 +217,6 @@ pub fn nudgeIfWorkRemains(self: *HostRuntime) void {
         if (wire.*.session.pausedInboundPending()) {
             rs.postWake() catch |err| self.noteTerminalFailure(err);
             return;
-        }
-        switch (wire.*.link) {
-            .stream => |*sl| if (sl.conn.hasBufferedRaw()) {
-                rs.postWake() catch |err| self.noteTerminalFailure(err);
-                return;
-            },
-            .resident => {},
         }
     }
 }

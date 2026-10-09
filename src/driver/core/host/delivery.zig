@@ -19,6 +19,7 @@ const value_mod = @import("../value.zig");
 const lower = @import("capabilities/lower.zig");
 const routing = @import("capabilities/routing.zig");
 const host_pump = @import("pump.zig");
+const WorkAdmission = @import("admission.zig").WorkAdmission;
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -59,6 +60,7 @@ pub fn beginSendNamedValues(
 ) !void {
     var prepared = try lower.prepareValues(self, session, arena, values);
     defer prepared.deinit();
+    try lower.holdForTurn(self, &prepared);
     try beginSendNamed(self, session, pending, name, .{ .verb = verb, .args = prepared.values }, terminal);
     _ = prepared.commit();
 }
@@ -75,6 +77,7 @@ pub fn beginTellNamedValues(
 ) !void {
     var prepared = try lower.prepareValues(self, session, arena, values);
     defer prepared.deinit();
+    try lower.holdForTurn(self, &prepared);
     try beginTellNamed(self, session, pending, name, .{ .verb = verb, .args = prepared.values }, terminal);
     _ = prepared.commit();
 }
@@ -144,7 +147,33 @@ pub fn sendValues(
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !u64 {
-    return sendValuesWithProgress(self, session, target, verb, values, arena, true, null);
+    return sendValuesWithProgress(self, session, target, verb, values, arena, true, null, .application);
+}
+
+/// An application need not choose a transport session for held authority.
+/// Local targets use the owning queue; foreign targets use their actual home
+/// and the same routed delivery as an explicitly selected session.
+pub fn sendApplicationValues(self: *Host, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator) !u64 {
+    try self.refuseReentry();
+    const selected = try routing.applicationTarget(self, target);
+    if (selected.session == null) {
+        var lease = try self.admitPendingWork();
+        defer lease.complete();
+        return self.sendLocalValues(&lease, selected.ref, verb, values);
+    }
+    return sendValues(self, selected.session.?, selected.ref, verb, values, arena);
+}
+
+/// Notification admission uses the actual capability home and no answer vow.
+pub fn tellApplicationValues(self: *Host, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator) !void {
+    try self.refuseReentry();
+    const selected = try routing.applicationTarget(self, target);
+    if (selected.session == null) {
+        var lease = try self.admitPendingWork();
+        defer lease.complete();
+        return @import("local_delivery.zig").tellLocal(self, &lease, selected.ref, verb, values);
+    }
+    return tellValues(self, selected.session.?, selected.ref, verb, values, arena);
 }
 
 pub fn queueSendValues(
@@ -155,19 +184,21 @@ pub fn queueSendValues(
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !u64 {
-    return sendValuesWithProgress(self, session, target, verb, values, arena, false, null);
+    return sendValuesWithProgress(self, session, target, verb, values, arena, false, null, .application);
 }
 
-pub fn sendObservedValues(
-    self: *Host,
-    session: *HostSession,
-    target: capability.Ref,
-    verb: []const u8,
-    values: []const value_mod.Value,
-    arena: std.mem.Allocator,
-    observer: *@import("owned_call.zig").Call,
-) !u64 {
-    return sendValuesWithProgress(self, session, target, verb, values, arena, false, observer);
+pub fn sendValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator, admission: WorkAdmission) !u64 {
+    return sendValuesWithProgress(self, session, target, verb, values, arena, false, null, admission);
+}
+
+/// Both recipients reserve answer-release custody before the actual send.
+pub const Observation = union(enum) {
+    call: *@import("owned_call.zig").Call,
+    listener: actors.Listener,
+};
+
+pub fn sendObservedValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator, observer: Observation, admission: WorkAdmission) !u64 {
+    return sendValuesWithProgress(self, session, target, verb, values, arena, false, observer, admission);
 }
 
 fn sendValuesWithProgress(
@@ -178,9 +209,10 @@ fn sendValuesWithProgress(
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
     drive_now: bool,
-    observer: ?*@import("owned_call.zig").Call,
+    observer: ?Observation,
+    admission: WorkAdmission,
 ) !u64 {
-    try self.admitApplicationOperation();
+    try admission.check(self);
     const resolved_target = self.capabilities.resolve(target) orelse return error.UnknownCapability;
     if (resolved_target == .deferred) {
         const promise = self.capability_promises.get(resolved_target.deferred) orelse
@@ -208,6 +240,7 @@ fn sendValuesWithProgress(
     defer if (retained_live) lower.releaseUntransferredCapabilityRetains(self, retained);
     var prepared = try lower.prepareValues(self, routed.session, arena, values);
     defer prepared.deinit();
+    try lower.holdForTurn(self, &prepared);
     const id = try commitRoutedSend(self, routed, .{
         .verb = verb,
         .args = prepared.values,
@@ -256,7 +289,7 @@ fn commitRoutedSend(
     msg: actors.Message,
     drive_now: bool,
     staging: ?OutboundStagingContext,
-    observer: ?*@import("owned_call.zig").Call,
+    observer: ?Observation,
 ) !u64 {
     const location: actors.VowLocation = switch (routed.target) {
         .local => .local,
@@ -272,7 +305,14 @@ fn commitRoutedSend(
         vow_settlement.cancelObserverRelease(reservation.row, routed.session);
         vows.cancelVowReservation(self, reservation);
     };
-    if (observer) |owned| try @import("owned_call.zig").observe(owned, routed.session, reservation.row);
+    if (observer) |recipient| switch (recipient) {
+        .call => |owned| try @import("owned_call.zig").observe(owned, routed.session, reservation.row),
+        .listener => |listener| {
+            if (answer_release == .peer_visible)
+                reservation.row.observer_release = try routed.session.served.port.peer.reserveAnswerRelease();
+            reservation.row.inner = listener;
+        },
+    };
     const vow = if (staging) |context|
         try lower.servedSendWithStaging(
             self,
@@ -317,7 +357,11 @@ pub fn tellValues(
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !void {
-    try self.admitApplicationOperation();
+    return tellValuesAdmitted(self, session, target, verb, values, arena, .application);
+}
+
+pub fn tellValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator, admission: WorkAdmission) !void {
+    try admission.check(self);
     const resolved_target = self.capabilities.resolve(target) orelse return error.UnknownCapability;
     if (resolved_target == .deferred) {
         const promise = self.capability_promises.get(resolved_target.deferred) orelse
@@ -344,6 +388,7 @@ pub fn tellValues(
     defer if (retained_live) lower.releaseUntransferredCapabilityRetains(self, retained);
     var prepared = try lower.prepareValues(self, routed.session, arena, values);
     defer prepared.deinit();
+    try lower.holdForTurn(self, &prepared);
     try lower.servedTellWithStaging(
         self,
         routed.session,

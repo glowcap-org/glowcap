@@ -100,11 +100,11 @@ def run() -> None:
         host = Host()
         # Deliberately close the ownership cycle: Host -> behavior -> Host.
         # The process-global trampoline lookup must not turn it into a root.
-        host.publish_giftable(
+        host.publish(
             "finalized",
             lambda _verb, _args: host.released,
         )
-        return host, host._giftables["finalized"]
+        return host, host._publications["finalized"]
 
     finalizer_loop = asyncio.new_event_loop()
     finalized, finalized_ctx = finalizer_loop.run_until_complete(

@@ -50,7 +50,7 @@ attachment projections.
 
 ## Common use and control methods
 
-The native method names below come from the [managed endpoint guide](../../loam/access.md).
+The shared method names below come from the [managed endpoint guide](../../loam/access.md).
 Rooms extends their application decoders rather than defining another lifecycle
 registry. The rows marked new describe required application or shared-interface
 extensions. Interface generation must reject an undeclared callable method.
@@ -115,7 +115,7 @@ omitted. Notifications listed afterward are deliveries, not additional powers.
 | Entrance `called`, `private`, `roomPolicy` | Held scoped offer/access describes only its own resource and features. | Room/offer dependency; metadata cannot reveal an inaccessible parent. |
 | Entrance `subscribe`, invitation `mintInvitation`, `claimInvitation` | Replace fixed kinds with typed terms and four admission modes; Invite bounds offered terms, subscribe/join consumes exact accepted access. | Offer receipt, accepted grant and seat owners have separate retirement. |
 | Seat `membershipKind`, `away`, `leave` | Active seat; membershipKind becomes current access description. Away requires Receive; leave is always allowed to release own seat. | Exact live seat; leaving continuing access does not revoke its grant. |
-| Seat `post`, `postWithPreviews`, `postRetained`, `typing` | Post; preview selection is data, with no fetch of unauthorized content. Post returns a dependent exact-line facet. | Seat owns pending post/typing; originating grant governs the returned line. One-visit grants end with their seat. |
+| Seat `post`, `postWithPreviews`, `postRetained`, `typing` | Post; preview selection is data, with no fetch of unauthorized content. Post returns `[notification ID, dependent exact-line facet]` in one reply. | Seat owns pending post/typing; originating grant governs the returned line. One-visit grants end with their seat. |
 | Seat `history` | History and bound cursor/floor. Each returned file requires ReadFile. | Grant and history reader own delivery and derived files. |
 | Topic `setTopic` | SetTopic on the current grant, including calls on an older facet. | Grant and exact seat. |
 | Files `attach`, `attachRetained`, `postFiles`, `postFilesWithPreviews`, `postFilesRetained` | Upload and Post; returns staged upload/line facets. Retained variants preserve the same requirements. | Grant and seat cancel uploads, release staged blobs and retire pending commits. |
@@ -142,7 +142,7 @@ mirror; the [integration queue](integration.md#shared-prerequisite-and-remaining
 owns its adoption by the dispatcher. These declarations perform no generic
 policy evaluation and do not map the new keys to the legacy tiers.
 
-The [facet dispatcher](../../../apps/rooms/rust/runtime/src/service/facet.rs) and
+The [facet dispatcher](../../../apps/rooms/rust/runtime/src/session/managed/content.rs) and
 [method catalog](../../../apps/rooms/rust/application/src/session/verbs.rs) own
 the current surface. InteractWorkspace admits the envelope, not every nested
 command. The target capability must authorize each resulting effect.
@@ -174,6 +174,7 @@ and [effects](../../../apps/rooms/rust/application/src/session/command.rs).
 | `submitRoomBridgeForm` | InteractWorkspace and room Post plus explicit bridge requirement. |
 | `takeRoomLink`, `ensureRoomLink`, `linkRoom`, `takeRoomModerator`, `takeRoomManager`, `recoverRoomManager`, `openManagedRoom` | ManageCustody for role imports, CreateRoom for creation, and actual source control for new authority. Recovery restores exact saved role, never obtains a stronger role by room name. linkRoom is currently a plan-builder operation, not a dispatched command. |
 | `offerRoom`, `setRoomTopic`, `kickRoomMember`, `say`, `editLine`, `withdrawLine`, `revokeManagedRoomAuthority`, `unregisterManagedRoom`, `setManagedRoomPolicy`, `operator`, `operations` | InteractWorkspace plus, respectively, exact sharing authority, SetTopic, Moderate, Post, EditOwn/EditContent, WithdrawOwn/WithdrawContent, Revoke control, ManagePublication, ManagePublicOffer, or UseOperations. |
+| `setRoomAway`, `retireRoomMembership` | InteractWorkspace and exact held RoomSeat; away requires upstream Receive, and retirement checks the expected seat slot/generation. Retirement clears local seat aliases with the original-target receipt; local conversation removal requires no upstream dispatch. |
 
 ## Recursive content and deliveries
 

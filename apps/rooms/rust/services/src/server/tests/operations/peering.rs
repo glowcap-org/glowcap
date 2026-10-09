@@ -49,8 +49,7 @@ async fn peering() {
 	let at_source = publisher
 		.connect(&source_dial, ConnectOptions::default())
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	let source_directory = at_source.fetch("directory").await.unwrap();
 	let garden = at_source
 		.send(&source_directory, "open", &[Argument::String("garden".into())])
@@ -62,8 +61,7 @@ async fn peering() {
 	let at_destination = publisher
 		.connect(&destination_dial, ConnectOptions::default())
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	let peering = at_destination.fetch(&swiss).await.unwrap();
 	assert!(
 		refused(
@@ -102,6 +100,24 @@ async fn peering() {
 		);
 	}
 	assert_eq!(ready.unwrap(), Argument::Void);
+	assert_eq!(
+		at_destination
+			.send(&lease, rooms_application::protocol_data::PUBLICATION_DESCRIBE, &[])
+			.await
+			.unwrap()
+			.as_str(),
+		Some("live")
+	);
+	assert!(
+		refused(
+			&at_destination,
+			&lease,
+			rooms_application::protocol_data::PUBLICATION_DESCRIBE,
+			&[Argument::Integer(1)]
+		)
+		.await
+		.contains("describe takes no arguments")
+	);
 	assert!(
 		refused(&at_destination, &lease, "ready", &[Argument::Integer(1)])
 			.await
@@ -145,8 +161,7 @@ async fn peering() {
 	let visiting = visitor
 		.connect(&destination_dial, ConnectOptions::default())
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	let client = Client::new(visiting.borrowed(), rooms_platform::HostPlatform);
 	let directory = Directory::fetch(client.clone()).await.unwrap();
 	let listed = directory.list().await.unwrap();
@@ -202,6 +217,14 @@ async fn peering() {
 	assert_eq!(
 		at_destination.send(&lease, "revoke", &[]).await.unwrap(),
 		Argument::Void
+	);
+	assert_eq!(
+		at_destination
+			.send(&lease, rooms_application::protocol_data::PUBLICATION_DESCRIBE, &[])
+			.await
+			.unwrap()
+			.as_str(),
+		Some("failed")
 	);
 	assert!(directory.list().await.unwrap().is_empty());
 	assert!(directory.enter("garden").await.is_err());

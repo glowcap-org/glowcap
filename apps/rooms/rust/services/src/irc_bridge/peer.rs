@@ -47,7 +47,7 @@ pub async fn run(
 		report.clone(),
 	)));
 	let host = Host::with_options(rooms_glowcap::host_options()).map_err(|e| e.to_string())?;
-	if let Err(error) = host.publish_giftable(rooms_application::directory::NAME, || {
+	if let Err(error) = host.publish(rooms_application::directory::NAME, || {
 		Box::new(behavior::directory(shared.clone()))
 	}) {
 		return crate::cleanup::combine(

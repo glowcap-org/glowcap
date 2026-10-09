@@ -11,16 +11,66 @@ const t = @import("types.zig");
 pub const GlowcapLoamStore = t.GlowcapLoamStore;
 pub const GlowcapLoamAttachment = t.GlowcapLoamAttachment;
 pub const GlowcapLoamCall = t.GlowcapLoamCall;
+pub const GlowcapLoamReadMethod = t.GlowcapLoamReadMethod;
+pub const GlowcapLoamReadInterface = t.GlowcapLoamReadInterface;
+pub const glowcap_loam_call_disclose_reads_copying = @import("read_callbacks.zig").glowcap_loam_call_disclose_reads_copying;
+pub const glowcap_loam_read_scope_size_bound = @import("read_callbacks.zig").glowcap_loam_read_scope_size_bound;
+pub const GlowcapLoamContinuationReservation = t.GlowcapLoamContinuationReservation;
+pub const GlowcapLoamPendingContinuation = t.GlowcapLoamPendingContinuation;
+pub const GlowcapLoamContinuation = t.GlowcapLoamContinuation;
+pub const GlowcapLoamEffectExecution = t.GlowcapLoamEffectExecution;
+pub const GlowcapLoamEffectResult = t.GlowcapLoamEffectResult;
+pub const GlowcapLoamContinuationBounds = t.GlowcapLoamContinuationBounds;
+pub const GlowcapLoamEffectExecutionBounds = t.GlowcapLoamEffectExecutionBounds;
+pub const glowcap_loam_call_reserve_continuation_copying = @import("continuations.zig").glowcap_loam_call_reserve_continuation_copying;
+pub const glowcap_loam_continuation_reservation_source = @import("continuations.zig").glowcap_loam_continuation_reservation_source;
+pub const glowcap_loam_continuation_reservation_target = @import("continuations.zig").glowcap_loam_continuation_reservation_target;
+pub const glowcap_loam_pending_continuation_take = @import("continuations.zig").glowcap_loam_pending_continuation_take;
+pub const glowcap_loam_pending_continuation_release = @import("continuations.zig").glowcap_loam_pending_continuation_release;
+pub const glowcap_loam_continuation_release = @import("continuations.zig").glowcap_loam_continuation_release;
+pub const glowcap_loam_continuation_project = @import("continuations.zig").glowcap_loam_continuation_project;
+pub const glowcap_loam_continuation_project_reads_copying = @import("read_callbacks.zig").glowcap_loam_continuation_project_reads_copying;
+pub const glowcap_loam_continuation_execute_copying = @import("effect_execution.zig").glowcap_loam_continuation_execute_copying;
+pub const glowcap_loam_effect_execution_result = @import("effect_execution.zig").glowcap_loam_effect_execution_result;
+pub const glowcap_loam_effect_execution_release = @import("effect_execution.zig").glowcap_loam_effect_execution_release;
+pub const glowcap_loam_continuation_size_bound = @import("continuation_sizing.zig").glowcap_loam_continuation_size_bound;
+pub const glowcap_loam_effect_execution_result_size_bound = @import("continuation_sizing.zig").glowcap_loam_effect_execution_result_size_bound;
 pub const GlowcapLoamReferences = t.GlowcapLoamReferences;
+pub const GlowcapLoamPageHandle = t.GlowcapLoamPageHandle;
+pub const GlowcapLoamGraphSchema = t.GlowcapLoamGraphSchema;
+pub const GlowcapLoamGraphVerb = t.GlowcapLoamGraphVerb;
+pub const GlowcapLoamGraph = t.GlowcapLoamGraph;
+pub const GlowcapLoamPage = t.GlowcapLoamPage;
+pub const GlowcapLoamGraphField = t.GlowcapLoamGraphField;
+pub const GlowcapLoamPageReplacement = t.GlowcapLoamPageReplacement;
+pub const glowcap_loam_call_replace_graph_copying = @import("graph_abi.zig").glowcap_loam_call_replace_graph_copying;
+pub const glowcap_loam_call_page_reference = @import("graph_abi.zig").glowcap_loam_call_page_reference;
+pub const glowcap_loam_references_save_live_dependent = @import("live_dependent.zig").glowcap_loam_references_save_live_dependent;
+pub const glowcap_loam_call_prepared_live_dependent = @import("live_dependent.zig").glowcap_loam_call_prepared_live_dependent;
+pub const glowcap_loam_call_matches_live_dependent = @import("live_dependent.zig").glowcap_loam_call_matches_live_dependent;
+pub const glowcap_loam_call_live_dependent_exporter = @import("live_dependent.zig").glowcap_loam_call_live_dependent_exporter;
+pub const glowcap_loam_call_source = @import("graph_abi.zig").glowcap_loam_call_source;
+pub const glowcap_loam_call_retain_prepared_reference = @import("graph_abi.zig").glowcap_loam_call_retain_prepared_reference;
+pub const glowcap_loam_call_disclose_page = @import("graph_abi.zig").glowcap_loam_call_disclose_page;
+pub const glowcap_loam_references_restore_page = @import("graph_abi.zig").glowcap_loam_references_restore_page;
+pub const glowcap_loam_references_restore_page_with_uri = @import("graph_abi.zig").glowcap_loam_references_restore_page_with_uri;
+pub const glowcap_loam_references_inspect_page_uri = @import("graph_abi.zig").glowcap_loam_references_inspect_page_uri;
+pub const glowcap_loam_call_page_saved_uri = @import("graph_abi.zig").glowcap_loam_call_page_saved_uri;
 pub const GlowcapLoamWork = t.GlowcapLoamWork;
 pub const GlowcapLoamObject = t.GlowcapLoamObject;
 pub const GlowcapLoamSchema = t.GlowcapLoamSchema;
+pub const GlowcapLoamStagingBounds = t.GlowcapLoamStagingBounds;
+pub const GlowcapLoamValueBounds = t.GlowcapLoamValueBounds;
+pub const GlowcapLoamInvocationBounds = t.GlowcapLoamInvocationBounds;
 pub const GlowcapLoamLimits = t.GlowcapLoamLimits;
 pub const GlowcapLoamBound = t.GlowcapLoamBound;
 pub const GlowcapLoamConstraint = t.GlowcapLoamConstraint;
+pub const GlowcapLoamKindRule = t.GlowcapLoamKindRule;
 pub const GlowcapLoamPolicy = t.GlowcapLoamPolicy;
 pub const GlowcapLoamPolicyValue = t.GlowcapLoamPolicyValue;
 pub const GlowcapLoamRequirement = t.GlowcapLoamRequirement;
+pub const GlowcapLoamResourceId = t.GlowcapLoamResourceId;
+pub const GlowcapLoamBoundResource = t.GlowcapLoamBoundResource;
 pub const GlowcapLoamInvocation = t.GlowcapLoamInvocation;
 pub const GlowcapLoamRequirementFn = t.GlowcapLoamRequirementFn;
 pub const GlowcapLoamInvokeFn = t.GlowcapLoamInvokeFn;
@@ -30,6 +80,17 @@ pub const GlowcapLoamMethod = t.GlowcapLoamMethod;
 pub const GlowcapLoamContent = t.GlowcapLoamContent;
 pub const GlowcapLoamResource = t.GlowcapLoamResource;
 pub const glowcap_loam_validate_configuration = @import("execution_abi.zig").glowcap_loam_validate_configuration;
+pub const glowcap_loam_schema_size_bound = @import("execution_abi.zig").glowcap_loam_schema_size_bound;
+pub const glowcap_loam_content_staging_size_bound = @import("staging_sizing.zig").glowcap_loam_content_staging_size_bound;
+pub const glowcap_loam_reference_staging_size_bound = @import("staging_sizing.zig").glowcap_loam_reference_staging_size_bound;
+pub const glowcap_loam_reference_call_size_bound = @import("reference_callbacks.zig").glowcap_loam_reference_call_size_bound;
+pub const glowcap_loam_reference_uri_call_size_bound = @import("reference_callbacks.zig").glowcap_loam_reference_uri_call_size_bound;
+pub const glowcap_loam_live_start = @import("live.zig").glowcap_loam_live_start;
+pub const glowcap_loam_live_generation = @import("live.zig").glowcap_loam_live_generation;
+pub const glowcap_loam_live_marker = @import("live.zig").glowcap_loam_live_marker;
+pub const glowcap_loam_graph_call_size_bound = @import("graph_callbacks.zig").glowcap_loam_graph_call_size_bound;
+pub const glowcap_loam_invocation_call_size_bound = @import("invocation_sizing.zig").glowcap_loam_invocation_call_size_bound;
+pub const glowcap_loam_forwarding_size_bound = @import("invocation_sizing.zig").glowcap_loam_forwarding_size_bound;
 pub const GlowcapLoamBytes = @import("execution.zig").GlowcapLoamBytes;
 pub const GlowcapLoamKvFn = @import("execution.zig").GlowcapLoamKvFn;
 pub const glowcap_loam_metadata_claim = @import("execution_abi.zig").glowcap_loam_metadata_claim;
@@ -42,6 +103,8 @@ pub const glowcap_loam_restore_plan = @import("execution_abi.zig").glowcap_loam_
 pub const symbols = @import("symbols.zig");
 /// Zig-only bridge for a companion. Importing it does not root these exports.
 pub const embedding = struct {
+    pub const effect_execution = @import("effect_execution.zig");
+    pub const graph_projection = @import("graph_callbacks.zig");
     pub const Store = common.Store;
     pub const Attachment = attached.Attachment;
     pub const Work = works.Work;
@@ -167,6 +230,15 @@ pub fn glowcap_loam_references_save_copying(raw: ?*GlowcapLoamReferences, refere
     @import("reference_callbacks.zig").save(raw, ref.*, uri, uri_len) catch |err| return common.code(err);
     return shared.GLOWCAP_OK;
 }
+
+/// Declare exact held authority for Host-lifetime storage. Live startup must
+/// confirm first; the shared scope reserves custody before preparation waits.
+pub fn glowcap_loam_references_save_live(raw: ?*GlowcapLoamReferences, reference: ?*const shared.GlowcapReference) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const ref = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    @import("reference_callbacks.zig").saveLive(raw, ref.*) catch |err| return common.code(err);
+    return shared.GLOWCAP_OK;
+}
 /// Append an exact held reference after the surviving committed fields.
 /// Foreign replacements must have been declared during preparation.
 pub fn glowcap_loam_call_append_reference(call: ?*GlowcapLoamCall, reference: ?*const shared.GlowcapReference) callconv(.c) i32 {
@@ -214,18 +286,35 @@ pub fn glowcap_loam_store_abort(raw: ?*GlowcapLoamStore) callconv(.c) i32 {
 }
 
 pub const contract_layouts = [_]shared.archive_contract.Layout{
+    shared.archive_contract.layout("GLOWCAPLOAMEFFECTRESULT", GlowcapLoamEffectResult),
+    shared.archive_contract.layout("GLOWCAPLOAMCONTINUATIONBOUNDS", GlowcapLoamContinuationBounds),
+    shared.archive_contract.layout("GLOWCAPLOAMEFFECTEXECUTIONBOUNDS", GlowcapLoamEffectExecutionBounds),
     shared.archive_contract.layout("GLOWCAPLOAMBYTES", GlowcapLoamBytes),
     shared.archive_contract.layout("GLOWCAP_LOAM_POLICY_VALUE", GlowcapLoamPolicyValue),
     shared.archive_contract.layout("GLOWCAPLOAMOBJECT", GlowcapLoamObject),
     shared.archive_contract.layout("GLOWCAPLOAMSCHEMA", GlowcapLoamSchema),
+    shared.archive_contract.layout("GLOWCAPLOAMSTAGINGBOUNDS", GlowcapLoamStagingBounds),
+    shared.archive_contract.layout("GLOWCAPLOAMVALUEBOUNDS", GlowcapLoamValueBounds),
+    shared.archive_contract.layout("GLOWCAPLOAMINVOCATIONBOUNDS", GlowcapLoamInvocationBounds),
     shared.archive_contract.layout("GLOWCAPLOAMLIMITS", GlowcapLoamLimits),
     shared.archive_contract.layout("GLOWCAPLOAMBOUND", GlowcapLoamBound),
     shared.archive_contract.layout("GLOWCAPLOAMCONSTRAINT", GlowcapLoamConstraint),
+    shared.archive_contract.layout("GLOWCAPLOAMKINDRULE", GlowcapLoamKindRule),
     shared.archive_contract.layout("GLOWCAPLOAMPOLICY", GlowcapLoamPolicy),
     shared.archive_contract.layout("GLOWCAPLOAMREQUIREMENT", GlowcapLoamRequirement),
+    shared.archive_contract.layout("GLOWCAPLOAMRESOURCEID", GlowcapLoamResourceId),
+    shared.archive_contract.layout("GLOWCAPLOAMBOUNDRESOURCE", GlowcapLoamBoundResource),
     shared.archive_contract.layout("GLOWCAPLOAMINVOCATION", GlowcapLoamInvocation),
     shared.archive_contract.layout("GLOWCAPLOAMMETHOD", GlowcapLoamMethod),
+    shared.archive_contract.layout("GLOWCAPLOAMREADMETHOD", GlowcapLoamReadMethod),
+    shared.archive_contract.layout("GLOWCAPLOAMREADINTERFACE", GlowcapLoamReadInterface),
     shared.archive_contract.layout("GLOWCAPLOAMCONTENT", GlowcapLoamContent),
+    shared.archive_contract.layout("GLOWCAPLOAMGRAPHSCHEMA", GlowcapLoamGraphSchema),
+    shared.archive_contract.layout("GLOWCAPLOAMGRAPHVERB", GlowcapLoamGraphVerb),
+    shared.archive_contract.layout("GLOWCAPLOAMGRAPH", GlowcapLoamGraph),
+    shared.archive_contract.layout("GLOWCAPLOAMPAGE", GlowcapLoamPage),
+    shared.archive_contract.layout("GLOWCAPLOAMGRAPHFIELD", GlowcapLoamGraphField),
+    shared.archive_contract.layout("GLOWCAPLOAMPAGEREPLACEMENT", GlowcapLoamPageReplacement),
     shared.archive_contract.layout("GLOWCAPLOAMRESOURCE", GlowcapLoamResource),
 };
 pub const GLOWCAP_LOAM_ARCHIVE_FINGERPRINT = shared.archive_contract.fingerprint("glowcap_loam", @This(), .{ &shared.contract_layouts, &contract_layouts });
@@ -234,6 +323,7 @@ pub fn glowcap_loam_archive_fingerprint() callconv(.c) u64 {
 }
 
 pub const GLOWCAP_LOAM_METADATA_SIZE: usize = common.core.Metadata.encoded_size;
+pub const GLOWCAP_LOAM_MAX_URI_BYTES: usize = common.hosting.references.max_uri_bytes;
 pub const GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED: i32 = -40;
 pub const GLOWCAP_LOAM_ERR_STALE_COMPLETION: i32 = -41;
 pub const GLOWCAP_LOAM_ERR_DENIED: i32 = -42;
@@ -259,6 +349,14 @@ pub fn glowcap_loam_has_pending_work(raw: ?*GlowcapLoamAttachment, out_pending: 
 }
 
 pub fn glowcap_loam_policy_value(policy: ?*const GlowcapLoamPolicy, requirement: ?*const GlowcapLoamRequirement, out_value: ?*GlowcapLoamPolicyValue) callconv(.c) i32 {
+    return policyValue(policy, requirement, out_value, null);
+}
+/// Construct terms supported by one declared exact interface. Kind is schema
+/// data; this check supplies no authority or reusable admission for an effect.
+pub fn glowcap_loam_policy_value_for_kind(policy: ?*const GlowcapLoamPolicy, kind: u64, requirement: ?*const GlowcapLoamRequirement, out_value: ?*GlowcapLoamPolicyValue) callconv(.c) i32 {
+    return policyValue(policy, requirement, out_value, kind);
+}
+fn policyValue(policy: ?*const GlowcapLoamPolicy, requirement: ?*const GlowcapLoamRequirement, out_value: ?*GlowcapLoamPolicyValue, kind: ?u64) i32 {
     shared.lastErrorClear();
     const schema = policy orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const input = requirement orelse return shared.GLOWCAP_ERR_NULL_POINTER;
@@ -269,7 +367,7 @@ pub fn glowcap_loam_policy_value(policy: ?*const GlowcapLoamPolicy, requirement:
     var bounds: [16]common.access.core.Policy.Bound = undefined;
     for (input.permissions[0..input.permission_count], 0..) |key, i| keys[i] = @fromBackingInt(key);
     for (input.facts[0..input.fact_count], 0..) |bound, i| bounds[i] = .{ .key = @fromBackingInt(bound.key), .value = bound.value };
-    const value = evaluated_policy.value(keys[0..input.permission_count], bounds[0..input.fact_count]) catch |err| return common.code(err);
+    const value = (if (kind) |id| evaluated_policy.valueForKind(@fromBackingInt(id), keys[0..input.permission_count], bounds[0..input.fact_count]) else evaluated_policy.value(keys[0..input.permission_count], bounds[0..input.fact_count])) catch |err| return common.code(err);
     var result: GlowcapLoamPolicyValue = std.mem.zeroes(GlowcapLoamPolicyValue);
     result.identity = schema.identity;
     result.permissions = value.permissions;

@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // A local browser session shared from one Rooms page and attached from another.
 //
 // Two origins matter here. The hosting tab files its WebRTC answering inbox on
@@ -6,17 +7,16 @@
 // sturdyref. A standalone session peer cannot exercise any of those acts.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail, reachDirectoryOnCard } from "../page/harness.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
-import { attachThroughSettings } from "../page/session_attach.ts";
+import { attachThroughSettings, reattachThroughSettings } from "../page/session_attach.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 function serveRooms(httpPort: number, roomPort: number): void {
-	spawnOwned(WEB, {
+	spawnWeb({
 		args: ["--transport=tcp", String(httpPort), String(roomPort), "--transport=iroh"],
 		cwd: ROOT,
 		stdout: "null",
@@ -77,6 +77,7 @@ try {
 	const host = await pageAt(browser, hostHttp, "host");
 	const sturdyref = await share(host.page);
 	await host.page.click("#settingsClose");
+	await reattachThroughSettings(host.page, sturdyref, "the hosting browser");
 
 	const attaching = await pageAt(browser, attachingHttp, "attaching");
 	await attachThroughSettings(attaching.page, sturdyref, "a different Rooms page");

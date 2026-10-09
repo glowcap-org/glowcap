@@ -97,53 +97,7 @@
 	width: min(100%, 460px);
 	max-width: 100%;
 }
-/* The fold's own word, with the system's chevron rather than the platform's
-   triangle, turned down while it is open. */
-.session-setup-advanced summary {
-	display: flex;
-	align-items: center;
-	gap: var(--gap-row);
-	width: fit-content;
-	margin: 0 auto;
-	/* The word sits on the page's centre line and the chevron hangs off its
-	   end: the start padding carries the chevron's width and gap, so the pair
-	   is not what gets centred. */
-	padding: 6px 10px 6px 25px;
-	border-radius: var(--radius-chip);
-	list-style: none;
-	cursor: pointer;
-	color: var(--ink-soft);
-	font-size: var(--type-ui);
-	font-weight: 600;
-	transition: color .12s ease, background-color .12s ease;
-}
-.session-setup-advanced summary::-webkit-details-marker {
-	display: none;
-}
-.session-setup-advanced summary::after {
-	content: "";
-	width: 7px;
-	height: 7px;
-	margin-top: -3px;
-	border-right: 2px solid currentColor;
-	border-bottom: 2px solid currentColor;
-	border-radius: 1px;
-	transform: rotate(45deg);
-	transition: transform .16s ease-out;
-}
-.session-setup-advanced[open] summary::after {
-	margin-top: 3px;
-	transform: rotate(225deg);
-}
-@media (hover: hover) {
-	.session-setup-advanced summary:hover {
-		color: var(--ink);
-		background: var(--hover);
-	}
-}
 .session-setup-advanced[open] {
-	display: grid;
-	justify-items: center;
 	gap: var(--gap-group);
 }
 .session-setup-advanced > .actions {

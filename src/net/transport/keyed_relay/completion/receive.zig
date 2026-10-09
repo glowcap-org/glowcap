@@ -194,24 +194,56 @@ pub fn Machine(
         /// seats. Application headers and payload remain untouched until a
         /// caller owns their projection.
         fn drainRetainedControls(backend: *Backend, c: *RelayConn) !void {
-            if (c.state != .open or c.pending.get(.send) or c.data_remaining != 0) return;
+            if (c.state != .open) return;
+            _ = try drainControls(backend, c);
+        }
+
+        const Drained = enum {
+            /// Every retained byte was a control; more input may follow.
+            needs_input,
+            /// An application frame is next.
+            data,
+            /// A queued reply, a close, a fault, or a send borrowing `ws_out`
+            /// stops the drain; a later completion resumes it.
+            blocked,
+        };
+
+        fn drainControls(backend: *Backend, c: *RelayConn) !Drained {
+            if (c.pending.get(.send) or c.data_remaining != 0) return .blocked;
             while (Access.rawBytes(c).len != 0) {
                 var fragmented = c.fragmented;
                 const frame = (protocol.parseFrameBytes(&fragmented, Access.rawBytes(c)) catch {
                     Access.failRelay(backend, c);
-                    return;
-                }) orelse return;
-                if (frame.effect == .data) return;
+                    return .blocked;
+                }) orelse return .needs_input;
+                if (frame.effect == .data) return .data;
 
                 c.fragmented = fragmented;
                 const payload = frame.controlPayload(Access.rawBytes(c));
                 const effect = try handleControlFrame(backend, c, frame.effect, payload);
                 Access.dropRaw(backend, c, frame.consumed_len);
-                if (effect == .reply_queued or effect == .closed) return;
+                if (effect == .reply_queued or effect == .closed) return .blocked;
+            }
+            return .needs_input;
+        }
+
+        /// A parked registration leg answers the relay's controls while it
+        /// waits, and the first application frame means a dialer arrived. Its
+        /// bytes stay retained for the receive seat the accepting Loop opens.
+        pub fn serviceParked(backend: *Backend, c: *RelayConn) !void {
+            std.debug.assert(c.state == .parked);
+            switch (try drainControls(backend, c)) {
+                .needs_input => try Access.armPlatformRecv(backend, c),
+                .data => Access.promoteParked(backend, c),
+                // With no reply in flight, a received close waits only for
+                // the relay's EOF, which ends the leg.
+                .blocked => if (c.close.wire.hasReceived() and !c.pending.get(.send))
+                    try Access.armPlatformRecv(backend, c),
             }
         }
 
         pub fn serviceBuffered(backend: *Backend, c: *RelayConn) !void {
+            if (c.state == .parked) return serviceParked(backend, c);
             if (c.external_recv_ud != null) try tryEmit(backend, c);
             // A projected data payload can consume the caller's receive seat
             // and leave a complete control frame immediately behind it.

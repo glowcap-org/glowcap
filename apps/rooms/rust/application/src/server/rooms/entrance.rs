@@ -290,8 +290,23 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		))
 	}
 
-	/// `enterPublication`: a live public room by its publication id.
-	pub fn enter_publication(&self, id: &str) -> Result<Entrance, Refusal> {
+	/// Exact public admission follows a live publication or persisted authority
+	/// generation. A dormant durable room is realized only at subscription.
+	pub fn enter_publication(&self, id: &str, authority: &Authority) -> Result<Entrance, Refusal> {
+		if let Some(room) = authority.publication_room(id) {
+			if !room.managed {
+				return Ok(self.durable_entrance(room.id, MembershipKind::Participant, authority));
+			}
+			return Ok(Entrance {
+				room: RoomKey::managed(room.id),
+				durable: Some(room.id.into()),
+				kind: Self::public_kind(room.policy),
+				gate: Gate::Managed {
+					id: room.id.into(),
+					generation: room.generation,
+				},
+			});
+		}
 		let key = self
 			.by_entry
 			.get(id)
@@ -538,10 +553,10 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		effects.presence.push(connection);
 		let count = room.members.len();
 		let listed = room.policy.is_listed();
-		// What the room carries goes first, ahead of the occupancy that marks
-		// arrival: a client returns from joining on that mark, and shapes its
-		// surface from this before anybody can type into it.
+		// Complete room metadata precedes the occupancy that marks arrival.
+		// Visibility alone cannot distinguish open and moderated rooms.
 		effects.tell(connection, inbox.clone(), Notice::Carries(Carries::EVERYTHING));
+		effects.tell(connection, inbox.clone(), Notice::PolicyChanged(room.policy));
 		effects.tell(connection, inbox.clone(), Notice::Listed(listed));
 		if let Some((_, old_nick)) = already.filter(|(_, old)| old.to_lowercase() != nick.to_lowercase()) {
 			self.broadcast(

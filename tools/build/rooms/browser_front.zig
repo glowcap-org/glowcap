@@ -15,6 +15,7 @@ pub const Context = struct {
     runtime_gate: *execution.RuntimeGate,
     browser_application: *std.Build.Step,
     archive_install: *std.Build.Step,
+    web_services: *std.Build.Step,
     iroh_abi_step: *std.Build.Step,
     ocapn_install: *std.Build.Step,
     host_install: *std.Build.Step,
@@ -36,19 +37,19 @@ const Launch = struct {
     hot_reload: bool = false,
 };
 
-pub fn register(ctx: Context) void {
+pub fn register(ctx: Context) *std.Build.Step {
     const b = ctx.b;
 
-    // One immutable production generation serves the native process proofs and
-    // deployment. Source-compilation tests keep their own isolated roots.
+    // One immutable production generation serves process and browser proofs
+    // and deployment. Source-compilation tests keep their own isolated roots.
     const prepare = execution.addSystemCommand(b, .build_tool, &.{"env"});
     prepare.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .make_absolute = true });
     prepare.addArg("--prepare=zig-out/rooms-web");
     prepare.setCwd(b.path("."));
     prepare.has_side_effects = true;
-    prepare.step.dependOn(ctx.archive_install);
+    prepare.step.dependOn(ctx.web_services);
     prepare.step.dependOn(ctx.browser_application);
-    web_tests.register(b, ctx.runtime_gate, ctx.archive_install, &prepare.step);
+    web_tests.register(b, ctx.runtime_gate, ctx.web_services, &prepare.step);
 
     const staging = @import("../release/stage.zig");
     const product = staging.add(b, ctx.target, ctx.version, "product", staging.product);
@@ -65,11 +66,16 @@ pub fn register(ctx: Context) void {
     install_test.dependOn(&install_proof.step);
     ctx.runtime_gate.add(install_test);
 
-    const host_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
-    host_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "product" } }, .{ .make_absolute = true });
-    host_proof.step.dependOn(rooms_build);
     const host_test = b.step("glowcap-host-test", "Prove verified host installation and Docker deployment commands without a daemon");
-    host_test.dependOn(&host_proof.step);
+    // Installation verifies the complete product inventory; deployment owns
+    // its command scenarios. Suite growth must not consume another's deadline.
+    inline for (.{ "--installation", "--deployment" }) |mode| {
+        const host_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
+        host_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "product" } }, .{ .make_absolute = true });
+        host_proof.addArg(mode);
+        host_proof.step.dependOn(rooms_build);
+        host_test.dependOn(&host_proof.step);
+    }
     // The deliberately exhausted 15-second product query budget needs its
     // own calibrated process deadline, separate from installation/deployment.
     const deadline_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
@@ -104,6 +110,7 @@ pub fn register(ctx: Context) void {
     } else {
         deploy_step.dependOn(rooms_build);
     }
+    return &prepare.step;
 }
 
 fn addLaunch(ctx: Context, transport: Transport, launch: Launch) *std.Build.Step.Run {
@@ -135,7 +142,7 @@ fn addOptions(run: *std.Build.Step.Run, b: *std.Build, transport: Transport, lau
 
 fn addDependencies(run: *std.Build.Step.Run, ctx: Context, transport: Transport) void {
     run.step.dependOn(ctx.browser_application);
-    run.step.dependOn(ctx.archive_install);
+    run.step.dependOn(ctx.web_services);
     switch (transport) {
         .iroh => run.step.dependOn(ctx.iroh_abi_step),
         .tcp => {

@@ -175,3 +175,23 @@ Deno.test("a stamp is printed where it says something the one above it did not",
 		[true, true],
 	);
 });
+
+function drawnIds(history: readonly Item[]): number[] {
+	return blocksOf(history, null, none).flatMap((block) =>
+		block.kind === "group" ? block.group.items.map((item) => item.id) : []
+	);
+}
+
+Deno.test("equal text cannot hide a named line while another send waits for its receipt", () => {
+	const sending: Item = { kind: "chat", id: 1, from: "ada", text: "hello", mine: true, at: 0, state: "sending" };
+	const echo: Item = { kind: "chat", id: 2, from: "ada", text: "hello", mine: true, at: 1, lineId: 7 };
+	assertEquals(drawnIds([sending, echo]), [1, 2]);
+	// A failed send no longer waits, so the room's copy shows beside it.
+	assertEquals(drawnIds([{ ...sending, state: "failed" }, echo]), [1, 2]);
+	// Different words, another of this reader's lines, and somebody else's
+	// line with the same words all draw at once.
+	assertEquals(drawnIds([sending, { ...echo, text: "other" }]), [1, 2]);
+	assertEquals(drawnIds([sending, { ...echo, mine: false, from: "bob" }]), [1, 2]);
+	// Independent messages keep their identities even when the words agree.
+	assertEquals(drawnIds([sending, echo, { ...echo, id: 3, lineId: 8 }]), [1, 2, 3]);
+});

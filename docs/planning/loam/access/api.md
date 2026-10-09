@@ -134,10 +134,11 @@ validated against committed facts. It is not arbitrary traversal from an ID.
 The projection retains its anchor's grant dependency and the exact underlying
 target capability. Scope containment alone cannot authorize following a link.
 
-The policy parameter belongs to an authority domain, not necessarily one
-resource kind. A Rooms policy can govern rooms, messages, and files while
-resource interfaces expose different calls. This lets a room grant derive a
-message-scoped grant without intersecting unrelated permission-bit namespaces.
+A policy belongs to an authority domain and keeps the same permission keys
+across resource kinds. A room grant can therefore derive message-scoped access.
+The [implemented kind contract](../../../loam/access.md#policy-and-interface-support) defines support
+for exact objects, mixed selections and future owned descendants. Application
+projections still require their declared relations and exact content facts.
 
 ```rust
 trait Policy {
@@ -526,7 +527,7 @@ Error details are scoped so a denied lookup cannot reveal private siblings.
 
 Zig can provide the same typed model with compile-time policy parameters and
 explicit allocators. It need not reduce the model to strings or untyped calls.
-The policy and interface extension points have direct native counterparts:
+The policy and interface extension points have direct Zig counterparts:
 
 ```zig
 const RoomsPolicy = struct {
@@ -597,7 +598,7 @@ uses the existing `Host`, `Ref` and Session types. It creates no second runtime.
 | Boundary | Implemented contract |
 | --- | --- |
 | Policy | Bounded identity, permission keys and lower/upper bounds evaluated by Zig. Callbacks supply content requirements and facts. |
-| Callbacks | Copied method tables; contexts survive until successful detach. Synchronous borrowed calls cannot unwind or reenter Host driving. |
+| Callbacks | Copied method tables and trusted bound-resource context. Borrowed synchronous invocations cannot unwind or reenter Host driving; registration contexts survive until successful detach. |
 | Storage | Opaque content replacement joins the shared managed transaction and receipt. Startup creation commits before returning usable metadata. |
 | Memory | Input borrows end at callback return; reply and replacement bytes copy into the bounded retained arena. Fixed Work slots retain submitted buffers until physical retirement, completion and release. |
 | Capabilities | Restored endpoints acquire ordinary held Host references. Serialized object names are trusted metadata, never network invocation authority. |
@@ -638,7 +639,7 @@ meanings, while Zig owns generic resource/access decisions.
 
 Review complete paths through issuance, restoration, ancestor edits, returned
 attachments, reorganization, and lost storage acknowledgements. Measure ABI
-calls, copying, allocation ownership, and native/Wasm behavior. Verify that
+calls, copying, allocation ownership, and Linux/Wasm behavior. Verify that
 Rust wrappers execute selected effects without reconstructing the grant model.
 
 The broader illustrative APIs above have not been compiled or benchmarked. Their implementation must validate

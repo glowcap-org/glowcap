@@ -22,26 +22,31 @@ import { fail } from "./harness.ts";
 import { verifyCompleteOperationsNav } from "./operations_nav.ts";
 import { runOperatorScene } from "./operations_operator.ts";
 import { runIrcScene } from "./operations_irc.ts";
-import { addCapability, removeCapability, saveCapabilitySet, takeCapability } from "./capability_set.ts";
+import { addCapability, removeCapability, savedCapabilityNames, takeCapability } from "./capability_set.ts";
 import { runPeeringScene } from "./operations_peering.ts";
 import { takeAndInspectDiagnostics } from "./operations_diagnostics.ts";
 import * as archiveOffline from "./archive_offline.ts";
 import { opsDiagnosticsLabel, opsListenersLabel } from "../../lib/text/ops.ts";
 import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
+import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
 
 export async function run(tab: Page, statePath: string, foreignLocator: string): Promise<void> {
-	const listenersSwiss = (await Deno.readTextFile(`${statePath}/admin-listeners`)).trim();
-	const diagnosticsSwiss = (await Deno.readTextFile(`${statePath}/diagnostics`)).trim();
-	const peeringSwiss = (await Deno.readTextFile(`${statePath}/peering`)).trim();
-	const traceSwiss = (await Deno.readTextFile(`${statePath}/trace`)).trim();
-	const ircSwiss = (await Deno.readTextFile(`${statePath}/irc`)).trim();
-	const operatorSwiss = (await Deno.readTextFile(`${statePath}/operator`)).trim();
-	if (
-		listenersSwiss === "" || diagnosticsSwiss === "" || peeringSwiss === "" || traceSwiss === "" ||
-		ircSwiss === "" || operatorSwiss === ""
-	) {
-		fail("the room server did not persist its operations swiss numbers");
-	}
+	const locator = roomsLocator((await (await fetch(new URL("/locator", tab.url()))).text()).trim());
+	const capability = async (file: string) => {
+		const swiss = (await Deno.readTextFile(`${statePath}/${file}`)).trim();
+		if (swiss === "") fail(`the room server did not persist ${file}`);
+		return formatRoomsSturdyref(locator, swiss);
+	};
+	const listenersSwiss = await capability("admin-listeners");
+	const diagnosticsSwiss = await capability("diagnostics");
+	const peeringSwiss = await capability("peering");
+	const ircSwiss = await capability("irc");
+	const operatorSwiss = await capability("operator");
+	const tracePort = (await (await fetch(new URL("/trace", tab.url()))).text()).trim();
+	const traceLocator = roomsLocator(`127.0.0.1:${tracePort}`);
+	traceLocator.hints.set("trace-publish", `ws://127.0.0.1:${tracePort}/publish`);
+	traceLocator.hints.set("captp-websocket", `ws://127.0.0.1:${tracePort}/captp`);
+	const traceSwiss = formatRoomsSturdyref(traceLocator, (await Deno.readTextFile(`${statePath}/trace`)).trim());
 
 	// Nothing held yet: Settings opens without an Operations control.
 	await tab.click("#settingsBtn");
@@ -155,7 +160,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (afterCancel.checked !== "false" || afterCancel.ops) {
 		fail(`a dismissed take still granted something: ${JSON.stringify(afterCancel)}`);
 	}
-	await addCapability(tab, "#opsListenersToggle", "discarded-listeners-swiss");
+	await addCapability(tab, "#opsListenersToggle", formatRoomsSturdyref(locator, "discarded-listeners-swiss"));
 	const enabledListenerRowHeight = await tab.locator("#opsListenersToggle").evaluate((toggle) =>
 		(toggle.closest(".capability-set-row") as HTMLElement | null)?.offsetHeight ?? 0
 	);
@@ -182,8 +187,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	// Stale values are separate, visible failures rather than one neutral line
 	// of protocol text. Each names the capability and the current server token
 	// that repairs it.
-	await addCapability(tab, "#opsListenersToggle", "stale-listeners-swiss");
-	await addCapability(tab, "#opsDiagnosticsToggle", "stale-diagnostics-swiss");
+	await addCapability(tab, "#opsListenersToggle", formatRoomsSturdyref(locator, "stale-listeners-swiss"));
+	await addCapability(tab, "#opsDiagnosticsToggle", formatRoomsSturdyref(locator, "stale-diagnostics-swiss"));
 	await tab.click("#opsCapabilitySetSave");
 	const staleFailures = tab.locator('.capability-set-errors .said[data-kind="failure"]');
 	await tab.waitForFunction(
@@ -214,9 +219,32 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	) {
 		fail(`stale capability guidance was incomplete: ${JSON.stringify(staleText)}`);
 	}
+	// One working entry cannot commit alongside a refused sibling. Keep both
+	// requested values in the draft, with the committed capability set empty.
+	await tab.click("#opsListenersToggle");
+	await addCapability(tab, "#opsListenersToggle", listenersSwiss);
+	await tab.click("#opsCapabilitySetSave");
+	await tab.waitForFunction(() =>
+		document.querySelectorAll('.capability-set-errors .said[data-kind="failure"]').length === 1 &&
+		!document.getElementById("opsCapabilitySetSave")?.hasAttribute("data-busy")
+	);
+	if (
+		await tab.locator("#opsBtn").count() !== 0 ||
+		await tab.getAttribute("#opsListenersToggle", "aria-checked") !== "true" ||
+		await tab.getAttribute("#opsDiagnosticsToggle", "aria-checked") !== "true" ||
+		await tab.locator("#opsCapabilitySetSaved").count() !== 0
+	) {
+		fail("a mixed Operations refusal committed custody or discarded the requested draft");
+	}
 	await tab.click("#opsListenersToggle");
 	await tab.click("#opsDiagnosticsToggle");
-	await saveCapabilitySet(tab);
+	if (
+		await tab.isEnabled("#opsCapabilitySetSave") ||
+		await tab.locator("#opsBtn").count() !== 0 ||
+		await staleFailures.count() !== 0
+	) {
+		fail("removing refused draft entries did not restore the committed empty capability set");
+	}
 
 	// Ask again and save it into the session capability bundle. The toggle
 	// lands on, the live capability arrives, and reload can redeem it again.
@@ -379,43 +407,25 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 		fail(`the trace pane does not name its endpoint: ${JSON.stringify(publishing)}`);
 	}
 
-	// The endpoint override moved here from Advanced, and its save arms only
-	// on a change: typing enables it, restoring the saved value disables it
-	// again. Saving itself reloads the window, so this scene leaves it alone.
-	const saveDisabled = () =>
-		tab.evaluate(() => (document.getElementById("traceUrlSave") as HTMLButtonElement | null)?.disabled);
-	if (await saveDisabled() !== true) fail("the trace endpoint save was armed with nothing changed");
-	await tab.fill("#traceUrl", "ws://127.0.0.1:1/");
-	if (await saveDisabled() !== false) fail("typing a trace endpoint did not arm its save");
-	await tab.fill("#traceUrl", "");
-	if (await saveDisabled() !== true) fail("restoring the trace endpoint did not disarm its save");
+	// The exporter chooses where this held credential may publish. The old
+	// endpoint editor could redirect that credential outside its authority.
+	if (publishing.endpoint !== `ws://127.0.0.1:${tracePort}/publish`) {
+		fail(`the trace publisher changed its held endpoint: ${JSON.stringify(publishing)}`);
+	}
+	if (await tab.locator("#traceUrl,#traceUrlSave").count() !== 0) {
+		fail("the trace pane allows arbitrary redirection of a held credential");
+	}
 
 	// Dropping the trace capability erases the swiss it was asked to remember,
 	// in the same breath as the toggle falling off.
-	const rememberedCaps = () =>
-		tab.evaluate(() => {
-			const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
-			const operations = state?.session?.capabilities?.operations;
-			return Array.isArray(operations) ? operations.map((row: { capability: string }) => row.capability) : [];
-		});
+	const rememberedCaps = () => savedCapabilityNames(tab);
 	if (!(await rememberedCaps()).includes("trace")) fail("the trace take with Remember kept no swiss");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
 	await tab.click("#holdingsTab");
 	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await removeCapability(tab, "#opsTraceToggle");
-	await tab.waitForFunction(
-		() => {
-			const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
-			const operations = state?.session?.capabilities?.operations;
-			return Array.isArray(operations) &&
-				!operations.some((row: { capability: string }) => row.capability === "trace");
-		},
-		undefined,
-		{ timeout: 10_000 },
-	).catch(async () =>
-		fail(`dropping the trace capability kept its secret: ${JSON.stringify(await rememberedCaps())}`)
-	);
+	if ((await rememberedCaps()).includes("trace")) fail("dropping trace retained its saved capability");
 
 	// Dropping a capability takes its pane with it: with only listeners
 	// held, the page has no pane navigation and nothing of the diagnostics left.
@@ -465,6 +475,11 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	const persistedDmName = await persistedDm.locator(".rname").textContent();
 	if (persistedDmName == null || persistedDmName === "") fail("the workspace proof found no direct conversation");
 	await persistedDm.locator(".dm-open").click();
+	// Operations navigates through a fresh page Host. The saved DM retains
+	// history, but its expired connection must be explicitly reintroduced.
+	await tab.waitForSelector("#dmReconnect", { timeout: 20_000 });
+	await tab.click("#dmReconnect");
+	await tab.waitForSelector("#line:not([disabled])", { timeout: 20_000 });
 	await tab.fill("#line", "workspace dm history proof");
 	await tab.press("#line", "Enter");
 	await tab.waitForSelector('.bubble:has-text("workspace dm history proof")');
@@ -556,15 +571,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	// after the next reload, and this browser keeps no swiss at all.
 	await removeCapability(tab, "#opsListenersToggle");
 	await tab.waitForSelector("#opsBtn", { state: "detached" });
-	await tab.waitForFunction(
-		() => {
-			const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
-			const operations = state?.session?.capabilities?.operations;
-			return Array.isArray(operations) && operations.length === 0;
-		},
-		undefined,
-		{ timeout: 10_000 },
-	).catch(async () => fail(`the drop kept a secret: ${JSON.stringify(await rememberedCaps())}`));
+	if ((await rememberedCaps()).length !== 0) fail("the drop retained saved capability selections");
+
 	await tab.reload();
 	await tab.waitForSelector("#settingsBtn", { timeout: 30_000 });
 	const afterSecondReload = await rememberedCaps();

@@ -3,6 +3,16 @@ use super::{Error, MAX_PAGES, PAGE_BYTES};
 use alloc::vec::Vec;
 const HEADER: usize = 14;
 const BODY: usize = PAGE_BYTES - HEADER;
+pub(super) fn fragment_count(schema: u64, payload: &[u8]) -> Result<usize, Error> {
+	if payload.len() < HEADER || payload[..8] != schema.to_be_bytes() {
+		return Err(Error::Format);
+	}
+	let count = usize::from(u16::from_be_bytes([payload[12], payload[13]]));
+	if count == 0 || count > MAX_PAGES {
+		return Err(Error::Format);
+	}
+	Ok(count)
+}
 pub fn encode(schema: u64, bytes: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
 	if bytes.len() > super::custody::MAX_AUTHORITY_BYTES {
 		return Err(Error::Capacity);

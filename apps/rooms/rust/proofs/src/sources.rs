@@ -4,6 +4,7 @@ use rooms_application::files::{
 	sources::{self, Error, Sources},
 };
 use std::{cell::Cell, rc::Rc};
+mod leases;
 fn description(size: usize) -> FileDescription {
 	FileDescription::parse("file", "application/octet-stream", size as u64, 0, 0).unwrap()
 }
@@ -11,6 +12,7 @@ fn retain<S>(pool: &mut Sources<S>, size: usize, source: S) -> sources::Blob<S> 
 	pool.retain(vec![(description(size), source)]).unwrap().pop().unwrap()
 }
 pub fn run() {
+	leases::run();
 	receiver_budget();
 	let captured: serde_json::Value = serde_json::from_str(include_str!("../fixtures/direct-sources.json")).unwrap();
 	assert_eq!(

@@ -1,17 +1,19 @@
 //! Bounded application work on one continuously polled local executor. The
 //! stop signal bypasses admission; dropping a JS observation retains its job.
-use super::{Environment, Result, TroubleReporter, js_error, observation::Scope, rejected};
+use super::{Environment, Result, TroubleReporter, js_error, rejected};
 use std::{
 	cell::{Cell, RefCell},
 	future::Future,
 	pin::Pin,
-	rc::{Rc, Weak},
+	rc::Rc,
 };
 use tokio::{
 	sync::{mpsc, oneshot, watch},
 	task::{JoinSet, LocalSet},
 };
 use wasm_bindgen::JsValue;
+mod held;
+pub(super) use held::Held;
 
 // Count bounds task/callback overhead; bytes bound retained command material.
 // Both queued and executing work hold a permit until their future is dropped.
@@ -23,9 +25,9 @@ struct Budget {
 	tasks: Cell<usize>,
 	bytes: Cell<usize>,
 	stopped: Rc<Cell<bool>>,
-	files: Cell<usize>,
-	metadata: Cell<usize>,
-	scopes: RefCell<Vec<Weak<Scope>>>,
+	handles: Cell<usize>,
+	held_bytes: Cell<usize>,
+	retain_failed_close: Cell<bool>,
 }
 struct Permit {
 	budget: Rc<Budget>,
@@ -47,34 +49,33 @@ struct Inner {
 	jobs: mpsc::Sender<Job>,
 	stop: watch::Sender<bool>,
 	ended: watch::Receiver<Option<Result<()>>>,
+	completion: watch::Sender<Option<Result<()>>>,
+	retry: watch::Sender<bool>,
+	retiring: Rc<RefCell<Option<Retirement>>>,
 	budget: Rc<Budget>,
 }
 impl Drop for Inner {
 	fn drop(&mut self) {
 		let _entered = self.local.enter();
+		self.budget.retain_failed_close.set(false);
+		self.retiring.borrow_mut().take();
 		self.budget.stop();
 		self.stop.send_replace(true);
 	}
 }
 #[derive(Clone)]
 pub(super) struct Driver(Rc<Inner>);
-pub(super) struct Retained {
-	budget: Rc<Budget>,
-	bytes: usize,
-}
-impl Drop for Retained {
-	fn drop(&mut self) {
-		self.budget.files.set(self.budget.files.get() - 1);
-		self.budget.metadata.set(self.budget.metadata.get() - self.bytes);
-	}
+// Network serving must keep running while a failed managed barrier waits for
+// retry. It may carry the exact reply needed by receipt settlement. Retaining
+// only Environment and dropping this JoinSet would cancel that recovery path.
+struct Retirement {
+	environment: Rc<Environment>,
+	serving: JoinSet<Result<()>>,
+	failure: Result<()>,
 }
 impl Budget {
 	fn stop(&self) {
 		self.stopped.set(true);
-		let scopes = std::mem::take(&mut *self.scopes.borrow_mut());
-		for scope in scopes.into_iter().filter_map(|scope| scope.upgrade()) {
-			scope.close();
-		}
 	}
 }
 impl Driver {
@@ -93,45 +94,10 @@ impl Driver {
 			Ok(())
 		}
 	}
-	pub fn scope(&self) -> Result<Rc<Scope>> {
-		self.require_open()?;
-		let mut scopes = self.0.budget.scopes.borrow_mut();
-		scopes.retain(|scope| scope.strong_count() > 0);
-		if scopes.len() >= MAX_TASKS {
-			return Err("Rooms attachment capacity is exhausted".into());
-		}
-		let scope = Rc::new(Scope::default());
-		scopes.push(Rc::downgrade(&scope));
-		Ok(scope)
+	pub fn start_managed(tab: String, report_trouble: js_sys::Function) -> Self {
+		Self::start_mode(tab, report_trouble)
 	}
-	pub fn retain_file(&self, bytes: usize) -> Result<Retained> {
-		self.require_open()?;
-		let budget = &self.0.budget;
-		if budget.files.get() >= rooms_application::files::FileLimits::default().held_files
-			|| bytes > MAX_BYTES.saturating_sub(budget.metadata.get())
-		{
-			return Err("Rooms file view custody capacity is exhausted".into());
-		}
-		budget.files.set(budget.files.get() + 1);
-		budget.metadata.set(budget.metadata.get() + bytes);
-		Ok(Retained {
-			budget: budget.clone(),
-			bytes,
-		})
-	}
-	pub fn start(report_trouble: js_sys::Function) -> Self {
-		Self::start_mode(None, report_trouble)
-	}
-	pub fn start_local(
-		checkpoint: rooms_application::session::checkpoint::Checkpoint,
-		report_trouble: js_sys::Function,
-	) -> Self {
-		Self::start_mode(Some(checkpoint), report_trouble)
-	}
-	fn start_mode(
-		checkpoint: Option<rooms_application::session::checkpoint::Checkpoint>,
-		report_trouble: js_sys::Function,
-	) -> Self {
+	fn start_mode(startup: String, report_trouble: js_sys::Function) -> Self {
 		let (jobs, incoming) = mpsc::channel(MAX_TASKS);
 		let (stop, stopping) = watch::channel(false);
 		let (ended, outcome) = watch::channel(None);
@@ -144,25 +110,68 @@ impl Driver {
 			tasks: Cell::new(0),
 			bytes: Cell::new(0),
 			stopped,
-			files: Cell::new(0),
-			metadata: Cell::new(0),
-			scopes: RefCell::default(),
+			handles: Cell::new(0),
+			held_bytes: Cell::new(0),
+			retain_failed_close: Cell::new(true),
 		});
 		let owned_budget = budget.clone();
 		let local = Rc::new(LocalSet::new());
 		let running = local.clone();
+		let retiring = Rc::new(RefCell::new(None));
+		let pending_retirement = retiring.clone();
+		let completion = ended.clone();
+		let (retry, mut retries) = watch::channel(false);
 		wasm_bindgen_futures::spawn_local(async move {
-			let result = running
-				.run_until(run(incoming, stopping, owned_budget.clone(), checkpoint, trouble))
+			running
+				.run_until(async move {
+					let result = run(
+						incoming,
+						stopping,
+						owned_budget.clone(),
+						startup,
+						trouble,
+						pending_retirement.clone(),
+					)
+					.await;
+					owned_budget.stop();
+					ended.send_replace(Some(result));
+					// Keep driving the original LocalSet between failed close attempts.
+					// Network replies and private settlement cannot depend on the user
+					// immediately asking to close again. One owner performs all retries.
+					while pending_retirement.borrow().is_some() && owned_budget.retain_failed_close.get() {
+						if retries.changed().await.is_err() || !owned_budget.retain_failed_close.get() {
+							break;
+						}
+						retries.borrow_and_update();
+						let Some(mut retirement) = pending_retirement.borrow_mut().take() else {
+							break;
+						};
+						let closed = retirement.environment.close().await;
+						let outcome = if closed.is_err() {
+							let outcome = super::retain(retirement.failure.clone(), closed);
+							if owned_budget.retain_failed_close.get() {
+								*pending_retirement.borrow_mut() = Some(retirement);
+							}
+							outcome
+						} else {
+							// Drained failures are terminal evidence. Retrying an empty
+							// JoinSet cannot turn a failed task into successful close.
+							super::retain(retirement.failure, drain(&mut retirement.serving).await)
+						};
+						ended.send_replace(Some(outcome));
+					}
+					pending_retirement.borrow_mut().take();
+				})
 				.await;
-			owned_budget.stop();
-			ended.send_replace(Some(result));
 		});
 		Self(Rc::new(Inner {
 			local,
 			jobs,
 			stop,
 			ended: outcome,
+			completion,
+			retry,
+			retiring,
 			budget,
 		}))
 	}
@@ -181,13 +190,6 @@ impl Driver {
 				.map_err(|_| js_error("Rooms application closed before answering"))?
 				.map_err(|error| js_error(&error))
 		})
-	}
-	pub fn background<F, W>(&self, bytes: usize, start: F) -> Result<()>
-	where
-		F: FnOnce(Rc<Environment>) -> W + 'static,
-		W: Future<Output = Result<JsValue>> + 'static,
-	{
-		self.enqueue(bytes, start, None)
 	}
 	fn enqueue<F, W>(&self, bytes: usize, start: F, reply: Option<oneshot::Sender<Result<JsValue>>>) -> Result<()>
 	where
@@ -218,11 +220,23 @@ impl Driver {
 			.map_err(|_| "Rooms application stopped accepting work".into())
 	}
 	pub fn stop(&self) {
-		self.with_local(|| self.0.budget.stop());
+		self.with_local(|| {
+			self.0.budget.retain_failed_close.set(false);
+			self.0.budget.stop();
+			self.0.retiring.borrow_mut().take();
+		});
 		self.0.stop.send_replace(true);
+		self.0.retry.send_replace(true);
 	}
 	pub fn close(&self) -> js_sys::Promise {
-		self.stop();
+		self.with_local(|| self.0.budget.stop());
+		self.0.stop.send_replace(true);
+		// The continuously driven owner retries once for concurrent callers.
+		// Clearing completion synchronously makes every caller await that retry.
+		if self.0.ended.borrow().is_some() && self.0.retiring.borrow().is_some() {
+			self.0.completion.send_replace(None);
+			self.0.retry.send_replace(true);
+		}
 		let mut ended = self.0.ended.clone();
 		wasm_bindgen_futures::future_to_promise(async move {
 			while ended.borrow().is_none() {
@@ -245,10 +259,25 @@ async fn run(
 	mut incoming: mpsc::Receiver<Job>,
 	mut stop: watch::Receiver<bool>,
 	budget: Rc<Budget>,
-	checkpoint: Option<rooms_application::session::checkpoint::Checkpoint>,
+	startup: String,
 	trouble: TroubleReporter,
+	retiring: Rc<RefCell<Option<Retirement>>>,
 ) -> Result<()> {
-	let environment = match Environment::open(checkpoint, trouble).await {
+	let (platform, prepared) = match Environment::prepare(&startup).await {
+		Ok(prepared) => prepared,
+		Err(error) => {
+			// Storage preflight refused before any Host or session existed.
+			// Requests observe the startup cause; close observes clean retirement.
+			incoming.close();
+			while let Ok(job) = incoming.try_recv() {
+				if let Some(reply) = job.reply {
+					let _ = reply.send(Err(error.clone()));
+				}
+			}
+			return Ok(());
+		}
+	};
+	let environment = match Environment::open(platform, prepared, trouble).await {
 		Ok(environment) => Rc::new(environment),
 		Err(error) => {
 			incoming.close();
@@ -319,7 +348,18 @@ async fn run(
 	while incoming.try_recv().is_ok() {}
 	tasks.abort_all();
 	failure = super::retain(failure, drain(&mut tasks).await);
-	failure = super::retain(failure, environment.close().await);
+	let close = environment.close().await;
+	if close.is_err() {
+		if budget.retain_failed_close.get() {
+			*retiring.borrow_mut() = Some(Retirement {
+				environment,
+				serving,
+				failure: failure.clone(),
+			});
+		}
+		return super::retain(failure, close);
+	}
+	failure = super::retain(failure, close);
 	failure = super::retain(failure, drain(&mut serving).await);
 	failure
 }

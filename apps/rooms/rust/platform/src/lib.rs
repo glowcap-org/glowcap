@@ -9,6 +9,7 @@ pub mod entropy;
 pub mod serving;
 pub mod storage;
 pub mod tls;
+pub mod trace;
 pub mod websocket;
 
 pub use execution::HostPlatform;

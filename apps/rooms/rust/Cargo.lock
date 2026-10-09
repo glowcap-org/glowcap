@@ -976,13 +976,16 @@ dependencies = [
 name = "rooms-contract-proofs"
 version = "0.0.0"
 dependencies = [
+ "futures-util",
  "gloo-timers",
  "glowcap-rust-dogfood",
  "js-sys",
  "rooms-application",
  "rooms-browser",
  "rooms-glowcap",
+ "rooms-platform",
  "rooms-runtime",
+ "rooms-services",
  "serde_json",
  "tokio",
  "wasm-bindgen",
@@ -997,6 +1000,7 @@ dependencies = [
  "glowcap-rust-dogfood",
  "rooms-application",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1052,6 +1056,7 @@ dependencies = [
  "glowcap-rust-dogfood",
  "rooms-application",
  "rooms-glowcap",
+ "serde",
  "serde_json",
  "sha2",
  "tokio",
@@ -1532,7 +1537,11 @@ checksum = "17a073bfed563fa236697a068031408a93cd9522e08abf9933ead3e73411bd71"
 dependencies = [
  "futures-util",
  "log",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite",
 ]
 
@@ -1568,6 +1577,8 @@ dependencies = [
  "httparse",
  "log",
  "rand",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror",
 ]

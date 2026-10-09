@@ -10,13 +10,13 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     defer endpoint.deinit() catch |err| std.log.err("iroh endpoint: {s}", .{@errorName(err)});
     var adapter = try iroh.MultiplexedAdapter.init(allocator, &endpoint);
     defer if (adapter.deinit()) |failure| std.log.err("iroh adapter: {s}", .{failure.primaryName()});
-    const providers = [_]glowcap.driver.HostRuntime.ProviderRegistration{.{
-        .multiplexed = .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
-    }};
-    const server = try glowcap.driver.listenProviders(
+    const residents = [_]glowcap.driver.HostRuntime.ProviderRegistration{
+        .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
+    };
+    const server = try glowcap.driver.listen(
         allocator,
         io,
-        &providers,
+        .{ .residents = &residents },
         iroh.transport_name,
         .{ .designator = "" },
         .{ .keyed = secret },
@@ -41,7 +41,7 @@ const Greeter = struct {
 };
 
 fn serve(server: *glowcap.driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
+    try server.publish("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();
         defer session.deinit();

@@ -152,6 +152,8 @@ pub const TypedResident = struct {
         transport_len: usize,
         designator: ?[*]const u8,
         len: usize,
+        _: ?[*]const u8,
+        _: usize,
         _: ?*const cshared.GlowcapTransportOperationOptions,
         out_result: ?*cdrv.GlowcapListenResult,
         out_failure: ?*cdrv.GlowcapProviderFailure,
@@ -316,11 +318,11 @@ pub const TypedResident = struct {
     }
 
     pub fn tryRead(_: ?*anyopaque, _: u64, _: ?[*]u8, _: usize) callconv(.c) isize {
-        return cdrv.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+        return cdrv.GLOWCAP_TRANSPORT_WOULD_BLOCK;
     }
 
     pub fn tryWrite(_: ?*anyopaque, _: u64, _: ?[*]const u8, _: usize) callconv(.c) isize {
-        return cdrv.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+        return cdrv.GLOWCAP_TRANSPORT_WOULD_BLOCK;
     }
 
     pub fn remoteKey(_: ?*anyopaque, _: u64, _: ?[*]u8) callconv(.c) i32 {

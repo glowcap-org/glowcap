@@ -34,4 +34,19 @@ pub const RelayOptions = struct {
     /// header. This is transport staging, never an application or CapTP frame
     /// limit.
     send_staging_bytes: usize = default_send_staging_bytes,
+    /// Hold a registration at a relay so dialers of `identity` reach this
+    /// backend's listener. Without it, `openListener` serves the platform.
+    registration: ?Registration = null,
 };
+
+/// The key dialers name is the listening Host's, which the listen supplies.
+pub const Registration = struct {
+    /// The relay's registration endpoint, retained by the backend.
+    url: []const u8,
+};
+
+/// Delay before replacing a registration leg that failed or was refused.
+pub const registration_retry_ms: i64 = 100;
+/// Promoted registration legs a listener may hold before it accepts them.
+/// A full backlog pauses registration rather than growing.
+pub const max_unaccepted_registrations = 64;

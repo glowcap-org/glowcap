@@ -7,7 +7,7 @@
 import { listen, Reachability } from "@glowcap/iroh";
 
 const server = await listen({ reachability: Reachability.Direct });
-server.host.publishGiftable("greeter", (verb: string, args: unknown[]) => {
+server.host.publish("greeter", (verb: string, args: unknown[]) => {
 	if (verb !== "greet") return null;
 	return `hello ${String(args[0] ?? "")} over iroh relay`;
 });

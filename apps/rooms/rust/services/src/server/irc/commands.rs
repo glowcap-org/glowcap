@@ -231,7 +231,7 @@ pub(super) async fn join(
 				state.rooms_name_taken(name)
 					|| state.foreign.holds_name(name)
 					|| state.foreign.by_id(id).is_some()
-					|| state.rooms.enter_publication(id).is_ok()
+					|| state.rooms.enter_publication(id, &state.authority).is_ok()
 			})
 			.map_err(|e| e.reason())?
 	};

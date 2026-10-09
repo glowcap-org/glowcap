@@ -63,7 +63,7 @@ test "core host: retired actor remote release waits for the outer Vat boundary" 
         var dials: std.ArrayList(h.ParkedDial) = .empty;
         defer dials.deinit(a);
         const pair = try h.openPair(a, &client, &server, "127.0.0.1:7917", &dials);
-        const published = try server.publish(pair.b, "retired-target", h.Widget, .{});
+        const published = try server.sessionPublish(pair.b, "retired-target", h.Widget, .{});
         defer server.releaseCapabilityTerminal(published, null);
         const fetched = try client.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7917", "retired-target"));
         defer fetched.deinit();
@@ -109,7 +109,7 @@ test "core host: owned call retains nested remote capabilities beside public com
     defer dials.deinit(a);
     const pair = try h.openPair(a, &client, &server, "127.0.0.1:7911", &dials);
     var calls: usize = 0;
-    const actor = try server.publish(pair.b, "echo", driver.Hosting(Echo), .{ .inner = .{ .calls = &calls } });
+    const actor = try server.sessionPublish(pair.b, "echo", driver.Hosting(Echo), .{ .inner = .{ .calls = &calls } });
     defer server.releaseCapability(actor, 1) catch unreachable;
     const fetched = try client.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7911", "echo"));
     defer fetched.deinit();
@@ -156,7 +156,7 @@ test "core host: owned call local routing, bounded projection, break and closed 
         if (mode == 3) try client.releaseSession(pair.a) else try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
         if (mode == 0) try std.testing.expectEqualStrings("more than one byte", owned.result().ready.string) else {
             try std.testing.expect(owned.result() == .failed);
-            try std.testing.expectEqualStrings(if (mode == 1) "OutOfMemory" else if (mode == 2) "Refused" else "connection released", owned.result().failed.message);
+            try std.testing.expectEqualStrings(if (mode == 1) "ReplyCapacity" else if (mode == 2) "Refused" else "connection released", owned.result().failed.message);
         }
         try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
     }
@@ -225,7 +225,7 @@ const Receiving = struct {
     pub fn handle(self: *Receiving, turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
         defer turn.releaseValues(args);
         self.calls.* += 1;
-        self.poke.* = try turn.host.queueSendValues(turn.session, args[0].capability, "poke", &.{}, turn.turn.arena);
+        self.poke.* = try turn.host.queueSendValues(turn.session.?, args[0].capability, "poke", &.{}, turn.turn.arena);
         return .{ .boolean = true };
     }
 };
@@ -262,7 +262,7 @@ test "core host: deferred local listener can publish its returned occurrence" {
     const pair = try h.openPair(a, &client, &server, "127.0.0.1:7916", &dials);
     var calls: usize = 0;
     var poke: u64 = 0;
-    const remote = try server.publish(pair.b, "echo", driver.Hosting(Receiving), .{ .inner = .{ .calls = &calls, .poke = &poke } });
+    const remote = try server.sessionPublish(pair.b, "echo", driver.Hosting(Receiving), .{ .inner = .{ .calls = &calls, .poke = &poke } });
     defer server.releaseCapabilityTerminal(remote, null);
     const fetched = try client.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7916", "echo"));
     defer fetched.deinit();

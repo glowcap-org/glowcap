@@ -16,9 +16,9 @@
 (require racket/string racket/list racket/format racket/system racket/port racket/file)
 
 (provide parse-codec parse-frameview parse-peer parse-goblins-md parse-snapshot parse-goblins-snapshot parse-iroh
-         parse-langs-md
+         parse-langs-md parse-loam
          svg-bars legend html-table
-         codec-region peer-region frameview-region goblins-region snapshot-region iroh-region langs-region)
+         codec-region peer-region frameview-region goblins-region snapshot-region iroh-region langs-region loam-region)
 
 ;; ── Palette (site assets/style.css) ──────────────────────────────────────────
 ;; Each colour is written as a custom property with the literal it replaced as
@@ -130,6 +130,30 @@
                                  out #:match-select values)])
       (list (n (list-ref m 1)) (n (list-ref m 2)))))
   (hash 'by_objects by-objects 'by_bytes by-bytes))
+
+;; loam (`bench-loam -- --ordinary-only`): one row per conversation count for
+;; the 4,096-byte message graph, as (conversations hot cold edit restart
+;; footprint). hot/cold/edit are (p50 p99) ns, restart is (reads ns), and
+;; footprint is (record_bytes cold_zig_heap_bytes).
+(define LOAM-MESSAGE-BYTES "4096")
+(define (parse-loam out)
+  (define (by-count rx sel)
+    (for/hash ([m (regexp-match* (pregexp rx) out #:match-select values)])
+      (values (n (list-ref m 1)) (sel m))))
+  (define (latency phase)
+    (by-count (string-append "(?m:^" phase " conversations=(\\d+) message_bytes=" LOAM-MESSAGE-BYTES " .* p50_ns=(\\d+) p99_ns=(\\d+)$)")
+              (lambda (m) (list (n (list-ref m 2)) (n (list-ref m 3))))))
+  (define hot (latency "hot"))
+  (define cold (latency "cold"))
+  (define edit (latency "edit"))
+  (define restart
+    (by-count (string-append "restart conversations=(\\d+) message_bytes=" LOAM-MESSAGE-BYTES " reads=(\\d+) elapsed_ns=(\\d+)")
+              (lambda (m) (list (n (list-ref m 2)) (n (list-ref m 3))))))
+  (define footprint
+    (by-count (string-append "footprint conversations=(\\d+) message_bytes=" LOAM-MESSAGE-BYTES " objects=\\d+ record_bytes=(\\d+) cold_zig_heap_bytes=(\\d+)")
+              (lambda (m) (list (n (list-ref m 2)) (n (list-ref m 3))))))
+  (for/list ([c (in-list (sort (hash-keys restart) <))])
+    (list c (hash-ref hot c) (hash-ref cold c) (hash-ref edit c) (hash-ref restart c) (hash-ref footprint c))))
 
 ;; langs (per-language consumer cost): parsed from the langs bench's generated
 ;; markdown table. Returns an ordered list of (client runtime p50 rps setup mem
@@ -346,6 +370,40 @@
            (r1 (us (cadr small))) (car small)
            (r1 (us (cadr big))) (car big))))
 
+;; Loam: call latency awake and asleep, and what memory holds, by graph size,
+;; then every figure in one table.
+(define (loam-region rows)
+  (define (us ns) (/ ns 1000.0))
+  (define (mib b) (/ b 1048576.0))
+  (define groups (for/list ([r (in-list rows)]) (commas (car r))))
+  (define big (last rows))
+  (define (col sel) (for/list ([r (in-list rows)]) (sel r)))
+  (define latency-svg
+    (svg-bars groups
+              (list (list "awake" AMBER (col (lambda (r) (us (car (list-ref r 1))))))
+                    (list "asleep" GREEN (col (lambda (r) (us (car (list-ref r 2)))))))
+              (lambda (v) (~r v #:precision 1))))
+  (define memory-svg
+    (svg-bars groups
+              (list (list "records on disk" TEAL (col (lambda (r) (mib (car (list-ref r 5))))))
+                    (list "Zig heap" AMBER (col (lambda (r) (mib (cadr (list-ref r 5)))))))
+              (lambda (v) (~r v #:precision 1))))
+  (string-append
+   (legend (list "awake" AMBER) (list "asleep" GREEN) (list "records on disk" TEAL))
+   (charts (figure "Call latency (p50 µs by conversation count)." latency-svg)
+           (figure "Memory (MiB by conversation count, all actors asleep)." memory-svg))
+   (html-table '("conversations" "awake call p50 µs" "asleep call p50 / p99 µs" "edit p50 / p99 ms" "restart to first call ms" "records read at restart")
+               (for/list ([r (in-list rows)])
+                 (define cold (list-ref r 2))
+                 (define edit (list-ref r 3))
+                 (define restart (list-ref r 4))
+                 (list (commas (car r)) (r1 (us (car (list-ref r 1))))
+                       (format "~a / ~a" (r1 (us (car cold))) (r1 (us (cadr cold))))
+                       (format "~a / ~a" (r1 (/ (car edit) 1e6)) (r1 (/ (cadr edit) 1e6)))
+                       (r1 (/ (cadr restart) 1e6)) (car restart))))
+   (format "\n<p class=\"bench-note\">Each conversation is one callable actor and four 4,096-byte messages in LMDB with synchronous commits. An asleep call loads the actor's record first. An edit is one call and one durable commit. A restart opens the database in a new Host and answers one call, reading only the record it calls. At ~a conversations the Zig heap holds ~a KiB per conversation, against ~a KiB of records on disk. The heap excludes LMDB's mapped pages, which the operating system caches separately.</p>"
+           (commas (car big)) (r1 (/ (cadr (list-ref big 5)) 1024.0 (car big))) (r1 (/ (car (list-ref big 5)) 1024.0 (car big))))))
+
 ;; Per-language consumer cost: one bar per client for latency p50, throughput,
 ;; and cold start, plus the full value table. The Goblins reference row keeps the
 ;; substrate bench's teal; the language rows take amber so a reader does not read
@@ -435,6 +493,7 @@
   (define snap-p (parse-snapshot (run "zig build bench-snapshot -Doptimize=ReleaseFast 2>&1")))
   (define snap-g (parse-goblins-snapshot (run "racket bench/goblins/snapshot.rkt 2>&1")))
   (define iroh (parse-iroh (run "zig build bench-iroh -Doptimize=ReleaseFast 2>&1")))
+  (define loam (parse-loam (run "zig build bench-loam -Doptimize=ReleaseFast -- --ordinary-only 2>&1")))
   (run "zig build bench-langs -Doptimize=ReleaseFast 2>&1")
   (define langs (parse-langs-md (latest-langs-md)))
   (printf "rendering + splicing into ~a...\n" PERF) (flush-output)
@@ -447,7 +506,8 @@
                                                 (cons "goblins" (goblins-region goblins))
                                                 (cons "langs" (langs-region langs))
                                                 (cons "snapshot" (snapshot-region snap-p snap-g))
-                                                (cons "iroh" (iroh-region iroh))))])
+                                                (cons "iroh" (iroh-region iroh))
+                                                (cons "loam" (loam-region loam))))])
       (splice t (car pair) (cdr pair))))
   (call-with-output-file PERF (lambda (o) (display out o)) #:exists 'replace)
   (printf "done. validate with: zig build site\n"))

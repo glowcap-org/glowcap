@@ -1,7 +1,8 @@
 //! Wire-delta GC: refcounts move by direction, zero deltas are refused
 //! before any mutation in both profiles and codecs, underflow is loud, a
 //! re-sent export retains its delta, the local baseline and the pinned
-//! bootstrap position are never releasable, and scratch OOM reports itself.
+//! bootstrap position are never releasable, scratch OOM reports itself, and a
+//! send refused for memory takes no export retain.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -371,4 +372,35 @@ test "gc validation scratch reports host OOM as itself, not GcUnderflow" {
         &s.inbound_answers,
         &answer_positions,
     ));
+}
+
+test "a send refused for memory takes no export retain" {
+    // Validation requires a live row for every sent `near`, so the retain walk
+    // only increments rows. Failing each allocation in turn must leave every
+    // count as it was: a refused send put nothing on the wire.
+    var fail_after: usize = 0;
+    while (true) : (fail_after += 1) {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var s = session.Session.init(failing.allocator());
+        defer s.deinit();
+        var args: [17]model.Argument = undefined;
+        for (&args, 7..) |*arg, position| {
+            try s.registerExport(.from(position));
+            arg.* = .{ .reference = .{ .near = .{ .export_position = .from(position) } } };
+        }
+        const baseline = s.exportRefcount(.from(7));
+
+        failing.fail_index = failing.alloc_index + fail_after;
+        s.recordSend(.{ .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+            .args = &args,
+            .answer = .from(1),
+        } }) catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            for (7..24) |position| try std.testing.expectEqual(baseline, s.exportRefcount(.from(position)));
+            continue;
+        };
+        for (7..24) |position| try std.testing.expectEqual(baseline + 1, s.exportRefcount(.from(position)));
+        break;
+    }
 }

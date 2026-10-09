@@ -54,7 +54,7 @@ pub fn glowcap_host_session_publish(
     const inst = instOf(session.host);
     if (preflightHostedTransfer(inst)) |code| return code;
     const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
-    const reference = inst.core.publishHosted(session, name_bytes, hosted) catch |err| return errToCode(err);
+    const reference = inst.core.sessionPublishHosted(session, name_bytes, hosted) catch |err| return errToCode(err);
     slot.* = .{ .id = reference.raw() };
     return GLOWCAP_OK;
 }

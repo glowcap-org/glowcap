@@ -80,22 +80,12 @@ pub fn releaseCloseEvent(self: *HostRuntime) void {
 /// wire's carrier has completed, so its close seat is already consumed.
 pub fn freeWire(self: *HostRuntime, wire: *Wire) void {
     std.debug.assert(wire.carrierClosed());
-    switch (wire.link) {
-        .stream => |*stream| {
-            if (stream.conn.socketHandle()) |fd| Internal.removeReadyFd(self, fd);
-            if (!stream.transport_released) stream.conn.deinit();
-            self.allocator.free(stream.read_buf);
-            self.allocator.free(stream.write_buf);
-        },
-        .resident => |*rl| {
-            std.debug.assert(self.resident_wires.remove(.{ .resident = rl.index, .conn = rl.conn }));
-            if (rl.pending) |*pending| pending.frame.deinit();
-            rl.parked.deinit(self.allocator);
-            for (rl.parked_packets.items) |packet| self.allocator.free(packet);
-            rl.parked_packets.deinit(self.allocator);
-            self.allocator.free(rl.read_buf);
-        },
-    }
+    const rl = &wire.link;
+    std.debug.assert(self.resident_wires.remove(.{ .resident = rl.index, .conn = rl.conn }));
+    if (rl.pending) |*pending| pending.frame.deinit();
+    rl.parked.deinit(self.allocator);
+    for (rl.parked_packets.items) |packet| self.allocator.free(packet);
+    rl.parked_packets.deinit(self.allocator);
     self.allocator.destroy(wire);
 }
 
@@ -139,18 +129,30 @@ fn unlinkRetiringWire(self: *HostRuntime, wire: *Wire) void {
     wire.retiring_next = null;
 }
 
-/// Final Runtime destruction joins stream close directly. A resident package
-/// stays the asynchronous owner and is joined later in the deinit barrier.
+/// A resident package stays the asynchronous owner of a carrier close and is
+/// joined in the deinit barrier. After fail-stop the runtime drains no actions and polls no resident, so
+/// a closing session's carrier would never report. Force each one closed as
+/// teardown does, carrying the runtime's terminal cause; a resident's package
+/// release joins the physical operation.
+pub fn forceClosingCarriers(self: *HostRuntime, cause: OperationFailure) void {
+    var wires = self.wires.valueIterator();
+    while (wires.next()) |wire| {
+        if (wire.*.carrierClosed() or wire.*.session.lifecyclePhase() == .active) continue;
+        noteWireCloseFailure(wire.*, cause);
+        forceWireCarrierClose(self, wire.*);
+    }
+    var retiring = self.retiring_wires;
+    while (retiring) |wire| {
+        const next = wire.retiring_next;
+        noteWireCloseFailure(wire, cause);
+        forceWireCarrierClose(self, wire);
+        retiring = next;
+    }
+}
+
 pub fn forceWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     if (!wire.closed) closeWire(self, wire, null);
     if (wire.carrierClosed()) return;
-    switch (wire.link) {
-        .stream => |*stream| if (!stream.transport_released) {
-            if (stream.conn.closeGracefully(transport_close_ms)) |failure|
-                noteWireCloseChain(wire, failure);
-        },
-        .resident => {},
-    }
     finishWireCarrierClose(self, wire);
 }
 
@@ -163,10 +165,8 @@ pub fn closeWire(self: *HostRuntime, wire: *Wire, cause: ?anyerror) void {
 }
 
 fn takeWireFailure(self: *HostRuntime, wire: *Wire) ?OperationFailure {
-    const chain = switch (wire.link) {
-        .stream => |*sl| sl.conn.takeFailure(),
-        .resident => |rl| self.residents.items[rl.index].resident.takeFailure(rl.conn),
-    } orelse return null;
+    const rl = &wire.link;
+    const chain = self.residents.items[rl.index].resident.takeFailure(rl.conn) orelse return null;
     return OperationFailure.fromChain(chain);
 }
 
@@ -196,27 +196,6 @@ fn noteWireCloseChain(wire: *Wire, later: foundation.FailureChain) void {
         wire.close_failure = OperationFailure.fromChain(later);
 }
 
-fn setStreamCloseInterest(self: *HostRuntime, wire: *Wire, progress: net.ConnectionCloseProgress) void {
-    const stream = switch (wire.link) {
-        .stream => |*value| value,
-        .resident => unreachable,
-    };
-    wire.carrier_close = switch (progress) {
-        .wait_read => .wait_read,
-        .wait_write => .wait_write,
-        else => unreachable,
-    };
-    switch (self.drive) {
-        .blocking => {},
-        .stepped => |*stepped| if (stream.conn.socketHandle()) |fd| {
-            stepped.ready_set.setInterest(fd, if (progress == .wait_read) .read else .write) catch |err| {
-                noteWireCloseFailure(wire, .fromError(err));
-                finishWireCarrierClose(self, wire);
-            };
-        },
-    }
-}
-
 pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     if (!wire.closed or wire.carrierClosed()) return;
     const expired = if (wire.carrier_close_deadline_ms) |deadline|
@@ -226,37 +205,17 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     if (expired) {
         noteWireCloseFailure(wire, .fromError(error.CloseTimedOut));
         clearCarrierCloseDeadline(self, wire);
-        switch (wire.link) {
-            .stream => |*stream| {
-                stream.conn.deinit();
-                stream.transport_released = true;
-                finishWireCarrierClose(self, wire);
-            },
-            // The resident package still owns the operation and will join it
-            // at release; timeout cannot fabricate physical completion.
-            .resident => {},
-        }
+        // The resident package still owns the operation and will join it at
+        // release; timeout cannot fabricate physical completion.
         return;
     }
-    switch (wire.link) {
-        .stream => |*stream| switch (stream.conn.advanceClose()) {
-            .complete => finishWireCarrierClose(self, wire),
-            .failed => {
-                noteWireCloseChain(
-                    wire,
-                    stream.conn.takeFailure() orelse foundation.FailureChain.init(error.TransportCloseFailed),
-                );
-                finishWireCarrierClose(self, wire);
-            },
-            .wait_read, .wait_write => |progress| setStreamCloseInterest(self, wire, progress),
-        },
-        .resident => |resident| switch (self.residents.items[resident.index].resident.connCloseOutcome(resident.conn)) {
-            .complete => finishWireCarrierClose(self, wire),
-            .pending => wire.carrier_close = .wait_resident,
-            .failed => |reported| {
-                noteWireCloseChain(wire, reported);
-                finishWireCarrierClose(self, wire);
-            },
+    const rl = &wire.link;
+    switch (self.residents.items[rl.index].resident.connCloseOutcome(rl.conn)) {
+        .complete => finishWireCarrierClose(self, wire),
+        .pending => wire.carrier_close = .wait_resident,
+        .failed => |reported| {
+            noteWireCloseChain(wire, reported);
+            finishWireCarrierClose(self, wire);
         },
     }
 }
@@ -269,10 +228,6 @@ fn finishWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
         Internal.retainAndReportUnhandledFailure(self, .fromError(error.ProviderContract))
     else
         self.open_wire_count -= 1;
-    switch (wire.link) {
-        .stream => |*stream| if (stream.conn.socketHandle()) |fd| Internal.removeReadyFd(self, fd),
-        .resident => {},
-    }
     if (wire.detached) {
         unlinkRetiringWire(self, wire);
         freeWire(self, wire);

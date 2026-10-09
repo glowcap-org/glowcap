@@ -32,18 +32,11 @@ import {
 	type DirectoryDestinationContext,
 	type JoinAnswers,
 	type JoinResolution,
+	joinRoomOffers,
 	privateRoomNameRefusal,
 } from "../joining.ts";
 import { policyForRoomPreset } from "../room_policy.ts";
-import {
-	CAUGHT_UP,
-	type DirId,
-	dirId,
-	type DirView,
-	type Invitation,
-	liveRoomNames,
-	type SessionPhase,
-} from "../types.ts";
+import { CAUGHT_UP, type DirId, dirId, type DirView, type Invitation, liveRoomNames } from "../types.ts";
 import { DirectMessages } from "../sidebar/dms.tsx";
 import { YourRooms } from "../sidebar/rooms.tsx";
 import { RailFilter } from "../sidebar/Filter.tsx";
@@ -90,7 +83,6 @@ function SidebarPane(
 		joinResolution,
 		railShown,
 		mobile,
-		session,
 		standing,
 		invites,
 		settingsOpen,
@@ -118,7 +110,6 @@ function SidebarPane(
 		joinResolution: JoinResolution;
 		railShown: boolean;
 		mobile: boolean;
-		session: SessionPhase;
 		/** Where this reader stands everywhere, which the foot both shows and
 		 * sets. */
 		standing: string;
@@ -207,7 +198,9 @@ function SidebarPane(
 	// somewhere else would open a different room. Direct-line names are the
 	// other field's, and they subscribe there so a join does not rebuild this
 	// list.
-	const roomOffers = liveRoomNames(dirs.get(here)?.liveRooms ?? new Map());
+	const roomOffers = linked
+		? joinRoomOffers(join.locator.value, join.room.value, dirs, directoryContext, rooms.directoryId)
+		: liveRoomNames(dirs.get(here)?.liveRooms ?? new Map());
 	// The one field that names a room, whatever this tab holds. Where the room
 	// lands is stated on the field rather than decided by where the field sits,
 	// so the destination can change without leaving the rail.
@@ -234,9 +227,11 @@ function SidebarPane(
 					return;
 				}
 			}
-			if (preset === "open") rooms.pickRoom(here, name);
-			else rooms.openManagedRoom(here, name, policyForRoomPreset(preset));
-			browser.showActiveConversation();
+			void browser.showActiveConversation(
+				preset === "open"
+					? rooms.pickRoom(here, name)
+					: rooms.openManagedRoom(here, name, policyForRoomPreset(preset)),
+			);
 		},
 		onError: (text: string) => browser.toast("failure", text),
 		// With the join card on screen, this field and that form name one room:
@@ -375,8 +370,7 @@ function SidebarPane(
 						onTake={rooms.acceptInvite}
 						onDrop={rooms.declineInvite}
 						onPick={(conv) => {
-							rooms.pickRoom(conv.dir, conv.id, conv.key);
-							browser.showActiveConversation();
+							void browser.showActiveConversation(rooms.pickRoom(conv.dir, conv.id, conv.key));
 						}}
 						onLeave={rooms.leaveRoom}
 						onAbout={browser.showDirectory}
@@ -398,13 +392,11 @@ function SidebarPane(
 					open={open === "newDm"}
 					onOpen={opener("newDm")}
 					onSubmit={(name) => {
-						rooms.startDm(name);
-						browser.showActiveConversation();
+						void browser.showActiveConversation(rooms.startDm(name));
 					}}
 					onError={(text) => browser.toast("failure", text)}
 					onSelect={(key) => {
-						void rooms.openConv(key);
-						browser.showActiveConversation();
+						void browser.showActiveConversation(rooms.openConv(key));
 					}}
 					onClose={rooms.closeDm}
 					onAbout={browser.showDirectory}
@@ -414,7 +406,6 @@ function SidebarPane(
 				canInteract={canInteract}
 				dirs={dirs}
 				home={homeDir}
-				session={session}
 				standing={standing}
 			/>
 		</nav>

@@ -87,8 +87,8 @@ class _LifecycleMixin(HostMixinBase):
         state = self._finalizer_state
         if state is not None:
             _retire_finalizer_state(state)
-        self._giftables.clear()
-        self._displaced_giftables.clear()
+        self._publications.clear()
+        self._displaced_publications.clear()
         self._hosted.clear()
         self._connectors.clear()
         self._vows.clear()

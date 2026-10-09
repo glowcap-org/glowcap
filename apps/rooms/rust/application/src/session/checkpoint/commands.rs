@@ -32,6 +32,7 @@ pub trait Facts {
 impl Facts for () {}
 
 crate::session::command::catalog! { Command {
+	ClearWorkspace,
 	SetDraft,
 	Select,
 	AcceptInvitation,
@@ -41,6 +42,7 @@ crate::session::command::catalog! { Command {
 	JoinDirectory,
 	LeaveDirectory,
 	SetDirectoryNick,
+	ChooseDirectoryNickname,
 	JoinRoom,
 	StartDirect,
 	OpenDirect,
@@ -71,7 +73,6 @@ pub enum Error {
 	Conflict,
 	NamedDirectory,
 	Generation,
-	OperationsScope,
 	Publication,
 	Checkpoint(super::Refusal),
 }
@@ -90,7 +91,6 @@ impl core::fmt::Display for Error {
 			Self::Conflict => "Rooms command conflicts with the current checkpoint",
 			Self::NamedDirectory => "choose an acceptable directory nickname before continuing",
 			Self::Generation => "the room's retained capability generation changed",
-			Self::OperationsScope => "the operations capability scope changed while the edit was pending",
 			Self::Publication => "the room's source has no matching current publication",
 			Self::Checkpoint(error) => return error.fmt(f),
 		})
@@ -170,9 +170,9 @@ impl Command {
 			| Self::SetIgnoredName
 			| Self::AcceptInvitation
 			| Self::DropRoomModerator
-			| Self::DropRoomManager
-			| Self::ChooseConnection => 2..=2,
-			Self::SetDirectoryNick => 2..=3,
+			| Self::DropRoomManager => 2..=2,
+			Self::ChooseConnection => 1..=1,
+			Self::SetDirectoryNick | Self::ChooseDirectoryNickname => 2..=3,
 			Self::ReplaceOperationsBundle => 3..=3,
 			Self::SubmitRoomBridgeForm => 5..=6,
 			_ => 1..=1,
@@ -182,6 +182,7 @@ impl Command {
 		}
 		let mut next = current.0.clone();
 		match self {
+			Self::ClearWorkspace | Self::ReplaceOperationsBundle => return Err(Error::Arguments),
 			Self::SetDraft => {
 				let draft = text(&args[1])?;
 				match conversation(&mut next, &args[0])? {
@@ -221,14 +222,14 @@ impl Command {
 				push(&mut next.directories, directory)?;
 			}
 			Self::LeaveDirectory => peering::retire_directory(&mut next, &args[0])?,
-			Self::SetDirectoryNick | Self::SetDirectoryStanding => {
+			Self::SetDirectoryNick | Self::ChooseDirectoryNickname | Self::SetDirectoryStanding => {
 				let directory = next
 					.directories
 					.0
 					.iter_mut()
 					.find(|d| d.id.0 == args[0])
 					.ok_or(Error::Missing)?;
-				if self == Self::SetDirectoryNick {
+				if matches!(self, Self::SetDirectoryNick | Self::ChooseDirectoryNickname) {
 					directory.nick = text(&args[1])?;
 					directory.nick_allocation = match args.get(2).and_then(DocumentText::as_str) {
 						None | Some("exact") => crate::directory::registration::NicknameAllocation::Exact,
@@ -264,12 +265,6 @@ impl Command {
 						Conversation::Direct(alloc::boxed::Box::new(direct)),
 					)?;
 				}
-			}
-			Self::ReplaceOperationsBundle => {
-				if args[2].as_str() != Some(current.operations_bundle_context().as_str()) {
-					return Err(Error::OperationsScope);
-				}
-				peering::replace_bundle(&mut next, &args[0], &args[1])?;
 			}
 			Self::PublishPeeredRoom | Self::RevokePeeredRoom | Self::ReplaceOperationsCapabilities => {
 				peering::apply(&mut next, self, &args[0])?;
@@ -341,7 +336,6 @@ impl Command {
 					Some("relay") => DmMode::Relay,
 					_ => return Err(Error::Arguments),
 				};
-				next.trace_override = text(&args[1])?;
 			}
 			Self::SelectArchive => next.capabilities.archive_peer = optional(args.first())?,
 		}

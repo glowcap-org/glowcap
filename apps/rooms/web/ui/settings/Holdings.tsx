@@ -10,18 +10,15 @@ import type { ArchiveTargetView } from "../archive_model.ts";
 import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { useRoomsState } from "../hooks.ts";
-import { useOpenModal } from "../modal.ts";
 import type { RoomConv } from "../types.ts";
 import { CapabilitySetForm } from "./CapabilitySet.tsx";
 import { ArchiveHolding } from "./History.tsx";
 import { IssuedArchiveShares } from "./ArchiveShares.tsx";
-import { SessionAccessModal } from "./SessionAccess.tsx";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 import {
 	holdingsCopyAttached,
 	holdingsCopyHosted,
 	holdingsEntryLink,
-	holdingsManageAccessAsk,
 	holdingsManager,
 	holdingsModerator,
 	holdingsOpenRoomControls,
@@ -36,9 +33,7 @@ import { refusalText } from "../../../lib/text/failure.ts";
 export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }) {
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
-	const openModalFrom = useOpenModal();
 	const convs = useRoomsState((state) => state.convs);
-	const [accessOpen, setAccessOpen] = useState(false);
 	const rooms = [...convs.values()].filter((conv): conv is RoomConv => conv.type === "room");
 	const savedRooms = rooms.filter((room) =>
 		room.linkToken != null || room.managerToken != null || room.stewardToken != null
@@ -74,18 +69,7 @@ export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }
 							text={shared.sturdyref}
 							label={controller.kind === "hosted" ? holdingsCopyHosted : holdingsCopyAttached}
 						/>
-						<div className="actions">
-							<Button
-								id="sessionAccessOpen"
-								type="button"
-								variant="quiet"
-								onClick={(event) => openModalFrom(event.currentTarget, () => setAccessOpen(true))}
-							>
-								{holdingsManageAccessAsk}
-							</Button>
-						</div>
 					</div>
-					<SessionAccessModal open={accessOpen} onClose={() => setAccessOpen(false)} />
 				</>
 			)}
 

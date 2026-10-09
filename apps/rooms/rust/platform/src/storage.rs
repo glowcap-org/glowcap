@@ -8,6 +8,7 @@ use std::{
 	path::PathBuf,
 };
 pub mod atomic;
+pub mod session;
 #[cfg(test)]
 mod tests;
 #[derive(Debug)]

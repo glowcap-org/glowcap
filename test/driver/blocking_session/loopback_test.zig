@@ -73,9 +73,8 @@ fn serveBoardOnce(server: *driver.Server) anyerror!void {
 /// `status` of `done` proves the questioner half end to end: a dependent chain
 /// crossed the wire as one batch, not four round trips.
 fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
-    var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -104,8 +103,7 @@ test "driver loopback: promise pipelining drives create->assign->complete->statu
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
     defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
@@ -201,9 +199,8 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
 /// setup. `call` returns the settled outcome materialized into the caller's
 /// arena, no ctx/callback dance.
 fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
-    var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -237,8 +234,7 @@ test "driver loopback: connect and listen own peers and buffers, fetch + call ro
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
     defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
@@ -386,9 +382,8 @@ const LocalPing = struct {
 /// flush's local drive, so the call returns without the partner sending
 /// anything after the handshake (the host publishes but is never fetched).
 fn callLocalOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
-    var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -412,8 +407,7 @@ test "driver loopback: call on a locally spawned ref settles with no partner tra
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
     defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
@@ -567,9 +561,8 @@ fn serveGrantOnMarshalOnce(server: *driver.Server) anyerror!void {
 /// Fetch the factory, prove the marshaled capability answers, then probe the
 /// reserved position learned out-of-band and prove it is unaddressable.
 fn probeReservedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
-    var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -613,8 +606,7 @@ test "driver loopback: a spawned capability is unreachable until first marshaled
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
     defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));

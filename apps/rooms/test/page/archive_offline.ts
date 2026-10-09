@@ -71,6 +71,10 @@ export async function run(tab: Page, dmName: string): Promise<void> {
 		await tab.reload();
 		await tab.waitForSelector("#settingsBtn", { timeout: 30_000 });
 		await namedDirectRow(tab, dmName).locator(".dm-open").click();
+		// The new page Host has no live direct route. Reintroduce this saved
+		// conversation through its exact peer registration before using it.
+		await tab.waitForSelector("#dmReconnect", { timeout: 20_000 });
+		await tab.click("#dmReconnect");
 		await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 });
 	}
 }

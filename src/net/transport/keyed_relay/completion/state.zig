@@ -32,6 +32,9 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             tls_handshake,
             sending_upgrade,
             reading_upgrade,
+            /// A registration leg the relay holds for a dialer. It answers
+            /// controls and becomes `open` at the first application frame.
+            parked,
             open,
             closing,
         };

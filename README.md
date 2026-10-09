@@ -84,14 +84,13 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 // Noise_XK seals the CapTP stream and proves the dialed key.
-var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
-const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
 var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 const partner = glowcap.net.tcp.noise.locator(peer_key, address, &hint_storage);
 
 const session = try glowcap.driver.connect(
     allocator,
-    &netlayers,
+    io,
+    .{ .symbols = &.{.noise_tcp} },
     partner,
     .ephemeral,
     // Never leave a network wait unbounded.

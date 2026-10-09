@@ -13,13 +13,13 @@ struct Fields {
 	directory: Text<8192, true>,
 	at: SafeInteger,
 	#[serde(default, deserialize_with = "present")]
-	room: Option<Text<512, true>>,
+	room: Option<Text<MAX_CONVERSATION_BYTES, true>>,
 	#[serde(default, deserialize_with = "present")]
 	nick: Option<Text<32>>,
 	#[serde(default, deserialize_with = "present")]
 	conversation_kind: Option<ConversationKind>,
 	#[serde(default, deserialize_with = "present")]
-	conversation: Option<Text<512, true>>,
+	conversation: Option<Text<MAX_CONVERSATION_BYTES, true>>,
 	#[serde(default, deserialize_with = "present")]
 	from: Option<Text<32>>,
 	#[serde(default, deserialize_with = "present")]

@@ -57,22 +57,6 @@ impl PageArchive {
 			serial: Rc::default(),
 		})
 	}
-	pub(crate) fn eraser(&self) -> super::Eraser {
-		let (database, cache, memory) = match &self.storage {
-			Storage::Durable { archive, .. } => (Some(archive.database.clone()), archive.cache.clone(), None),
-			Storage::Volatile(memory) => (None, Default::default(), Some(memory.clone())),
-		};
-		super::Eraser {
-			database,
-			effects: super::erase::Effects {
-				cache,
-				memory,
-				erased: self.erased.clone(),
-			},
-			pending: Default::default(),
-			serial: self.serial.clone(),
-		}
-	}
 	fn require_retained(&self) -> Result<(), Error> {
 		if self.erased.get() { Err(Error::Closed) } else { Ok(()) }
 	}
@@ -175,6 +159,16 @@ impl Backend for PageArchive {
 				archive.cache.clear();
 			}
 			Storage::Volatile(memory) => memory.clear(),
+		}
+		Ok(())
+	}
+	async fn clear_source(&mut self, source: &DocumentText) -> Result<(), rooms_runtime::Error> {
+		let serial = self.serial.clone();
+		let _serial = serial.lock().await;
+		self.require_retained()?;
+		match &mut self.storage {
+			Storage::Durable { archive, .. } => archive.clear_source(source.clone()).await?,
+			Storage::Volatile(memory) => memory.clear_source(source),
 		}
 		Ok(())
 	}

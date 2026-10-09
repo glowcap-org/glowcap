@@ -19,6 +19,13 @@ const locator = @import("locator.zig");
 pub const GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION: u32 = 1;
 pub const GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION: u32 = 1;
 pub const GLOWCAP_STREAM_TRANSPORT_ABI_VERSION: u32 = 1;
+/// `try_read` / `try_write` result when the operation cannot progress
+/// without blocking, for stream and multiplexed tables alike. Distinct from 0
+/// (clean end of stream on read; a full window's zero-byte write) and -1 (a
+/// dead connection). The same value as the Zig contract's
+/// `net.multiplexed_resident.would_block` and the iroh sidecar's
+/// `GLOWCAP_IROH_WOULD_BLOCK`, so trampolines pass results through unchanged.
+pub const GLOWCAP_TRANSPORT_WOULD_BLOCK: isize = -2;
 pub const GLOWCAP_LISTEN_READY: u32 = 0;
 pub const GLOWCAP_LISTEN_PENDING: u32 = 1;
 pub const GLOWCAP_TRANSPORT_EXEC_STREAM: u32 = 1;
@@ -341,22 +348,26 @@ pub const GlowcapStreamListenerCloseFn = *const fn (
     out_failure: ?*GlowcapProviderFailure,
 ) callconv(.c) i32;
 
-pub const GlowcapStreamReadFn = *const fn (
+/// Read into `out` without blocking: 1..cap bytes, 0 at end of stream, -1 on
+/// a dead connection (its cause is claimable through `conn_take_failure`), or
+/// `GLOWCAP_TRANSPORT_WOULD_BLOCK` until the connection's readiness
+/// descriptor is readable again.
+pub const GlowcapStreamTryReadFn = *const fn (
     ctx: ?*anyopaque,
     conn: ?*anyopaque,
     out: ?[*]u8,
     cap: usize,
 ) callconv(.c) isize;
 
-/// Write the complete borrowed slice before returning. The callback returns
-/// `GLOWCAP_OK` only after all bytes are consumed; partial progress is not a
-/// result in the blocking stream execution model.
-pub const GlowcapStreamWriteAllFn = *const fn (
+/// Write from `bytes` without blocking: 1..len bytes consumed (the provider
+/// owns them once counted), -1 on a dead connection, or
+/// `GLOWCAP_TRANSPORT_WOULD_BLOCK` until the readiness descriptor is writable.
+pub const GlowcapStreamTryWriteFn = *const fn (
     ctx: ?*anyopaque,
     conn: ?*anyopaque,
     bytes: ?[*]const u8,
     len: usize,
-) callconv(.c) i32;
+) callconv(.c) isize;
 
 pub const GlowcapStreamConnCloseFn = *const fn (
     ctx: ?*anyopaque,
@@ -379,9 +390,11 @@ pub const GlowcapStreamConnTakeFailureFn = *const fn (
 /// dial attempt owns its readiness descriptor until exactly one finish or
 /// cancel consumes it, and a PENDING listener attempt has the same ownership
 /// rule. Callbacks
-/// return `GLOWCAP_OK` or a `GLOWCAP_ERR_*` value except `read`, whose
-/// byte-count contract is explicit; handles and descriptors remain
-/// provider-owned until the matching close callback.
+/// return `GLOWCAP_OK` or a `GLOWCAP_ERR_*` value except `try_read` and
+/// `try_write`, whose byte-count contract is explicit; handles and
+/// descriptors remain provider-owned until the matching close callback. A
+/// connection's readiness descriptor reports when `try_read` or `try_write`
+/// can progress, so one thread drives every connection.
 pub const GlowcapStreamTransport = extern struct {
     abi_version: u32,
     struct_size: usize,
@@ -399,8 +412,8 @@ pub const GlowcapStreamTransport = extern struct {
     listener_restoration_state: ?GlowcapTransportListenerRestorationStateFn = null,
     accept: ?GlowcapStreamAcceptFn,
     listener_close: ?GlowcapStreamListenerCloseFn,
-    read: ?GlowcapStreamReadFn,
-    write_all: ?GlowcapStreamWriteAllFn,
+    try_read: ?GlowcapStreamTryReadFn,
+    try_write: ?GlowcapStreamTryWriteFn,
     conn_close: ?GlowcapStreamConnCloseFn,
     conn_take_failure: ?GlowcapStreamConnTakeFailureFn,
 };

@@ -1,7 +1,6 @@
 //! Live three-party handoff, with glowcap as the GIFTER (the introducer),
-//! driven through `driver.core.Host` + `driver.Bridge` + `net.TcpLoop`
-//! (ADR-0068, ADR-0076). The mirror of `handoff_driver.zig` (glowcap as
-//! recipient).
+//! served by one `driver.Server` (ADR-0068). The mirror of
+//! `handoff_driver.zig` (glowcap as recipient).
 //!
 //! Topology (TCP loopback):
 //!   Bob    (Goblins exporter)  hosts a greeter behind a fixed swiss.
@@ -36,16 +35,8 @@ const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
 const model = glowcap.ocapn.model;
-const actors = glowcap.actors;
-const crypto = glowcap.foundation.crypto;
 const driver = glowcap.driver;
-const net = glowcap.net;
 const tcp = glowcap.net.tcp;
-
-const Host = driver.core.Host;
-const HostSession = driver.core.HostSession;
-const TcpBridge = driver.Bridge(net.TcpLoop);
-const runLoop = harness.LoopRunner(net.TcpLoop).runUntilFlag;
 
 const host_addr = "127.0.0.1";
 const default_bob_port: u16 = 22120;
@@ -56,66 +47,62 @@ const greeter_swiss = "glowcapGiftGreeterSwissnum000001";
 const introducer_swiss = "introducer";
 const deadline_ms: u64 = 60_000;
 
-fn pokeListener(io: std.Io, port: u16) void {
-    if (port == 0) return;
-    const address = std.Io.net.IpAddress.parse(host_addr, port) catch return;
-    var stream = std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream }) catch return;
-    stream.close(io);
-}
+const opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 20_000 },
+    .settle = .{ .ms = 20_000 },
+};
 
 const route_hint_name = "route-token";
 const route_hint_bytes = @as([64]u8, @splat(0xa5));
 
-const GifterState = struct {
-    host: *Host,
-    bridge: *TcpBridge,
-    bob_conn: ?*HostSession = null,
-    greeter: ?model.Reference = null,
-    fetched: *std.atomic.Value(bool),
-
-    fn onFetched(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *GifterState = @ptrCast(@alignCast(ctx.?));
-        switch (resolution) {
-            .fulfilled => |value| {
-                if (value == .reference) {
-                    self.greeter = value.reference;
-                    std.debug.print("goblins-gift: fetched goblins-bob's greeter\n", .{});
-                } else {
-                    std.debug.print("goblins-gift: fetch settled to a non-reference\n", .{});
-                }
-            },
-            .broken => |reason| std.debug.print("goblins-gift: fetch broke: {s}\n", .{reason}),
-            .give => {},
-        }
-        self.fetched.store(true, .release);
-    }
-};
-
 const Introducer = struct {
-    state: *GifterState,
+    greeter: driver.Capability,
 
-    pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "get-greeter")) return error.NoSuchMethod;
-        const greeter = self.state.greeter orelse return error.NotReady;
-        return .{ .reference = greeter };
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
+        _ = args;
+        if (!std.mem.eql(u8, verb, "get-greeter")) return error.NoSuchMethod;
+        return .{ .capability = self.greeter };
     }
 };
 
-fn publishIntroducer(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
-    const state: *GifterState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish(vat, introducer_swiss, Introducer, .{ .state = state });
-}
-
-fn gifterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
-    const state: *GifterState = @ptrCast(@alignCast(ctx.?));
-    if (conn.leg != .app_dial or conn.session.role != .dialed) return;
-    if (state.bob_conn != null) return;
-    state.bob_conn = conn.session;
+/// Fetch Bob's greeter over the gifter's own runtime, publish the introducer
+/// that hands it out, then serve the recipient until the run ends. One
+/// runtime holds both sessions, so the give names a session the gifter owns.
+fn serveGifter(
+    gifter: *driver.Server,
+    bob_locator: model.PeerLocator,
+    settled: *std.atomic.Value(bool),
+    published: *std.atomic.Value(bool),
+    done: *std.atomic.Value(bool),
+) anyerror!void {
+    // A setup failure still releases the waiting main thread.
+    defer settled.store(true, .release);
+    const bob_session = try gifter.runtime.connectLocator(bob_locator, .inherit);
+    const bob = try driver.Session.adopt(gifter.runtime, bob_session);
+    defer bob.deinit();
     std.debug.print("goblins-gift: session open (glowcap as gifter -> bob)\n", .{});
-    const vow = try state.host.fetch(conn.session, greeter_swiss);
-    try state.host.vowOn(vow, .{ .ctx = state, .func = GifterState.onFetched });
-    try bridge.drainActions();
+    const greeter = try bob.fetch(greeter_swiss);
+    std.debug.print("goblins-gift: fetched goblins-bob's greeter\n", .{});
+    try gifter.publish(introducer_swiss, Introducer, .{ .greeter = greeter });
+    published.store(true, .release);
+    settled.store(true, .release);
+
+    var carol: ?*driver.Session = null;
+    defer if (carol) |session| session.deinit();
+    while (!done.load(.acquire)) {
+        if (carol == null and try gifter.waitAcceptable(20)) carol = try gifter.accept();
+        // Bob's session carries the recipient's withdraw; both must turn.
+        _ = bob.stepReadable(10) catch |err| switch (err) {
+            error.ConnectionClosed, error.ProtocolAbort => {},
+            else => |e| return e,
+        };
+        if (carol) |session| _ = session.stepReadable(10) catch |err| switch (err) {
+            error.ConnectionClosed, error.ProtocolAbort => {},
+            else => |e| return e,
+        };
+    }
 }
 
 fn readCarolOk(io: std.Io, child: *std.process.Child, expect_hint: bool) !void {
@@ -210,76 +197,44 @@ fn gifterStep(
     carol_port_str: []const u8,
     hinted_exporter: bool,
 ) !void {
-    var seed: [crypto.SEED_BYTES]u8 = undefined;
-    io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
-    var session_root: [crypto.SEED_BYTES]u8 = undefined;
-    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-
-    var host = try Host.init(allocator, seed, session_root, blk: {
-        var o = Host.Options.withFrameCap(frame_cap);
-        o.local_turn_budget = 64;
-        break :blk o;
-    });
-    defer host.deinit();
-
-    var fetched = std.atomic.Value(bool).init(false);
-    var state: GifterState = undefined;
-    var loop: net.TcpLoop = undefined;
-    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{
-        .publish = publishIntroducer,
-        .publish_ctx = &state,
-        .on_open = gifterOnOpen,
-        .on_open_ctx = &state,
-    });
-    defer bridge.deinit();
-    state = .{
-        .host = &host,
-        .bridge = &bridge,
-        .fetched = &fetched,
-    };
-
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-        .max_conns = 8,
-        .listen = 0,
-    }));
-    defer loop.deinit();
-    const gifter_port = loop.port().?;
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bound_addr = try tcp.parseHostPort(host_addr, gifter_port);
-    const bound = tcp.locatorFromAddress(&designator_buf, bound_addr).designator;
-    try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
+    var gifter = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = host_addr ++ ":0" }, .ephemeral, opts);
+    defer gifter.deinit();
+    var gifter_designator_buf: [64]u8 = undefined;
+    const gifter_designator = try allocator.dupe(u8, try gifter.localDesignator(&gifter_designator_buf));
+    defer allocator.free(gifter_designator);
 
     var bob_designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bob_addr = try tcp.parseHostPort(host_addr, bob_port);
-    const bob_locator = tcp.locatorFromAddress(&bob_designator_buf, bob_addr);
-    try bridge.dialOutbound(bob_locator);
+    const bob_locator = tcp.locatorFromAddress(&bob_designator_buf, try tcp.parseHostPort(host_addr, bob_port));
 
-    var loop_done = std.atomic.Value(bool).init(false);
-    var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(runLoop, .{ &loop, &loop_done, &loop_err });
-    defer {
-        loop_done.store(true, .release);
-        pokeListener(io, gifter_port);
-        loop_future.await(io);
+    var settled = std.atomic.Value(bool).init(false);
+    var published = std.atomic.Value(bool).init(false);
+    var done = std.atomic.Value(bool).init(false);
+    var serving = try io.concurrent(serveGifter, .{ gifter, bob_locator, &settled, &published, &done });
+    var serving_joined = false;
+    defer if (!serving_joined) {
+        done.store(true, .release);
+        serving.await(io) catch {};
+    };
+
+    try harness.untilFlag(io, deadline_ms, &settled);
+    if (!published.load(.acquire)) {
+        done.store(true, .release);
+        serving_joined = true;
+        try serving.await(io);
+        return error.FetchFailed;
     }
-
-    try harness.untilFlag(io, deadline_ms, &fetched);
-    if (state.greeter == null) return error.FetchFailed;
-
-    var gifter_designator_buf: [64]u8 = undefined;
-    const gifter_designator = try std.fmt.bufPrint(&gifter_designator_buf, "{s}:{d}", .{ host_addr, gifter_port });
     std.debug.print("goblins-gift: glowcap publishing introducer swiss={s} on {s}\n", .{ introducer_swiss, gifter_designator });
 
-    const carol_argv_hinted = [_][]const u8{
-        goblins_child.racket_path,
+    const carol_script_argv = [_][]const u8{
         recipient_script,
         gifter_designator,
         introducer_swiss,
         carol_port_str,
         route_hint_name,
     };
+    var carol_argv: [8][]const u8 = undefined;
     var carol = try std.process.spawn(io, .{
-        .argv = if (hinted_exporter) carol_argv_hinted[0..] else carol_argv_hinted[0..5],
+        .argv = goblins_child.racketArgv(&carol_argv, if (hinted_exporter) carol_script_argv[0..] else carol_script_argv[0..4]),
         .environ_map = environ_map,
         .stdout = .pipe,
         .stderr = .pipe,
@@ -293,5 +248,7 @@ fn gifterStep(
     };
     carol.kill(io);
     carol_reaped = true;
-    if (loop_err) |err| return err;
+    done.store(true, .release);
+    serving_joined = true;
+    try serving.await(io);
 }

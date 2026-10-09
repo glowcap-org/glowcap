@@ -22,14 +22,15 @@ pub fn main(init: std.process.Init) !void {
     var managed_only = false;
     var foreign_only = false;
     var collection_only = false;
+    var ordinary_only = false;
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
     while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--smoke")) smoke = true else if (std.mem.eql(u8, arg, "--references-only")) references_only = true else if (std.mem.eql(u8, arg, "--managed-only")) managed_only = true else if (std.mem.eql(u8, arg, "--foreign-only")) foreign_only = true else if (std.mem.eql(u8, arg, "--collection-only")) collection_only = true else return error.InvalidArguments;
+        if (std.mem.eql(u8, arg, "--smoke")) smoke = true else if (std.mem.eql(u8, arg, "--references-only")) references_only = true else if (std.mem.eql(u8, arg, "--managed-only")) managed_only = true else if (std.mem.eql(u8, arg, "--foreign-only")) foreign_only = true else if (std.mem.eql(u8, arg, "--collection-only")) collection_only = true else if (std.mem.eql(u8, arg, "--ordinary-only")) ordinary_only = true else return error.InvalidArguments;
     }
     var report: std.ArrayList(u8) = .empty;
     defer report.deinit(init.gpa);
-    if (@as(u8, @intFromBool(references_only)) + @intFromBool(managed_only) + @intFromBool(foreign_only) + @intFromBool(collection_only) > 1) return error.InvalidArguments;
+    if (@as(u8, @intFromBool(references_only)) + @intFromBool(managed_only) + @intFromBool(foreign_only) + @intFromBool(collection_only) + @intFromBool(ordinary_only) > 1) return error.InvalidArguments;
     if (collection_only) {
         try @import("loam/collection_cost.zig").run(init, &report, smoke);
         return;
@@ -40,15 +41,19 @@ pub fn main(init: std.process.Init) !void {
     const counts: []const usize = if (smoke) &.{16} else &.{ 64, 512, 2048 };
     const sizes: []const usize = if (smoke) &.{256} else &.{ 256, 4096 };
     if (!references_only and !managed_only and !foreign_only) for (counts) |count| for (sizes) |size| try run(init, &report, count, size, smoke);
+    if (ordinary_only) return write(init, &report, smoke, "zig-out/bench-reports/loam-ordinary.txt");
     if (!foreign_only) for (counts) |count| for ([_]u16{ 0, 4 }) |depth| try managed.run(init, &report, count, depth, smoke, references_only);
     if (!references_only and !foreign_only) for (counts) |count| for ([_]u16{ 0, 4 }) |depth| try @import("loam/managed_sustained.zig").run(init, &report, count, depth, smoke);
     if (!references_only) for (counts) |count| for ([_]u16{ 0, 4 }) |depth| try @import("loam/foreign_references.zig").run(init, &report, count, depth, smoke);
     if (!references_only and !managed_only and !foreign_only) for (counts) |count| try sustained.run(init, &report, count, smoke);
     if (smoke and !references_only and !managed_only and !foreign_only) try @import("loam/collection_cost.zig").run(init, &report, true);
-    if (!smoke) {
-        try std.Io.Dir.cwd().createDirPath(init.io, "zig-out/bench-reports");
-        try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = if (references_only) "zig-out/bench-reports/loam-references.txt" else if (managed_only) "zig-out/bench-reports/loam-managed.txt" else if (foreign_only) "zig-out/bench-reports/loam-foreign.txt" else "zig-out/bench-reports/loam.txt", .data = report.items });
-    }
+    try write(init, &report, smoke, if (references_only) "zig-out/bench-reports/loam-references.txt" else if (managed_only) "zig-out/bench-reports/loam-managed.txt" else if (foreign_only) "zig-out/bench-reports/loam-foreign.txt" else "zig-out/bench-reports/loam.txt");
+}
+
+fn write(init: std.process.Init, report: *std.ArrayList(u8), smoke: bool, sub_path: []const u8) !void {
+    if (smoke) return;
+    try std.Io.Dir.cwd().createDirPath(init.io, "zig-out/bench-reports");
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = sub_path, .data = report.items });
 }
 
 fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: usize, smoke: bool) !void {
@@ -59,11 +64,14 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
     try std.Io.Dir.cwd().createDirPath(io, "zig-out");
     try std.Io.Dir.cwd().createDir(io, path, .default_dir);
     defer std.Io.Dir.cwd().deleteTree(io, path) catch unreachable;
-    var db = try w.Lmdb.open(path, .{ .mode = .{ .create = @fromBackingInt(72) } });
-    defer db.close() catch unreachable;
+    const store_id: w.core.StoreId = @fromBackingInt(72);
     var bytes: metrics.LiveBytesAllocator = .{ .backing = gpa };
     var allocations: metrics.CountingAllocator = .{ .backing = bytes.allocator() };
+    const samples: usize = if (smoke) 8 else 128;
+    var first: w.core.ObjectId = undefined;
     {
+        var db = try w.Lmdb.open(path, .{ .mode = .{ .create = store_id } });
+        defer db.close() catch unreachable;
         var workload: w.Workload = undefined;
         try workload.init(allocations.allocator(), &db, count, size);
         defer workload.deinit();
@@ -73,8 +81,9 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
         try memory.emit(gpa, report, "ordinary-cold", count, size);
         if (workload.store.cache.allocated_bytes != 0) return error.EagerResidency;
         try physical(gpa, report, &db, "populated", count, size);
-        const samples: usize = if (smoke) 8 else 128;
-        for ([_][]const u8{ "hot", "cold", "thrash", "edit-unrelated-read" }) |phase| {
+        first = workload.ids[0];
+        // `edit` runs last: the read phases expect every conversation unedited.
+        for ([_][]const u8{ "hot", "cold", "thrash", "edit-unrelated-read", "edit" }) |phase| {
             // Warm a small set, independently of population size.
             for (0..8) |i| _ = try workload.call(i, "read");
             const reads = workload.reads;
@@ -85,7 +94,9 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
             for (0..samples) |i| {
                 if (std.mem.eql(u8, phase, "cold")) try workload.attachment.sleep(workload.caps[i % 8]);
                 const sample = now(io);
-                if (std.mem.eql(u8, phase, "edit-unrelated-read")) {
+                if (std.mem.eql(u8, phase, "edit")) {
+                    _ = try workload.call(0, "edit");
+                } else if (std.mem.eql(u8, phase, "edit-unrelated-read")) {
                     _ = try workload.call(0, "edit");
                     for (1..8) |j| if (try workload.call(j, "read") != 0) return error.ChangedUnrelatedConversation;
                 } else {
@@ -96,7 +107,7 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
             }
             try row(gpa, report, .{ .phase = phase, .conversations = count, .message_bytes = size, .operations = samples, .reads = workload.reads - reads, .writes = workload.writes - writes, .elapsed_ns = elapsed(io, start), .latency = timings.summarize() });
             try emit(gpa, report, "allocation phase={s} allocs={d} live_zig_heap_bytes={d} resident_bytes={d}\n", .{ phase, allocations.allocs - allocs, bytes.liveBytes(), workload.store.cache.allocated_bytes });
-            if (std.mem.eql(u8, phase, "hot") or std.mem.eql(u8, phase, "edit-unrelated-read")) {
+            if (std.mem.eql(u8, phase, "hot") or std.mem.eql(u8, phase, "edit-unrelated-read") or std.mem.eql(u8, phase, "edit")) {
                 if (workload.reads != reads) return error.UnnecessaryReload;
             }
         }
@@ -157,7 +168,24 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
             try physical(gpa, report, &db, "collected", count, size);
         }
     }
+    try restart(init, report, path, store_id, allocations.allocator(), count, size, first, 2 * samples);
     if (bytes.live != 0) return error.LeakedZigMemory;
+}
+
+/// Reopen the closed database in a new Store, Host and Attachment, and time
+/// everything up to the answer of one call. Conversation `first` must answer
+/// with every edit the earlier run committed.
+fn restart(init: std.process.Init, report: *std.ArrayList(u8), path: [:0]const u8, store_id: w.core.StoreId, allocator: std.mem.Allocator, count: usize, size: usize, first: w.core.ObjectId, edits: usize) !void {
+    const io = init.io;
+    const start = now(io);
+    var db = try w.Lmdb.open(path, .{ .mode = .{ .open = store_id } });
+    defer db.close() catch unreachable;
+    var workload: w.Workload = undefined;
+    try workload.open(allocator, &db, count);
+    defer workload.deinit();
+    try workload.restore(first);
+    if (try workload.call(0, "read") != edits) return error.LostCommittedEdit;
+    try emit(init.gpa, report, "restart conversations={d} message_bytes={d} reads={d} elapsed_ns={d}\n", .{ count, size, workload.reads, elapsed(io, start) });
 }
 
 fn physical(gpa: std.mem.Allocator, report: *std.ArrayList(u8), db: *w.Lmdb, phase: []const u8, count: usize, size: usize) !void {

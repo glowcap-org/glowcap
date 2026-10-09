@@ -7,6 +7,18 @@ const attached = @import("attachment.zig");
 const c = common.c;
 const shared = common.shared;
 
+/// Derive a maximum encoded record from the shared envelope writer without
+/// allocation or storage access. This is sizing, not schema admission.
+pub fn glowcap_loam_schema_size_bound(raw: ?*const c.GlowcapLoamSchema, out_bytes: ?*usize) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const out = out_bytes orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    out.* = 0;
+    const schema = raw orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const declaration: common.core.Schema = .{ .id = schema.id, .version = schema.version, .max_payload = schema.max_payload, .max_edges = schema.max_edges };
+    out.* = declaration.encodedSizeBound() catch |err| return common.code(err);
+    return shared.GLOWCAP_OK;
+}
+
 pub fn glowcap_loam_validate_configuration(schemas: ?[*]const c.GlowcapLoamSchema, schema_count: usize, limits: ?*const c.GlowcapLoamLimits) callconv(.c) i32 {
     shared.lastErrorClear();
     const declarations = common.slice(c.GlowcapLoamSchema, schemas, schema_count) catch |err| return common.code(err);
@@ -19,9 +31,10 @@ pub fn glowcap_loam_metadata_claim(identity: ?[*]const u8, create: u32, previous
     shared.lastErrorClear();
     const id = identity orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const out = out_metadata orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (create > 1 or out_len != common.core.Metadata.encoded_size) return common.code(error.InvalidArgument);
+    const mode = std.enums.fromInt(common.core.OpenMode, create) orelse return common.code(error.InvalidArgument);
+    if (out_len != common.core.Metadata.encoded_size) return common.code(error.InvalidArgument);
     const old = common.slice(u8, previous, previous_len) catch |err| return common.code(err);
-    const metadata = execution.claim(id[0..16], create == 1, if (previous_len == 0) null else old) catch |err| return common.code(err);
+    const metadata = execution.claim(id[0..16], mode, if (previous == null) null else old) catch |err| return common.code(err);
     @memcpy(out[0..out_len], &metadata.encode());
     return shared.GLOWCAP_OK;
 }
@@ -30,6 +43,9 @@ pub fn glowcap_loam_store_plan(raw: ?*c.GlowcapLoamStore, recovery: u32, callbac
     if (recovery > 1) return common.code(error.InvalidArgument);
     const owner = common.store(raw) catch |err| return common.code(err);
     var kv: execution.Kv = .{ .callback = callback orelse return shared.GLOWCAP_ERR_NULL_POINTER, .context = context };
+    var guard: common.EvaluationGuard = .{};
+    guard.enter(owner) catch |err| return common.code(err);
+    defer guard.leave();
     execution.startupPlan(owner, recovery == 1, &kv) catch |err| return common.code(err);
     return shared.GLOWCAP_OK;
 }
@@ -57,7 +73,10 @@ pub fn glowcap_loam_work_plan(raw: ?*c.GlowcapLoamWork, callback: ?execution.Glo
     const work = works.from(raw) catch |err| return common.code(err);
     if (work.completed or work.result != null or work.planned != null) return common.code(error.StaleCompletion);
     var kv: execution.Kv = .{ .callback = callback orelse return shared.GLOWCAP_ERR_NULL_POINTER, .context = context };
-    const result = execution.plan(work.request, &kv) catch |err| return common.code(err);
+    var guard: common.EvaluationGuard = .{};
+    guard.enter(work.owner.store) catch |err| return common.code(err);
+    defer guard.leave();
+    const result = execution.plan(work.request, if (work.evaluation) |*cursor| cursor else null, &kv) catch |err| return common.code(err);
     work.planned = result;
     return shared.GLOWCAP_OK;
 }
@@ -78,6 +97,9 @@ pub fn glowcap_loam_restore_plan(raw: ?*c.GlowcapLoamAttachment, object: ?*const
     const source = object orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const out = out_ref orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     owner.value.topLevel() catch |err| return common.code(err);
+    var guard: common.EvaluationGuard = .{};
+    guard.enter(owner.store) catch |err| return common.code(err);
+    defer guard.leave();
     const id = common.object(source.*) catch |err| return common.code(err);
     var kv: execution.Kv = .{ .callback = callback orelse return shared.GLOWCAP_ERR_NULL_POINTER, .context = context };
     // Load all transaction inputs before acquiring a pending core read. A

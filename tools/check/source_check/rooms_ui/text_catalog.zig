@@ -1,35 +1,14 @@
-//! Every sentence a Rooms reader meets is written in `apps/rooms/lib/text/`.
+//! Rooms reader-facing text belongs to `apps/rooms/lib/text/`.
+//! This check scans UI components and their TypeScript helpers for quoted
+//! sentences, template literals and visible JSX text, including multiple lines.
+//! Reader-facing props also cover short labels without sentence punctuation.
 //!
-//! Before that directory existed there was no set of Rooms' words to look at.
-//! They were JSX literals, literals in `apps/rooms/lib/`, and, for the
-//! failures a reader meets most often, Rust. That is a voice nobody can
-//! review, because reviewing it means reading sixty files and guessing which
-//! strings reach a screen, and a product nobody can translate, for the same
-//! reason.
+//! The sentence heuristic is deliberately narrow to keep false positives
+//! from obscuring real prose. Comments and throw/log lines are outside the
+//! reader-text boundary. Component specimens have explicit exemptions below.
 //!
-//! So this refuses a reader-facing sentence anywhere under the rooms UI, in
-//! the components and in the TypeScript beside them, in the three shapes it
-//! takes: a quoted literal, a template literal, and JSX text between tags, on
-//! one line or spread over several. The first version saw only the quoted
-//! values of a few named props in `.tsx`, and the catalog's own claim,
-//! "written here and nowhere else", was untrue for everything else in the
-//! tree. Each widening ran with a closed pending list of the files not yet
-//! moved, the same shape `file_length.zig` and `docs/voice_debt.zig` use, and
-//! each list reached zero and was deleted with its arm, because a migration
-//! with no ratchet behind it stops halfway and the next reader cannot tell
-//! halfway from finished.
-//!
-//! Prose uses a deliberately narrow sentence heuristic, because the cost of a
-//! false positive is an author fighting the check instead of reading it.
-//! Visible JSX text and explicitly reader-facing props also catch short labels
-//! such as "Show" and "Access" that have no sentence punctuation. Comments are
-//! not read at all, and neither is a line that throws or logs, since what the
-//! log says is the log's business. Everything else is the author's.
-//!
-//! Measured by breaking the code: putting a bare sentence back into
-//! `SessionSetup.tsx` as JSX text, as a quoted expression, and as a template
-//! literal is caught and named each time, and a `className` full of words in
-//! the same file stays quiet.
+//! Negative probes in `SessionSetup.tsx` cover JSX text, quoted expressions
+//! and template literals. A `className` full of words stays admissible.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -46,8 +25,8 @@ const ui_dir = shared.ui_dir;
 /// moving them to a locale catalog would translate nothing anybody reads and
 /// would leave a gallery whose one job is being scannable unreadable in source.
 ///
-/// Exempt rather than pending: there is nothing here to migrate later. The
-/// catalog's second half, `KitchenAnswers.tsx`, is the same gallery in a
+/// The exemptions cover component specimens. The catalog's second half,
+/// `KitchenAnswers.tsx`, is the same gallery in a
 /// second file. A third entry is a deliberate edit and needs its own reason
 /// beside these.
 const exempt = [_][]const u8{ "KitchenSink.tsx", "KitchenAnswers.tsx" };

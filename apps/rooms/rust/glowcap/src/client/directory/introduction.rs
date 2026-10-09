@@ -5,21 +5,21 @@ use rooms_application::{
 	failure::{Failure, FailureCode},
 };
 use std::{
-	cell::RefCell,
+	cell::{Cell, RefCell},
 	future::poll_fn,
 	task::{Poll, Waker},
 };
 
 #[derive(Default)]
 struct State {
-	notices: policy::Notices<Waker>,
+	notices: policy::Notices<Waker, (Id, String)>,
 	active: usize,
 }
 #[derive(Clone, Default)]
 pub(crate) struct Notifications(Rc<RefCell<State>>);
 impl Notifications {
-	pub(super) fn notify(&self, id: &Id) {
-		let wake = self.0.borrow_mut().notices.notify(id);
+	pub(super) fn notify(&self, id: &Id, opening: &str) {
+		let wake = self.0.borrow_mut().notices.notify(&(id.clone(), opening.into()));
 		for w in wake {
 			w.wake();
 		}
@@ -32,7 +32,7 @@ impl Notifications {
 		state.active += 1;
 		Ok(Active(self.clone()))
 	}
-	async fn wait(&self, id: &Id, use_banked: bool) -> Result<(), Error> {
+	async fn wait(&self, id: &Id, opening: &str, use_banked: bool) -> Result<(), Error> {
 		let mut held = Wait {
 			notifications: self.clone(),
 			ticket: None,
@@ -49,7 +49,10 @@ impl Notifications {
 					Err(e) => Poll::Ready(Err(e.into())),
 				}
 			} else {
-				match state.notices.wait(id, use_banked, cx.waker().clone()) {
+				match state
+					.notices
+					.wait(&(id.clone(), opening.into()), use_banked, cx.waker().clone())
+				{
 					Ok(Some(ticket)) => {
 						held.ticket = Some(ticket);
 						Poll::Pending
@@ -95,15 +98,37 @@ impl Introduction {
 		&self.connection
 	}
 }
+struct OpeningSequence(Cell<u64>);
+
 impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 	pub async fn introduce(&self, peer: &str, expected: Option<&Id>) -> Result<Introduction, Error> {
+		let sequence = self
+			.client
+			.session
+			.host()
+			.application_state(|| OpeningSequence(Cell::new(0)))?;
+		let next = sequence.0.get().checked_add(1).ok_or(policy::Error::Full)?;
+		sequence.0.set(next);
+		let opening = format!("direct:{next}");
+		self.introduce_opening(peer, expected, &opening).await
+	}
+	/// One opening is retained across every retry; registrations namespace it.
+	pub async fn introduce_opening(
+		&self,
+		peer: &str,
+		expected: Option<&Id>,
+		opening: &str,
+	) -> Result<Introduction, Error> {
+		if !policy::valid_opening(opening) {
+			return Err(policy::Error::Capability.into());
+		}
 		let _active = self.introductions.enter()?;
 		let work = async {
 			let id = match expected {
 				Some(id) => id.clone(),
 				None => self.member_registration(peer).await?,
 			};
-			match self.introduce_once(peer, &id).await {
+			match self.introduce_once(peer, &id, opening).await {
 				Err(e) if pending(&e) => {}
 				result => return result,
 			}
@@ -111,10 +136,10 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 			while let Some(use_banked) = retries.next_wait() {
 				self.client
 					.deadline
-					.within(policy::WAIT_MS, self.introductions.wait(&id, use_banked))
+					.within(policy::WAIT_MS, self.introductions.wait(&id, opening, use_banked))
 					.await
 					.ok_or(policy::Error::Pending)??;
-				match self.introduce_once(peer, &id).await {
+				match self.introduce_once(peer, &id, opening).await {
 					Err(e) if pending(&e) => {}
 					result => return result,
 				}
@@ -130,8 +155,12 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 		})
 		.await
 	}
-	async fn introduce_once(&self, peer: &str, id: &Id) -> Result<Introduction, Error> {
-		let args = [Argument::String(peer.into()), Argument::String(id.as_str().into())];
+	async fn introduce_once(&self, peer: &str, id: &Id, opening: &str) -> Result<Introduction, Error> {
+		let args = [
+			Argument::String(peer.into()),
+			Argument::String(id.as_str().into()),
+			Argument::String(opening.into()),
+		];
 		let reply = self
 			.client
 			.deadline
@@ -158,7 +187,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 				.host()
 				.reference_session(&inbox)?
 				.ok_or(policy::Error::Ended)?;
-			Rc::new(session.with_gc())
+			Rc::new(session)
 		} else {
 			self.client.session.clone()
 		};

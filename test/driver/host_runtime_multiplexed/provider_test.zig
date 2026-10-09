@@ -1,8 +1,10 @@
 //! Provider authority over multiplexed residents (ADR-0112): duplicate
-//! authority is refused independent of shape, a failed batch preserves a
+//! authority is refused, a failed batch preserves a
 //! shared live readiness descriptor, equal descriptors do not merge distinct
 //! residents, two profiles share one resident with independent listener
-//! lifecycles, and accept close-ownership transfers exactly once.
+//! lifecycles, accept close-ownership transfers exactly once, a dial refusal
+//! reaches its observer with the exact failure chain, and an always-ready
+//! resident cannot starve its sibling.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -12,8 +14,6 @@ const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
 const driver_core = driver.core;
 const net = glowcap.net;
-const tcp = net.tcp;
-const linux = std.os.linux;
 
 const fixtures = @import("residents.zig");
 const FakeResident = fixtures.FakeResident;
@@ -35,7 +35,7 @@ test "HostRuntime preserves configured and adopted feature vocabulary" {
     var configured = opts;
     configured.captp_version = .next;
     configured.features = features;
-    var runtime = try driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, configured);
+    var runtime = try driver.HostRuntime.init(allocator, io, .{}, .ephemeral, configured);
     defer runtime.deinit();
     try std.testing.expectEqual(features, runtime.opts.features);
     try std.testing.expectEqual(features, runtime.core.opts.features);
@@ -45,7 +45,7 @@ test "HostRuntime preserves configured and adopted feature vocabulary" {
     core_options.features = features;
     var core = test_host.init(allocator, @as([32]u8, @splat(0x51)), core_options);
     defer core.deinit();
-    var adopted = try driver.HostRuntime.initWithCore(allocator, io, &core, &.{}, .{
+    var adopted = try driver.HostRuntime.initWithCore(allocator, io, &core, .{}, .{
         .handshake = opts.handshake,
         .settle = opts.settle,
     });
@@ -53,26 +53,31 @@ test "HostRuntime preserves configured and adopted feature vocabulary" {
     try std.testing.expectEqual(features, adopted.opts.features);
 }
 
-test "HostRuntime refuses duplicate provider authority independent of provider shape" {
+test "HostRuntime refuses duplicate provider authority" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
-    var tcp_resident = tcp.Resident{ .io = io };
-    const nl = tcp_resident.netlayer();
 
+    var runtime = try driver.HostRuntime.init(allocator, io, .{}, .ephemeral, opts);
+    defer runtime.deinit();
+    var first = try FakeResident.init(allocator);
+    defer first.deinit();
+    const registration: driver.HostRuntime.ProviderRegistration = .{
+        .profile = model.transport.Known.tcp.metadata(),
+        .resident = first.multiplexedResident(),
+    };
+    var indices: [2]usize = undefined;
     try std.testing.expectError(
         error.TransportAlreadyRegistered,
-        driver.HostRuntime.init(allocator, io, &.{ nl, nl }, .ephemeral, opts),
+        runtime.addProviders(&.{ registration, registration }, &indices),
     );
-
-    var runtime = try driver.HostRuntime.init(allocator, io, &.{nl}, .ephemeral, opts);
-    defer runtime.deinit();
-    var fake = try FakeResident.init(allocator);
-    defer fake.deinit();
+    try runtime.addProviders(&.{registration}, indices[0..1]);
+    var second = try FakeResident.init(allocator);
+    defer second.deinit();
     try std.testing.expectError(error.TransportAlreadyRegistered, runtime.addResident(
         model.transport.Known.tcp.metadata(),
-        fake.multiplexedResident(),
+        second.multiplexedResident(),
     ));
 }
 
@@ -87,23 +92,23 @@ test "failed provider batch preserves a shared live readiness descriptor" {
     defer runtime.deinit();
 
     const multiplexed = resident.multiplexedResident();
-    var indices = [_]?usize{ 97, 98 };
+    var indices = [_]usize{ 97, 98 };
 
     try std.testing.expectError(
         error.TransportSemanticsConflict,
         runtime.addProviders(&.{
-            .{ .multiplexed = .{
+            .{
                 .profile = .{ .symbol = "x-shared-readiness", .designator_scheme = .address },
                 .resident = multiplexed,
-            } },
-            .{ .multiplexed = .{
+            },
+            .{
                 .profile = .{ .symbol = model.transport.tcp, .designator_scheme = .key },
                 .resident = multiplexed,
-            } },
+            },
         }, &indices),
     );
-    try std.testing.expectEqual(@as(?usize, 97), indices[0]);
-    try std.testing.expectEqual(@as(?usize, 98), indices[1]);
+    try std.testing.expectEqual(@as(usize, 97), indices[0]);
+    try std.testing.expectEqual(@as(usize, 98), indices[1]);
     try std.testing.expectError(error.UnknownTransport, runtime.core.transportProfile("x-shared-readiness"));
 
     resident.announceAccept();
@@ -118,28 +123,28 @@ test "equal readiness descriptors do not merge distinct multiplexed residents" {
 
     var resident = try AcceptOwnershipResident.init();
     defer resident.deinit();
-    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, .{}, .ephemeral, opts);
     defer runtime.deinit();
 
     var second_vtable = AcceptOwnershipResident.vtable;
     const first = resident.multiplexedResident();
     const second = net.MultiplexedResident{ .ctx = &resident, .vtable = &second_vtable };
-    var indices = [_]?usize{ 97, 98 };
+    var indices = [_]usize{ 97, 98 };
     try std.testing.expectError(
         error.ReadinessDescriptorConflict,
         runtime.addProviders(&.{
-            .{ .multiplexed = .{
+            .{
                 .profile = .{ .symbol = "x-runtime-one", .designator_scheme = .address },
                 .resident = first,
-            } },
-            .{ .multiplexed = .{
+            },
+            .{
                 .profile = .{ .symbol = "x-runtime-two", .designator_scheme = .address },
                 .resident = second,
-            } },
+            },
         }, &indices),
     );
-    try std.testing.expectEqual(@as(?usize, 97), indices[0]);
-    try std.testing.expectEqual(@as(?usize, 98), indices[1]);
+    try std.testing.expectEqual(@as(usize, 97), indices[0]);
+    try std.testing.expectEqual(@as(usize, 98), indices[1]);
     try std.testing.expectEqual(@as(usize, 0), runtime.residents.items.len);
 }
 
@@ -150,20 +155,20 @@ test "two profiles share one multiplexed resident with independent listener life
 
     var resident = try AcceptOwnershipResident.init();
     defer resident.deinit();
-    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, .{}, .ephemeral, opts);
     defer runtime.deinit();
 
     const multiplexed = resident.multiplexedResident();
-    var indices = [_]?usize{ null, null };
+    var indices = [_]usize{ 0, 0 };
     try runtime.addProviders(&.{
-        .{ .multiplexed = .{
+        .{
             .profile = .{ .symbol = AcceptOwnershipResident.transport, .designator_scheme = .address },
             .resident = multiplexed,
-        } },
-        .{ .multiplexed = .{
+        },
+        .{
             .profile = .{ .symbol = AcceptOwnershipResident.alternate_transport, .designator_scheme = .address },
             .resident = multiplexed,
-        } },
+        },
     }, &indices);
     try std.testing.expectEqual(indices[0], indices[1]);
     try std.testing.expectEqual(@as(usize, 1), runtime.residents.items.len);
@@ -297,4 +302,72 @@ test "successful resident accept transfers close ownership to the wire" {
 
     runtime.deinit();
     try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
+}
+
+test "a resident's dial refusal reaches the dial observer with its exact failure chain" {
+    const Recorder = struct {
+        tag: u64 = 0,
+        failure: ?driver.OperationFailure = null,
+
+        fn opened(_: *anyopaque, _: u64, _: *driver_core.HostSession) !void {
+            return error.UnexpectedOpen;
+        }
+        fn failed(ctx: *anyopaque, tag: u64, failure: driver.OperationFailure) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.tag = tag;
+            self.failure = failure;
+        }
+    };
+
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    var chain = glowcap.foundation.FailureChain.initNamed(error.ProviderIo, "ExactDialRefusal");
+    chain.noteNamed(error.ProviderIo, "ExactDialCleanup");
+    resident.dial_failure = .fromChain(error.ConnectionRefused, chain);
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, threaded.io(), .{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(
+        .{ .symbol = AcceptOwnershipResident.transport, .designator_scheme = .address },
+        resident.multiplexedResident(),
+    );
+
+    var recorder: Recorder = .{};
+    try runtime.startDial(.{
+        .transport = AcceptOwnershipResident.transport,
+        .designator = "remote.test:1",
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit, 41, .{ .ctx = &recorder, .opened = Recorder.opened, .failed = Recorder.failed });
+
+    const failure = recorder.failure orelse return error.MissingDialFailure;
+    try std.testing.expectEqual(@as(u64, 41), recorder.tag);
+    try std.testing.expectEqual(driver.OperationFailure.Kind.io, failure.kind);
+    try std.testing.expectEqualStrings("ExactDialRefusal", failure.primaryName());
+    try std.testing.expectEqualStrings("ExactDialCleanup", failure.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 1), failure.secondary_count);
+}
+
+test "an always-ready resident cannot starve a sibling resident's turn" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, threaded.io(), .{}, .ephemeral, opts);
+    defer runtime.deinit();
+
+    var residents: [2]AcceptOwnershipResident = undefined;
+    residents[0] = try AcceptOwnershipResident.init();
+    defer residents[0].deinit();
+    residents[1] = try AcceptOwnershipResident.init();
+    defer residents[1].deinit();
+    for (&residents, [_][]const u8{ "x-ready-one", "x-ready-two" }) |*resident, symbol| {
+        resident.keep_ready = true;
+        _ = try resident.wake.nudge();
+        _ = try runtime.addResident(.{ .symbol = symbol, .designator_scheme = .address }, resident.multiplexedResident());
+    }
+
+    // A poll reports its first ready row, so without rotation every step
+    // would service the first resident and never the second.
+    for (0..8) |_| _ = try runtime.stepAny(0);
+    try std.testing.expect(residents[0].drain_calls >= 3);
+    try std.testing.expect(residents[1].drain_calls >= 3);
 }

@@ -203,6 +203,46 @@ test "access loaded grant evaluation has fixed scratch and no allocator calls" {
     try std.testing.expect(@sizeOf(storage.Append) <= 52 * 1024);
 }
 
+test "access grant scratch alternates scalar and selected scopes without stale authority" {
+    var limits = f.limits;
+    limits.cache_slots = 24;
+    limits.max_leases = 24;
+    var fixture = try f.Fixture.init(a, limits);
+    defer fixture.deinit();
+    const store = &fixture.store;
+    const backend = &fixture.backend;
+    const owner = try f.create(store, backend, @fromBackingInt(71));
+    const root = try f.resource(store, backend, owner, null);
+    const child = try f.resource(store, backend, owner, root);
+    const scalar = try f.vocabulary.terms(.{ .owned_subtree = root }, &.{f.vocabulary.read}, null);
+    const selected = try f.vocabulary.terms(.{ .objects = &.{child} }, &.{f.vocabulary.read}, null);
+    const parent = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(scalar, 1) })).?;
+    const narrow = (try f.change(store, backend, owner, .{ .derive = .{ .parent = parent.grant, .request = f.vocabulary.issue(selected, 0) } })).?;
+    var read = try storage.Read.init(a, store, owner, 6);
+    defer read.deinit() catch unreachable;
+    _ = try f.pump(&read, backend);
+    try f.require(&read, backend, narrow.grant, child, req);
+    var grants = try read.grantView();
+    for (0..8) |_| {
+        const broad = try grants.get(parent.grant);
+        try std.testing.expectEqual(root, broad.configured.scope.owned_subtree);
+        try std.testing.expectEqual(broad, try grants.get(parent.grant));
+        const exact = try grants.get(narrow.grant);
+        var resources = try read.resourceView();
+        _ = try resources.get(child);
+        try std.testing.expectEqualSlices(core.ResourceId, &.{child}, exact.configured.scope.objects);
+        try std.testing.expectError(error.OutOfScope, f.require(&read, backend, narrow.grant, root, req));
+    }
+    _ = try grants.get(parent.grant);
+    var stale = parent.grant;
+    stale.generation += 1;
+    try std.testing.expectError(error.RecordUnloaded, grants.get(stale));
+    _ = try f.pump(&read, backend);
+    try std.testing.expectError(error.Gone, grants.get(stale));
+    _ = try f.change(store, backend, owner, .{ .pause = parent.grant });
+    try std.testing.expectError(error.RevisionConflict, grants.get(parent.grant));
+}
+
 test "access owner refuses foreign identities stale generations and unsupported working sets" {
     var fixture = try f.Fixture.init(a, f.limits);
     defer fixture.deinit();
@@ -332,6 +372,7 @@ test "access composed resource and grant changes commit atomically in one transa
     var child_plan = (try f.prepare(&read, backend, .{ .derive = .{ .parent = issued.change.grant, .request = f.vocabulary.issue(selected, 0) } })).?;
     defer child_plan.deinit(a);
     var child_append = try storage.Append.init(&read, .grant);
+    child_append.grant_parent = child_plan.delta.issue.parent;
     _ = try f.pump(&child_append, backend);
     const derived = try storage.stage.grant(&read, &child_plan, &child_append);
     try child_append.deinit();
@@ -370,12 +411,18 @@ test "access composed changes to one grant sequence revisions and events on stag
     var read = try storage.Read.init(a, store, owner, 6);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
-    const narrower = try f.vocabulary.terms(.{ .owned_subtree = root }, &.{f.vocabulary.post}, null);
+    // Warm the committed scalar cache before this transaction stages a
+    // selected policy. The following pause must observe that proposal.
+    try f.require(&read, backend, issued.grant, message, req);
+    const narrower = try f.vocabulary.terms(.{ .objects = &.{message} }, &.{f.vocabulary.post}, null);
     var policy_plan = (try f.prepare(&read, backend, .{ .set_policy = .{ .grant = issued.grant, .terms = narrower } })).?;
     defer policy_plan.deinit(a);
     const narrowed = storage.stage.grant(&read, &policy_plan, null) catch |err| {
         return err;
     };
+    var proposed = try read.grantView();
+    const proposal = try proposed.get(issued.grant);
+    try std.testing.expectEqualSlices(core.ResourceId, &.{message}, proposal.configured.scope.objects);
     var pause_plan = (try f.prepare(&read, backend, .{ .pause = issued.grant })) orelse {
         return error.NoProgress;
     };
@@ -420,6 +467,7 @@ test "access composed derivations under one parent compose the parent row" {
     var first_plan = (try f.prepare(&read, backend, .{ .derive = .{ .parent = parent.grant, .request = f.vocabulary.issue(message_terms, 0) } })).?;
     defer first_plan.deinit(a);
     var first_append = try storage.Append.init(&read, .grant);
+    first_append.grant_parent = first_plan.delta.issue.parent;
     _ = try f.pump(&first_append, backend);
     const first = try storage.stage.grant(&read, &first_plan, &first_append);
     try first_append.deinit();
@@ -427,6 +475,7 @@ test "access composed derivations under one parent compose the parent row" {
     var second_plan = (try f.prepare(&read, backend, .{ .derive = .{ .parent = parent.grant, .request = f.vocabulary.issue(root_terms, 0) } })).?;
     defer second_plan.deinit(a);
     var second_append = try storage.Append.init(&read, .grant);
+    second_append.grant_parent = second_plan.delta.issue.parent;
     _ = try f.pump(&second_append, backend);
     const second = try storage.stage.grant(&read, &second_plan, &second_append);
     try second_append.deinit();

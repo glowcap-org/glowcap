@@ -309,6 +309,11 @@ pub const AcceptOwnershipResident = struct {
     cancel_connect_calls: usize = 0,
     cancel_listen_calls: usize = 0,
     fail_cancel_connect: bool = false,
+    /// When set, draining leaves the readiness descriptor readable, so the
+    /// resident reports ready on every wait.
+    keep_ready: bool = false,
+    /// When set, every dial start refuses with exactly this failure.
+    dial_failure: ?net.netlayer.DialFailure = null,
 
     pub const transport = "x-accept-ownership";
     pub const alternate_transport = "x-accept-ownership-alt";
@@ -389,7 +394,7 @@ pub const AcceptOwnershipResident = struct {
     fn drainReady(ctx: *anyopaque, out: []net.multiplexed_resident.ReadyEvent) net.multiplexed_resident.ContractError!usize {
         const self = of(ctx);
         self.drain_calls += 1;
-        self.wake.drain() catch unreachable;
+        if (!self.keep_ready) self.wake.drain() catch unreachable;
         if (self.fail_drain) return error.ProviderContract;
         if (out.len == 0) return 0;
         if (self.pending_listener != null) {
@@ -423,6 +428,7 @@ pub const AcceptOwnershipResident = struct {
         const index = transportIndex(locator.transport) orelse
             return .{ .failed = .init(error.InvalidAddress) };
         const self = of(ctx);
+        if (self.dial_failure) |failure| return .{ .failed = failure };
         self.dialed[index] = true;
         if (self.hold_connect) {
             self.pending_connect = request_id;
@@ -451,8 +457,7 @@ pub const AcceptOwnershipResident = struct {
         ctx: *anyopaque,
         route_id: usize,
         selected: []const u8,
-        _: []const u8,
-        _: net.netlayer.OperationOptions,
+        _: net.netlayer.ListenConfig,
     ) net.MultiplexedResident.RawListenStartOutcome {
         const self = of(ctx);
         const transport_name = canonicalTransport(selected) orelse
@@ -566,7 +571,7 @@ pub fn prepareAcceptOwnershipRuntime(
     io: std.Io,
     resident: *AcceptOwnershipResident,
 ) !driver.HostRuntime {
-    var runtime = try driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(allocator, io, .{}, .ephemeral, opts);
     errdefer runtime.deinit();
     _ = try runtime.addResident(
         .{ .symbol = AcceptOwnershipResident.transport, .designator_scheme = .address },

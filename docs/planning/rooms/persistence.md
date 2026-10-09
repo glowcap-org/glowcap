@@ -2,7 +2,7 @@
 
 Status: active plan. This is the phase 1 persistence contract for
 [Rooms access](access-grants.md). Implementation consumes the existing
-[Loam record and hosting contracts](../../loam/access.md), after native and
+[Loam record and hosting contracts](../../loam/access.md), after shared Zig and
 foreign readiness. The numbers below are admission limits and acceptance
 budgets for that implementation, not measurements of unimplemented Rooms code.
 
@@ -36,7 +36,7 @@ Its application schema family starts at version 1 and contains these records:
 | Invitation | Stable offer/generation, exact issuer use dependency, separate offer-control descriptor, frozen offered terms/ceiling, visit/continuing mode, single/reusable mode, live/persistent lifetime, next claim sequence, closed flag and bounded claim-result edges. | Admission owner, composed with managed child issuance. |
 | Admission result | Exact offer/generation and sequence, receipt digest, canonical intent, result kind and accepted endpoint or runtime seat identity. | Admission transaction; replay requires held offer and exact receipt. |
 | Session authority custody | Typed strong fields for exact room access, directory access, archive access, operator roles and accepted offers; workspace records hold only intent and references to these fields. | Session runtime through shared capture/save/restore. |
-| Effect receipt | Operation identity, canonical intent, source attachment generation, committed result or explicit unresolved outcome and bounded retained result fields. | Existing effect owner, composed with access checks. |
+| Effect receipt | Operation identity, canonical intent, source resource generation, committed result or explicit unresolved outcome and bounded retained result fields. | Existing effect owner, composed with access checks. |
 
 Application indices retain typed strong edges. IDs and display paths cannot
 reconstruct authority. Local and foreign saved references follow
@@ -56,7 +56,47 @@ old intent select the new reference. Effect outcomes distinguish unresolved,
 known-absent and committed results, with bounded retained result fields.
 Each effect retains its original session access and exact target references;
 changing workspace custody cannot substitute authority during recovery.
-The declarations allow 256 fields per role, eight effects and 32 retained
+Local workspace gestures commit a terminal receipt with the changed intent.
+They restore only the original source on replay. Local departures remove
+unused selected custody in the same graph transaction. Remaining intent aliases,
+independent imports and effect receipt occurrences keep their custody.
+Dropping a moderator or manager checks its exact field slot and generation.
+Room role selection names an already checked exact field and refuses occupied
+role substitution. Archive selection keeps access and optional control explicit;
+operator selection holds a bounded key list. Replacement releases unused selected
+custody while preserving unrelated imports. Their receipts share the local
+transaction and ManageCustody admission. Actual imports retain shared save checks.
+Live membership custody includes the inbox and optional seat, topic and file
+facets; result recipes keep their original session dependency.
+Result import requires the receipt's original source and intent, current command
+admission and ManageCustody. It preserves the selected result's role and saved
+strong edge in local custody; an occupied coordinate permits only identical
+actual authority. The receipt retains its independent occurrence. Atomic graph
+staging owns this transfer, and expired live results refuse after restart.
+Managed creation retains its exact bootstrap outcome and completed publication
+lookups until settlement. RoomAccess and RoomControl results stage together;
+temporary creation capabilities and publication text remain execution custody.
+Cold unresolved receipts cannot recreate a room or repeat bootstrap issuance.
+
+A terminal failed observation records its bounded reason in the original
+receipt with an unknown outcome. Settlement wakes the existing durable
+workspace observation; disclosure checks the initiating source and current
+authority. The reason survives restart, proves no absence, and permits no
+new dispatch. Failures of observation or settlement retain their exact live
+worker for recovery. A receipt reader shares the owner's content, grant and
+execution feeds, so interruption wakes the original caller even without a
+durable write. It returns no capability or evidence of absence.
+
+Unpinned terminal diagnostics may leave the bounded replay window. Immutable
+intent includes the original workspace revision, which refuses fresh dispatch
+after retirement. Unresolved receipts remain protected. The browser releases
+a completed wrapper only after reading its structured diagnostic; a refused
+read retains that wrapper for recovery.
+Every unresolved effect reserves the diagnostic's maximum encoded growth before
+dispatch. Concurrent edits preserve that allowance; settlement releases the
+reservation into the actual receipt. Sender reservations already include it.
+The declarations allow 256 fields per role and 3,072 custody fields in total,
+eight effects and 32 retained
 target fields and result fields per effect. The 1 MiB session authority budget still applies
 across these records. The
 [`session::records` codecs](../../../apps/rooms/rust/application/src/content/session/records.rs)
@@ -95,7 +135,7 @@ Seats, uploads, typing, connection-bound vouchers and signaling exchanges are
 runtime state. Restart ends them. Continuing access creates a new seat with
 the same grant's policy and history floor. A live browser owner explicitly
 reports tab lifetime; saving workspace intent does not make its authority
-persistent. Native and browser storage adapters realize the same transaction
+persistent. Linux and browser storage adapters realize the same transaction
 outcomes when durable hosting is supported.
 
 Live grants and offers bind the host-incarnation marker in their endpoint
@@ -175,8 +215,8 @@ by the existing storage front. Startup refuses missing aggregate limits.
 Each offer has one single-use result or eight reusable results. Each endpoint
 uses the existing eight derivation and eight mutation receipt slots. Inventory
 and history pages contain at most 32 rows and 64 KiB, with revision-bound cursors.
-Labels have at most 80 UTF-16 units and status explanations 200; these retain the
-current session editor bounds. At most 64 signaling exchanges per directory
+Managed labels have at most 120 UTF-8 bytes; status explanations have at most
+200 UTF-16 units. At most 64 signaling exchanges per directory
 remain supported, with the existing 16 KiB description and 4 KiB candidate
 limits. These runtime deadlines terminate signaling work, not granted access.
 
@@ -197,7 +237,7 @@ revocation evidence. This replaces the old 256-lifetime-row session cap.
 
 ## Cost evidence and implementation acceptance
 
-The native [recorded workloads](../../../bench/loam/results.md#recorded-managed-execution-and-restoration-october-2-2026)
+The Zig [recorded workloads](../../../bench/loam/results.md#recorded-managed-execution-and-restoration-october-2-2026)
 exercise 64, 512 and 2048 resources, eight concurrent calls, exact/dependent
 foreign references and up to 128 retained facets. They support the selected
 pressure populations and cache/window profile. They do not measure Rooms
@@ -213,7 +253,7 @@ application-byte limits above are selected operating limits to verify.
 | Return and reconnect | Restore exact publications without broad links; count foreign calls, retained facets and parked work. Ninth managed call refuses; unrelated work progresses. |
 | Churn and storage | Repeated offer/claim/revoke cycles release payload/result edges and staged blobs. Count terminal identities, permanent reservations and service bytes separately; demonstrate refusal at every configured limit. |
 
-Tests use typed native and Wasm fixtures for admission policy, then the real
+Tests use typed Linux and Wasm fixtures for admission policy, then the real
 runtime and storage adapters. Publish actual counts and latency distributions
-for those paths when they exist. Passing the native foundation benchmark alone
+for those paths when they exist. Passing the Zig foundation benchmark alone
 cannot close a Rooms implementation phase.

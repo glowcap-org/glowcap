@@ -4,7 +4,7 @@ use glowcap::{tcp, Argument};
 let server = tcp::listen("127.0.0.1", 9099, tcp::ListenOptions::default()).await?;
 // From here, the CapTP workflow is transport-independent.
 println!("{}", server.uri()?); // hand this locator to partners
-server.host().publish_giftable("greeter", || Box::new(greeter))?;
+server.host().publish("greeter", || Box::new(greeter))?;
 loop {
     let session = server.accept().await?;
     session.serve().await?;

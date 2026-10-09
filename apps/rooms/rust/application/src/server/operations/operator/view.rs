@@ -9,7 +9,7 @@ use crate::fields::{Nullable, Object, SafeInteger, Text};
 use alloc::string::{String, ToString};
 use rows::*;
 use serde::{Deserialize, Serialize};
-pub use wire::{read_page, read_retire, read_snapshot};
+pub use wire::{read_page, read_retire, read_snapshot, read_stewardship};
 
 pub const MAX_JSON_UNITS: usize = 512 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,7 +147,8 @@ pub struct Page {
 	pub total: SafeInteger,
 	pub rows: PageRows,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RetireBatch {
 	pub retired: SafeInteger,
 	pub remaining: SafeInteger,

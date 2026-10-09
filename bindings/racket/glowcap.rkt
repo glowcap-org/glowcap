@@ -70,11 +70,12 @@
 (provide open-runtime runtime? runtime-host runtime-connect runtime-close!
          HANDSHAKE-TIMEOUT-MS
          make-host make-fresh-host
-         host-publish-giftable
-         host-unpublish-giftable
+         host-publish
+         host-unpublish
          host-publish-durable
+         host-publish-reference
          host-remove-durable
-         host-defer-turn resolver?
+         host-defer-turn host-defer-turn-if-answer resolver?
          resolver-fulfill! resolver-break! resolver-abandon!
          host-enliven
          host-fetch-at
@@ -133,7 +134,7 @@
            establish-dialed-locator-session
            establish-accepted-session accept-next-session HANDSHAKE-TIMEOUT-MS
            host-set-advertised-locator!
-           host-set-session-limits! format-peer-uri
+           host-set-session-limits! host-set-ingress-limits! format-peer-uri
            check check-with read-last-error raise-glowcap
            retain-cleanup-failure raise-retained-failures bytes<-c codec-id
            pin-immobile

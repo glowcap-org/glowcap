@@ -108,19 +108,18 @@ the same identity, from anywhere, run the session service:
 glowcap apps rooms session serve --dir=.local/.state/rooms
 ```
 
-The command prints one admin link. Open it from the Session tab in Settings.
-The first session to attach hands over its whole workspace once, and from
-then on, wherever you open it, you are looking at the service's copy. The
-service keeps the servers and rooms you joined, your names, your direct
-conversations, drafts, room links, moderation rights, history settings, and
-the admin links you have taken. Reloading, or opening it on another device,
-shows the same workspace without redoing any of that.
+The command prints a workspace link. Open it from the Session tab in Settings.
+The service keeps the rooms, conversations, drafts, saved capabilities and
+history choices in that workspace. Attaching opens the service's workspace;
+it does not copy the browser's previous session into it. Reloading or opening
+it on another device restores the same committed intent.
 
-From the admin link you can make more links. **Observe** can only read.
-**Interact** can use rooms and the workspace without seeing or replacing the
-admin links. **Admin** can manage those links, import or reset the saved
-state, and make or revoke other links. Whether a link may also read what was
-said before it existed is decided when you make it.
+Management is separate. Its link is in `control.sturdyref` in the state
+directory. Hold that link in **Session access** to create access for a person
+or device, change its permissions, pause it or revoke it. The new workspace
+link grants only the use you select. You keep its management control and can
+share a separately limited management link. Reading history and files have
+their own permissions.
 
 What a link may do is checked in the session every time it is used, never
 written into the link itself. So you can narrow a link, give it the earlier

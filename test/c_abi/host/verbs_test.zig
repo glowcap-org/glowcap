@@ -530,3 +530,63 @@ test "libglowcap_host: the host codec option carries a Cap'n Proto session end t
     try std.testing.expectEqualStrings("poked over the C surface", settled.text[0..settled.text_len]);
     try std.testing.expectEqual(@as(u32, 1), counter.pokes);
 }
+
+test "libglowcap_host: trace installation replays open sessions to the new projection" {
+    const Log = struct {
+        host: ?*cd.GlowcapHost,
+        session: ?*cd.GlowcapHostSession,
+        opens: usize = 0,
+        closes: usize = 0,
+        reentry: i32 = 0,
+        mutation: i32 = 0,
+        fn emit(ctx: ?*anyopaque, event: ?*const cd.GlowcapTraceEvent) callconv(.c) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            if (event.?.kind == cd.GLOWCAP_TRACE_SESSION_OPEN) {
+                self.opens += 1;
+                self.reentry = cd.glowcap_host_session_release(self.session);
+                self.mutation = cd.glowcap_host_set_trace(self.host, null, null);
+            } else if (event.?.kind == cd.GLOWCAP_TRACE_SESSION_CLOSE) {
+                self.closes += 1;
+            }
+        }
+    };
+    for ([_]u32{ c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_CAPTP_NEXT }) |profile| {
+        const client = try newHostWithProfile(0x39, c.GLOWCAP_CODEC_SYRUP, profile);
+        defer _ = cd.glowcap_host_release(client);
+        const server = try newHostWithProfile(0x3a, c.GLOWCAP_CODEC_SYRUP, profile);
+        defer _ = cd.glowcap_host_release(server);
+        var dials = Dials{};
+        var watches = Watches{};
+        const hosts = [_]?*cd.GlowcapHost{ client, server };
+        const pair = try openPair(&hosts, client, server, "127.0.0.1:7059", &dials, &watches);
+        defer _ = cd.glowcap_host_session_release(pair.b);
+        var original = Log{ .host = client, .session = pair.a };
+        try expectOk(cd.glowcap_host_set_trace(client, Log.emit, &original));
+        try std.testing.expectEqual(@as(usize, 1), original.opens);
+        try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, original.reentry);
+        try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, original.mutation);
+
+        var replacement = Log{ .host = client, .session = pair.a };
+        try expectOk(cd.glowcap_host_set_trace(client, Log.emit, &replacement));
+        try std.testing.expectEqual(@as(usize, 1), original.opens);
+        try std.testing.expectEqual(@as(usize, 1), replacement.opens);
+        try expectOk(cd.glowcap_host_set_trace_queue(client, 4, 256));
+        var event: cd.GlowcapTraceEvent = undefined;
+        try expectOk(cd.glowcap_host_next_trace(client, &event));
+        try std.testing.expectEqual(cd.GLOWCAP_TRACE_SESSION_OPEN, event.kind);
+        try std.testing.expectEqual(profile, event.captp_version);
+        try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cd.glowcap_host_next_trace(client, &event));
+        try expectOk(cd.glowcap_host_set_trace_queue(client, 4, 256));
+        try expectOk(cd.glowcap_host_next_trace(client, &event));
+        try std.testing.expectEqual(cd.GLOWCAP_TRACE_SESSION_OPEN, event.kind);
+        try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cd.glowcap_host_next_trace(client, &event));
+        try expectOk(cd.glowcap_host_session_release(pair.a));
+        try std.testing.expectEqual(@as(usize, 0), original.closes);
+        try std.testing.expectEqual(@as(usize, 1), replacement.closes);
+        try expectOk(cd.glowcap_host_next_trace(client, &event));
+        try std.testing.expectEqual(cd.GLOWCAP_TRACE_SESSION_CLOSE, event.kind);
+        try expectOk(cd.glowcap_host_set_trace_queue(client, 4, 256));
+        try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cd.glowcap_host_next_trace(client, &event));
+        try expectOk(cd.glowcap_host_set_trace(client, null, null));
+    }
+}

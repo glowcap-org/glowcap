@@ -36,11 +36,8 @@ pub fn startListener(
 ) !void {
     try Internal.admitApplicationOperation(self);
     const provider = Internal.providerFor(self, transport) orelse return Error.UnknownTransport;
-    switch (provider.source) {
-        .stream => |nl| if (!nl.supportsListen()) return Error.UnknownTransport,
-        .resident => |index| if (self.residents.items[index].resident.acceptor() == null)
-            return Error.UnknownTransport,
-    }
+    if (self.residents.items[provider.resident].resident.acceptor() == null)
+        return Error.UnknownTransport;
     try observer.reserve(observer.ctx, tag);
     var observation_owned = true;
     errdefer if (observation_owned) observer.release(observer.ctx, tag);
@@ -49,53 +46,48 @@ pub fn startListener(
     errdefer if (profile_owned) Internal.releaseListenerProfile(self, provider.transport);
     const observation = ListenerObservation{ .observer = observer, .tag = tag };
 
-    switch (provider.source) {
-        .stream => |nl| {
-            const config = net.netlayer.ListenConfig{
-                .designator = requested_designator,
-                .identity = self.core.node.publicKey(),
-                .options = options,
-            };
-            const result = switch (nl.listen(self.allocator, config)) {
-                .admitted => |result| result,
-                .failed => |failure| {
-                    Internal.releaseListenerProfile(self, provider.transport);
-                    profile_owned = false;
-                    observation_owned = false;
-                    Internal.reportObservedFailureChain(self, observer, tag, failure);
-                    return;
-                },
-            };
-            switch (result) {
-                .ready => |listener| {
-                    profile_owned = false;
-                    observation_owned = false;
-                    observer.ready(observer.ctx, tag, .{
-                        .transport = provider.transport,
-                        .designator_scheme = nl.designatorScheme(),
-                        .source = .{ .stream = .{ .handle = listener } },
-                    });
-                    return;
-                },
-                .pending => {},
-            }
-            var attempt = result.pending;
-            const fd = attempt.readinessFd();
-            if (fd < 0 or Internal.descriptorInUse(self, fd)) {
-                Internal.releaseListenerProfile(self, provider.transport);
-                profile_owned = false;
-                observation_owned = false;
-                Internal.reportListenAttemptFailure(self, observer, tag, &attempt, if (fd < 0)
-                    error.ReadinessUnavailable
-                else
-                    error.ReadinessDescriptorConflict);
-                return;
-            }
+    const index = provider.resident;
+    const runtime = &self.residents.items[index];
+    const acceptor = runtime.resident.acceptor().?;
+    const route_id = Internal.mintRuntimeId(&runtime.next_listener_route) catch |err| {
+        Internal.releaseListenerProfile(self, provider.transport);
+        profile_owned = false;
+        observation_owned = false;
+        Internal.reportObservedFailure(self, observer, tag, err);
+        return;
+    };
+    var result = switch (acceptor.listen(route_id, provider.transport, .{
+        .designator = requested_designator,
+        .identity = self.core.node.publicKey(),
+        .options = options,
+    })) {
+        .admitted => |admitted| admitted,
+        .failed => |failure| {
+            Internal.releaseListenerProfile(self, provider.transport);
+            profile_owned = false;
+            observation_owned = false;
+            Internal.reportObservedFailureChain(self, observer, tag, failure);
+            return;
+        },
+    };
+    switch (result) {
+        .ready => |listener| {
+            profile_owned = false;
+            observation_owned = false;
+            observer.ready(observer.ctx, tag, .{
+                .transport = provider.transport,
+                .designator_scheme = provider.designator_scheme,
+                .resident = index,
+                .listener = listener,
+            });
+        },
+        .pending => |*pending| {
+            defer if (pending.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
             const row = self.allocator.create(PendingListener) catch |err| {
                 Internal.releaseListenerProfile(self, provider.transport);
                 profile_owned = false;
                 observation_owned = false;
-                Internal.reportListenAttemptFailure(self, observer, tag, &attempt, err);
+                Internal.reportObservedFailure(self, observer, tag, err);
                 return;
             };
             self.pending_listeners.ensureUnusedCapacity(self.allocator, 1) catch |err| {
@@ -103,105 +95,21 @@ pub fn startListener(
                 Internal.releaseListenerProfile(self, provider.transport);
                 profile_owned = false;
                 observation_owned = false;
-                Internal.reportListenAttemptFailure(self, observer, tag, &attempt, err);
-                return;
-            };
-            switch (self.drive) {
-                .blocking => {},
-                .stepped => |*stepped| stepped.ready_set.add(fd) catch |err| {
-                    self.allocator.destroy(row);
-                    Internal.releaseListenerProfile(self, provider.transport);
-                    profile_owned = false;
-                    observation_owned = false;
-                    Internal.reportListenAttemptFailure(self, observer, tag, &attempt, err);
-                    return;
-                },
-            }
-            row.* = .{
-                .stage = .{ .stream = attempt.take() },
-                .transport = provider.transport,
-                .designator_scheme = nl.designatorScheme(),
-                .deadline_ms = listenerSetupDeadline(self),
-                .observation = observation,
-            };
-            self.pending_listeners.appendAssumeCapacity(row);
-            profile_owned = false;
-            observation_owned = false;
-        },
-        .resident => |index| {
-            const runtime = &self.residents.items[index];
-            const acceptor = runtime.resident.acceptor().?;
-            const route_id = Internal.mintRuntimeId(&runtime.next_listener_route) catch |err| {
-                Internal.releaseListenerProfile(self, provider.transport);
-                profile_owned = false;
-                observation_owned = false;
                 Internal.reportObservedFailure(self, observer, tag, err);
                 return;
             };
-            const host_designator = self.core.node.publicKey().toDesignator();
-            const effective_designator: []const u8 = if (requested_designator.len == 0 and
-                provider.designator_scheme == .key)
-                &host_designator
-            else
-                requested_designator;
-            var result = switch (acceptor.listen(
-                route_id,
-                provider.transport,
-                effective_designator,
-                options,
-            )) {
-                .admitted => |admitted| admitted,
-                .failed => |failure| {
-                    Internal.releaseListenerProfile(self, provider.transport);
-                    profile_owned = false;
-                    observation_owned = false;
-                    Internal.reportObservedFailureChain(self, observer, tag, failure);
-                    return;
-                },
+            row.* = .{
+                .attempt = pending.*,
+                .resident = index,
+                .transport = provider.transport,
+                .designator_scheme = provider.designator_scheme,
+                .deadline_ms = listenerSetupDeadline(self),
+                .observation = observation,
             };
-            switch (result) {
-                .ready => |listener| {
-                    profile_owned = false;
-                    observation_owned = false;
-                    observer.ready(observer.ctx, tag, .{
-                        .transport = provider.transport,
-                        .designator_scheme = provider.designator_scheme,
-                        .source = .{ .resident = .{ .runtime = index, .listener = listener } },
-                    });
-                },
-                .pending => |*pending| {
-                    defer if (pending.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
-                    const row = self.allocator.create(PendingListener) catch |err| {
-                        Internal.releaseListenerProfile(self, provider.transport);
-                        profile_owned = false;
-                        observation_owned = false;
-                        Internal.reportObservedFailure(self, observer, tag, err);
-                        return;
-                    };
-                    self.pending_listeners.ensureUnusedCapacity(self.allocator, 1) catch |err| {
-                        self.allocator.destroy(row);
-                        Internal.releaseListenerProfile(self, provider.transport);
-                        profile_owned = false;
-                        observation_owned = false;
-                        Internal.reportObservedFailure(self, observer, tag, err);
-                        return;
-                    };
-                    row.* = .{
-                        .stage = .{ .resident = .{
-                            .attempt = pending.*,
-                            .resident = index,
-                        } },
-                        .transport = provider.transport,
-                        .designator_scheme = provider.designator_scheme,
-                        .deadline_ms = listenerSetupDeadline(self),
-                        .observation = observation,
-                    };
-                    pending.route_id = null;
-                    self.pending_listeners.appendAssumeCapacity(row);
-                    profile_owned = false;
-                    observation_owned = false;
-                },
-            }
+            pending.route_id = null;
+            self.pending_listeners.appendAssumeCapacity(row);
+            profile_owned = false;
+            observation_owned = false;
         },
     }
 }
@@ -264,18 +172,7 @@ pub fn cancelListener(self: *HostRuntime, tag: u64) ListenerStopOutcome {
     for (self.pending_listeners.items, 0..) |row, i| {
         if (row.observation.tag != tag) continue;
         std.debug.assert(self.pending_listeners.swapRemove(i) == row);
-        var failure: ?OperationFailure = null;
-        switch (row.stage) {
-            .stream => |*attempt| {
-                Internal.removeReadyFd(self, attempt.readinessFd());
-                if (attempt.deinit()) |cleanup|
-                    failure = OperationFailure.fromChain(cleanup);
-            },
-            .resident => |*pending| {
-                if (pending.attempt.deinit()) |cleanup|
-                    failure = OperationFailure.fromChain(cleanup);
-            },
-        }
+        const failure: ?OperationFailure = if (row.attempt.deinit()) |cleanup| .fromChain(cleanup) else null;
         const observation = row.observation;
         Internal.releaseListenerProfile(self, row.transport);
         self.allocator.destroy(row);
@@ -290,43 +187,20 @@ pub fn finishPendingListener(self: *HostRuntime, row: *PendingListener) void {
     const transport = row.transport;
     const designator_scheme = row.designator_scheme;
     const observation = row.observation;
-    const listener: TransportListener = switch (row.stage) {
-        .stream => |*attempt| blk: {
-            Internal.removeReadyFd(self, attempt.readinessFd());
-            const stream = switch (attempt.finish(self.allocator)) {
-                .ready => |listener| listener,
-                .failed => |failure| {
-                    Internal.releaseListenerProfile(self, transport);
-                    self.allocator.destroy(row);
-                    Internal.reportObservedFailureChain(self, observation.observer, observation.tag, failure);
-                    return;
-                },
-            };
-            break :blk .{
-                .transport = transport,
-                .designator_scheme = designator_scheme,
-                .source = .{ .stream = .{ .handle = stream } },
-            };
+    const resident_listener = switch (row.attempt.finish()) {
+        .ready => |listener| listener,
+        .failed => |failure| {
+            Internal.releaseListenerProfile(self, transport);
+            self.allocator.destroy(row);
+            Internal.reportObservedFailureChain(self, observation.observer, observation.tag, failure);
+            return;
         },
-        .resident => |*pending| blk: {
-            const resident_listener = switch (pending.attempt.finish()) {
-                .ready => |listener| listener,
-                .failed => |failure| {
-                    Internal.releaseListenerProfile(self, transport);
-                    self.allocator.destroy(row);
-                    Internal.reportObservedFailureChain(self, observation.observer, observation.tag, failure);
-                    return;
-                },
-            };
-            break :blk .{
-                .transport = transport,
-                .designator_scheme = designator_scheme,
-                .source = .{ .resident = .{
-                    .runtime = pending.resident,
-                    .listener = resident_listener,
-                } },
-            };
-        },
+    };
+    const listener: TransportListener = .{
+        .transport = transport,
+        .designator_scheme = designator_scheme,
+        .resident = row.resident,
+        .listener = resident_listener,
     };
     self.allocator.destroy(row);
     observation.observer.ready(observation.observer.ctx, observation.tag, listener);
@@ -335,13 +209,7 @@ pub fn finishPendingListener(self: *HostRuntime, row: *PendingListener) void {
 pub fn failPendingListener(self: *HostRuntime, row: *PendingListener, err: anyerror) void {
     removePendingListener(self, row);
     var failure = net.netlayer.ListenFailure.init(err);
-    switch (row.stage) {
-        .stream => |*attempt| {
-            Internal.removeReadyFd(self, attempt.readinessFd());
-            if (attempt.deinit()) |cleanup| failure.noteChain(cleanup);
-        },
-        .resident => |*pending| if (pending.attempt.deinit()) |cleanup| failure.noteChain(cleanup),
-    }
+    if (row.attempt.deinit()) |cleanup| failure.noteChain(cleanup);
     const observation = row.observation;
     Internal.releaseListenerProfile(self, row.transport);
     self.allocator.destroy(row);
@@ -353,11 +221,9 @@ pub fn pendingResidentListener(
     resident: usize,
     route: usize,
 ) ?*PendingListener {
-    for (self.pending_listeners.items) |row| switch (row.stage) {
-        .resident => |pending| if (pending.resident == resident and pending.attempt.id() == route)
-            return row,
-        .stream => {},
-    };
+    for (self.pending_listeners.items) |row| {
+        if (row.resident == resident and row.attempt.id() == route) return row;
+    }
     return null;
 }
 

@@ -140,7 +140,7 @@ impl Inbox {
 		self.uncertain |= matches!(&error, WriteFailure::Indeterminate(_));
 		write_failure(error)
 	}
-	pub fn append(&mut self, mut row: Value) -> Result<(), Failure> {
+	pub fn append(&mut self, mut row: Value) -> Result<u64, Failure> {
 		if let Some(gap) = &self.gap {
 			return Err(gap.clone());
 		}
@@ -155,9 +155,10 @@ impl Inbox {
 			.ok_or_else(|| Failure::exhausted("inbox identifiers exhausted"))?;
 		row["id"] = self.next.into();
 		self.write(&row, MAX_BYTES - ACK_RESERVE)?;
+		let id = self.next;
 		self.next = next;
 		self.rows.push(row);
-		Ok(())
+		Ok(id)
 	}
 	fn remove(&mut self, ids: &[u64]) -> usize {
 		let ids: BTreeSet<_> = ids.iter().copied().collect();
@@ -181,8 +182,16 @@ impl Inbox {
 		let removed = self.remove(&retained);
 		Ok(json!({"ok": true, "acknowledged": removed}))
 	}
-	pub fn pending(&self) -> Value {
-		json!({"ok": true, "pending": self.rows.iter().take(64).collect::<Vec<_>>(),
+	/// Copy at most one page into the socket response. Identifiers survive
+	/// acknowledgments and restart, so paging never depends on shifting offsets.
+	/// The response owns its rows after the disk worker finishes this request.
+	/// The journal's byte budget also bounds a page containing a single large row.
+	pub fn pending(&self, after_id: u64) -> Value {
+		let start = self
+			.rows
+			.partition_point(|row| row["id"].as_u64().expect("validated event") <= after_id);
+		let end = (start + 64).min(self.rows.len());
+		json!({"ok": true, "pending": &self.rows[start..end], "more": end < self.rows.len(),
                "remaining": self.rows.len(), "gap": self.gap})
 	}
 	pub fn mark_gap(&mut self, cause: Failure) -> Result<(), Failure> {
@@ -250,13 +259,13 @@ mod tests {
 		);
 		drop(inbox);
 		let mut inbox = Inbox::open(path.clone()).unwrap();
-		assert_eq!(inbox.pending()["pending"][0]["text"], "one");
+		assert_eq!(inbox.pending(0)["pending"][0]["text"], "one");
 		inbox.append(json!({"text":"three"})).unwrap();
-		assert_eq!(inbox.pending()["pending"][1]["id"], 3);
+		assert_eq!(inbox.pending(0)["pending"][1]["id"], 3);
 		inbox.compact().unwrap();
 		drop(inbox);
 		let inbox = Inbox::open(path.clone()).unwrap();
-		assert_eq!(inbox.pending()["remaining"], 2);
+		assert_eq!(inbox.pending(0)["remaining"], 2);
 		drop(inbox);
 		std::fs::remove_dir_all(path).unwrap();
 	}
@@ -273,10 +282,10 @@ mod tests {
 		inbox.acknowledge(&[1]).unwrap();
 		inbox.resume().unwrap();
 		inbox.append(json!({"text":"recovered"})).unwrap();
-		assert_eq!(inbox.pending()["pending"][0]["id"], 2);
+		assert_eq!(inbox.pending(0)["pending"][0]["id"], 2);
 		drop(inbox);
 		let inbox = Inbox::open(path.clone()).unwrap();
-		assert_eq!(inbox.pending()["pending"][0]["text"], "recovered");
+		assert_eq!(inbox.pending(0)["pending"][0]["text"], "recovered");
 		drop(inbox);
 		std::fs::remove_dir_all(path).unwrap();
 	}
@@ -287,13 +296,13 @@ mod tests {
 		inbox.begin().unwrap();
 		drop(inbox);
 		let mut inbox = Inbox::open(path.clone()).unwrap();
-		assert_eq!(inbox.pending()["gap"]["class"], "uncertain");
+		assert_eq!(inbox.pending(0)["gap"]["class"], "uncertain");
 		assert!(inbox.append(json!({"text":"not silently resumed"})).is_err());
 		inbox.resume().unwrap();
 		inbox.close().unwrap();
 		drop(inbox);
 		let inbox = Inbox::open(path.clone()).unwrap();
-		assert!(inbox.pending()["gap"].is_null());
+		assert!(inbox.pending(0)["gap"].is_null());
 		drop(inbox);
 		std::fs::remove_dir_all(path).unwrap();
 	}

@@ -12,6 +12,30 @@ pub mod joining;
 /// failures pay one allocation to retain that diagnostic intact.
 pub type Result<T> = std::result::Result<T, Box<glowcap::Error>>;
 
+/// Explicit acquisition of the public directory entry, or the exact supplied
+/// capability. Formatting supplies a recipe only; the Host must still fetch it.
+pub fn directory_recipe(route: &str) -> glowcap::Result<String> {
+	match glowcap::parse_sturdyref(route, CaptpVersion::V1_0) {
+		Ok(_) => return Ok(route.to_owned()),
+		Err(error) if error.kind() == glowcap::ErrorKind::InvalidArgument => {}
+		Err(error) => return Err(error),
+	}
+	let locator = directory_locator(route)?;
+	glowcap::format_sturdyref(
+		&locator,
+		rooms_application::directory::NAME.as_bytes(),
+		CaptpVersion::V1_0,
+	)
+}
+
+fn directory_locator(value: &str) -> glowcap::Result<Locator> {
+	if value.contains("://") {
+		glowcap::parse_locator(value)
+	} else {
+		glowcap::designator_host_port(value).map(|(host, port)| glowcap::tcp::locator(&host, port))
+	}
+}
+
 pub struct CheckpointRoutes;
 
 /// Application-facing address facts. Inspection uses the substrate's locator
@@ -24,11 +48,7 @@ pub struct Address {
 }
 impl Address {
 	pub fn directory(value: &str) -> Result<Option<Self>> {
-		let locator = if value.contains("://") {
-			input(glowcap::parse_locator(value))?
-		} else {
-			input(glowcap::designator_host_port(value))?.map(|(host, port)| glowcap::tcp::locator(&host, port))
-		};
+		let locator = input(directory_locator(value))?;
 		locator.map(Self::from_locator).transpose()
 	}
 	pub fn capability(value: &str) -> Result<Option<Self>> {

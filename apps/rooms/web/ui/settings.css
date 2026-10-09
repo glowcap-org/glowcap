@@ -403,20 +403,98 @@ html:has(.app.covered) {
 	flex-direction: column;
 	gap: var(--gap-tight);
 }
-/* Session managers open cards of their own, and each takes the step its
-   contents ask for. A grant list and a state file are rows with acts at the
-   end of them. */
-.session-data-modal {
+/* Session managers open cards of their own, each one column of sections.
+   Issuing access and editing it take the paired width so their permission
+   groups can stand side by side; a list or one pasted link takes rows. */
+.session-data-modal,
+.session-access-modal,
+.session-hold-modal {
 	width: min(var(--card-rows), 100%);
 }
-/* Wider than its siblings because it carries two subjects rather than one,
-   and each has a wide row to fit. On the left an access level is a name and
-   the sentence saying what it permits. On the right a grant is a grantee's
-   name, the level it was given, and the act that takes it back, all on one
-   line. A column too narrow for that line folds the act under it. */
-.session-access-modal {
+.session-issue-modal,
+.session-grant-edit-modal {
 	width: min(var(--card-pair), 100%);
 }
+.session-issue-modal .well,
+.session-grant-edit-modal .well {
+	container: access-well / inline-size;
+}
+/* A well of settings: the first row takes the line, and the rows after it
+   stand two to a line while there is room, each a name with its control at
+   the end and a sentence under it. */
+@container access-well (min-width: 520px) {
+	.option-rows {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		column-gap: var(--gap-column);
+	}
+	.option-rows > .entry:first-child {
+		grid-column: 1 / -1;
+	}
+}
+.option-rows .switch-row {
+	min-height: var(--control-h);
+}
+/* A count beside its name: wide enough for five digits, as tall as the
+   row's other controls. */
+.card-plane .option-number {
+	flex: none;
+	width: 6.5rem;
+	height: var(--control-h);
+	text-align: end;
+}
+/* A form spanning several sections keeps the body's section rhythm. */
+.session-issue-form,
+.session-grant-permissions {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-group);
+}
+.permission-groups {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--gap-group);
+}
+/* Side by side, each group is a column on rows the two share, so matching
+   answers stand level however long either description runs. */
+@container access-well (min-width: 520px) {
+	.permission-groups {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		row-gap: var(--gap-row);
+	}
+	.permission-groups > .permission-group,
+	.permission-groups > .permission-group > .choices {
+		display: grid;
+		grid-template-rows: subgrid;
+	}
+	.permission-groups > .permission-group {
+		grid-row: span var(--rows, 4);
+		gap: var(--gap-row);
+	}
+	.permission-groups > .permission-group > .choices {
+		grid-row: span var(--answers, 3);
+		gap: 0;
+	}
+}
+/* A custom limit is picked inside its own answer, which may be half the
+   well wide, so the picker measures the row it stands in. */
+.ceiling-picker {
+	container: access-well / inline-size;
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-row);
+}
+/* Reading is a separate question from the paired groups above it. */
+.permission-groups + .question {
+	margin-top: var(--gap-row);
+}
+/* Permissions picked one by one, as many to a line as fit. */
+.permission-picks {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(10rem, 100%), 1fr));
+	gap: var(--gap-row) var(--gap-group);
+}
+
 /* Handing an archive account over is a name, two questions and an act: one
    column of questions. The default step serves that shape, so it names no
    step of its own.
@@ -439,39 +517,6 @@ html:has(.app.covered) {
 .session-moves .entry + .entry {
 	padding-top: 9px;
 	border-top: none;
-}
-/* Creating a link and managing existing links are the modal's peer subjects.
-   Give each a column while there is room; the creation questions and authority
-   choices keep their natural vertical reading order within the first. */
-.session-access-columns {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: var(--gap-group);
-	align-items: start;
-}
-.session-access-column {
-	display: flex;
-	flex-direction: column;
-	gap: var(--gap-group);
-	min-width: 0;
-}
-.session-grant-actions {
-	justify-content: flex-end;
-}
-/* The act on a grant is swapped for the question it opens, and the head would
-   drop a control's height with it, lifting the name. `data-one-line` on the
-   head is what keeps the rest of that line in one place. */
-.session-grant .entry-head {
-	min-height: var(--control-h);
-}
-/* Once the card is narrower than it asked to be, the two columns start taking
-   the space out of their own rows, and the grant heading line is the first to
-   feel it. One column of whole rows reads better than two of squeezed ones,
-   so the split ends before the squeeze begins. */
-@media (max-width: 800px) {
-	.session-access-columns {
-		grid-template-columns: minmax(0, 1fr);
-	}
 }
 /* On a phone the card stands in from every edge by the same distance.
    `.modal` already pads all four sides equally, so the side gaps are that

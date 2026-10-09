@@ -14,6 +14,8 @@ use std::{
 pub(crate) struct Budget {
 	bytes: Rc<Cell<usize>>,
 	callers: RefCell<Vec<Caller>>,
+	local_facets: RefCell<Issuance>,
+	local_readers: RefCell<MintBudget<MAX_READERS_PER_SESSION>>,
 }
 struct Caller {
 	session: Session,
@@ -34,6 +36,28 @@ impl Drop for Permit {
 	}
 }
 impl Budget {
+	/// Local managed readers have no calling transport session. Their issuance
+	/// is still cumulative and belongs to the same archive account budget.
+	pub fn mint_local(&self, kind: Kind, create: impl FnOnce() -> Result<Ref, Error>) -> Result<Ref, Error> {
+		if matches!(kind, Kind::Reader) {
+			let mut readers = self.local_readers.borrow_mut();
+			if !readers.available() {
+				return Err(Error::exhausted("local archive reader ceiling reached"));
+			}
+			let reference = create()?;
+			readers
+				.minted()
+				.expect("local reader issuance checked in the same turn");
+			return Ok(reference);
+		}
+		let mut facets = self.local_facets.borrow_mut();
+		if !facets.available() {
+			return Err(Error::exhausted("local archive mint ceiling reached"));
+		}
+		let reference = create()?;
+		facets.minted().expect("local issuance checked in the same turn");
+		Ok(reference)
+	}
 	pub fn bytes(&self) -> usize {
 		self.bytes.get()
 	}

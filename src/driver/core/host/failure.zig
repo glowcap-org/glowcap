@@ -106,6 +106,7 @@ pub const HostFailure = struct {
             => .closed,
 
             error.HandshakeIncomplete,
+            error.HostNotQuiescent,
             error.OutboundBackpressure,
             error.SessionOperationLimitReached,
             error.PromisePending,

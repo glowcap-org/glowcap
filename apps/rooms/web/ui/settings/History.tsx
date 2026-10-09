@@ -12,42 +12,32 @@ import { useState } from "react";
 import {
 	historyArchivePeerLabel,
 	historyArchivePeerTitle,
-	historyBuiltInBrowser,
 	historyBuiltInSession,
 	historyKeepLabel,
-	historyOffLocal,
-	historyOffShared,
-	historyOnLocal,
-	historyOnShared,
+	historyOffSession,
+	historyOnSession,
 	historyPeerDurable,
 	historyPeerLead,
-	historyPeerLive,
 	historyPeerReconnect,
 	historyPeerSaved,
-	historyPeerSession,
 	historyPeerUnavailable,
 } from "../../../lib/text/settings.ts";
 import {
 	historyArchiveTitle,
 	historyChangePeerAsk,
 	historyKeptBy,
-	historyOwnedBrowser,
 	historyOwnedSession,
 	historyPeerCommit,
 	historyPeerModalLead,
-	historyPeerRemember,
-	historyPeerRememberSaid,
 	historyPeerSessionRetains,
 	historyPeerTaken,
 	historyPeerUnavailableSaid,
 	historyTitle,
-	historyUseBrowser,
 	historyUsePeerAsk,
 	historyUseSessionArchive,
 } from "../../../lib/text/session_settings.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { Button } from "../Button.tsx";
-import { Checkbox } from "../Checkbox.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
 import { actionRefusal, locatorRefusal } from "../error_text.ts";
@@ -57,7 +47,6 @@ import { Switch } from "../Switch.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
-import type { ArchiveOwner } from "../archive_model.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 
@@ -66,12 +55,11 @@ function historySaid(
 	keepHistory: boolean,
 	archiveTarget: ArchiveTargetView,
 ): string {
-	const sharedSession = archiveTarget.owner === "session";
 	if (!keepHistory) {
-		return sharedSession ? historyOffShared : historyOffLocal;
+		return historyOffSession;
 	}
 	if (archiveTarget.kind === "owned") {
-		return sharedSession ? historyOnShared : historyOnLocal;
+		return historyOnSession;
 	}
 	if (archiveTarget.status === "connected") {
 		return historyKeptBy(archiveTarget.label);
@@ -125,12 +113,13 @@ export function HistorySettings(
 export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTargetView }) {
 	const openModalFrom = useOpenModal();
 	const session = useRoomsSession();
-	const [busy, setBusy] = useState(false);
+	const [busy, setBusy] = useState<"own" | "reconnect" | null>(null);
 	const [why, setWhy] = useState("");
 	const [peerOpen, setPeerOpen] = useState(false);
 	const onPeer = archiveTarget.kind === "peer";
-	const act = async (request: () => Promise<unknown>) => {
-		setBusy(true);
+	const act = async (which: "own" | "reconnect", request: () => Promise<unknown>) => {
+		if (busy !== null) return;
+		setBusy(which);
 		setWhy("");
 		try {
 			const answer = await request();
@@ -138,7 +127,7 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 		} catch (error) {
 			setWhy(refusalText(error));
 		} finally {
-			setBusy(false);
+			setBusy(null);
 		}
 	};
 	return (
@@ -147,46 +136,34 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 			<div className="group well" role="group" aria-labelledby="archiveHoldingLegend">
 				<div className="entry-head">
 					<span className="entry-name">
-						{onPeer
-							? archiveTarget.label
-							: archiveTarget.owner === "session"
-							? historyBuiltInSession
-							: historyBuiltInBrowser}
+						{onPeer ? archiveTarget.label : historyBuiltInSession}
 					</span>
-					{onPeer && (
-						<span className="tag">{archiveTarget.remembered ? historyPeerSaved : historyPeerLive}</span>
-					)}
+					{onPeer && <span className="tag">{historyPeerSaved}</span>}
 				</div>
 				<p className="hint">
 					{onPeer
-						? archiveTarget.status === "unavailable"
-							? historyPeerUnavailable
-							: archiveTarget.remembered
-							? historyPeerDurable
-							: historyPeerSession
-						: archiveTarget.owner === "session"
-						? historyOwnedSession
-						: historyOwnedBrowser}
+						? archiveTarget.status === "unavailable" ? historyPeerUnavailable : historyPeerDurable
+						: historyOwnedSession}
 				</p>
 				<div className="actions" data-stack-narrow>
 					{onPeer && (
 						<Button
 							type="button"
 							variant="quiet"
-							busy={busy}
-							disabled={busy}
-							onClick={() => void act(() => session.useOwnedArchive())}
+							busy={busy === "own"}
+							disabled={busy !== null}
+							onClick={() => void act("own", () => session.useOwnedArchive())}
 						>
-							{archiveTarget.owner === "session" ? historyUseSessionArchive : historyUseBrowser}
+							{historyUseSessionArchive}
 						</Button>
 					)}
 					{onPeer && archiveTarget.status === "unavailable" && (
 						<Button
 							type="button"
 							variant="quiet"
-							busy={busy}
-							disabled={busy}
-							onClick={() => void act(() => session.retryArchivePeer())}
+							busy={busy === "reconnect"}
+							disabled={busy !== null}
+							onClick={() => void act("reconnect", () => session.retryArchivePeer())}
 						>
 							{historyPeerReconnect}
 						</Button>
@@ -195,6 +172,7 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 						id="archivePeerOpen"
 						type="button"
 						variant="quiet"
+						disabled={busy !== null}
 						onClick={(event) => openModalFrom(event.currentTarget, () => setPeerOpen(true))}
 					>
 						{onPeer ? historyChangePeerAsk : historyUsePeerAsk}
@@ -204,7 +182,6 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 			</div>
 			<ArchivePeerModal
 				open={peerOpen}
-				owner={archiveTarget.owner}
 				onClose={() => setPeerOpen(false)}
 			/>
 		</>
@@ -212,22 +189,20 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 }
 
 function ArchivePeerModal(
-	{ open, owner, onClose }: { open: boolean; owner: ArchiveOwner; onClose(): void },
+	{ open, onClose }: { open: boolean; onClose(): void },
 ) {
 	const session = useRoomsSession();
 	const commitments = useCommitments();
 	const [link, setLink] = useState("");
-	const [remember, setRemember] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [why, setWhy] = useState("");
 	const [taken, setTaken] = useState("");
 	const commit = useCommitSettling();
 	useChangeGroup("settings-archive-peer", {
-		dirty: link !== "" || remember,
+		dirty: link !== "",
 		discard: () => {
 			if (busy) throw new Error("Wait for the archive peer change to finish.");
 			setLink("");
-			setRemember(false);
 			setWhy("");
 			setTaken("");
 		},
@@ -240,13 +215,12 @@ function ArchivePeerModal(
 		setTaken("");
 		try {
 			const refused = locatorRefusal(
-				await actionRefusal(() => session.takeArchivePeer(link, remember)),
+				await actionRefusal(() => session.takeArchivePeer(link)),
 				"archive peer link",
 			);
 			setWhy(refused);
 			if (refused === "") {
 				setLink("");
-				setRemember(false);
 				setTaken(historyPeerTaken);
 			}
 		} finally {
@@ -296,21 +270,7 @@ function ArchivePeerModal(
 						/>
 					)}
 				</Field>
-				{owner === "session"
-					? <p className="hint">{historyPeerSessionRetains}</p>
-					: (
-						<label className="check-row">
-							<Checkbox
-								id="rememberArchivePeer"
-								checked={remember}
-								onChange={(event) => setRemember(event.currentTarget.checked)}
-							/>
-							<span>
-								<strong>{historyPeerRemember}</strong>
-								{historyPeerRememberSaid}
-							</span>
-						</label>
-					)}
+				<p className="hint">{historyPeerSessionRetains}</p>
 				<div className="actions" data-fill>
 					<Button type="submit" size="large" busy={busy} disabled={busy || link.trim() === ""}>
 						{historyPeerCommit}

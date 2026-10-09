@@ -113,7 +113,7 @@ async def run() -> None:
         def introducer(verb: str, args: list) -> object:
             return [greeter, [greeter]] if verb == "get-greeter" else None
 
-        gifter.host.publish_giftable(INTRODUCER_SWISS, introducer)
+        gifter.host.publish(INTRODUCER_SWISS, introducer)
         print(f"python-goblins-gift: glowcap publishing introducer swiss={INTRODUCER_SWISS} on {HOST}:{gifter_port}")
 
         # Spawn Carol (the Goblins recipient): she dials glowcap's introducer,

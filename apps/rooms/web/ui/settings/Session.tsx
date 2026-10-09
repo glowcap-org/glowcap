@@ -1,8 +1,8 @@
 // The Session tab: who keeps this workspace, whether messages are retained, and
 // the explicit moves that replace or export that data owner.
 //
-// Capability custody is deliberately absent: session access, archive peers,
-// room authority, and operations capabilities live together under Holdings.
+// Independently held session management remains available to local owners and
+// observers. Archive peers, room authority and operations live under Holdings.
 //
 // Attaching a session and replacing stored state open cards of their own. A
 // bearer link needs a line to itself and a sentence about what it hands over;
@@ -14,13 +14,14 @@ import type { ArchiveTargetView } from "../archive_model.ts";
 import { Button } from "../Button.tsx";
 import { useRoomsController } from "../controller/browser.ts";
 import { CopyField } from "../Copy.tsx";
-import { useRoomsState, useSessionPaused } from "../hooks.ts";
+import { useSessionPaused } from "../hooks.ts";
 import { Icon } from "../icons.tsx";
 import { useOpenModal } from "../modal.ts";
 import { HistorySettings } from "./History.tsx";
 import { SessionDataModal } from "./SessionData.tsx";
 import { SessionMoves } from "./SessionMoves.tsx";
-import { effectiveRoomsSessionAccess } from "../controller/access.ts";
+import { SessionAccessModal } from "./SessionAccess.tsx";
+import { useSessionPermission } from "../hooks.ts";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 import { sessionShareLinkCopy } from "../../../lib/text/settings.ts";
 import {
@@ -40,28 +41,32 @@ import {
 	currentSessionObserve,
 	currentSessionPaused,
 	currentSessionTitle,
+	sessionManageAccessAsk,
 } from "../../../lib/text/session_settings.ts";
 
 export function SessionSettings(
 	{ keepHistory, archiveTarget }: { keepHistory: boolean; archiveTarget: ArchiveTargetView },
 ) {
 	const openModalFrom = useOpenModal();
-	const sessionAccess = useRoomsState((state) => state.sessionAccess);
+	const canInteract = useSessionPermission("interactWorkspace");
+	const canReplace = useSessionPermission("replaceWorkspace");
+	const canManageCustody = useSessionPermission("manageCustody");
 	const paused = useSessionPaused();
 	const controller = useRoomsController();
 	const hosting = controller.kind === "hosted";
 	const shared = sharedRoomsSession(controller);
 	const sharedSession = shared != null;
-	const canAdminister = effectiveRoomsSessionAccess(controller, sessionAccess) === "admin";
+	const canAdminister = canReplace && canManageCustody;
 	const [dataOpen, setDataOpen] = useState(false);
+	const [accessOpen, setAccessOpen] = useState(false);
 	// Read only is what the last arm here means, so a capability carrying nothing
 	// has to be answered before it. While paused, this said the link was read
 	// only, its future state rather than its present one.
 	const accessSaid = paused
 		? currentSessionPaused
-		: sessionAccess === "admin"
+		: canAdminister
 		? currentSessionAdmin
-		: sessionAccess === "interact"
+		: canInteract
 		? currentSessionInteract
 		: currentSessionObserve;
 	return (
@@ -112,6 +117,14 @@ export function SessionSettings(
 				)}
 				<div className="actions" data-stack-narrow>
 					<Button
+						id="sessionAccessOpen"
+						type="button"
+						variant="quiet"
+						onClick={(event) => openModalFrom(event.currentTarget, () => setAccessOpen(true))}
+					>
+						{sessionManageAccessAsk}
+					</Button>
+					<Button
 						id="sessionDataOpen"
 						type="button"
 						variant="quiet"
@@ -133,6 +146,7 @@ export function SessionSettings(
 				/>
 			)}
 			<SessionMoves sessionKind={controller.kind === "none" ? "local" : controller.kind} />
+			<SessionAccessModal open={accessOpen} onClose={() => setAccessOpen(false)} />
 			<SessionDataModal
 				open={dataOpen}
 				sharedSession={sharedSession}

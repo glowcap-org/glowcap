@@ -30,6 +30,7 @@ const RecvViewError = session.RecvViewError;
 const AnswerDirection = session.AnswerDirection;
 
 pub const retainSentExportRef = sent_exports.retainRef;
+pub const releaseSentMessage = sent_exports.releaseMessage;
 pub const ensureSentResolutionExportCapacity = sent_exports.ensureResolutionCapacity;
 
 pub fn applyRecvView(self: *Session, body: model.view.Body, introduced: *const validate.IntroducedImports) !void {

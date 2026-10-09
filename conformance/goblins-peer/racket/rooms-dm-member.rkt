@@ -117,10 +117,8 @@
          #:on-error (lambda (what err) (say "! could not ~a: ~v" what err))))
       (dm-register dm)
 
-      ;; Watching the directory is what turns a member appearing into an inbox
-      ;; offered for them, so their first message needs no extra round trip. It
-      ;; is also how this vat learns that the member it was told to message has
-      ;; arrived.
+      ;; Watching the directory tells this vat which exact registration to
+      ;; message. The registration callback offers each requested opening.
       (define watcher
         (spawn (lambda (_bcom)
                  (methods

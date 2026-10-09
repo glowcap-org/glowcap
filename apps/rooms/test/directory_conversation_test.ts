@@ -18,14 +18,6 @@ Object.defineProperty(globalThis, "matchMedia", {
 
 const store = await import("../web/ui/store.ts");
 const { dirId } = await import("../web/ui/types.ts");
-const { RoomsPage } = await import("../web/ui/page.ts");
-const { workspaceStateOf } = await import("../web/ui/workspace_state.ts");
-const { finishComposerSend } = await import("../web/ui/composer/commit.ts");
-const { attachedCommandPowers } = await import("../web/ui/session/attached_command_powers.ts");
-const { attachedComposerActions } = await import("../web/ui/session/attached_composer.ts");
-const { AttachedSessionProjection } = await import("../web/ui/session/projection.ts");
-const { emptyRoomsSessionState } = await import("../lib/rooms_state.ts");
-const { adminSessionView } = await import("./support/session_snapshot.ts");
 
 function assert(ok: boolean, what: string): asserts ok {
 	if (!ok) throw new Error(what);
@@ -124,72 +116,7 @@ Deno.test("leaving a room does not return to a directory view that was only look
 	assert(store.getConv(projection, view.key)?.type === "directory", "leaving a room dropped the directory view");
 });
 
-Deno.test("a directory conversation is a view, not a workspace row", () => {
-	const page = new RoomsPage();
-	const directory = dirId("ocapn://directory.id");
-	store.openDir(page.projection, directory, directory);
-	store.setHomeDir(page.projection, directory);
-	store.ensureRoom(page.projection, directory, "general");
-	const view = store.ensureDirectory(page.projection, directory);
-	store.switchTo(page.projection, view.key);
-	const document = workspaceStateOf(page, page.projection.get());
-	assert(
-		!document.session.conversations.some((conversation) => conversation.id === view.key),
-		"the directory view was written into the workspace",
-	);
-	assert(document.session.active === null, "a directory view was remembered as the active conversation");
-});
-
-Deno.test("attached /leave on a directory view puts the view away without a session leave", () => {
-	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const conv = store.ensureDirectory(page.projection, directory);
-	store.switchTo(page.projection, conv.key);
-	const removed: string[] = [];
-	const powers = attachedCommandPowers(
-		page.projection,
-		{
-			leaveConversation: (id: string) => {
-				removed.push(id);
-				return Promise.resolve();
-			},
-		} as never,
-		{} as never,
-	);
-	powers.leaveHere();
-	assert(removed.length === 0, "leaveHere asked the session to leave a directory view");
-	assert(store.getConv(page.projection, conv.key) === null, "leaveHere did not put the directory view away");
-});
-
-Deno.test("sending /leave on a directory view does not empty another conversation's draft", () => {
-	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const lobby = store.ensureRoom(page.projection, directory, "lobby", { persistId: "lobby-id" });
-	store.switchTo(page.projection, lobby.key);
-	store.setDraft(page.projection, "keep me");
-	const conv = store.ensureDirectory(page.projection, directory);
-	store.switchTo(page.projection, conv.key);
-	const controller = {
-		stageDraft: () => {},
-		setDraft: () => Promise.resolve(),
-		scheduleDraft: () => Promise.resolve(),
-		retireDraft: () => {},
-	};
-	const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
-	const actions = attachedComposerActions(page.projection, controller as never, powers, () => {});
-	actions.setDraft("/leave");
-	actions.send();
-	assert(store.getConv(page.projection, conv.key) === null, "sending /leave left the directory view");
-	assert(page.projection.get().activeKey === lobby.key, "sending /leave did not return to the room");
-	assert(
-		store.draftFor(page.projection, lobby.key).text === "keep me",
-		"sending /leave emptied the room's draft",
-	);
-});
-
-Deno.test("clearing the composer after a conversation has left does not empty the next one's draft", () => {
+Deno.test("remembering a submission after its conversation left preserves the next draft", () => {
 	const projection = new store.PageProjection();
 	const directory = dirId("shown-dir");
 	store.openDir(projection, directory, "shown-dir");
@@ -200,7 +127,7 @@ Deno.test("clearing the composer after a conversation has left does not empty th
 	store.switchTo(projection, leave.key);
 	store.forgetConv(projection, leave.key);
 	store.switchTo(projection, keep.key);
-	finishComposerSend(projection, leave.key, "/leave");
+	store.rememberLastSent(projection, leave.key, "/leave");
 	assert(
 		store.draftFor(projection, keep.key).text === "keep me",
 		"clearing a conversation that had left emptied the next one's draft",
@@ -209,95 +136,4 @@ Deno.test("clearing the composer after a conversation has left does not empty th
 		store.lastSentFor(projection, leave.key) === undefined,
 		"last sent was revived on a conversation that had left",
 	);
-});
-
-Deno.test("attached drafts on a directory view stay in this tab", () => {
-	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const conv = store.ensureDirectory(page.projection, directory);
-	store.switchTo(page.projection, conv.key);
-	const staged = new Map<string, string>();
-	const draftWrites: Array<{ id: string; text: string }> = [];
-	const controller = {
-		stageDraft: (id: string, text: string) => {
-			staged.set(id, text);
-		},
-		setDraft: (id: string, text: string) => {
-			draftWrites.push({ id, text });
-			return Promise.resolve();
-		},
-		retireDraft: () => {},
-	};
-	const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
-	const actions = attachedComposerActions(page.projection, controller as never, powers, () => {});
-	actions.setDraft("/help");
-	assert(staged.size === 0, "staging a directory draft wrote it into the session");
-	assert(store.activeDraft(page.projection).text === "/help", "the directory draft did not stay in this tab");
-	actions.send();
-	assert(draftWrites.length === 0, "running a directory command wrote a session draft");
-	assert(store.activeDraft(page.projection).text === "", "running a directory command left the field filled");
-});
-
-Deno.test("an attached snapshot keeps a directory view this tab opened", () => {
-	const page = new RoomsPage();
-	const directory = dirId("directory");
-	store.openDir(page.projection, directory, "127.0.0.1:1");
-	store.setHomeDir(page.projection, directory);
-	store.ensureRoom(page.projection, directory, "general", { persistId: "room-id" });
-	const attached = new AttachedSessionProjection(page);
-	const checkpoint = {
-		...emptyRoomsSessionState(),
-		directories: [{ id: "directory", locator: "127.0.0.1:1", home: true, nick: "ada", standing: null }],
-		conversations: [{
-			kind: "room" as const,
-			id: "room-id",
-			directory: "directory",
-			name: "general",
-			held: false,
-			standing: null,
-			draft: "",
-		}],
-		active: "room-id",
-	};
-	attached.apply({
-		revision: 1,
-		...adminSessionView(),
-		checkpoint,
-		pendingEffects: [],
-		pendingEffectDetails: [],
-		issues: [],
-		connectedDirectories: ["directory"],
-		memberLocator: null,
-		roomViews: [],
-	});
-	const view = store.ensureDirectory(page.projection, directory);
-	store.switchTo(page.projection, view.key);
-	attached.apply({
-		revision: 2,
-		...adminSessionView(),
-		checkpoint: {
-			...checkpoint,
-			conversations: [
-				checkpoint.conversations[0]!,
-				{
-					kind: "room" as const,
-					id: "room-2",
-					directory: "directory",
-					name: "aside",
-					held: false,
-					standing: null,
-					draft: "",
-				},
-			],
-		},
-		pendingEffects: [],
-		pendingEffectDetails: [],
-		issues: [],
-		connectedDirectories: ["directory"],
-		memberLocator: null,
-		roomViews: [],
-	});
-	assert(store.getConv(page.projection, view.key)?.type === "directory", "a snapshot forgot the directory view");
-	assert(page.projection.get().activeKey === view.key, "a snapshot took the reader off the directory view");
 });

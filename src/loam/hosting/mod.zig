@@ -1,10 +1,19 @@
 //! Record-backed durable actors, using the existing Host and Vat.
 pub const Attachment = @import("attachment.zig").Attachment;
 pub const Options = @import("attachment.zig").Options;
-pub const Stats = @import("attachment.zig").Stats;
 pub const Work = @import("attachment.zig").Work;
 pub const Behavior = @import("behavior.zig").Behavior;
 pub const Call = @import("behavior.zig").Call;
+pub const Continuation = @import("continuation.zig").Continuation;
+pub const ReadScope = @import("read_scope.zig").Scope;
+pub const ContinuationReservation = @import("continuation.zig").Reservation;
+pub const Execution = @import("execution.zig").Execution;
 pub const Preparation = @import("preparation.zig").Preparation;
 pub const publication = @import("publication.zig");
 pub const references = @import("references.zig");
+pub const LiveEpoch = @import("live_epoch.zig").Epoch;
+pub const LiveScope = @import("live_scope.zig").Scope;
+pub const ValueBounds = @import("values.zig").Bounds;
+pub const valueAllocationBound = @import("values.zig").allocationBound;
+pub const copyValue = @import("values.zig").copy;
+pub const inputAllocationBound = @import("calls.zig").inputAllocationBound;

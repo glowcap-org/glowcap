@@ -30,6 +30,8 @@ const loop_sessions = @import("loop/sessions.zig");
 /// The annotated export inventory for the `glowcap_driver_*` family
 /// (the `glowcap_host_*` half keeps its own inventory in `c_abi_host`).
 pub const symbols = @import("symbols.zig");
+/// Foreign stream tables as completion-loop providers (ADR-0193).
+pub const stream_completion = @import("provider_registry/stream_completion.zig");
 
 pub const contract_layouts = [_]shared.archive_contract.Layout{
     shared.archive_contract.layout("GLOWCAP_DRIVER_OPTIONS", GlowcapDriverOptions),
@@ -78,8 +80,8 @@ pub const GlowcapTransportListenerAdvertiseFn = shared.transport_provider.Glowca
 pub const GlowcapTransportListenerRestorationStateFn = shared.transport_provider.GlowcapTransportListenerRestorationStateFn;
 pub const GlowcapStreamAcceptFn = shared.transport_provider.GlowcapStreamAcceptFn;
 pub const GlowcapStreamListenerCloseFn = shared.transport_provider.GlowcapStreamListenerCloseFn;
-pub const GlowcapStreamReadFn = shared.transport_provider.GlowcapStreamReadFn;
-pub const GlowcapStreamWriteAllFn = shared.transport_provider.GlowcapStreamWriteAllFn;
+pub const GlowcapStreamTryReadFn = shared.transport_provider.GlowcapStreamTryReadFn;
+pub const GlowcapStreamTryWriteFn = shared.transport_provider.GlowcapStreamTryWriteFn;
 pub const GlowcapStreamConnCloseFn = shared.transport_provider.GlowcapStreamConnCloseFn;
 pub const GlowcapStreamConnTakeFailureFn = shared.transport_provider.GlowcapStreamConnTakeFailureFn;
 pub const GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION = shared.transport_provider.GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION;
@@ -108,7 +110,7 @@ pub const GlowcapMultiplexedConnTakeFailureFn = shared.multiplexed_transport.Glo
 pub const GlowcapMultiplexedTryReadFn = shared.multiplexed_transport.GlowcapMultiplexedTryReadFn;
 pub const GlowcapMultiplexedTryWriteFn = shared.multiplexed_transport.GlowcapMultiplexedTryWriteFn;
 pub const GlowcapMultiplexedConnRemoteKeyFn = shared.multiplexed_transport.GlowcapMultiplexedConnRemoteKeyFn;
-pub const GLOWCAP_MULTIPLEXED_WOULD_BLOCK = shared.multiplexed_transport.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+pub const GLOWCAP_TRANSPORT_WOULD_BLOCK = shared.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK;
 pub const GLOWCAP_MULTIPLEXED_EV_READABLE = shared.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_READABLE;
 pub const GLOWCAP_MULTIPLEXED_EV_WRITABLE = shared.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_WRITABLE;
 pub const GLOWCAP_MULTIPLEXED_EV_CLOSED = shared.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CLOSED;

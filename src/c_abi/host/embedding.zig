@@ -60,6 +60,7 @@ pub fn checkAttachmentsReleased(handle: ?*c.GlowcapHost) !void {
 }
 
 pub const valueToC = common.valueToC;
+pub const valueProjectionBound = common.valueProjectionBound;
 
 /// Claim the C handle's transport/action-drain ownership for a native driver
 /// construction. `HostRuntime.initWithCore` validates whether the core itself

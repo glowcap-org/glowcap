@@ -65,7 +65,7 @@ const retired_icon_button_css = [_][]const u8{
 
 const bans = [_]Ban{
     .{
-        .file = ui_dir ++ "/session/projection.ts",
+        .file = ui_dir ++ "/session/managed/projection.ts",
         .needles = &dom_needles,
         .because = "Rust observations update the presentation store without reading the DOM",
     },
@@ -193,8 +193,8 @@ pub fn checkRoomsLayerBans(
     // The store's own field is exempt from nothing above, but the one writer of
     // it lives in hooks.ts, which is allowed the document. What the projection may not
     // do is import a component.
-    const net = root.readFileAlloc(io, ui_dir ++ "/session/projection.ts", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}/session/projection.ts: cannot be read for the rooms UI check ({s})", .{ ui_dir, @errorName(err) });
+    const net = root.readFileAlloc(io, ui_dir ++ "/session/managed/projection.ts", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}/session/managed/projection.ts: cannot be read for the rooms UI check ({s})", .{ ui_dir, @errorName(err) });
         return;
     };
     defer gpa.free(net);
@@ -204,7 +204,7 @@ pub fn checkRoomsLayerBans(
         try appendViolation(
             gpa,
             violations,
-            "{s}/session/projection.ts imports a component; the interface reads the store, and the data layer must not know the interface exists",
+            "{s}/session/managed/projection.ts imports a component; the interface reads the store, and the data layer must not know the interface exists",
             .{ui_dir},
         );
     }
@@ -227,11 +227,8 @@ fn checkRoomsStartupComposition(
         return;
     };
     defer gpa.free(main);
-    const restore = std.mem.indexOf(u8, main, "restoreWorkspaceState(");
-    const connect = std.mem.indexOf(u8, main, "await connectLocalRoomsSession(page)");
-    if (restore == null or connect == null or restore.? >= connect.?) {
-        try appendViolation(gpa, violations, "{s}: restore workspace intent before opening the Rust local session", .{main_path});
-    }
+    // IndexedDB restoration and saved authority selection are exercised by
+    // the managed browser entry proof; startup has no separate TS checkpoint.
 
     const setup_at = std.mem.indexOf(u8, main, "function showSessionSetup") orelse {
         try appendViolation(gpa, violations, "{s}: session setup is gone", .{main_path});

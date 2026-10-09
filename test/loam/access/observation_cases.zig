@@ -6,6 +6,10 @@ const c = h.c;
 const storage = f.storage;
 
 pub fn register(caps: *storage.Capabilities, backend: anytype, descriptor: f.loam.core.ObjectId, target: ?f.core.ResourceId, key: [32]u8) !f.loam.core.ObjectId {
+    return registerLifetime(caps, backend, descriptor, target, key, null);
+}
+
+pub fn registerLifetime(caps: *storage.Capabilities, backend: anytype, descriptor: f.loam.core.ObjectId, target: ?f.core.ResourceId, key: [32]u8, lifetime: ?f.loam.access.records.ObservationRecord.Lifetime) !f.loam.core.ObjectId {
     const operation = if (target != null) blk: {
         const use = try c.use(caps, backend, descriptor);
         defer use.release();
@@ -18,7 +22,7 @@ pub fn register(caps: *storage.Capabilities, backend: anytype, descriptor: f.loa
     defer operation.deinit() catch unreachable;
     _ = try f.pump(operation, backend);
     const registration = for (0..128) |_| {
-        const value = storage.ObservationRegistration.init(operation, target, key) catch |err| {
+        const value = (if (lifetime) |marker| storage.ObservationRegistration.initLifetime(operation, target, key, marker) else storage.ObservationRegistration.init(operation, target, key)) catch |err| {
             if (err != error.RecordUnloaded) return err;
             _ = try f.pump(operation, backend);
             continue;

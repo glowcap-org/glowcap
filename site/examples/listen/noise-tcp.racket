@@ -8,7 +8,7 @@
 (define host (server-host server))
 (define (accept-session) (accept server))
 ;; From here, the CapTP workflow is transport-independent.
-(host-publish-giftable host "greeter"
+(host-publish host "greeter"
   (methods [(greet who)
             (format "Hello, ~a" who)]))
 (let loop ()

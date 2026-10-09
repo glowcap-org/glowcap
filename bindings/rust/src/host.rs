@@ -44,6 +44,7 @@ use crate::uri::OwnedLocator;
 use crate::{Argument, Behavior, Codec, Context, ContextInner, Error, Locator, Result, sys};
 
 mod application;
+mod hosting;
 mod lifecycle;
 #[cfg(all(target_arch = "wasm32", feature = "browser"))]
 pub(crate) use lifecycle::OwnedTaskRegistration;
@@ -51,12 +52,14 @@ pub(crate) use lifecycle::OwnedTaskRegistration;
 mod loop_teardown;
 mod progress;
 mod public;
+mod send;
 mod vows;
 
 use lifecycle::CloseBarrierState;
 use vows::VowTable;
 
 pub use public::{Host, HostOptions, ListenerIdentity, Resolver, SessionLimitOptions};
+pub use send::HostPromise;
 
 /// Every connection's maximum admissible frame; mirrors
 /// `GLOWCAP_DEFAULT_FRAME_CAP`.
@@ -140,6 +143,10 @@ pub(crate) struct HostShared {
 	// what breaks the Rc cycle between host and session state. `action::run`
 	// reads it for FLUSH / CLOSE.
 	pub(crate) sessions: RefCell<HashMap<usize, Rc<SessionShared>>>,
+	/// Distributed GC (ADR-0063): whether a far capability this Host projects
+	/// to the application releases its Host retain when the last `Ref` clone
+	/// drops. On by default, because `Drop` is deterministic.
+	pub(crate) release_on_drop: Cell<bool>,
 	// Host-owned async tasks whose futures may still hold native Session state.
 	// Cancellation is only a request; the count falls from each future's RAII
 	// registration when its complete state has actually been dropped.
@@ -273,6 +280,7 @@ impl HostShared {
 			close_barrier: Cell::new(CloseBarrierState::Idle),
 			close_failure: RefCell::new(None),
 			sessions: RefCell::new(HashMap::new()),
+			release_on_drop: Cell::new(true),
 			owned_tasks: Cell::new(0),
 			release_notify: Notify::new(),
 			activity: Notify::new(),
@@ -327,6 +335,7 @@ impl HostShared {
 			close_barrier: Cell::new(CloseBarrierState::Idle),
 			close_failure: RefCell::new(None),
 			sessions: RefCell::new(HashMap::new()),
+			release_on_drop: Cell::new(true),
 			owned_tasks: Cell::new(0),
 			release_notify: Notify::new(),
 			activity: Notify::new(),
@@ -453,7 +462,7 @@ impl HostShared {
 		self.context.as_ref().map(Rc::clone)
 	}
 
-	pub(crate) fn actor_cell(&self, behavior: InternalBehavior) -> Result<*mut ActorCell> {
+	pub(crate) fn actor_cell(self: &Rc<Self>, behavior: InternalBehavior) -> Result<*mut ActorCell> {
 		let context = self.retained_context().ok_or_else(|| {
 			Error::with_detail(
 				sys::ERR_CLOSED,
@@ -462,6 +471,7 @@ impl HostShared {
 		})?;
 		Ok(Box::into_raw(Box::new(ActorCell {
 			behavior: RefCell::new(behavior),
+			host: Rc::downgrade(self),
 			context,
 			diagnostic_id: self.diagnostic_id(),
 			registration: Cell::new(core::ptr::null()),
@@ -554,6 +564,13 @@ impl HostShared {
 		self.guard_handle()?;
 		let wire = capability.to_sys()?;
 		let out = self.reference_exporter(&wire)?;
+		self.exporter_session(out)
+	}
+
+	pub(crate) fn exporter_session(
+		self: &Rc<Self>,
+		out: *mut ffi::GlowcapHostSession,
+	) -> Result<Option<Rc<SessionShared>>> {
 		if out.is_null() {
 			return Ok(None);
 		}

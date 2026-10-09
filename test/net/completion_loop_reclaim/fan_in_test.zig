@@ -75,6 +75,12 @@ const FanInBackend = struct {
         self.* = .{ .pool_free = 0 };
     }
 
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
+    }
+
     pub fn openListener(self: *@This(), port: u16) !Fd {
         _ = self;
         _ = port;

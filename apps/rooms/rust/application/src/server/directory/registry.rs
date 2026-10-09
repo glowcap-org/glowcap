@@ -1,7 +1,9 @@
 //! Who is registered: one name per live connection, the inboxes each member
 //! offered for particular peers, the vouchers that carry a name to another
 //! connection, and the `webrtc` designators signaling routes by.
+mod inboxes;
 mod requests;
+mod signaling;
 use super::{
 	DIRECT_REQUEST_COALESCE_MS, Effects, Introduction, MAX_DM_INBOXES, MAX_NAME_VOUCHERS, NAME_VOUCHER_BYTES, Notice,
 	Refusal, Tell,
@@ -50,6 +52,7 @@ pub struct InboxOffer<C> {
 	owner: Id,
 	peer: String,
 	target: Id,
+	opening: String,
 }
 
 struct InboxPeers<'a, C, R> {
@@ -64,9 +67,8 @@ struct Registration<C, R> {
 	claimant: Option<String>,
 	webrtc: Option<String>,
 	inbox: R,
-	/// The inbox this member offered for each peer, by that peer's
-	/// registration id, so a later holder of the same nick cannot inherit it.
-	offered: BTreeMap<String, R>,
+	/// Offers are scoped by peer registration and opening identity.
+	offered: inboxes::Offers<R>,
 	/// The coalescing window for reciprocal-route notices, per requesting peer.
 	requests: BTreeMap<String, u64>,
 	signaling: Option<R>,
@@ -157,7 +159,7 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			nick: row.nick.clone(),
 			id: row.id.as_str().into(),
 			connection: row.connection,
-			offered: row.offered.keys().cloned().collect(),
+			offered: row.offered.peers(),
 			signaling: row.signaling.is_some(),
 		})
 	}
@@ -172,15 +174,23 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		withdrawn
 	}
 	/// Let go of the inbox `nick` offered the peer registered as `peer`.
-	pub fn release_offered(&mut self, nick: &str, peer: &str) -> Option<super::Release<C, R>> {
+	pub fn release_offered(&mut self, nick: &str, peer: &str) -> Option<Vec<super::Release<C, R>>> {
 		let key = fold(nick);
 		let row = self.rows.get_mut(&key)?;
-		let offered = row.offered.remove(peer)?;
+		let offered = row.offered.withdraw(peer);
+		if offered.is_empty() {
+			return None;
+		}
 		remove_index(&mut self.offerers_by_target, peer, &key);
-		Some(super::Release {
-			connection: row.connection,
-			capability: offered,
-		})
+		Some(
+			offered
+				.into_iter()
+				.map(|capability| super::Release {
+					connection: row.connection,
+					capability,
+				})
+				.collect(),
+		)
 	}
 	/// Let go of the signaling inbox `nick` offered.
 	pub fn release_signaling(&mut self, nick: &str) -> Option<super::Release<C, R>> {
@@ -302,7 +312,7 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			claimant: request.claimant,
 			webrtc: request.webrtc.clone(),
 			inbox: request.inbox.clone(),
-			offered: BTreeMap::new(),
+			offered: Default::default(),
 			requests: BTreeMap::new(),
 			signaling: None,
 			vouchers: BTreeSet::new(),
@@ -357,6 +367,18 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		}
 		withdrawn
 	}
+	pub fn withdraw_id(&mut self, id: &Id) -> (Option<C>, Withdrawn<C, R>) {
+		let mut withdrawn = Withdrawn {
+			effects: Effects::default(),
+			withdrawn_keys: Vec::new(),
+		};
+		let key = self.by_id.get(id.as_str()).cloned();
+		let connection = key.as_ref().and_then(|key| self.registrar(key));
+		if let Some(key) = key {
+			self.withdraw(&key, &mut withdrawn);
+		}
+		(connection, withdrawn)
+	}
 	/// Take one registration out, announce it, and leave nothing pointing at
 	/// the name: the inboxes it collected go back, and so does every inbox
 	/// other members offered for it, or the next holder of the name would be
@@ -378,9 +400,11 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			self.webrtc.remove(designator);
 		}
 		let effects = &mut withdrawn.effects;
-		for (target, offered) in row.offered {
+		for (target, offered) in row.offered.into_entries() {
 			remove_index(&mut self.offerers_by_target, &target, key);
-			effects.release(row.connection, offered);
+			for inbox in offered.into_values() {
+				effects.release(row.connection, inbox);
+			}
 		}
 		for requester in row.requests.keys() {
 			remove_index(&mut self.request_targets_by_requester, requester, key);
@@ -394,10 +418,10 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		}
 		if let Some(offerers) = self.offerers_by_target.remove(row.id.as_str()) {
 			for offerer in offerers {
-				if let Some(other) = self.rows.get_mut(&offerer)
-					&& let Some(offered) = other.offered.remove(row.id.as_str())
-				{
-					effects.release(other.connection, offered);
+				if let Some(other) = self.rows.get_mut(&offerer) {
+					for offered in other.offered.withdraw(row.id.as_str()) {
+						effects.release(other.connection, offered);
+					}
 				}
 			}
 		}
@@ -411,117 +435,6 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			count: 0,
 		});
 		withdrawn.withdrawn_keys.push(key.into());
-	}
-	pub fn prepare_inbox(&self, connection: C, for_nick: &str, for_id: &str) -> Result<InboxOffer<C>, Refusal> {
-		let peers = self.check_offer(connection, for_nick, for_id)?;
-		Ok(InboxOffer {
-			registry: self.identity.clone(),
-			connection,
-			owner: peers.owner.id.clone(),
-			peer: for_nick.into(),
-			target: Id::parse(for_id).expect("validated registration"),
-		})
-	}
-	pub fn complete_inbox(&mut self, offer: InboxOffer<C>, offered: R) -> Result<Effects<C, R>, Refusal> {
-		if !Rc::ptr_eq(&offer.registry, &self.identity) {
-			return Err(Refusal::plain("the inbox offer belongs to another directory"));
-		}
-		let peers = self.check_offer(offer.connection, &offer.peer, offer.target.as_str())?;
-		if peers.owner.id != offer.owner {
-			return Err(Refusal::coded(
-				FailureCode::NotRegistered,
-				"the inbox owner's registration changed before its capability settled",
-			));
-		}
-		let waiting = (peers.recipient.connection, peers.recipient.inbox.clone());
-		let own_key = self.by_connection.get(&offer.connection).expect("validated connection");
-		let own = self.rows.get_mut(own_key).expect("validated registration");
-		let mut effects = Effects::default();
-		if let Some(prior) = own.offered.insert(offer.target.as_str().into(), offered) {
-			effects.release(offer.connection, prior);
-		}
-		insert_index(
-			&mut self.offerers_by_target,
-			offer.target.as_str().into(),
-			own_key.clone(),
-		);
-		effects.tell(
-			waiting.0,
-			waiting.1,
-			Notice::Introducible {
-				nick: own.nick.clone(),
-				id: own.id.clone(),
-			},
-		);
-		Ok(effects)
-	}
-	fn check_offer(&self, connection: C, for_nick: &str, for_id: &str) -> Result<InboxPeers<'_, C, R>, Refusal> {
-		let target_id = Id::parse(for_id).ok();
-		if let Some(refusal) = nick_refusal(for_nick).or_else(|| {
-			target_id
-				.is_none()
-				.then(|| "offerInbox has an invalid registration ID".into())
-		}) {
-			return Err(Refusal::coded(FailureCode::NickTooLong, refusal));
-		}
-		let Some(own) = self.own(connection) else {
-			return Err(Refusal::coded(
-				FailureCode::NotRegistered,
-				"offerInbox needs a registered name",
-			));
-		};
-		let waiting_key = fold(for_nick);
-		let waiting = self
-			.rows
-			.get(&waiting_key)
-			.filter(|waiting| waiting.id.as_str() == for_id)
-			.ok_or_else(|| {
-				Refusal::coded(
-					FailureCode::PeerOffline,
-					format!("the registration for \"{for_nick}\" changed before its inbox arrived"),
-				)
-			})?;
-		if !own.offered.contains_key(for_id) && own.offered.len() >= MAX_DM_INBOXES {
-			return Err(Refusal::plain(format!(
-				"a member may offer at most {MAX_DM_INBOXES} inboxes"
-			)));
-		}
-		Ok(InboxPeers {
-			owner: own,
-			recipient: waiting,
-		})
-	}
-
-	pub fn introduce(&self, connection: C, nick: &str, id: &str) -> Result<Introduction<C, R>, Refusal> {
-		if nick_refusal(nick).is_some() || Id::parse(id).is_err() {
-			return Err(Refusal::plain(
-				"introduce takes a valid registered name and its registration ID",
-			));
-		}
-		let target = self
-			.rows
-			.get(&fold(nick))
-			.filter(|target| target.id.as_str() == id)
-			.ok_or_else(|| {
-				Refusal::coded(
-					FailureCode::PeerOffline,
-					format!("no member named \"{nick}\" is registered"),
-				)
-			})?;
-		let caller = self
-			.own(connection)
-			.ok_or_else(|| Refusal::coded(FailureCode::NotRegistered, "introduce needs a registered name"))?;
-		Ok(match target.offered.get(caller.id.as_str()) {
-			Some(inbox) => Introduction::Inbox(inbox.clone()),
-			None => Introduction::Pending(Tell {
-				connection: target.connection,
-				inbox: target.inbox.clone(),
-				notice: Notice::MintInboxFor {
-					nick: caller.nick.clone(),
-					id: caller.id.clone(),
-				},
-			}),
-		})
 	}
 	pub fn request_direct(
 		&mut self,
@@ -600,18 +513,14 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		row.vouchers.insert(bytes);
 		Ok(())
 	}
-	pub fn offer_signaling(&mut self, connection: C, inbox: R) -> Result<Option<super::Release<C, R>>, Refusal> {
-		let Some(key) = self.by_connection.get(&connection).cloned() else {
-			return Err(Refusal::coded(
-				FailureCode::NotRegistered,
-				"offerSignaling needs a registered name",
-			));
-		};
-		let row = self.rows.get_mut(&key).expect("a registered connection has its row");
-		Ok(row
-			.signaling
-			.replace(inbox)
-			.map(|capability| super::Release { connection, capability }))
+	/// An exact name capability selects its current registration, never the
+	/// caller's connection or a replacement that happens to reuse its nickname.
+	pub fn registration_connection(&self, id: &Id) -> Result<C, Refusal> {
+		self.by_id
+			.get(id.as_str())
+			.and_then(|key| self.rows.get(key))
+			.map(|row| row.connection)
+			.ok_or_else(|| Refusal::plain("this name capability is no longer current"))
 	}
 }
 

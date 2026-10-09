@@ -11,7 +11,6 @@ const c = @import("mod.zig");
 const common = @import("common.zig");
 
 const turnFrom = common.turnFrom;
-const sessionOfTurn = common.sessionOfTurn;
 const instOf = common.instOf;
 const errToCode = common.errToCode;
 const valueMessageFromC = common.valueMessageFromC;
@@ -22,7 +21,8 @@ const GlowcapHostTurn = c.GlowcapHostTurn;
 const GLOWCAP_OK = shared.GLOWCAP_OK;
 const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
 
-/// Borrow the session whose Port delivered this callback turn. The returned
+/// Borrow the session whose Port delivered this callback turn. Trusted local
+/// owning delivery succeeds with a null session. The returned nonnull
 /// handle is Host-owned and valid for the same lifetime as that session; the
 /// caller must not release it. This is a projection of authority already held
 /// by the turn, not a second session lookup or routing decision.
@@ -33,7 +33,8 @@ pub fn glowcap_host_turn_session(
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_session orelse return GLOWCAP_ERR_NULL_POINTER;
-    slot.* = @ptrCast(sessionOfTurn(t));
+    const host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
+    slot.* = if (host_turn.session) |session| @ptrCast(session) else null;
     return GLOWCAP_OK;
 }
 
@@ -50,9 +51,27 @@ pub fn glowcap_host_turn_defer(
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_resolver_id orelse return GLOWCAP_ERR_NULL_POINTER;
-    const session = sessionOfTurn(t);
-    const inst = instOf(session.host);
-    slot.* = inst.core.deferTurn(session, t) catch |err| return errToCode(err);
+    var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
+    slot.* = host_turn.deferAnswer() catch |err| return errToCode(err);
+    return GLOWCAP_OK;
+}
+
+/// Defer an answered call; a tell succeeds with zero and creates no resolver.
+/// Nonzero IDs carry the same one-shot authority as glowcap_host_turn_defer.
+/// Refusal zeros the output and leaves the current turn unchanged.
+pub fn glowcap_host_turn_defer_if_answer(
+    turn: ?*GlowcapHostTurn,
+    out_resolver_id: ?*u64,
+) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const slot = out_resolver_id orelse return GLOWCAP_ERR_NULL_POINTER;
+    slot.* = 0;
+    const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
+    var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
+    slot.* = host_turn.deferAnswer() catch |err| {
+        if (err == error.NoAnswer) return GLOWCAP_OK;
+        return errToCode(err);
+    };
     return GLOWCAP_OK;
 }
 
@@ -78,10 +97,9 @@ pub fn glowcap_host_turn_forward(
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_reply orelse return GLOWCAP_ERR_NULL_POINTER;
-    const session = sessionOfTurn(t);
-    const inst = instOf(session.host);
+    var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
+    const inst = instOf(host_turn.host);
     const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    var host_turn = driver_core.HostTurn{ .host = &inst.core, .session = session, .turn = t };
     const reply = host_turn.forward(
         inst.core.capabilityFromRaw(target_ptr.id),
         msg.verb,
@@ -93,9 +111,10 @@ pub fn glowcap_host_turn_forward(
 }
 
 /// From inside a behavior callback, eventual-send to `target` and mint a host
-/// vow for the answer — the same routing and refusals as
-/// `glowcap_host_session_send`, on the turn's own session. The send encodes
-/// when the enclosing top-level call unwinds.
+/// vow for the answer. Trusted local callbacks use the target's actual local
+/// or foreign home; wire callbacks use their Session routing. Local public
+/// vows settle through Host actions and support release, without a wire
+/// pipeline or raw wire listener. Delivery commits with the enclosing turn.
 pub fn glowcap_host_turn_send(
     turn: ?*GlowcapHostTurn,
     target: ?*const shared.GlowcapReference,
@@ -109,10 +128,9 @@ pub fn glowcap_host_turn_send(
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
-    const session = sessionOfTurn(t);
-    const inst = instOf(session.host);
+    var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
+    const inst = instOf(host_turn.host);
     const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    var host_turn = driver_core.HostTurn{ .host = &inst.core, .session = session, .turn = t };
     slot.* = host_turn.send(
         inst.core.capabilityFromRaw(target_ptr.id),
         msg.verb,
@@ -134,10 +152,9 @@ pub fn glowcap_host_turn_tell(
     shared.lastErrorClear();
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
-    const session = sessionOfTurn(t);
-    const inst = instOf(session.host);
+    var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
+    const inst = instOf(host_turn.host);
     const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    var host_turn = driver_core.HostTurn{ .host = &inst.core, .session = session, .turn = t };
     host_turn.tell(
         inst.core.capabilityFromRaw(target_ptr.id),
         msg.verb,
@@ -163,10 +180,9 @@ pub fn glowcap_host_turn_spawn(
     const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const b = behavior orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_ref orelse return GLOWCAP_ERR_NULL_POINTER;
-    const session = sessionOfTurn(t);
-    const inst = instOf(session.host);
+    var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
+    const inst = instOf(host_turn.host);
     const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
-    var host_turn = driver_core.HostTurn{ .host = &inst.core, .session = session, .turn = t };
     const reference = host_turn.spawnHosted(hosted) catch |err| return errToCode(err);
     slot.* = .{ .id = reference.raw() };
     return GLOWCAP_OK;

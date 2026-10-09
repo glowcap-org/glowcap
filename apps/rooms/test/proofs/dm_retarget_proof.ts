@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // A nickname is a claim the room grants and takes back, so a direct conversation
 // cannot be keyed on one. This drives the sequence that used to break that,
 // with three real browser peers against the page serve.ts serves:
@@ -19,10 +20,10 @@
 
 import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
+import { directOpened } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 function fail(message: string): never {
@@ -33,7 +34,7 @@ function fail(message: string): never {
 const httpPort = freePort();
 const roomPort = freePort();
 
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",
@@ -74,7 +75,7 @@ try {
 		{ timeout: 30_000 },
 	).catch(() => fail("ada never became reachable for a direct message"));
 	await zoe.page.click("#members li:has-text('ada') button.dm-btn");
-	await zoe.page.waitForSelector("#dmList li", { timeout: 10_000 });
+	await directOpened(zoe.page, "ada", 10_000);
 	const originalLine = "message for the original ada";
 	await zoe.page.fill("#line", originalLine);
 	await zoe.page.press("#line", "Enter");

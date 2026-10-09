@@ -38,8 +38,11 @@ tested. The [roadmap](roadmap.md) lists future work.
   Spritely Goblins vat in both directions. `zig build ocapn-conformance-onion`
   passes the complete portable upstream suite plus the strict abort probe through the
   upstream onion netlayer. The local fake-daemon checks cover the blocking
-  resident, generic provider package, native Zig `OnionLoop`, and provider
-  installation from every native binding. Live steps need `tor`
+  resident, the completion resident behind `driver.Transports`, generic
+  provider package, native Zig `OnionLoop`, and provider installation from
+  every native binding. Native Zig `Session` and `Server` reach Tor at TCP
+  addresses only; a Unix-socket SOCKS or control endpoint needs a binding or
+  the blocking resident. Live steps need `tor`
   and outbound network access, so they remain siblings of `check`. No recorded
   live-Tor scale run exists.
 - **An onion session upgrades past the `1.0` profile only when the partner is
@@ -111,18 +114,23 @@ not ship a native Zig QUIC or WebRTC stack.
     directly.
   - A native worker thread hands its settle back through
     `driver.SettleMailbox`. Posting to it wakes the owning thread, because
-    `driver.HostRuntime` polls the mailbox's fd alongside its connections and
-    the completion loop keeps a receive armed on it. The settle then applies
+    `driver.HostRuntime` polls the mailbox's fd alongside its residents. The
+    settle then applies
     on the owning thread. Settles from another thread carry plain data only;
     a capability never crosses threads.
-- **The simplest blocking pump serves one connection on one fiber.** Use a
-  completion loop (TCP, iroh, onion, or keyed-relay outbound) for a partner that
-  streams while waiting for you to drain output.
-- **`driver.HostRuntime` hosts transports that have a pollable descriptor,
-  plus multiplexed providers.**
-  - A stream transport needs a socket it can poll. TCP, keyed TCP, onion, and
-    keyed-relay qualify. `inproc` reports no readiness, so it stays on
-    `driver.BlockingSession`.
+- **`BlockingSession` serves one connection on one fiber.** Use `Session` or
+  `Server` for a partner that streams while waiting for you to drain output;
+  `HostRuntime` serves every session on resident completion I/O.
+- **`driver.HostRuntime` runs every transport as a resident.**
+  - Every TCP profile, `inproc`, both relay symbols, and onion run on one
+    runtime-owned `net.StreamStack`, a completion resident
+    (`net.completion_resident`, ADR-0202), with the Host sealing `noise-tcp`
+    and `noise-relay`. Foreign stream providers run on the external
+    completion resident. An onion listen still publishes its service
+    synchronously, holding the runtime's thread for up to its setup deadline.
+  - The runtime does not report which Linux backend its stream stack
+    selected. A completion loop reports io_uring or epoll, with the fallback
+    reason, through `net.tcpBackendStatus`.
   - A transport that multiplexes many connections behind one shared readiness
     descriptor joins through the common provider package ABI (ADR-0112). That
     ABI covers dials, listener metadata and lifecycle, claiming accepted
@@ -142,9 +150,7 @@ not ship a native Zig QUIC or WebRTC stack.
   each step, within the handshake budget. That means two loops on one thread
   can dial each other, and a stalled connector cannot block a step. Stream
   providers start connections through a nonblocking `start_connect` contract
-  and report completion when the descriptor is ready. A native Zig netlayer
-  outside this provider interface declares one dial style, blocking or
-  staged.
+  and report completion when the descriptor is ready.
 - **Memory for connections that are still opening is bounded.**
   `max_pending_opens` defaults to 256 per driver Host. It counts transport
   connects and CapTP handshakes from dials, accepts, external adoption, and
@@ -201,10 +207,13 @@ not ship a native Zig QUIC or WebRTC stack.
 actors whose state lives in a record and loads when a message arrives. The
 [usage guide](loam.md) explains costs and limits, and the
 [implementation sequence](planning/loam/architecture.md) owns the remaining
-integration. Rooms does not use Loam yet; it keeps its own durable state.
+integration. Rooms' main chat page and process startup use the managed Loam workspace,
+capability custody and effect receipts. Browser startup restores the per-tab
+IndexedDB owner; process startup restores LMDB and separate use/control publications.
+Recursive room and directory resources remain the next Rooms integration phase.
 
 - **What restores.** The optional LMDB backend and the Host attachment restore
-  checked local and foreign fields and committed actor state. Native stores
+  checked local and foreign fields and committed actor state. LMDB stores
   need the LMDB 1.x disk format, and a store from an older prerelease needs a
   fresh directory. Metadata format 3 rejects older record and name-index
   profiles.
@@ -227,7 +236,7 @@ integration. Rooms does not use Loam yet; it keeps its own durable state.
   bounded lookup and the shared cache, without listing every name at startup.
   The attachment owns the barriers that admit retirement, and an unknown
   outcome fails closed.
-- **Locking and growth.** Native storage holds an advisory BSD `flock` lock
+- **Locking and growth.** LMDB storage holds an advisory BSD `flock` lock
   and grows its memory map only within an explicit budget.
 - **Compaction.** Offline compaction keeps the same owner lock, compares every
   key and value, and installs the copy with a same-directory rename followed
@@ -239,9 +248,9 @@ integration. Rooms does not use Loam yet; it keeps its own durable state.
   edits, resource moves, leaf deletion, observation registration and
   cancellation, owner closure, and cleanup of terminal publications. None of
   this establishes behavior under hardware power loss.
-- **What is measured.** Native workload measurements cover collection service
+- **What is measured.** LMDB workload measurements cover collection service
   time, queued reads, atomic managed issuance, control chains, receipt-backed
-  edits, and moves and filtered children with cold ancestry. A bounded native
+  edits, and moves and filtered children with cold ancestry. A bounded
   executor workload covers sustained ordinary calls and foreground work during
   collection. Further slices measure returned facets, eight parked calls,
   sustained managed workers, up to 128 held facets, foreign restoration through
@@ -253,6 +262,11 @@ integration. Rooms does not use Loam yet; it keeps its own durable state.
 - **Consumer scope.** C/Rust and IndexedDB implement the fixed-resource
   lifecycle and strong saved-reference fields. General graph editing, collection cursors
   and privileged owner lifecycle remain broader language projections.
+- **Continuation scope.** C/Rust receipt handles retain original intent and
+  exact targets through confirmed commit and live execution. Applications own
+  durable effect receipts and restart recovery. These handles do not persist
+  themselves; the production executor stores them with the managed workspace; the
+  [Rooms session guide](rooms/session.md) records the production evidence.
 
 ### Managed access
 
@@ -261,24 +275,26 @@ use and control them. The [usage guide](loam/access.md) gives its memory and
 lifetime contract. The
 [managed access architecture](planning/loam/access/architecture.md) and the
 [Rooms plan](planning/rooms/access-grants.md) own the remaining integration.
-Rooms does not use this core yet. C and Rust implement the
+The [session guide](rooms/session.md)
+records the managed browser module, receipt executor and production recovery evidence. JavaScript mutation handles last only while their
+application owner lives; committed receipts survive independently in shared
+storage. Callback shutdown retains admission until its exact upstream seat or
+name retires. Unknown admission refuses cleanup. A failed browser close retains
+the owner for retry; disposal relinquishes that recovery handle.
+Managed inboxes must close before their session attachment and Store.
+C and Rust implement the
 [first resource lifecycle](loam/c-and-rust.md), including its
 [IndexedDB execution profile](loam/browser.md). General graph editing,
-application-specific management metadata and inventory,
-and privileged owner lifecycle projections remain
-outside that consumer profile. The Zig implementations remain authoritative; this consumer evidence does not freeze
-the wider ABI or prove macOS or Windows support.
-The fixed-resource profile supports explicit child editing/lifecycle powers,
-policy edits, dependent control attenuation and strong saved-reference fields.
-It does not implement the
-full Rooms management interface or replace session authority storage.
-Rooms declares its session payloads, typed custody, requirements and presets
-in `rooms-application::content`, with generated browser metadata and application
-proofs. Its bounded workspace/custody/effect codecs preserve exact field
-coordinates and original effect authority. Production session access and
-persistence still use the existing model. The [dependency queue](planning/rooms/integration.md#shared-prerequisite-and-remaining-order)
-orders application validation, management and the
-combined session runtime/storage/editor replacement.
+application-specific management metadata and privileged lifecycle projections
+remain outside that consumer profile. Zig owns the semantics.
+The fixed-resource profile supports independent Inspect/Issue/Edit/DelegateControl
+and lifecycle powers. It includes revision-checked policy/label edits and indexed
+direct-child inventory. Persisted kind applicability, dependent control
+attenuation and strong saved-reference fields share that profile.
+Rooms' bounded workspace/custody/effect codecs preserve exact field coordinates
+and original effect authority. Generated browser metadata projects its Rust
+declarations. The [dependency queue](planning/rooms/integration.md#shared-prerequisite-and-remaining-order)
+records the completed session integration and owns the subsequent recursive resource phase.
 
 **What it hosts today.** The Host attachment hosts managed use and control
 endpoints for fixed resources, including held CapTP calls and ordinary
@@ -302,6 +318,20 @@ publication restoration.
 reference, either through an exact handoff or through a runtime facet that
 both the invoking grant and the target grant allow. It can replace or remove
 strong fields atomically with checked local or foreign recipes.
+Explicit live fields retain the exact capability in a bounded shared hosting
+scope. Startup advances a separate epoch through the ordinary work lane;
+warm lookup checks it and restart refuses old fields. C/Rust project activation
+and live declarations. Recursive read interfaces mediate exact returned readers
+under original source intent. Production Rooms session workers consume these interfaces.
+Registered content graphs prepare owned pages through a bounded lease window
+and replace them in the same transaction as managed state and receipts.
+Page handles belong to the current callback; page links cannot stand in for
+capability fields. Payload updates preserve exact page identity and committed
+edges without restoring their targets. Written pages also preserve selected
+committed fields without enlivening them; no raw object identity can select a
+field outside the prepared graph. Rooms proves the codec graph, publication,
+private invitation, direct and IRC acquisition, room uploads and restricted direct file readers;
+production consumers use these owners through the [managed session](rooms/session.md).
 
 - A remote publication's lifetime is its remote owner's responsibility. There
   is no distributed transaction.
@@ -360,6 +390,10 @@ is confirmed.
 
 **Read and close rules.**
 
+- Host finish preserves Loam child work admitted through a live operation lease;
+  Session admission remains independent. Cancellation refuses unstarted source
+  preparation and invocation. Submitted writes and unknown outcomes retain their
+  custody through settlement and recovery.
 - A Store read expires after any commit and refuses during uncertainty. A read
   that consumed proposals also expires after an abort or a missing recovery.
 - A storage read cannot close while an append or a resource change borrows it,
@@ -393,9 +427,12 @@ immutable policy schema.
 
 - A schema allows at most 64 Boolean permissions and 16 unsigned lower or upper
   bounds. Persisted positive dependencies constrain configured terms and control
-  ceilings; partial effect demands do not need prerequisite closure. Interface
-  applicability across heterogeneous scopes remains an application integration
-  boundary, tracked in the [Rooms queue](planning/rooms/integration.md).
+  ceilings; partial effect demands do not need prerequisite closure. Up to 16
+  persisted kind declarations govern exact, mixed and future-subtree support.
+  Effects check the exact target, and containment preserves future support.
+  Shared callbacks receive canonical bound-resource context. Recursive Rooms
+  interfaces, content facts and exact-target admission remain in the
+  [Rooms queue](planning/rooms/integration.md).
 - Applications must declare every fact relevant to an effect. Fact relations,
   alternatives, projections, and remote dependencies are not implemented.
 - A fresh store needs fresh identities. Neither the graph nor the ledger can
@@ -414,6 +451,12 @@ listed in [operating Rooms](../apps/rooms/operating.md#known-limitations).
 
 ### Host and ABI
 
+- **Rust finalizer recovery belongs to the owning thread.** If that thread
+  exits with refused native releases still pending, their callbacks, allocator
+  and other Rust owners remain allocated for the process lifetime. Thread exit
+  cannot revoke a native borrow. Finish close and required recovery before
+  leaving the thread to reclaim those resources.
+
 - **Enlivening a sturdyref checks the whole locator before anything is sent.**
   Turning a sturdyref back into a live reference either selects an existing
   session or dials a new one. Every tier does this the same way
@@ -429,6 +472,11 @@ listed in [operating Rooms](../apps/rooms/operating.md#known-limitations).
     borrowed pops, retries, and transfer. Projection gives each consumer its
     own retain, and its byte views borrow the action. Closing the source
     session does not retire a capability owned elsewhere.
+  - Owning local callbacks can send and tell without an ingress Session.
+    Local public vows support Host completion actions and explicit release;
+    raw wire listeners and pipelining refuse `SessionlessVow`. Their replies
+    use trusted Host-allocator storage, with the shared Value depth limit.
+    `Host.Call` retains its explicit fixed reply capacity.
   - `Host.enlivenCapability` tracks its completion apart from the action
     queue. Destroying the observation detaches it, while a shared dial stays
     Host work.
@@ -600,7 +648,3 @@ and 64 MiB across direct conversations. It allows 32 simultaneous reads.
 Pressure expires the oldest source with no active read. If the session ends or
 the ceiling expires a file first, the recipient keeps the message
 metadata but cannot fetch bytes it never received.
-
-The [roadmap](roadmap.md) owns those tasks and the remaining product work,
-including the A2A facade, OpenTelemetry export, the object layer, and control
-capabilities.

@@ -263,6 +263,37 @@ The launcher and agent workflow share `.devcontainer/bin/run.sh` for environment
 selection and a per-checkout build lease. Installed product executables do not
 enter containers or run compilers.
 
+Supply build environment overrides through the front:
+
+```sh
+.agents/skills/work/bin/glowcap-dev --env CARGO_BUILD_JOBS=1 zig build rooms-rust-test -j1
+```
+
+`-j1` limits Zig's build graph; Cargo owns its child concurrency separately.
+The front passes `--env` values into the selected environment and refreshes
+Zig's cached configuration so its Run steps receive them. Compiled artifacts
+remain cached. This keeps the build lease and per-test deadline active.
+Compilation and linking are outside that deadline; a slow gate needs timings
+from those processes as well as from the tests.
+
+Cargo keeps intermediate objects, fingerprints, and incremental state on the
+worktree's Linux volume. Final artifacts keep their declared output paths.
+The build front applies this to existing containers too. Native Linux Rust
+links use the active compiler's bundled LLD. Rooms tests retain source locations
+for backtraces; use `--env CARGO_PROFILE_TEST_DEBUG=2` for full debugger data.
+The container defaults to four Cargo jobs; explicit `--env CARGO_BUILD_JOBS=N`
+overrides that limit. Changing linker or debug settings requires one rebuild.
+Native Rooms tests and peers build only the static archives and iroh companion
+they link. Rust lint checks metadata without rebuilding native transport archives. Browser
+proofs reuse the browser library; `rooms-browser-build` alone requests its
+deployable Wasm module.
+The contract crate also builds a library for native tests; browser proof steps
+explicitly request its Wasm module, avoiding an unused native shared-library link.
+Browser contracts use the separate `browser-proof` profile with optimized loops
+and parallel code generation. Deployment modules retain whole-program optimization.
+The source analyzer uses optimized code with safety checks; its checks and scope
+are the same.
+
 Cursor's agent CLI answers to both of the names upstream installs, `agent` and
 `cursor-agent`. Upstream unpacks it into the user's home directory; here it is
 part of the image, under `/usr/local/share/cursor-agent`, so the pinned build
@@ -357,6 +388,7 @@ behavior a host bind provides. The volume name is
 | `cargo/` | `CARGO_HOME` | registry, git, `cargo install` bins |
 | `/home/vscode/.cache/glowcap-dev-zig-work/zig-local` | `ZIG_LOCAL_CACHE_DIR` | that container's Zig compile objects |
 | `/home/vscode/.cache/glowcap-dev-zig-work/zig-pkg` | `ZIG_LOCAL_PKG_DIR` | that container's extracted Zig packages |
+| `/home/vscode/.cache/glowcap-dev-zig-work/cargo/{workspace-path-hash}` | `CARGO_BUILD_BUILD_DIR` | Cargo intermediate state, separated by workspace |
 
 Checkout paths that are **install products or product state** stay on the
 worktree bind, where the tree already names them:

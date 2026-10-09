@@ -150,10 +150,10 @@ async fn gift(port: u16) -> Result<(), Fail> {
 
 	// Publish two recursively placed occurrences. This forces the binding's
 	// complete Argument lowering and the core's one-message/two-give transaction. The
-	// giftable is a factory because an actor behavior is a `!Clone` `FnMut`: each
+	// Host publication is a factory because an actor behavior is a `!Clone` `FnMut`: each
 	// session it is published on gets a freshly minted behavior with the same
 	// logic, all returning the one greeter.
-	host.publish_giftable(INTRODUCER_SWISS, move || {
+	host.publish(INTRODUCER_SWISS, move || {
 		let greeter = greeter.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {
 			if verb == "get-greeter" {

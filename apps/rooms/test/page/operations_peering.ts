@@ -6,7 +6,7 @@
 // then the row's own Revoke proves ordinary exact retirement.
 
 import type { Page } from "playwright";
-import { removeCapability, takeCapability } from "./capability_set.ts";
+import { removeCapability, savedCapabilityNames, takeCapability } from "./capability_set.ts";
 import { fail, reachDirectoryOnCard } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
@@ -40,7 +40,8 @@ async function openPeeringPane(tab: Page): Promise<void> {
 	await tab.waitForSelector("#peeringSource");
 }
 
-async function publish(tab: Page): Promise<void> {
+async function publish(tab: Page, source: string): Promise<void> {
+	await tab.selectOption("#peeringSource", source);
 	await tab.fill("#peeringName", "annex-here");
 	await tab.click("#peeringPublish");
 }
@@ -90,7 +91,7 @@ export async function runPeeringScene(
 
 	// The submitted controls, not a lagging rendered-state closure, decide the
 	// publication. The exact row proves the type-and-immediately-press path.
-	await publish(tab);
+	await publish(tab, annex.value);
 	await tab.waitForSelector('#peeringList li[data-phase="live"]', { timeout: 30_000 })
 		.catch(() => fail("the publication did not land a live row"));
 	const published = await tab.evaluate(() => {
@@ -119,7 +120,7 @@ export async function runPeeringScene(
 	await joinForeignRoom(tab, foreignLocator);
 	await takePeering(tab, peeringSwiss);
 	await openPeeringPane(tab);
-	await publish(tab);
+	await publish(tab, annex.value);
 	await tab.waitForSelector('#peeringList li[data-phase="live"]', { timeout: 30_000 })
 		.catch(() => fail("publisher disconnect did not free the foreign listing's exact name"));
 
@@ -128,11 +129,7 @@ export async function runPeeringScene(
 	await tab.waitForSelector("#peeringList", { state: "detached", timeout: 15_000 })
 		.catch(() => fail("revoking the publication did not retire its row"));
 	await dropCapability(tab);
-	const remembered = await tab.evaluate(() => {
-		const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
-		const operations = state?.session?.capabilities?.operations;
-		return Array.isArray(operations) ? operations : [];
-	});
+	const remembered = await savedCapabilityNames(tab);
 	if (remembered.length !== 0) fail(`the peering scene left a secret behind: ${JSON.stringify(remembered)}`);
 	await leaveForeignRoom(tab);
 }

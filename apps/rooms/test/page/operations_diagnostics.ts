@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { fail } from "./harness.ts";
 import { takeCapability } from "./capability_set.ts";
+import { opsDiagnosticsLabel } from "../../lib/text/ops.ts";
 
 /**
  * Take diagnostics from an active listeners pane, prove its read-only outcome
@@ -52,9 +53,9 @@ export async function takeAndInspectDiagnostics(tab: Page, diagnosticsSwiss: str
 	}
 
 	// Browser-only trouble stands beside the directory's holdings when there is
-	// something to inspect. This run deliberately crossed a server restart and
-	// presented the old diagnostics capability afterward, so its generic failure
-	// must survive here even though the server's own operator journal was cleared.
+	// something to inspect. This journey rejected a stale diagnostics link
+	// before acquiring the current one. Its exact refusal remains here after
+	// repairing the draft, independently of the server's operator journal.
 	// One well owns the whole bounded journal; an empty one is never drawn.
 	const browserTrouble = tab.locator("#pageTrouble");
 	if (await browserTrouble.count() !== 1) {
@@ -62,7 +63,7 @@ export async function takeAndInspectDiagnostics(tab: Page, diagnosticsSwiss: str
 	}
 	const browserTroubleText = await browserTrouble.textContent() ?? "";
 	if (
-		!browserTroubleText.includes("shared session capability:diagnostics") ||
+		!browserTroubleText.includes(opsDiagnosticsLabel) ||
 		!browserTroubleText.includes("does not recognize that swiss number")
 	) {
 		fail(`the browser journal lost the stale-capability outcome: ${JSON.stringify(browserTroubleText)}`);

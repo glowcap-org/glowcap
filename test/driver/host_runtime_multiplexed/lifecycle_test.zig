@@ -223,7 +223,7 @@ test "runtime close cancels a resident open after core reaches closed" {
     defer resident.deinit();
     resident.hold_connect = true;
 
-    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, .{}, .ephemeral, opts);
     defer runtime.deinit();
     _ = try runtime.addResident(.{
         .symbol = AcceptOwnershipResident.transport,
@@ -266,7 +266,7 @@ test "resident dial cancellation attaches exact teardown consequences to its own
     resident.hold_connect = true;
     resident.fail_cancel_connect = true;
 
-    var runtime = try driver.HostRuntime.init(std.testing.allocator, threaded.io(), &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, threaded.io(), .{}, .ephemeral, opts);
     defer runtime.deinit();
     _ = try runtime.addResident(.{
         .symbol = AcceptOwnershipResident.transport,
@@ -307,7 +307,7 @@ test "external adoption commits its pending-open owner before immediate EOF" {
     defer resident.wake.deinit();
 
     var observed = ObservedOpen{};
-    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, observed.steppedOpts());
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), .{}, .ephemeral, observed.steppedOpts());
     defer runtime.deinit();
     _ = try runtime.addResident(.{
         .symbol = ImmediateClosedExternalResident.transport,
@@ -361,7 +361,7 @@ test "message resident adoption sizes reads from the transport packet cap" {
     };
     defer resident.wake.deinit();
 
-    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), .{}, .ephemeral, opts);
     defer runtime.deinit();
     const packet_cap = frame_cap + 2048;
     _ = try runtime.addResident(.{
@@ -386,9 +386,9 @@ test "message resident adoption sizes reads from the transport packet cap" {
         },
     );
 
-    const session = runtime.pending_opens.items[0].session;
-    const wire = runtime.wires.get(session.peer_handle).?;
-    try std.testing.expectEqual(packet_cap, wire.link.resident.read_buf.len);
+    // A message-framed wire can deliver a whole packet, so the shared resident
+    // read scratch grows to the packet cap when it adopts one.
+    try std.testing.expectEqual(packet_cap, runtime.resident_read_scratch.len);
 }
 
 test "bindListener cancels pending provider setup when readiness fails" {
@@ -400,7 +400,7 @@ test "bindListener cancels pending provider setup when readiness fails" {
     defer resident.deinit();
     resident.fail_drain = true;
 
-    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), .{}, .ephemeral, opts);
     defer runtime.deinit();
     _ = try runtime.addResident(.{
         .symbol = AcceptOwnershipResident.transport,
@@ -425,7 +425,7 @@ test "one runtime profile admits only one pending or active listener" {
     defer resident.deinit();
     resident.fail_drain = true;
 
-    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), .{}, .ephemeral, opts);
     defer runtime.deinit();
     _ = try runtime.addResident(.{
         .symbol = AcceptOwnershipResident.transport,
@@ -470,7 +470,7 @@ test "failed multiplexed finish consumes listener setup without cancellation" {
     defer resident.deinit();
     resident.fail_listener_finish = true;
 
-    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), .{}, .ephemeral, opts);
     defer runtime.deinit();
     _ = try runtime.addResident(.{
         .symbol = AcceptOwnershipResident.transport,
@@ -508,7 +508,7 @@ test "remote-key contract failure retires the claimed dial and pending row" {
     var resident = try FakeResident.init(allocator);
     defer resident.deinit();
     resident.fail_remote_key = true;
-    var runtime = try driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(allocator, io, .{}, .ephemeral, opts);
     defer runtime.deinit();
     _ = try runtime.addResident(
         model.transport.Known.tcp.metadata(),

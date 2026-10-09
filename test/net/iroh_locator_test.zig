@@ -86,21 +86,23 @@ test "supported iroh facade and nested surfaces stay exact" {
     try std.testing.expectEqual(resident_names.len, @typeInfo(iroh.Resident).@"struct".decl_names.len);
     inline for (resident_names) |name| try std.testing.expect(@hasDecl(iroh.Resident, name));
 
-    const backend_names = .{ "Fd", "adapter_depth", "ListenerAddress", "ConnectTarget", "listen_fd", "connection_state_bytes", "initBound", "initBoundWithPlatform", "deinit", "tcpBackendStatus", "wake", "openListener", "startDial", "listenerAddress", "listenerPort", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll" };
+    const backend_names = .{ "Fd", "adapter_depth", "ListenerAddress", "ListenTarget", "loopListenTarget", "ConnectTarget", "listen_fd", "connection_state_bytes", "initBound", "initBoundWithPlatform", "deinit", "tcpBackendStatus", "wake", "openListener", "startDial", "listenerAddress", "listenerPort", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll" };
     try std.testing.expectEqual(backend_names.len, @typeInfo(iroh.Backend).@"struct".decl_names.len);
     inline for (backend_names) |name| try std.testing.expect(@hasDecl(iroh.Backend, name));
 
     try std.testing.expectEqual(@as(usize, 32), @sizeOf(iroh.Resident));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(iroh.Resident));
     // The platform backend's four listener-address bytes consume an existing
-    // kqueue padding lane. io_uring needs one new aligned word, and the Linux
-    // selector tag needs another. This is one fixed charge per loop, never a
+    // kqueue padding lane. io_uring needs one new aligned word, its listener
+    // table (two maps and a close queue, so many listeners can share the ring)
+    // two more, and the Linux selector tag another. This is one fixed charge
+    // per loop, never a
     // per-connection or wire-path cost. Stated under runtime safety, where each
     // embedded `std.ArrayList` header carries std's one-word
     // `pointer_stability` lock: 32 of these bytes on both platforms.
     if (!std.debug.runtime_safety) return error.SkipZigTest;
     const expected_backend_bytes: usize = switch (builtin.os.tag) {
-        .linux => 664,
+        .linux => 680,
         else => 528,
     };
     try std.testing.expectEqual(expected_backend_bytes, @sizeOf(iroh.Backend));

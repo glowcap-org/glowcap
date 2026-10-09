@@ -58,6 +58,8 @@ pub const NodeServices = struct {
     pub const VTable = struct {
         lower: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, reference: model.Reference) LoweringError!model.Reference,
         stage_outbound: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, outbound: *passable.Outbound) OutboundStagingError!bool,
+        staged_withdrawn: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, batch: passable.BatchId) void,
+        provisional_closed: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, retract: bool) void,
         local_object_projection: *const fn (ctx: *anyopaque) ?bootstrap.gifts.LocalObjectProjection,
         gifter_session_resolver: *const fn (ctx: *anyopaque) ?bootstrap.gifts.GifterSessionResolver,
         pending_withdraw_added: *const fn (ctx: *anyopaque, receiver: PeerHandle, dependency: HandoffDependency) std.mem.Allocator.Error!void,
@@ -92,6 +94,14 @@ pub const NodeServices = struct {
 
             fn stageOutboundThunk(erased: *anyopaque, id: PeerHandle, outbound: *passable.Outbound) OutboundStagingError!bool {
                 return implementation.stage_outbound(context(erased), id, outbound);
+            }
+
+            fn stagedWithdrawnThunk(erased: *anyopaque, id: PeerHandle, batch: passable.BatchId) void {
+                implementation.staged_withdrawn(context(erased), id, batch);
+            }
+
+            fn provisionalClosedThunk(erased: *anyopaque, id: PeerHandle, retract: bool) void {
+                implementation.provisional_closed(context(erased), id, retract);
             }
 
             fn localObjectProjectionThunk(erased: *anyopaque) ?bootstrap.gifts.LocalObjectProjection {
@@ -137,6 +147,8 @@ pub const NodeServices = struct {
             const vtable: VTable = .{
                 .lower = lowerThunk,
                 .stage_outbound = stageOutboundThunk,
+                .staged_withdrawn = stagedWithdrawnThunk,
+                .provisional_closed = provisionalClosedThunk,
                 .local_object_projection = localObjectProjectionThunk,
                 .gifter_session_resolver = gifterSessionResolverThunk,
                 .pending_withdraw_added = pendingWithdrawAddedThunk,
@@ -162,6 +174,8 @@ pub const NodeServices = struct {
         return struct {
             lower: *const fn (Context, PeerHandle, model.Reference) LoweringError!model.Reference,
             stage_outbound: *const fn (Context, PeerHandle, *passable.Outbound) OutboundStagingError!bool,
+            staged_withdrawn: *const fn (Context, PeerHandle, passable.BatchId) void,
+            provisional_closed: *const fn (Context, PeerHandle, bool) void,
             local_object_projection: *const fn (Context) ?bootstrap.gifts.LocalObjectProjection,
             gifter_session_resolver: *const fn (Context) ?bootstrap.gifts.GifterSessionResolver,
             pending_withdraw_added: *const fn (Context, PeerHandle, HandoffDependency) std.mem.Allocator.Error!void,
@@ -184,6 +198,19 @@ pub const NodeServices = struct {
     /// adopted the complete payload; `false` leaves it with the caller.
     pub fn stageOutbound(self: NodeServices, outbound: *passable.Outbound) OutboundStagingError!bool {
         return self.vtable.stage_outbound(self.ctx, self.peer_handle, outbound);
+    }
+
+    /// A retracted provisional window removed the row of a carrier the Node
+    /// is still staging (ADR-0194); the Node fails that batch.
+    pub fn stagedWithdrawn(self: NodeServices, batch: passable.BatchId) void {
+        self.vtable.staged_withdrawn(self.ctx, self.peer_handle, batch);
+    }
+
+    /// The Peer's provisional window closed (ADR-0194), after the Peer kept
+    /// or retracted its own rows; the Node keeps or withdraws what the
+    /// window's sends committed beyond them.
+    pub fn provisionalClosed(self: NodeServices, retract: bool) void {
+        self.vtable.provisional_closed(self.ctx, self.peer_handle, retract);
     }
 
     pub fn localObjectProjection(self: NodeServices) ?bootstrap.gifts.LocalObjectProjection {

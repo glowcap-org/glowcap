@@ -13,13 +13,11 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const support_actors = @import("../../support/actors.zig");
-const netlayer_test = @import("../../support/netlayer.zig");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
 const net = glowcap.net;
 const tcp = net.tcp;
-const linux = std.os.linux;
 
 const fixtures = @import("residents.zig");
 const FakeResident = fixtures.FakeResident;
@@ -52,32 +50,20 @@ fn exporterServe(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror
 }
 
 fn gifterServe(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    netlayers: []const net.netlayer.Netlayer,
+    gifter: *driver.Server,
     exporter_designator: []const u8,
-    listener: net.netlayer.Listener,
     done: *std.atomic.Value(bool),
 ) anyerror!void {
-    const local_locator = try listener.localLocator(allocator);
-    defer model.freePeerLocator(allocator, local_locator);
-
-    var runtime = try driver.HostRuntime.init(allocator, io, netlayers, .ephemeral, opts);
-    defer runtime.deinit();
-
-    try runtime.core.setAdvertisedLocator(local_locator);
-
-    const treasure_session = try runtime.connectLocator(.{
+    const treasure_session = try gifter.runtime.connectLocator(.{
         .transport = model.transport.tcp,
         .designator = exporter_designator,
         .hints = model.Hints.emptyFalse(),
     }, .inherit);
-    const treasure_view = try driver.Session.adopt(&runtime, treasure_session);
+    const treasure_view = try driver.Session.adopt(gifter.runtime, treasure_session);
     defer treasure_view.deinit();
     const treasure = try treasure_view.fetch("treasure");
 
-    const hs = try runtime.acceptWire(listener, listener.transportName());
-    const view = try driver.Session.adopt(&runtime, hs);
+    const view = try gifter.accept();
     defer view.deinit();
     _ = try view.publish("introducer", Introducer, .{ .treasure = treasure });
     while (!done.load(.acquire)) {
@@ -95,23 +81,21 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var done = std.atomic.Value(bool).init(false);
 
-    var exporter = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var exporter = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
     defer exporter.deinit();
     var exporter_addr_buf: [64]u8 = undefined;
     const exporter_designator = try allocator.dupe(u8, try exporter.localDesignator(&exporter_addr_buf));
     defer allocator.free(exporter_designator);
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var gifter_listener = try netlayer_test.listenBlocking(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" });
-    defer netlayer_test.close(gifter_listener);
-    const gifter_locator = try gifter_listener.localLocator(allocator);
+    var gifter = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    defer gifter.deinit();
+    const gifter_locator = try model.clonePeerLocator(allocator, try gifter.advertisedLocator());
     defer model.freePeerLocator(allocator, gifter_locator);
 
     var exporter_future = try io.concurrent(exporterServe, .{ exporter, &done });
-    var gifter_future = try io.concurrent(gifterServe, .{ allocator, io, &netlayers, exporter_designator, gifter_listener, &done });
+    var gifter_future = try io.concurrent(gifterServe, .{ gifter, exporter_designator, &done });
     defer {
         done.store(true, .release);
         gifter_future.await(io) catch {};
@@ -123,7 +107,7 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
     // loudly with `UnknownTransport` instead of quietly rescuing the test.
     var fake = try FakeResident.init(allocator);
     defer fake.deinit();
-    var recipient = try driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, opts);
+    var recipient = try driver.HostRuntime.init(allocator, io, .{}, .ephemeral, opts);
     defer recipient.deinit();
     _ = try recipient.addResident(
         model.transport.Known.tcp.metadata(),
@@ -160,10 +144,9 @@ test "a frame larger than the write window survives would_block and resumes in o
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var done = std.atomic.Value(bool).init(false);
 
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
     defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const designator = try allocator.dupe(u8, try server.localDesignator(&addr_buf));
@@ -191,7 +174,7 @@ test "a frame larger than the write window survives would_block and resumes in o
 
     var fake = try FakeResident.init(allocator);
     defer fake.deinit();
-    var runtime = try driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, opts);
+    var runtime = try driver.HostRuntime.init(allocator, io, .{}, .ephemeral, opts);
     defer runtime.deinit();
     _ = try runtime.addResident(
         model.transport.Known.tcp.metadata(),
@@ -203,7 +186,7 @@ test "a frame larger than the write window survives would_block and resumes in o
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     }, .inherit);
-    var foreign_runtime = try driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, opts);
+    var foreign_runtime = try driver.HostRuntime.init(allocator, io, .{}, .ephemeral, opts);
     defer foreign_runtime.deinit();
     try std.testing.expectError(
         driver.Error.SessionNotOwned,
@@ -231,5 +214,5 @@ test "a frame larger than the write window survives would_block and resumes in o
     // The window really refused mid-frame, and nothing stayed retained.
     try std.testing.expect(fake.write_blocks > 0);
     const wire = runtime.wires.get(session.peer_handle).?;
-    try std.testing.expect(wire.link.resident.pending == null);
+    try std.testing.expect(wire.link.pending == null);
 }

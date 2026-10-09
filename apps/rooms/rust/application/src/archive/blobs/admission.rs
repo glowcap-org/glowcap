@@ -17,7 +17,10 @@ pub enum Request<C> {
 		record: Record,
 		files: Vec<attachment::Attachment<C>>,
 	},
-	Attachment(Reader),
+	Attachment {
+		reader: Reader,
+		record: Record,
+	},
 	Digest {
 		scope: Filter,
 		digest: String,
@@ -51,7 +54,8 @@ impl Facet {
 					.integer()
 					.and_then(|n| usize::try_from(n).ok())
 					.ok_or(Error::Blob)?;
-				Ok(Request::Attachment(Reader::attachment(self, &record, at)?))
+				let reader = Reader::attachment(self, &record, at)?;
+				Ok(Request::Attachment { reader, record })
 			}
 			BLOB if args.len() == 1 => {
 				let digest = args[0].text().filter(|s| records::digest(s)).ok_or(Error::Blob)?;

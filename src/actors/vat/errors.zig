@@ -11,6 +11,16 @@ pub const Error = error{
     NotLocal,
     /// A far send used the bare Vat rather than a session Port.
     NotConnected,
+    /// The actor accepts model messages only, not this adapter-local payload.
+    UnsupportedDelivery,
+    /// The opaque handler supplied its own diagnostic rather than a Zig ordinal.
+    OpaqueHandlerRefused,
+    /// A foreign compilation supplied exact text, but has its own error namespace.
+    ForeignHandlerRefused,
+    /// An adapter queue copy tried to drive or change its own admission.
+    ReenteredAdmission,
+    /// Teardown owns the Vat; execution and publication have ended.
+    VatReleased,
     /// An export position is already authoritative for another actor.
     AlreadyPublished,
     /// A one-shot vow already holds a listener.
@@ -46,6 +56,8 @@ pub const Error = error{
 /// Cancellation is allocation-free and refuses only an absent or active
 /// ingress; queued ownership was reserved at admission.
 pub const IngressCancellationError = error{
+    VatReleased,
+    ReenteredAdmission,
     UnknownIngress,
     IngressBusy,
 };

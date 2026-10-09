@@ -254,10 +254,10 @@ test "owning connect: a silent partner's handshake breaks with HandshakeTimedOut
     var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer listener.deinit();
     var buf: [64]u8 = undefined;
-    var tcp_resident = tcp.Resident{ .io = io };
     try std.testing.expectError(driver.Error.HandshakeTimedOut, driver.connect(
         allocator,
-        &.{tcp_resident.netlayer()},
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&buf, listener.localAddress()),
         .ephemeral,
         .{ .frame_cap = frame_cap, .handshake = .{ .ms = 200 }, .settle = .{ .ms = 200 } },
@@ -266,7 +266,8 @@ test "owning connect: a silent partner's handshake breaks with HandshakeTimedOut
     // An already-expired budget times out before the first poll, every build mode.
     try std.testing.expectError(driver.Error.HandshakeTimedOut, driver.connect(
         allocator,
-        &.{tcp_resident.netlayer()},
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&buf, listener.localAddress()),
         .ephemeral,
         .{ .frame_cap = frame_cap, .handshake = .{ .ms = 0 }, .settle = .{ .ms = 200 } },
@@ -291,8 +292,7 @@ test "owning accept: a connect-then-silent dialer times out and the unwind stays
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
         .frame_cap = frame_cap,
         .handshake = .{ .ms = 200 },
         .settle = .{ .ms = 200 },
@@ -319,9 +319,8 @@ fn hostAcceptPublishThenStall(server: *driver.Server, io: std.Io) anyerror!void 
 }
 
 fn silentPartnerSettleTimesOut(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
-    var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, .{
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&buf, address), .ephemeral, .{
         .frame_cap = frame_cap,
         .handshake = .{ .ms = 10_000 },
         .settle = .{ .ms = 200 },
@@ -337,8 +336,7 @@ test "driver loopback: a partner that opens then stalls breaks settle with WaitT
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
     defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));

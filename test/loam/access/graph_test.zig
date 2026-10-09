@@ -1,6 +1,7 @@
 //! Managed access structural invariants: identity, bounded containment, atomic refusal,
 //! and allocation ownership. These are Zig model tests, not CapTP conformance.
 
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const core = @import("glowcap").loam.access.core;
 const Graph = core.Graph;
@@ -12,13 +13,13 @@ test "access resource identity separates owners and slot generations" {
     defer graph.deinit() catch unreachable;
     var other = try Graph.init(std.testing.allocator, @fromBackingInt(@intCast(101)), .{ .capacity = 2 });
     defer other.deinit() catch unreachable;
-    const first = try graph.create(graph.revision(), kind, null);
-    const foreign = try other.create(other.revision(), kind, null);
+    const first = try graph.create(graph.revision(), &structural_policy, kind, null);
+    const foreign = try other.create(other.revision(), &structural_policy, kind, null);
     try std.testing.expectEqual(first.slot, foreign.slot);
     try std.testing.expectError(error.ForeignOwner, graph.get(foreign));
-    try std.testing.expectError(error.ForeignOwner, graph.create(graph.revision(), kind, foreign));
+    try std.testing.expectError(error.ForeignOwner, graph.create(graph.revision(), &structural_policy, kind, foreign));
     try graph.destroy(graph.revision(), first);
-    const replacement = try graph.create(graph.revision(), kind, null);
+    const replacement = try graph.create(graph.revision(), &structural_policy, kind, null);
     try std.testing.expectEqual(first.slot, replacement.slot);
     try std.testing.expect(!first.eql(replacement));
     try std.testing.expectError(error.Gone, graph.get(first));
@@ -30,9 +31,9 @@ test "access graph refuses malformed names and bounds capacity" {
     try std.testing.expectError(error.InvalidLimits, Graph.init(std.testing.allocator, owner, .{ .capacity = 0 }));
     var graph = try Graph.init(std.testing.allocator, owner, .{ .capacity = 1 });
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), kind, null);
+    const root = try graph.create(graph.revision(), &structural_policy, kind, null);
     const before = graph.revision();
-    try std.testing.expectError(error.CapacityExceeded, graph.create(before, kind, null));
+    try std.testing.expectError(error.CapacityExceeded, graph.create(before, &structural_policy, kind, null));
     try std.testing.expectEqual(before, graph.revision());
     try std.testing.expectEqual(@as(u32, 1), graph.count());
     var forged = root;
@@ -46,10 +47,10 @@ test "access graph refuses malformed names and bounds capacity" {
 test "access containment includes self and excludes independent roots" {
     var graph = try Graph.init(std.testing.allocator, owner, .{ .capacity = 5 });
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), kind, null);
-    const child = try graph.create(graph.revision(), kind, root);
-    const grandchild = try graph.create(graph.revision(), kind, child);
-    const other = try graph.create(graph.revision(), kind, null);
+    const root = try graph.create(graph.revision(), &structural_policy, kind, null);
+    const child = try graph.create(graph.revision(), &structural_policy, kind, root);
+    const grandchild = try graph.create(graph.revision(), &structural_policy, kind, child);
+    const other = try graph.create(graph.revision(), &structural_policy, kind, null);
     try std.testing.expect(try graph.isDescendant(root, root));
     try std.testing.expect(try graph.isDescendant(grandchild, root));
     try std.testing.expect(!try graph.isDescendant(root, grandchild));
@@ -61,16 +62,16 @@ test "access containment includes self and excludes independent roots" {
 test "access failed moves leave every edge and revision unchanged" {
     var graph = try Graph.init(std.testing.allocator, owner, .{ .capacity = 6, .max_depth = 2 });
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), kind, null);
-    const branch = try graph.create(graph.revision(), kind, root);
-    const leaf = try graph.create(graph.revision(), kind, branch);
-    const destination = try graph.create(graph.revision(), kind, root);
+    const root = try graph.create(graph.revision(), &structural_policy, kind, null);
+    const branch = try graph.create(graph.revision(), &structural_policy, kind, root);
+    const leaf = try graph.create(graph.revision(), &structural_policy, kind, branch);
+    const destination = try graph.create(graph.revision(), &structural_policy, kind, root);
     const before = graph.revision();
-    try std.testing.expectError(error.ContainmentCycle, graph.reparent(before, root, leaf));
-    try std.testing.expectError(error.ContainmentCycle, graph.reparent(before, branch, branch));
+    try std.testing.expectError(error.ContainmentCycle, graph.reparent(before, &structural_policy, root, leaf));
+    try std.testing.expectError(error.ContainmentCycle, graph.reparent(before, &structural_policy, branch, branch));
     // The branch itself would fit; its existing leaf would exceed the limit.
-    try std.testing.expectError(error.DepthLimit, graph.reparent(before, branch, destination));
-    try std.testing.expectError(error.DepthLimit, graph.create(before, kind, leaf));
+    try std.testing.expectError(error.DepthLimit, graph.reparent(before, &structural_policy, branch, destination));
+    try std.testing.expectError(error.DepthLimit, graph.create(before, &structural_policy, kind, leaf));
     try std.testing.expectError(error.HasChildren, graph.destroy(before, branch));
     try std.testing.expectEqual(before, graph.revision());
     try std.testing.expectEqual(root, (try graph.get(branch)).parent.?);
@@ -82,20 +83,20 @@ test "access failed moves leave every edge and revision unchanged" {
 test "access moves update all descendants and preserve resource identities" {
     var graph = try Graph.init(std.testing.allocator, owner, .{ .capacity = 8 });
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), kind, null);
-    const first = try graph.create(graph.revision(), kind, root);
-    const middle = try graph.create(graph.revision(), kind, root);
-    const last = try graph.create(graph.revision(), kind, root);
-    const leaf = try graph.create(graph.revision(), kind, middle);
-    const deep = try graph.create(graph.revision(), kind, leaf);
-    try graph.reparent(graph.revision(), middle, null);
+    const root = try graph.create(graph.revision(), &structural_policy, kind, null);
+    const first = try graph.create(graph.revision(), &structural_policy, kind, root);
+    const middle = try graph.create(graph.revision(), &structural_policy, kind, root);
+    const last = try graph.create(graph.revision(), &structural_policy, kind, root);
+    const leaf = try graph.create(graph.revision(), &structural_policy, kind, middle);
+    const deep = try graph.create(graph.revision(), &structural_policy, kind, leaf);
+    try graph.reparent(graph.revision(), &structural_policy, middle, null);
     try std.testing.expect((try graph.get(middle)).parent == null);
     try std.testing.expectEqual(@as(u32, 1), (try graph.get(leaf)).depth);
     try std.testing.expectEqual(@as(u32, 2), (try graph.get(deep)).depth);
     try std.testing.expect(!try graph.isDescendant(deep, root));
     try std.testing.expect(try graph.isDescendant(first, root));
     try std.testing.expect(try graph.isDescendant(last, root));
-    try graph.reparent(graph.revision(), middle, first);
+    try graph.reparent(graph.revision(), &structural_policy, middle, first);
     try std.testing.expectEqual(@as(u32, 4), (try graph.get(deep)).depth);
     try std.testing.expect(try graph.isDescendant(deep, root));
     try graph.destroy(graph.revision(), last);
@@ -110,21 +111,21 @@ test "access moves update all descendants and preserve resource identities" {
 test "access subtree traversal checks and updates every sibling branch" {
     var graph = try Graph.init(std.testing.allocator, owner, .{ .capacity = 7, .max_depth = 3 });
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), kind, null);
-    const deep = try graph.create(graph.revision(), kind, root);
-    const leaf = try graph.create(graph.revision(), kind, deep);
-    const deepest = try graph.create(graph.revision(), kind, leaf);
+    const root = try graph.create(graph.revision(), &structural_policy, kind, null);
+    const deep = try graph.create(graph.revision(), &structural_policy, kind, root);
+    const leaf = try graph.create(graph.revision(), &structural_policy, kind, deep);
+    const deepest = try graph.create(graph.revision(), &structural_policy, kind, leaf);
     // Insertion puts this shallow sibling before the deeper branch.
-    const shallow = try graph.create(graph.revision(), kind, root);
-    const destination = try graph.create(graph.revision(), kind, null);
+    const shallow = try graph.create(graph.revision(), &structural_policy, kind, root);
+    const destination = try graph.create(graph.revision(), &structural_policy, kind, null);
     const before = graph.revision();
-    try std.testing.expectError(error.DepthLimit, graph.reparent(before, root, destination));
+    try std.testing.expectError(error.DepthLimit, graph.reparent(before, &structural_policy, root, destination));
     try std.testing.expectEqual(before, graph.revision());
     try std.testing.expect((try graph.get(root)).parent == null);
     try std.testing.expectEqual(@as(u32, 1), (try graph.get(shallow)).depth);
     try std.testing.expectEqual(@as(u32, 3), (try graph.get(deepest)).depth);
     try graph.destroy(graph.revision(), deepest);
-    try graph.reparent(graph.revision(), root, destination);
+    try graph.reparent(graph.revision(), &structural_policy, root, destination);
     try std.testing.expectEqual(@as(u32, 2), (try graph.get(shallow)).depth);
     try std.testing.expectEqual(@as(u32, 2), (try graph.get(deep)).depth);
     try std.testing.expectEqual(@as(u32, 3), (try graph.get(leaf)).depth);
@@ -133,14 +134,14 @@ test "access subtree traversal checks and updates every sibling branch" {
 test "access mutations reject stale revisions including no-op moves" {
     var graph = try Graph.init(std.testing.allocator, owner, .{ .capacity = 3 });
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), kind, null);
+    const root = try graph.create(graph.revision(), &structural_policy, kind, null);
     const stale = graph.revision();
-    const child = try graph.create(stale, kind, root);
+    const child = try graph.create(stale, &structural_policy, kind, root);
     const current = graph.revision();
-    try std.testing.expectError(error.RevisionConflict, graph.create(stale, kind, null));
-    try std.testing.expectError(error.RevisionConflict, graph.reparent(stale, child, root));
+    try std.testing.expectError(error.RevisionConflict, graph.create(stale, &structural_policy, kind, null));
+    try std.testing.expectError(error.RevisionConflict, graph.reparent(stale, &structural_policy, child, root));
     try std.testing.expectError(error.RevisionConflict, graph.destroy(stale, child));
-    try graph.reparent(current, child, root);
+    try graph.reparent(current, &structural_policy, child, root);
     try std.testing.expectEqual(current, graph.revision());
     try std.testing.expectEqual(@as(u32, 2), graph.count());
 }
@@ -148,26 +149,26 @@ test "access mutations reject stale revisions including no-op moves" {
 test "access exhausted generations and revisions never wrap" {
     var graph = try Graph.init(std.testing.allocator, owner, .{ .capacity = 1 });
     defer graph.deinit() catch unreachable;
-    var root = try graph.create(graph.revision(), kind, null);
+    var root = try graph.create(graph.revision(), &structural_policy, kind, null);
     // Reach arithmetic boundaries without allocating 2^64 incarnations.
     graph.slots[root.slot].generation = std.math.maxInt(u64);
     root.generation = std.math.maxInt(u64);
     try graph.destroy(graph.revision(), root);
     try std.testing.expectError(error.Gone, graph.get(root));
-    try std.testing.expectError(error.CapacityExceeded, graph.create(graph.revision(), kind, null));
+    try std.testing.expectError(error.CapacityExceeded, graph.create(graph.revision(), &structural_policy, kind, null));
     graph.current_revision = @fromBackingInt(@intCast(std.math.maxInt(u64)));
-    try std.testing.expectError(error.RevisionExhausted, graph.create(graph.revision(), kind, null));
+    try std.testing.expectError(error.RevisionExhausted, graph.create(graph.revision(), &structural_policy, kind, null));
     try std.testing.expectEqual(@as(u32, 0), graph.count());
 }
 
 fn allocationOwnership(allocator: std.mem.Allocator) !void {
     var graph = try Graph.init(allocator, owner, .{ .capacity = 4 });
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), kind, null);
-    const child = try graph.create(graph.revision(), kind, root);
+    const root = try graph.create(graph.revision(), &structural_policy, kind, null);
+    const child = try graph.create(graph.revision(), &structural_policy, kind, root);
     _ = try graph.get(child);
     try std.testing.expect(try graph.isDescendant(child, root));
-    try graph.reparent(graph.revision(), child, null);
+    try graph.reparent(graph.revision(), &structural_policy, child, null);
     try graph.destroy(graph.revision(), root);
     try graph.destroy(graph.revision(), child);
 }

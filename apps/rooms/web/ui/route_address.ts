@@ -7,10 +7,8 @@ import type { Given } from "./intent.ts";
 export function pageSearch(): URLSearchParams {
 	const here = new URLSearchParams(location.search);
 	const kept = new URLSearchParams();
-	for (const name of ["dm", "trace"]) {
-		const value = here.get(name);
-		if (value !== null) kept.set(name, value);
-	}
+	const dm = here.get("dm");
+	if (dm !== null) kept.set("dm", dm);
 	return kept;
 }
 

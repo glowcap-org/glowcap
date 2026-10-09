@@ -1,6 +1,6 @@
 // The known-good dial half of the noise-relay managed-listen proof: connect
 // to the listener's advertised locator through the relay route it carries,
-// fetch the host giftable, and require the greeting. The listener under test
+// fetch the Host publication, and require the greeting. The listener under test
 // varies per binding; this client stays fixed so a red run points at the
 // listener's binding.
 //

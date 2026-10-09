@@ -239,8 +239,8 @@ export async function run(): Promise<void> {
 	// remains collectable; deterministic release removes the lookup immediately.
 	{
 		const host = new Host();
-		host.publishGiftable("cycle", () => host.designator());
-		const ctx = host.giftableCtx("cycle");
+		host.publish("cycle", () => host.designator());
+		const ctx = host.publicationCtx("cycle");
 		assert(ctx != null && entryFor(ctx) != null, "a live Host retains its callback entry");
 		const closing = host.close();
 		assert(entryFor(ctx) != null, "Host close retains callbacks until its barrier completes");

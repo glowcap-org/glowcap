@@ -13,6 +13,19 @@ pub(super) struct Work<P: Platform> {
 	active: Rc<Cell<bool>>,
 }
 impl<P: Platform> Work<P> {
+	fn spawn_local(&self, host: &Host, facet: Facet) -> Result<Ref, Error> {
+		let owner = self.owner()?;
+		let permit = owner
+			.hosting
+			.retain(facet.scope().retained_bytes() + core::mem::size_of::<(Work<P>, Facet, FacetPermit)>())?;
+		let work = self.clone();
+		let actor_host = host.clone();
+		Ok(host.spawn(move |verb, args| {
+			let _permit = &permit;
+			work.dispatch(&actor_host, &facet, verb, args)
+				.map_err(Error::into_refusal)
+		})?)
+	}
 	pub fn local(state: &Rc<State<P>>, active: Rc<Cell<bool>>) -> Self {
 		Self {
 			owner: Rc::downgrade(state),
@@ -35,7 +48,7 @@ impl<P: Platform> Work<P> {
 		}
 		Ok(())
 	}
-	fn owner(&self) -> Result<Rc<State<P>>, Error> {
+	pub(super) fn owner(&self) -> Result<Rc<State<P>>, Error> {
 		self.check()?;
 		let owner = self
 			.owner
@@ -61,6 +74,13 @@ impl<P: Platform> Work<P> {
 	}
 	pub fn dispatch(&self, host: &Host, facet: &Facet, verb: &str, args: &[Argument]) -> Result<Argument, Error> {
 		let owner = self.owner()?;
+		if matches!(
+			verb,
+			rooms_application::archive::blobs::admission::ATTACHMENT
+				| rooms_application::archive::blobs::admission::BLOB
+		) {
+			return super::shared_blobs::admit(self, host, facet, verb, args);
+		}
 		if args.len() > 3 {
 			return Err(Error::invalid("invalid archive share argument count"));
 		}
@@ -71,14 +91,15 @@ impl<P: Platform> Work<P> {
 		}
 		match facet.admit(verb, &views[..args.len()]).map_err(Error::invalid_by)? {
 			Request::Empty(page) => wire::page_row(&page, &Filter::default(), page.next, 1).map_err(Error::invalid_by),
-			Request::Narrow(narrowed) => {
-				let session = glowcap::current_session()?
-					.ok_or_else(|| Error::invalid("archive narrow needs a caller session"))?;
-				owner
+			Request::Narrow(narrowed) => match glowcap::current_session()? {
+				Some(session) => owner
 					.hosting
-					.mint(&session, Kind::Facet, || self.spawn(&session, narrowed))
-					.map(Into::into)
+					.mint(&session, Kind::Facet, || self.spawn(&session, narrowed)),
+				None => owner
+					.hosting
+					.mint_local(Kind::Facet, || self.spawn_local(host, narrowed)),
 			}
+			.map(Into::into),
 			Request::Put(_) => Err(Error::refused("archive share is read-only")),
 			Request::Read { filter, after, limit } => owner.enqueue(filter.retained_bytes(), 0, false, None, |_| {
 				let reply = host.defer_turn()?;
@@ -91,6 +112,13 @@ impl<P: Platform> Work<P> {
 	}
 }
 impl<P: Platform> SessionArchive<P> {
+	/// One held local history capability. Shared managed content mediates it
+	/// through the viewer's History permission; it is never published raw.
+	pub fn local_reader(&self, host: &Host, scope: Filter) -> Result<Ref, Error> {
+		let work = Work::local(&self.0, Rc::new(Cell::new(true)));
+		let facet = Facet::new(scope, rooms_application::archive::Access::Read).map_err(Error::invalid_by)?;
+		self.0.hosting.mint_local(Kind::Facet, || work.spawn_local(host, facet))
+	}
 	/// Choose the source in queue order and retain it for this share's lifetime.
 	pub fn share(&self, session: Session, facet: Facet) -> Result<Reply<Ref>, Error> {
 		if facet.access() != rooms_application::archive::Access::Read {

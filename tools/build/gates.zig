@@ -244,6 +244,32 @@ pub fn register(ctx: Context) Registered {
     tests_mod.addImport("c_headers", c_headers.createModule());
     tests_mod.addIncludePath(b.path("include"));
     tests_mod.link_libc = true;
+    // Callback cancellation must work across independently compiled native
+    // archives, which an ordinary single-image Zig test cannot establish.
+    const foreign_host_mod = b.createModule(.{
+        .root_source_file = b.path("test/support/foreign_host_archive.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    foreign_host_mod.addImport("driver_core", host_mods[layerIndex("driver_core")]);
+    foreign_host_mod.addImport("actors", host_mods[layerIndex("actors")]);
+    const foreign_host = b.addLibrary(.{
+        .name = "glowcap-test-foreign-host",
+        .linkage = .static,
+        .root_module = foreign_host_mod,
+    });
+    tests_mod.linkLibrary(foreign_host);
+    // `-Dtest-layer=engine,driver` compiles only those layers' test files while
+    // iterating. Every gate leaves it unset and compiles the whole suite.
+    const test_layer = b.option([]const u8, "test-layer", "Compile only these comma-separated test layers (engine, driver, net, ...)");
+    const test_layers = b.addOptions();
+    var selected_layers: std.ArrayList([]const u8) = .empty;
+    if (test_layer) |list| {
+        var it = std.mem.tokenizeScalar(u8, list, ',');
+        while (it.next()) |layer| selected_layers.append(b.allocator, layer) catch @panic("OOM");
+    }
+    test_layers.addOption([]const []const u8, "layers", selected_layers.items);
+    tests_mod.addOptions("test_layers", test_layers);
     // `zig build test -Dtest-filter=<substring>` narrows the run to matching
     // test names while iterating; the bare step still runs everything.
     const test_filter = b.option([]const u8, "test-filter", "Run only tests whose names contain this substring");

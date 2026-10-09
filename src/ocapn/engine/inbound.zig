@@ -30,14 +30,40 @@ const shortening = @import("inbound_shortening.zig");
 const codec = @import("codec");
 
 const PreparedShortening = shortening.PreparedShortening;
+const PreparedShorteningCallback = shortening.PreparedShorteningCallback;
+const ShorteningCallbackPlan = shortening.ShorteningCallbackPlan;
 const PreparedOutboundMessage = shortening.PreparedOutboundMessage;
 const prepareIntroducedPromiseShortening = shortening.prepareIntroducedPromiseShortening;
 const commitPreparedShortening = shortening.commitPreparedShortening;
-const prepareSettlingRearm = shortening.prepareSettlingRearm;
-const commitSettlingRearm = shortening.commitSettlingRearm;
-const prepareIntroducedPromiseRelease = shortening.prepareIntroducedPromiseRelease;
 const prepareIntroducedImportReleases = shortening.prepareIntroducedImportReleases;
 const commitPreparedImportRelease = shortening.commitPreparedImportRelease;
+
+/// One inbound pipelined deliver after its destination and maintenance are
+/// prepared. It owns the prepared call, resolver link, and shortening work;
+/// commit borrows the validated frame view and its import record only long
+/// enough to apply authority before publishing those consequences.
+const PreparedPipelinedDeliver = struct {
+    call: pipeline.PreparedPipelinedCall,
+    resolver: ?session.PreparedInboundResolver,
+    shortening: PreparedShortening,
+
+    fn abandon(self: *PreparedPipelinedDeliver, peer: *Peer) void {
+        self.shortening.abandon(peer);
+        self.call.abandon(peer);
+    }
+
+    fn commit(
+        self: *PreparedPipelinedDeliver,
+        peer: *Peer,
+        deliver: model.view.Deliver,
+        introduced: *const session.validate.IntroducedImports,
+    ) !void {
+        try peer.session_state.applyValidatedInboundDeliverView(deliver, introduced);
+        if (self.resolver) |prepared| prepared.commit(&peer.session_state);
+        commitPreparedShortening(peer, &self.shortening);
+        try self.call.commit(peer);
+    }
+};
 
 /// Dispatch an owned inbound frame, taking ownership.
 ///
@@ -228,10 +254,7 @@ fn applyDecodedOwnedFrame(
     var tag = eventKindFromBody(decoded_body);
     var answer_override: events.AnswerOverride = .none;
     var resolver_callback_resolve: ?model.view.Resolve = null;
-    var shortening_callback: ?struct {
-        resolver: model.ExportPosition,
-        shortened_to: model.FarRef,
-    } = null;
+    var shortening_callback: ?ShorteningCallbackPlan = null;
     var retired_resolver_callback: ?model.ExportPosition = null;
     var node_resolver_callback: ?model.ExportPosition = null;
     var bootstrap_request: ?bootstrap.Request = null;
@@ -259,22 +282,12 @@ fn applyDecodedOwnedFrame(
                 try self.session_state.validateResolverCallbackResolve(resolver_callback_resolve.?, &introduced);
                 try self.session_state.validatePromiseSettlingFollowers(answer);
             },
-            .shortening_callback => |resolver| {
-                const resolution = try events.resolutionFromResolverCallback(decoded_body.deliver.args);
-                const shortened_to: model.FarRef = switch (resolution) {
-                    .fulfill => |arg| switch (arg) {
-                        .reference => |reference| switch (reference) {
-                            .far => |far| if (far.kind == .promise) far else return session.Error.UnexpectedMessage,
-                            else => return session.Error.UnexpectedMessage,
-                        },
-                        else => return session.Error.UnexpectedMessage,
-                    },
-                    .@"break" => return session.Error.UnexpectedMessage,
-                };
-                try self.session_state.validateShorteningCompletion(resolver, shortened_to);
-                try self.session_state.validateInboundDeliverView(decoded_body.deliver, &introduced);
-                shortening_callback = .{ .resolver = resolver, .shortened_to = shortened_to };
-            },
+            .shortening_callback => |resolver| shortening_callback = try ShorteningCallbackPlan.init(
+                self,
+                resolver,
+                decoded_body.deliver,
+                &introduced,
+            ),
             .retired_resolver_callback => |resolver| retired_resolver_callback = resolver,
             .node_resolver_callback => |resolver| node_resolver_callback = resolver,
             // Queued or redirected against the answer it pipelined on
@@ -301,69 +314,37 @@ fn applyDecodedOwnedFrame(
         classified_deliver.?.needsIntroducedImportPreparation())
         try self.session_state.prepareIntroducedImports(&introduced);
 
-    const shortening_source = if (shortening_callback) |callback| switch (self.session_state.sourceForShorteningResolver(callback.resolver).?) {
-        .pending => |source| source,
-        .complete => unreachable,
-    } else null;
-    const shortening_source_is_held = if (shortening_callback) |callback|
-        self.session_state.shorteningSourceIsHeld(callback.resolver)
-    else
-        false;
-    const shortening_source_has_settling = if (shortening_source) |source|
-        self.session_state.promiseSettlingListenerClaimed(source)
-    else
-        false;
-    const shortening_source_has_settling_consumer = if (shortening_source) |source|
-        self.session_state.promiseSettlingConsumerClaimed(source)
-    else
-        false;
-
     // Preparation below may hold several reservations while authority is
     // validated and committed as one transaction. Reserve the whole possible
     // batch once; a per-row reservation cannot express slots for rows that
     // have not been appended yet.
     const pending_preparation_count = if (retired_resolver_callback != null)
         @as(usize, 1)
-    else blk: {
-        var count = introduced.promise_mentions.items.len;
-        if (shortening_callback != null and !shortening_source_is_held) count += 1;
-        if (shortening_source_has_settling_consumer) count += 1;
-        break :blk count;
-    };
+    else if (shortening_callback) |callback|
+        callback.pendingPreparationCount(&introduced)
+    else
+        introduced.promise_mentions.items.len;
     var pending_batch = try self.beginPendingBatch(pending_preparation_count);
 
     // Acquire every resolver row, queue slot, and owned GC slice before apply.
     // Once the received frame commits, the required protocol maintenance must
     // not become optional under allocator pressure.
     var prepared_shortening: ?PreparedShortening = null;
-    var prepared_late_release: ?PreparedOutboundMessage = null;
+    var prepared_pipelined_deliver: ?PreparedPipelinedDeliver = null;
+    defer if (prepared_pipelined_deliver) |*prepared| prepared.abandon(self);
+    var prepared_shortening_callback: ?PreparedShorteningCallback = null;
     var prepared_retired_release: ?PreparedOutboundMessage = null;
     if (retired_resolver_callback != null) {
         prepared_shortening = .{};
         prepared_retired_release = try prepareIntroducedImportReleases(self, &pending_batch, introduced.mentions.items);
-    } else if (shortening_callback != null and !shortening_source_is_held and !shortening_source_has_settling_consumer) {
-        prepared_late_release = try prepareIntroducedPromiseRelease(self, &pending_batch, shortening_callback.?.shortened_to.import_position);
+    } else if (shortening_callback) |callback| {
+        prepared_shortening_callback = try callback.prepare(self, &pending_batch, &introduced);
     } else {
         prepared_shortening = try prepareIntroducedPromiseShortening(self, &pending_batch, &introduced);
-        if (shortening_callback != null and !shortening_source_is_held)
-            prepared_late_release = try prepareIntroducedPromiseRelease(self, &pending_batch, shortening_callback.?.shortened_to.import_position);
     }
-    var settling_rearm = if (shortening_source_has_settling_consumer)
-        try prepareSettlingRearm(
-            self,
-            &pending_batch,
-            shortening_source.?,
-            shortening_callback.?.shortened_to.import_position,
-        )
-    else
-        null;
     defer {
-        if (settling_rearm) |*prepared| prepared.deinit(self);
+        if (prepared_shortening_callback) |*prepared| prepared.abandon(self);
         if (prepared_shortening) |*prepared| prepared.abandon(self);
-        if (prepared_late_release) |prepared| {
-            self.cancelPendingReservation(prepared.reservation);
-            model.freeMessage(self.allocator, prepared.message);
-        }
         if (prepared_retired_release) |prepared| {
             self.cancelPendingReservation(prepared.reservation);
             model.freeMessage(self.allocator, prepared.message);
@@ -371,43 +352,25 @@ fn applyDecodedOwnedFrame(
     }
 
     if (classified_deliver != null and classified_deliver.?.route == .pipelined) {
-        try self.session_state.applyValidatedInboundDeliverView(
-            decoded_body.deliver,
-            &introduced,
-        );
-        if (classified_deliver.?.resolver) |prepared|
-            prepared.commit(&self.session_state);
-        commitPreparedShortening(self, &prepared_shortening.?);
+        prepared_pipelined_deliver = .{
+            .call = classified_deliver.?.route.pipelined,
+            .resolver = classified_deliver.?.resolver,
+            .shortening = prepared_shortening.?,
+        };
+        // The composite is now the sole owner of all three preparations; keep
+        // the existing scope cleanup from abandoning a second copy.
+        classified_deliver = null;
         prepared_shortening = null;
-        try classified_deliver.?.route.pipelined.commit(self);
+    }
+
+    if (prepared_pipelined_deliver) |*prepared| {
+        try prepared.commit(self, decoded_body.deliver, &introduced);
         frame.deinit();
         return;
     }
 
-    if (shortening_callback) |callback| {
-        try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
-        self.session_state.completeShortening(callback.resolver, callback.shortened_to, shortening_source_is_held);
-        if (shortening_source_is_held or shortening_source_has_settling_consumer) {
-            commitPreparedShortening(self, &prepared_shortening.?);
-            prepared_shortening = null;
-            if (settling_rearm) |prepared| {
-                commitSettlingRearm(self, shortening_source.?, callback.shortened_to, prepared);
-                settling_rearm = null;
-            }
-            if (shortening_source_has_settling and !shortening_source_has_settling_consumer)
-                self.session_state.discardUnconsumedPromiseSettlingListener(shortening_source.?);
-            if (prepared_late_release) |prepared| {
-                commitPreparedImportRelease(self, prepared);
-                prepared_late_release = null;
-                self.session_state.releaseShorteningSourceAuthority(shortening_source.?);
-            }
-        } else {
-            if (shortening_source_has_settling)
-                self.session_state.discardUnconsumedPromiseSettlingListener(shortening_source.?);
-            commitPreparedImportRelease(self, prepared_late_release.?);
-            prepared_late_release = null;
-            self.session_state.releaseShorteningSourceAuthority(shortening_source.?);
-        }
+    if (prepared_shortening_callback) |*prepared| {
+        try prepared.commit(self, decoded_body.deliver, &introduced);
         frame.deinit();
         return;
     }
@@ -481,10 +444,6 @@ fn applyDecodedOwnedFrame(
 
     commitPreparedShortening(self, &prepared_shortening.?);
     prepared_shortening = null;
-    if (settling_rearm) |prepared| {
-        commitSettlingRearm(self, shortening_source.?, shortening_callback.?.shortened_to, prepared);
-        settling_rearm = null;
-    }
 
     // Publish the pre-commit GC annotation onto the just-pushed event. Nothing
     // between the push and here can grow `self.events`, so the back pointer is

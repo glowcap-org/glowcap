@@ -332,7 +332,7 @@
   (thread
    (lambda ()
      (define hsession (accept tr-server))
-     (host-publish-giftable (session-host hsession) "tracer"
+     (host-publish (session-host hsession) "tracer"
                             (lambda (method . args) "hello trace"))
      (semaphore-post tr-ready)
      (session-serve hsession))))
@@ -435,9 +435,9 @@
    (lambda ()
      (define hsession (accept rv-server))
      (define worker-host (session-host hsession))
-     (host-publish-giftable worker-host "worker"
+     (host-publish worker-host "worker"
                             (lambda (method . args)
-                              (define pair (host-defer-turn worker-host))
+                              (define pair (host-defer-turn-if-answer worker-host))
                               (set-box! rv-parked pair)
                               (semaphore-post rv-parked-ready)
                               (void)))
@@ -447,9 +447,16 @@
 (semaphore-wait rv-ready)
 (define rv-worker (session-fetch rv-session "worker"))
 
+;; The served wire callback has an actual native turn, unlike a near call
+;; between Goblins actors. Tells retain no answer; calls below retain one.
+(session-tell rv-session rv-worker 'notice)
+(semaphore-wait rv-parked-ready)
+(expect (not (unbox rv-parked)) "optional deferral: tells mint no resolver")
+
 (define rv-reply-ch (make-channel))
 (void (thread (lambda () (channel-put rv-reply-ch (session-send rv-session rv-worker 'work)))))
 (semaphore-wait rv-parked-ready)
+(expect (resolver? (unbox rv-parked)) "optional deferral: calls retain answer custody")
 (resolver-fulfill! (unbox rv-parked) "computed off-turn")
 (expect (equal? "computed off-turn" (channel-get rv-reply-ch))
         "resolver: the deferred answer settled off-turn")
@@ -503,7 +510,7 @@
                         [(hello) (sym "alive")])))
        ;; The host-wide porter answers every session, including the fresh
        ;; connection host-enliven's dial arm opens below.
-       (host-publish-giftable (session-host hsession) "porter"
+       (host-publish (session-host hsession) "porter"
                               (lambda (method . args) (sym "ported")))
        (semaphore-post en-ready)
        ;; Serve the first client here while a sibling accepts the dial arm's

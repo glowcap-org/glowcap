@@ -13,7 +13,7 @@ async fn reissuing_retired_line_files_does_not_grow_reader_inventory() {
 			let locator = listener.locator().unwrap();
 			let (session, peer) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), listener.accept());
 			let session = session.unwrap();
-			let peer = Rc::new(peer.unwrap().with_gc());
+			let peer = Rc::new(peer.unwrap());
 			let serving = {
 				let peer = peer.clone();
 				tokio::task::spawn_local(async move { peer.serve().await })

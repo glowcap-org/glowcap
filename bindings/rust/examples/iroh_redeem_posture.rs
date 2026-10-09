@@ -16,7 +16,7 @@
 //! one process sharing one address book.
 //!
 //! Topology:
-//!   Exporter  binds a `LocalDiscovery` endpoint, publishes a host-giftable
+//!   Exporter  binds a `LocalDiscovery` endpoint, publishes a Host-published
 //!             `greeter`.
 //!   Gifter    binds its own endpoint, dials the exporter by id (one node
 //!             identity), fetches the greeter, and records the exporter's
@@ -51,7 +51,7 @@ async fn main() -> Result<(), Fail> {
 }
 
 async fn run() -> Result<(), Fail> {
-	// ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
+	// ── Exporter: a Host-published greeter on its own local-discovery endpoint ─────
 	let exporter = Rc::new(
 		iroh::listen(
 			iroh::Config::new(Reachability::LocalDiscovery),
@@ -59,7 +59,7 @@ async fn run() -> Result<(), Fail> {
 		)
 		.await?,
 	);
-	exporter.host().publish_giftable("greeter", || Box::new(greeter))?;
+	exporter.host().publish("greeter", || Box::new(greeter))?;
 	let exporter_id = exporter.node_id().to_string();
 	helpers::serve_iroh_sessions(Rc::clone(&exporter));
 	println!("rust-iroh-redeem-posture: exporter published greeter on {exporter_id}");
@@ -88,7 +88,7 @@ async fn run() -> Result<(), Fail> {
 	// This is what forces the recipient down the configured-posture redeem path
 	// instead of a Direct dial.
 	to_exporter.set_exporter_locator(Some(&exporter_locator))?;
-	gifter_host.publish_giftable("introducer", move || {
+	gifter_host.publish("introducer", move || {
 		let greeter = greeter_ref.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {
 			if verb == "get-greeter" {

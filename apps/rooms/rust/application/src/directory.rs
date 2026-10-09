@@ -10,7 +10,9 @@ pub mod registration;
 pub mod wire;
 pub use wire::Shape;
 
-pub use crate::protocol_data::{DIRECTORY as NAME, LIST_PUBLICATIONS as LIST, WATCH_PUBLICATIONS as WATCH};
+pub use crate::protocol_data::{
+	DIRECTORY as NAME, LIST_PUBLICATIONS as LIST, UNWATCH_PUBLICATIONS as UNWATCH, WATCH_PUBLICATIONS as WATCH,
+};
 pub const MAX_ROWS: usize = 256;
 
 pub use crate::room::ListArgument as Argument;
@@ -51,7 +53,7 @@ pub(crate) fn registration_id(text: &crate::text::DocumentText) -> bool {
 	let Some(s) = text.as_str() else { return false };
 	registration_id_text(s)
 }
-fn registration_id_text(s: &str) -> bool {
+pub(crate) fn registration_id_text(s: &str) -> bool {
 	if s == "00000000-0000-0000-0000-000000000000" || s == "ffffffff-ffff-ffff-ffff-ffffffffffff" {
 		return true;
 	}

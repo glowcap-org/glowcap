@@ -1,7 +1,7 @@
 //! Terminal lifecycle for one wrapped leg, shared by every completion
 //! adapter that runs a synthetic handle over an inner connection.
 //!
-//! Once a relay, sealing, or onion leg has finished its protocol work, its
+//! Once a relay or onion leg has finished its protocol work, its
 //! close is the same choreography: refuse every external seat exactly once,
 //! carry the inner descriptor through close submission, retry, or direct
 //! release, and retire the row only when nothing borrowed remains. This

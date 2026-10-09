@@ -124,8 +124,8 @@ fn streamTransport(profile: *runtime.Profile) c.GlowcapStreamTransport {
         .listener_restoration_state = providerListenerRestorationState,
         .accept = providerAccept,
         .listener_close = providerListenerClose,
-        .read = connection.providerRead,
-        .write_all = connection.providerWriteAll,
+        .try_read = connection.providerTryRead,
+        .try_write = connection.providerTryWrite,
         .conn_close = connection.providerConnClose,
         .conn_take_failure = connection.providerConnTakeFailure,
     };

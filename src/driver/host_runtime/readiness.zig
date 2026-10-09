@@ -4,22 +4,10 @@ const std = @import("std");
 
 const net = @import("net");
 
-const lifecycle = @import("lifecycle.zig");
-const pending_state = @import("pending.zig");
 const runtime = @import("../host_runtime.zig");
-const wire_state = @import("wire.zig");
 
 const HostRuntime = runtime.HostRuntime;
 const Internal = runtime.Internal;
-
-/// One source selected from the aggregate readiness wait.
-pub const Source = union(enum) {
-    wire: *wire_state.Wire,
-    resident: usize,
-    stream_dial: *pending_state.Open,
-    stream_listen: *pending_state.Listener,
-    stream_accept: *lifecycle.TransportListener,
-};
 
 /// The one pollable descriptor of a stepped runtime. It has existed since
 /// construction, so this only reads; the blocking face has no descriptor to
@@ -63,19 +51,6 @@ pub fn removeReadyFd(self: *HostRuntime, fd: i32) void {
 pub fn descriptorInUse(self: *const HostRuntime, fd: i32) bool {
     for (self.residents.items) |registered| if (registered.readiness_fd == fd) return true;
     for (self.listener_fds.items) |listener_fd| if (listener_fd == fd) return true;
-    var wires = self.wires.valueIterator();
-    while (wires.next()) |wire| switch (wire.*.link) {
-        .stream => |*stream| if (stream.conn.socketHandle() == fd) return true,
-        .resident => {},
-    };
-    for (self.pending_opens.items) |row| switch (row.stage) {
-        .stream_dial => |attempt| if (attempt.readinessFd() == fd) return true,
-        .resident_dial, .handshake => {},
-    };
-    for (self.pending_listeners.items) |row| switch (row.stage) {
-        .stream => |attempt| if (attempt.readinessFd() == fd) return true,
-        .resident => {},
-    };
     if (self.mailbox) |mailbox| if (mailbox.wakeFd() == fd) return true;
     switch (self.drive) {
         .blocking => {},

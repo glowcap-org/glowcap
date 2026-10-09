@@ -8,7 +8,7 @@ pub const a = std.testing.allocator;
 pub const vocabulary = @import("grant_fixture.zig");
 pub const schemas = loam.access.records.profile.schemas ++ [_]loam.core.Schema{.{ .id = 7, .version = 1, .max_payload = 256, .max_edges = 8 }};
 pub const limits: loam.core.Store.Limits = .{
-    .records = .{ .max_record_bytes = 64 * 1024, .max_edges = 514 },
+    .records = .{ .max_record_bytes = 64 * 1024, .max_edges = 515 },
     .cache_slots = 8,
     .max_leases = 8,
     .resident_bytes = 512 * 1024,
@@ -142,6 +142,7 @@ pub fn change(store: *loam.core.Store, backend: anytype, owner: loam.core.Object
     defer if (append) |*path| path.deinit() catch unreachable;
     if (plan.delta == .issue) {
         append = try storage.Append.init(&read, .grant);
+        append.?.grant_parent = plan.delta.issue.parent;
         _ = try pump(&append.?, backend);
     }
     try store.begin();

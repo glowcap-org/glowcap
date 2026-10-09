@@ -25,70 +25,17 @@ const RecordingSink = harness.RecordingSink;
 const DialRecorder = harness.DialRecorder;
 const opts = harness.opts;
 
-test "a blocking netlayer returns its exact failure chain to the dial observer" {
-    const ExactFailureResident = struct {
-        fn netlayer() net.netlayer.Netlayer {
-            return .{ .ctx = undefined, .vtable = &vtable };
-        }
-
-        const vtable: net.netlayer.Netlayer.VTable = .{
-            .profile = .{ .symbol = "exact-blocking", .designator_scheme = .address },
-            .dial = .{ .blocking = dial },
-            .listen = null,
-        };
-
-        fn dial(
-            _: *anyopaque,
-            _: *glowcap.ocapn.engine.Peer,
-            _: model.PeerLocator,
-            _: net.netlayer.Buffers,
-            _: net.OperationOptions,
-        ) net.netlayer.DialOutcome {
-            var chain = glowcap.foundation.FailureChain.initNamed(
-                error.ProviderIo,
-                "ExactBlockingDialRefusal",
-            );
-            chain.noteNamed(error.ProviderIo, "ExactBlockingDialCleanup");
-            return .{ .failed = .fromChain(error.ConnectionRefused, chain) };
-        }
-    };
-
-    const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const layers = [_]net.netlayer.Netlayer{ExactFailureResident.netlayer()};
-    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &layers, .ephemeral, opts);
-    defer runtime.deinit();
-    var recorder = DialRecorder{};
-
-    try runtime.startDial(.{
-        .transport = "exact-blocking",
-        .designator = "target",
-        .hints = model.Hints.emptyFalse(),
-    }, .inherit, 41, .{
-        .ctx = &recorder,
-        .opened = DialRecorder.opened,
-        .failed = DialRecorder.failed,
-    });
-
-    const failure = recorder.failure orelse return error.MissingDialFailure;
-    try std.testing.expectEqual(@as(u64, 41), recorder.failed_tag);
-    try std.testing.expectEqual(driver.OperationFailure.Kind.io, failure.kind);
-    try std.testing.expectEqualStrings("ExactBlockingDialRefusal", failure.primaryName());
-    try std.testing.expectEqualStrings("ExactBlockingDialCleanup", failure.secondaryName().?);
-    try std.testing.expectEqual(@as(u16, 1), failure.secondary_count);
-}
-
 test "a staged dial serves a fetch and retirement preserves its claimed session" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -97,12 +44,12 @@ test "a staged dial serves a fetch and retirement preserves its claimed session"
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
     var sink = RecordingSink{};
     var client_runtime = try driver.HostRuntime.init(
         allocator,
         io,
-        &netlayers,
+        transports,
         .ephemeral,
         harness.stepped(sink.sink(), harness.Quiet.observer()),
     );
@@ -173,12 +120,13 @@ test "a staged dial against a silent partner fails HandshakeTimedOut on the step
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     // A listener nobody ever accepts on: the TCP connect succeeds into the
     // backlog and no hello ever answers.
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -187,8 +135,8 @@ test "a staged dial against a silent partner fails HandshakeTimedOut on the step
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var client_runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, .{
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var client_runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, .{
         .frame_cap = frame_cap,
         .handshake = .{ .ms = 200 },
         .settle = .{ .ms = 200 },
@@ -222,10 +170,11 @@ test "runtime cancel close interrupts an admitted transport open and seals admis
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -234,8 +183,8 @@ test "runtime cancel close interrupts an admitted transport open and seals admis
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, opts);
     defer runtime.deinit();
     var recorder = DialRecorder{};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -266,10 +215,11 @@ test "runtime finish close publishes an admitted transport open before closing i
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -278,8 +228,8 @@ test "runtime finish close publishes an admitted transport open before closing i
     var address_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, opts);
     defer runtime.deinit();
     var recorder = DialRecorder{};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -314,10 +264,11 @@ test "runtime finish close realizes a core dial admitted before its barrier" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -326,8 +277,8 @@ test "runtime finish close realizes a core dial admitted before its barrier" {
     var address_buf: [64]u8 = undefined;
     const designator = try server.localDesignator(&address_buf);
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, opts);
     defer runtime.deinit();
     try runtime.core.ensureAdvertisedLocator("tcp");
     _ = try runtime.core.enlivenSelectOrDial(.{
@@ -362,10 +313,11 @@ test "runtime close preserves an exposed session until explicit release" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -374,8 +326,8 @@ test "runtime close preserves an exposed session until explicit release" {
     var address_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, opts);
     defer runtime.deinit();
     var recorder = DialRecorder{};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -408,10 +360,11 @@ test "blocking session cancel returns after immediate transport teardown" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -420,8 +373,8 @@ test "blocking session cancel returns after immediate transport teardown" {
     var address_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, opts);
     defer runtime.deinit();
     var recorder = DialRecorder{};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -455,10 +408,11 @@ test "runtime finish close escalates on its own deadline and reports timeout aft
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -467,8 +421,8 @@ test "runtime finish close escalates on its own deadline and reports timeout aft
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, opts);
     defer runtime.deinit();
     var recorder = DialRecorder{};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -499,10 +453,11 @@ test "session finish timeout terminates only that session and leaves its Host ac
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -511,8 +466,8 @@ test "session finish timeout terminates only that session and leaves its Host ac
     var address_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, opts);
     defer runtime.deinit();
     var recorder = DialRecorder{};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -555,10 +510,11 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -567,13 +523,13 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
     var closed = std.atomic.Value(bool).init(false);
     var close_flag = CloseFlag{ .flag = &closed };
     var client_runtime = try driver.HostRuntime.init(
         allocator,
         io,
-        &netlayers,
+        transports,
         .ephemeral,
         harness.stepped(harness.Quiet.sink(), .{ .ctx = &close_flag, .closed = CloseFlag.notify }),
     );
@@ -598,6 +554,8 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
         _ = try client_runtime.stepAny(10);
     }
     try std.testing.expectEqual(@as(u64, 11), recorder.failed_tag);
-    try std.testing.expectEqual(@as(?anyerror, error.ConnectionLost), recorder.failed_err);
+    // The backend's exact cause, an I/O failure for policy.
+    try std.testing.expectEqual(@as(?anyerror, error.ConnectionResetByPeer), recorder.failed_err);
+    try std.testing.expectEqual(driver.OperationFailure.Kind.io, recorder.failure.?.kind);
     try std.testing.expect(!closed.load(.acquire));
 }

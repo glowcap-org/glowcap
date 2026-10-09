@@ -3,6 +3,9 @@ import { fileURLToPath } from "node:url";
 
 import { checkRtcPeers } from "./check_rtc_peers.mjs";
 import { snippet } from "./assets.mjs";
+import { managedSharing } from "./managed_sharing.mjs";
+import { managedRooms } from "./managed_rooms.mjs";
+import { managedApplication } from "./managed_entry.mjs";
 
 const repository = new URL("../../../../../", import.meta.url);
 const local = (path) => fileURLToPath(new URL(path, repository));
@@ -45,7 +48,12 @@ async function readyBase(stdout) {
 // Exercise the executable users start: it supervises the native directory and
 // relays this Wasm client's WebSocket bytes. Deno drives the proof but carries
 // no application traffic.
-export async function checkChannels(page, { script, wasm, root }, transport = "tcp") {
+export async function checkChannels(
+	page,
+	{ script, wasm, root, moduleName = "rooms_contract_proofs" },
+	transport = "tcp",
+	managed = null,
+) {
 	const environment = Object.fromEntries(
 		Object.entries(Deno.env.toObject()).filter(([key]) =>
 			!key.startsWith("GLOWCAP_ROOMS_") && !key.startsWith("GLOWCAP_RELAY_") && key !== "LD_LIBRARY_PATH" &&
@@ -61,8 +69,9 @@ export async function checkChannels(page, { script, wasm, root }, transport = "t
 			"0",
 			`--transport=${transport}`,
 			"--reachability=direct",
-			`--assets=${local("apps/rooms/web")}`,
+			"--no-browser-assets",
 			`--server=${Deno.env.get("GLOWCAP_ROOMS_SERVER_TEST_BIN") ?? local("zig-out/libexec/rooms-server")}`,
+			...(managed === "rooms" || (managed === null && transport === "tcp") ? ["--history"] : []),
 		],
 		clearEnv: true,
 		env: environment,
@@ -84,39 +93,67 @@ export async function checkChannels(page, { script, wasm, root }, transport = "t
 		assert(response.ok);
 		const location = (await response.text()).trim();
 		const url = `${base.replace(/^http/, "ws")}/relay?target=${encodeURIComponent(location)}`;
-		await evaluate(page, async ({ url, location }) => {
-			const binding = await import("/rooms_contract_proofs.js");
-			const socket = new WebSocket(url);
-			try {
-				await binding.rooms_browser_websocket_refusal(socket, location);
-				if (
-					socket.onmessage !== null || socket.onclose !== null || socket.onerror !== null ||
-					socket.onopen !== null
-				) {
-					throw new Error("rejected WebSocket retained Rust callbacks");
+		if (managed === null) {
+			await evaluate(page, async ({ url, location }) => {
+				const binding = await import("/rooms_contract_proofs.js");
+				const socket = new WebSocket(url);
+				try {
+					await binding.rooms_browser_websocket_refusal(socket, location);
+					if (
+						socket.onmessage !== null || socket.onclose !== null || socket.onerror !== null ||
+						socket.onopen !== null
+					) {
+						throw new Error("rejected WebSocket retained Rust callbacks");
+					}
+				} finally {
+					socket.close();
 				}
-			} finally {
-				socket.close();
-			}
-		}, { url, location });
+			}, { url, location });
+		}
 		// Use the native application's origin, preserving its relay origin
 		// enforcement. Load a real response so Chromium records its loopback
 		// address space; a synthetic document loses that network provenance.
 		await page.route(
-			`${base}/rooms_contract_proofs.js`,
+			`${base}/${moduleName}.js`,
 			(route) => route.fulfill({ contentType: "text/javascript", body: script }),
 		);
 		await page.route(
-			`${base}/rooms_contract_proofs_bg.wasm`,
+			`${base}/${moduleName}_bg.wasm`,
 			(route) => route.fulfill({ contentType: "application/wasm", body: wasm }),
 		);
 		await page.route(`${base}/snippets/**`, async (route) => {
 			const path = new URL(route.request().url()).pathname;
 			await route.fulfill({ contentType: "text/javascript", body: await snippet(root, path) });
 		});
+		for (const name of ["managed_direct", "managed_retention", "managed_room_posts"]) {
+			const body = await Deno.readTextFile(new URL(`./${name}.mjs`, import.meta.url));
+			await page.route(`${base}/${name}.mjs`, (route) =>
+				route.fulfill({ contentType: "text/javascript", body }));
+		}
 		await page.goto(`${base}/locator`);
+		if (managed === "entry") {
+			const tab = crypto.randomUUID();
+			for (const reopening of [false, true]) {
+				if (reopening) await page.reload();
+				await evaluate(page, async ({ source, tab, reopening, moduleName }) => {
+					const binding = await import(`/${moduleName}.js`);
+					await binding.default();
+					await Function(`return (${source})`)()(binding, tab, reopening);
+				}, { source: managedApplication.toString(), tab, reopening, moduleName });
+			}
+			return;
+		}
+		if (managed !== null) {
+			await evaluate(page, managed === "rooms" ? managedRooms : managedSharing, {
+				location,
+				moduleUrl: `/${moduleName}.js`,
+			});
+			return;
+		}
 		await evaluate(page, runtimeContract, { location });
 		if (transport !== "tcp") return;
+		await evaluate(page, managedSharing);
+		await evaluate(page, managedRooms, { location });
 		await evaluate(page, relayContract, { base });
 		await evaluate(page, checkRtcPeers);
 		await evaluate(page, async ({ url, location }) => {

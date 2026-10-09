@@ -196,6 +196,19 @@ test "libglowcap_host: the full three-party handoff through the C surface — on
     try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, poked.kind);
     try std.testing.expectEqualStrings("poked over the C surface", poked.text[0..poked.text_len]);
     try std.testing.expectEqual(@as(u32, 1), counter.pokes);
+
+    // Sessionless application delivery selects the same actual foreign home.
+    // Retain the explicit-session scenario above: both fronts must route held
+    // authority and its local argument without selecting a stronger endpoint.
+    var application_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_send(recipient, &token, "poke", 4, &routed_args, routed_args.len, &application_vow));
+    var application_reply = CapturedSettle{};
+    watches.add(recipient, application_vow, &application_reply);
+    try pump(&hosts, &all_pairs, &dials, &watches);
+    try std.testing.expect(application_reply.fired);
+    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, application_reply.kind);
+    try std.testing.expectEqualStrings("poked over the C surface", application_reply.text[0..application_reply.text_len]);
+    try std.testing.expectEqual(@as(u32, 2), counter.pokes);
     try expectOk(cd.glowcap_host_ref_release(recipient, &local_argument, 1));
 
     // The same foreign capability can now appear recursively in an ordinary C
@@ -265,7 +278,7 @@ test "libglowcap_host: the full three-party handoff through the C surface — on
     try expectOk(cd.glowcap_host_ref_release(gifter, &typed_capture.refs[1], 1));
     try expectOk(cd.glowcap_host_ref_release(recipient, &typed_target, 1));
 
-    // The giftable row owns the shared ctx: its free runs exactly once, at
+    // The publication row owns the shared ctx: its free runs exactly once, at
     // host release, no matter how many Ports projected the actor.
     try std.testing.expectEqual(@as(u32, 0), FreeFlag.runs);
     _ = cd.glowcap_host_release(exporter);

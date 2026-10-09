@@ -133,7 +133,7 @@ pub(super) fn seat(
 							rooms.post_delivered(&room, membership, said, previews, State::wall_clock(), delivery)
 						})?;
 						key.set(Some(line));
-						Ok(Argument::Reference(actor))
+						Ok(lines::posted_reply(state, line, actor))
 					},
 				)
 			}
@@ -176,7 +176,7 @@ pub(super) fn seat(
 				if !args.is_empty() {
 					return Err("leave takes no arguments".into());
 				}
-				let effects = state.rooms.leave(&room, membership).map_err(refusal)?;
+				let effects = state.rooms.retire_membership(&room, membership);
 				state.apply_rooms(effects);
 				Ok(Argument::Void)
 			}

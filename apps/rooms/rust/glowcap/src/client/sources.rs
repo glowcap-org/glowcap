@@ -141,6 +141,69 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 	pub fn take_failure(&self) -> Option<Failure> {
 		self.state.failure.borrow_mut().take()
 	}
+	/// Keep exact one-pass sources until the application observes ingestion
+	/// settlement. A receipt admission acknowledgement does not end this lease.
+	/// The same owner remains available after a lost reply for exact replay;
+	/// dropping it expires the sources without claiming that remote work ended.
+	pub fn lend(&self, client: &Client<D>, sources: Vec<Source>) -> Result<LentSources<D>, Error> {
+		self.lend_through(Caller::Remote(client.clone()), sources, false)
+	}
+	/// Lend from the application's existing Host, including transport-free
+	/// managed uploads. The same pool and lease own asynchronous source reads.
+	pub fn lend_local(&self, host: &glowcap::Host, sources: Vec<Source>) -> Result<LentSources<D>, Error> {
+		self.lend_through(
+			Caller::Local {
+				host: host.clone(),
+				platform: self.platform.clone(),
+			},
+			sources,
+			false,
+		)
+	}
+	/// Keep managed upload backing readable through independent archive reads
+	/// and subsequent line changes. Existing hosted leases own retention; no
+	/// second source table or full-file materialization is introduced.
+	pub(crate) fn lend_repeatable_local(
+		&self,
+		host: &glowcap::Host,
+		sources: Vec<Source>,
+	) -> Result<LentSources<D>, Error> {
+		self.lend_through(
+			Caller::Local {
+				host: host.clone(),
+				platform: self.platform.clone(),
+			},
+			sources,
+			true,
+		)
+	}
+	fn lend_through(&self, caller: Caller<D>, sources: Vec<Source>, repeatable: bool) -> Result<LentSources<D>, Error> {
+		let sources = sources
+			.into_iter()
+			.map(|source| (source.description().clone(), source))
+			.collect();
+		let blobs = if repeatable {
+			self.state.pool.borrow_mut().retain_repeatable(sources)?
+		} else {
+			self.state.pool.borrow_mut().retain(sources)?
+		};
+		let mut prepared = LentSources {
+			roots: Vec::with_capacity(blobs.len()),
+			blobs: blobs.into_iter().map(|blob| blob.lease()).collect(),
+			delivered: Cell::new(false),
+			_caller: caller,
+		};
+		let host = match &prepared._caller {
+			Caller::Remote(client) => client.session().host(),
+			Caller::Local { host, .. } => host.clone(),
+		};
+		for blob in &prepared.blobs {
+			prepared
+				.roots
+				.push(host.spawn(self.behavior(blob.blob().lease(), host.clone()))?);
+		}
+		Ok(prepared)
+	}
 	/// Send once. Cancellation and failure expire all this message's sources;
 	/// the original remote result is retained, including delegated line authority.
 	pub async fn send(
@@ -152,7 +215,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		sources: Vec<Source>,
 	) -> Result<Argument, Error> {
 		self.send_with_policy(
-			client,
+			Caller::Remote(client.clone()),
 			target,
 			verb,
 			leading,
@@ -174,7 +237,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		suffix: Vec<Argument>,
 	) -> Result<Argument, Error> {
 		self.send_with_policy(
-			client,
+			Caller::Remote(client.clone()),
 			target,
 			verb,
 			leading,
@@ -194,7 +257,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		sources: Vec<Source>,
 	) -> Result<Argument, Error> {
 		self.send_with_policy(
-			client,
+			Caller::Remote(client.clone()),
 			target,
 			verb,
 			leading,
@@ -208,30 +271,17 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 	}
 	async fn send_with_policy(
 		&self,
-		client: &Client<D>,
+		caller: Caller<D>,
 		target: &Ref,
 		verb: &'static str,
 		mut leading: Vec<Argument>,
 		sources: Vec<Source>,
 		policy: SendPolicy,
 	) -> Result<Argument, Error> {
-		let blobs = self
-			.state
-			.pool
-			.borrow_mut()
-			.retain(sources.into_iter().map(|s| (s.description().clone(), s)).collect())?;
-		let mut prepared = Prepared {
-			blobs,
-			roots: Vec::new(),
-			delivered: false,
-		};
-		for blob in &prepared.blobs {
-			let root = client.session.spawn_owned(self.behavior(blob.clone()))?;
-			super::files::append_attachment(&mut leading, blob.description(), &root);
-			prepared.roots.push(root);
-		}
+		let prepared = self.lend_through(caller.clone(), sources, false)?;
+		prepared.append_to(&mut leading);
 		leading.extend(policy.suffix);
-		let pending = client.call(
+		let pending = caller.call(
 			target,
 			verb,
 			&leading,
@@ -239,20 +289,66 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		);
 		drop(leading);
 		let reply = pending.await?;
-		prepared.delivered = policy.retain;
-		Ok(reply.0)
+		prepared.delivered.set(policy.retain);
+		Ok(reply)
+	}
+	pub async fn send_scoped_local(
+		&self,
+		host: &glowcap::Host,
+		target: &Ref,
+		verb: &'static str,
+		leading: Vec<Argument>,
+		sources: Vec<Source>,
+	) -> Result<Argument, Error> {
+		self.send_with_policy(
+			Caller::Local {
+				host: host.clone(),
+				platform: self.platform.clone(),
+			},
+			target,
+			verb,
+			leading,
+			sources,
+			SendPolicy {
+				suffix: Vec::new(),
+				retain: false,
+			},
+		)
+		.await
 	}
 }
-struct Prepared {
-	blobs: Vec<policy::Blob<Source>>,
+/// One bounded source population and its existing connection. It owns no file
+/// assembly or second pool. Attachment rendering borrows descriptions and roots;
+/// only ordinary outgoing Argument admission copies their scalar wire material.
+pub struct LentSources<D> {
+	blobs: Vec<policy::Lease<Source>>,
 	roots: Vec<Ref>,
-	delivered: bool,
+	delivered: Cell<bool>,
+	_caller: Caller<D>,
 }
-impl Drop for Prepared {
+impl<D> LentSources<D> {
+	pub(super) fn delivery_started(&self) {
+		self.delivered.set(true);
+	}
+	/// The pool separately charges declared source bytes and asynchronous reads.
+	/// These two owned vectors retain lease/root spines until exact settlement.
+	pub fn retained_bytes(&self) -> usize {
+		self.blobs
+			.capacity()
+			.saturating_mul(size_of::<policy::Lease<Source>>())
+			.saturating_add(self.roots.capacity().saturating_mul(size_of::<Ref>()))
+	}
+	pub fn append_to(&self, arguments: &mut Vec<Argument>) {
+		for (blob, root) in self.blobs.iter().zip(&self.roots) {
+			super::files::append_attachment(arguments, blob.blob().description(), root);
+		}
+	}
+}
+impl<D> Drop for LentSources<D> {
 	fn drop(&mut self) {
-		if !self.delivered {
+		if !self.delivered.get() {
 			for blob in &self.blobs {
-				blob.expire();
+				blob.blob().expire();
 			}
 		}
 	}

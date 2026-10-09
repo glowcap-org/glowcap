@@ -27,7 +27,7 @@ export function settleCapabilityCleanup(label: string, cleanup: () => void): voi
  * arrives later to the session that transferred it. */
 export function claimCapabilityWithin(
 	session: Session,
-	answer: Promise<Ref>,
+	answer: Promise<Ref> | ((signal: AbortSignal) => Promise<Ref>),
 	what: string,
 	ms: number,
 ): Promise<Ref> {

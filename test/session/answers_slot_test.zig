@@ -50,6 +50,7 @@ test "pending inbound answer through real syrup codec matches answer oracle fixt
 }
 
 test "AnswerCell carries status independently of wire position" {
+    try std.testing.expectEqual(@as(usize, 48), @sizeOf(answers.AnswerCell));
     var cell = answers.AnswerCell.initPending(42);
     try std.testing.expectEqual(answers.AnswerStatus.pending, cell.status());
     try std.testing.expect(cell.payload == null);

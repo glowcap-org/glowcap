@@ -31,6 +31,16 @@ impl<C: Copy + Ord, R> Watchers<C, R> {
 	pub fn remove(&mut self, connection: C) -> Option<R> {
 		self.rows.remove(&connection).map(|(observer, _)| observer)
 	}
+	pub fn remove_exact(&mut self, connection: C, observer: &R) -> Option<R>
+	where
+		R: PartialEq,
+	{
+		if self.rows.get(&connection).is_some_and(|(held, _)| held == observer) {
+			self.remove(connection)
+		} else {
+			None
+		}
+	}
 	pub fn iter(&self) -> impl Iterator<Item = (C, &R, Shape)> {
 		self.rows
 			.iter()

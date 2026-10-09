@@ -59,15 +59,6 @@ pub fn mark(progress: *Progress, kv: anytype, id: records.ObjectId) !void {
     progress.tail = next;
 }
 
-/// New/changed objects survive this cycle. Every added strong edge is traced
-/// even when its source was already marked before the write.
-pub fn writeBarrier(progress: *Progress, kv: anytype, view: records.View) !void {
-    if (!progress.tracing()) return;
-    try mark(progress, kv, view.id);
-    var edges = view.edges();
-    while (edges.next()) |edge| if (edge.strength == .strong) try mark(progress, kv, edge.target);
-}
-
 pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.Limits, schemas: []const records.Schema) !void {
     if (request.work_limit == 0 or request.scratch.len < limits.max_record_bytes) return error.InvalidLimits;
     const progress = &metadata.collection;

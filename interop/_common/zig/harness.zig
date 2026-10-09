@@ -38,6 +38,20 @@ pub fn StaticReplyActor(comptime verb: []const u8, comptime reply: []const u8) t
     };
 }
 
+/// The `StaticReplyActor` contract as a `driver.Session`/`driver.Server`
+/// behavior.
+pub fn StaticReplyBehavior(comptime verb: []const u8, comptime reply: []const u8) type {
+    return struct {
+        pub fn handle(self: *@This(), turn: *driver.HostTurn, called: []const u8, args: []const driver.Value) !driver.Value {
+            _ = self;
+            _ = turn;
+            _ = args;
+            if (!std.mem.eql(u8, called, verb)) return error.NoSuchMethod;
+            return .{ .string = reply };
+        }
+    };
+}
+
 /// An actor a live Goblins peer calls, for a driver whose partner invokes a cap
 /// **positionally**: `(<- actor "world")` carries no method symbol, so the first
 /// argument is the name rather than the verb. `template` is a format string with
@@ -56,17 +70,6 @@ pub fn PositionalReplyActor(comptime template: []const u8) type {
             return .{ .string = try std.fmt.allocPrint(turn.arena, template, .{name}) };
         }
     };
-}
-
-/// A publish callback for `driver.Bridge` options: publishes one fresh `Actor`
-/// behind `swiss` on every adopted connection.
-pub fn publisher(comptime swiss: []const u8, comptime Actor: type) fn (?*anyopaque, *driver.Served, *actors.Vat) anyerror!void {
-    return struct {
-        fn publish(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
-            _ = ctx;
-            _ = try served.publish(vat, swiss, Actor, .{});
-        }
-    }.publish;
 }
 
 const wait = @import("support_wait");
@@ -254,32 +257,6 @@ pub fn AcceptServeOne(
             if (banner) |line| std.debug.print("{s}\n", .{line});
             _ = try cv.publish(swiss, Actor, .{});
             try cv.serve();
-        }
-    };
-}
-
-/// The loop-thread entry points a Bridge-driven driver hands to
-/// `io.concurrent`, generic over the completion loop type.
-pub fn LoopRunner(comptime Loop: type) type {
-    return struct {
-        /// Run until `done` flips, then close every slot and drain; either
-        /// failure lands in `out_err` for the joining thread to surface.
-        pub fn runUntilFlag(loop: *Loop, done: *const std.atomic.Value(bool), out_err: *?anyerror) void {
-            loop.runUntil(done, 0) catch |err| {
-                out_err.* = err;
-                return;
-            };
-            loop.closeAndDrain() catch |err| {
-                out_err.* = err;
-            };
-        }
-
-        /// Run until `until_closed` connections have fully closed; a failure
-        /// lands in `out_err` for the joining thread to surface.
-        pub fn runAfterClosed(loop: *Loop, until_closed: usize, out_err: *?anyerror) void {
-            loop.run(.{ .after_closed = until_closed }) catch |err| {
-                out_err.* = err;
-            };
         }
     };
 }

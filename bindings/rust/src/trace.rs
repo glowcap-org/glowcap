@@ -26,7 +26,9 @@ use crate::abi_constants_gen::{
 use crate::session::DurableProvenance;
 use crate::sys::host as ffi;
 
+mod labels;
 mod projection;
+pub use labels::set_trace_label;
 use projection::{base64, captp_version, codec, hex, view};
 
 /// One wire event in the versioned timeline schema (`{v:1, sim_t_ns, kind, …}`).
@@ -249,6 +251,16 @@ struct TraceState {
 	next_cookie: usize,
 }
 
+impl Drop for TraceState {
+	fn drop(&mut self) {
+		// Hosts held by another TLS owner may outlive this registry. Disarm
+		// their native callbacks before the sink and registry context retire.
+		for host in &self.hosts {
+			unsafe { ffi::glowcap_host_set_trace(host.raw, None, std::ptr::null_mut()) };
+		}
+	}
+}
+
 thread_local! {
 	static STATE: RefCell<TraceState> = RefCell::new(TraceState {
 		sink: None,
@@ -459,7 +471,7 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Glowca
 /// own endpoint CALLED — a display name beside the identity, never instead of
 /// it: the `a` endpoint stays the host's own key designator, the name a
 /// partner knows it by and the only one two producers can agree on.
-pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() {
+pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() + use<> {
 	let installation = Rc::new(());
 	let hosts = STATE.with(|state| {
 		let mut state = state.borrow_mut();
@@ -537,7 +549,9 @@ pub(crate) fn attach_host(
 /// Binding-internal: a released Host leaves the registry. The core dropped
 /// its own sink row with the host, so no native call is needed.
 pub(crate) fn detach_host(raw: *mut ffi::GlowcapHost) {
-	STATE.with(|state| {
+	// A late TLS owner can release Host after TraceState::drop has removed
+	// every native callback. No registry row remains to retire in that case.
+	let _ = STATE.try_with(|state| {
 		state.borrow_mut().hosts.retain(|h| h.raw != raw);
 	});
 }

@@ -64,7 +64,7 @@ import { parseRoomPolicy, type RoomPolicy } from "./policy.ts";
 export * from "./client_exports.ts";
 
 import { ask } from "../ask.ts";
-import { PostedLine } from "../posted_line.ts";
+import { PostedLine, postedLineResult } from "../posted_line.ts";
 import type { Message } from "./message.ts";
 
 /** What a room calls itself, asked of an entrance reference, including one
@@ -464,7 +464,7 @@ export class Room {
 		// A room that answers with a reference is one that will let this line be
 		// changed or taken back. A room may accept the line without granting that
 		// authority, so absence is an explicit result rather than a failure.
-		return line instanceof Ref ? new PostedLine(this.#session, line) : null;
+		return postedLineResult(this.#session, line);
 	}
 
 	/** Stage a file into the message being written and return the capability
@@ -501,7 +501,7 @@ export class Room {
 	 * no such authority; absence is returned exactly as `say` returns it. */
 	async postFiles(text = ""): Promise<PostedLine | null> {
 		const line = await postStagedFiles(this.#session, this.#filesRef(), text);
-		return line instanceof Ref ? new PostedLine(this.#session, line) : null;
+		return postedLineResult(this.#session, line);
 	}
 
 	/** Stage one file and post it on its own, the shape a terminal client

@@ -1,20 +1,21 @@
-import type { AttachedFile as Attachment, AttachedFileData } from "./remote.ts";
+import type { Attachment } from "../../../lib/attachment.ts";
+export type FileData = Uint8Array | import("../../../../../zig-out/wasm/rooms/rooms_browser.js").RoomsBrowserFileView;
 // Live attachment capabilities projected from a durable Rooms session.
 
 import * as store from "../store.ts";
 import { blobOf } from "../blob.ts";
 import type { AttachmentView, Item, ViewerDirection } from "../types.ts";
-import type { AttachedRoomsController } from "./attached.ts";
+
 import { ARCHIVED_BYTES_UNAVAILABLE } from "../archive_attachments.ts";
 import { settleViewCleanup } from "./cleanup.ts";
 import type { PageProjection } from "../store/core.ts";
 
 import type { ArchiveLine } from "../../../lib/archive/protocol.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
-interface HeldFile {
+export interface HeldFile {
 	readonly mime: string;
 	readonly durable: boolean;
-	fetch(onProgress: (got: number) => void): Promise<AttachedFileData>;
+	fetch(onProgress: (got: number) => void): Promise<FileData>;
 	release(): void;
 }
 
@@ -22,8 +23,20 @@ import { earlierConnectionBytesUnavailable } from "../../../lib/text/attached.ts
 
 export const EARLIER_CONNECTION_BYTES_UNAVAILABLE = earlierConnectionBytesUnavailable;
 
-export class AttachedSessionFiles {
-	readonly #controller: AttachedRoomsController;
+export interface FileDescription {
+	name: string;
+	mime: string;
+	size: number;
+	width: number;
+	height: number;
+}
+export interface FileSources<F extends FileDescription> {
+	fetchAttachment(file: F, progress: (got: number) => void, signal: AbortSignal): Promise<FileData>;
+	releaseAttachment(file: F): void;
+	archiveSource(record: ArchiveLine, index: number): HeldFile | null;
+}
+export class AttachedSessionFiles<F extends FileDescription = Attachment> {
+	readonly #controller: FileSources<F>;
 	readonly #projection: PageProjection;
 	readonly #stopLineCustody: () => void;
 	readonly #files = new Map<number, HeldFile>();
@@ -32,7 +45,7 @@ export class AttachedSessionFiles {
 	readonly #progress = new Map<number, { key: string; attempt: symbol; got: number }>();
 	#frame: number | null = null;
 
-	constructor(controller: AttachedRoomsController, projection: PageProjection) {
+	constructor(controller: FileSources<F>, projection: PageProjection) {
 		this.#controller = controller;
 		this.#projection = projection;
 		this.#stopLineCustody = this.#projection.onLinesDropped((_key: string, lines: readonly Item[]) => {
@@ -42,7 +55,10 @@ export class AttachedSessionFiles {
 		});
 	}
 
-	hold(attachment: Attachment, unavailable?: string): AttachmentView {
+	retains(id: number): boolean {
+		return this.#files.has(id);
+	}
+	hold(attachment: F, unavailable?: string): AttachmentView {
 		const view = store.attachmentView(this.#projection, {
 			name: attachment.name,
 			mime: attachment.mime,
@@ -68,7 +84,11 @@ export class AttachedSessionFiles {
 		return view;
 	}
 
-	holdArchived(record: ArchiveLine, index: number): AttachmentView {
+	holdArchived(
+		record: ArchiveLine,
+		index: number,
+		source?: (record: ArchiveLine, index: number) => HeldFile | null,
+	): AttachmentView {
 		const attachment = record.attachments[index];
 		const view = store.attachmentView(this.#projection, {
 			name: attachment.name,
@@ -79,7 +99,7 @@ export class AttachedSessionFiles {
 			...(attachment.blob == null ? { lost: true, error: ARCHIVED_BYTES_UNAVAILABLE } : {}),
 			...(attachment.blob == null ? {} : { archiveDigest: attachment.blob }),
 		});
-		const file = this.#archivedFile(record, index);
+		const file = source == null ? this.#archivedFile(record, index) : source(record, index);
 		if (file != null) this.#files.set(view.id, file);
 		return view;
 	}
@@ -88,9 +108,16 @@ export class AttachedSessionFiles {
 	 * byte source. Presentation identity and any settled object URL stay put.
 	 * An in-flight automatic fetch resumes against the durable source instead of
 	 * leaving its original intent stranded on an aborted occurrence. */
-	adoptArchived(key: string, id: number, record: ArchiveLine, index: number): void {
-		const durable = this.#archivedFile(record, index);
-		if (durable == null || this.#files.get(id)?.durable === true) return;
+	adoptArchived(
+		key: string,
+		id: number,
+		record: ArchiveLine,
+		index: number,
+		source?: (record: ArchiveLine, index: number) => HeldFile | null,
+	): void {
+		if (this.#files.get(id)?.durable === true) return;
+		const durable = source == null ? this.#archivedFile(record, index) : source(record, index);
+		if (durable == null) return;
 		const prior = this.#files.get(id);
 		const transferring = this.#transfers.has(id);
 		if (prior != null) {
@@ -108,7 +135,7 @@ export class AttachedSessionFiles {
 		for (const view of views) this.#release(view.id);
 	}
 
-	releaseIncoming(attachments: readonly Attachment[]): void {
+	releaseIncoming(attachments: readonly F[]): void {
 		for (const attachment of attachments) {
 			settleViewCleanup(
 				this.#projection,
@@ -224,13 +251,7 @@ export class AttachedSessionFiles {
 	#archivedFile(record: ArchiveLine, index: number): HeldFile | null {
 		const attachment = record.attachments[index];
 		if (attachment.blob == null) return null;
-		const stop = new AbortController();
-		return {
-			mime: attachment.mime,
-			durable: true,
-			fetch: (onProgress) => this.#controller.fetchArchivedAttachment(record, index, onProgress, stop.signal),
-			release: () => stop.abort(),
-		};
+		return this.#controller.archiveSource(record, index);
 	}
 
 	#release(id: number): void {
@@ -276,7 +297,7 @@ export class AttachedSessionFiles {
 	}
 }
 
-function releaseData(data: AttachedFileData): void {
+function releaseData(data: FileData): void {
 	if (!(data instanceof Uint8Array)) {
 		try {
 			data.release();
@@ -285,7 +306,7 @@ function releaseData(data: AttachedFileData): void {
 		}
 	}
 }
-function displayData(data: AttachedFileData, mime: string): { url: string; release(): void } {
+function displayData(data: FileData, mime: string): { url: string; release(): void } {
 	if (data instanceof Uint8Array) {
 		const url = URL.createObjectURL(blobOf(data, mime));
 		return { url, release: () => URL.revokeObjectURL(url) };

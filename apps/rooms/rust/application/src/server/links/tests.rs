@@ -15,6 +15,94 @@ fn kept() -> Authority {
 	Authority::read(&Document::decode(KEPT).unwrap()).unwrap()
 }
 
+#[test]
+fn named_publication_survives_reopen_and_retires_with_its_exact_policy_generation() {
+	let authority = kept().remembered(MANAGED, false, true, None, None).unwrap().unwrap();
+	let entry = authority.named_publication("GARDEN").unwrap();
+	let publication = entry.id.text().as_str().unwrap();
+	assert_eq!(
+		entry.offers,
+		crate::fields::Nullable::Value(crate::room::policy::MembershipKind::Observer)
+	);
+	assert_eq!(authority.publication_room(publication).unwrap().id, MANAGED);
+	let cold = Authority::read(&authority.document()).unwrap();
+	assert_eq!(cold.named_publication("garden"), Some(entry.clone()));
+	assert_ne!(
+		publication,
+		crate::directory::registration::Id::from_entropy(authority.room_entropy(MANAGED, 2)).as_str()
+	);
+	let rooms = crate::server::rooms::Rooms::<u8, u8>::new(None, crate::files::FileLimits::default());
+	let entrance = rooms.enter_publication(publication, &cold).unwrap();
+	assert_eq!(entrance.kind, crate::room::policy::MembershipKind::Observer);
+	assert!(rooms.gate_open(1, &entrance, &cold));
+	let changed = cold
+		.with_managed_room_policy(MANAGED, "Garden", RoomPolicy::Open)
+		.unwrap()
+		.unwrap();
+	assert!(changed.publication_room(publication).is_none());
+	assert!(rooms.enter_publication(publication, &changed).is_err());
+	assert!(!rooms.gate_open(1, &entrance, &changed));
+	let secret = changed
+		.with_managed_room_policy(MANAGED, "Secret Garden", RoomPolicy::Private)
+		.unwrap()
+		.unwrap();
+	assert!(secret.named_publication("Secret Garden").is_none());
+	assert!(secret.publication_room(publication).is_none());
+}
+
+#[test]
+fn linked_publication_survives_dormancy_and_fences_revocation_reissue_and_reset() {
+	let authority = kept();
+	let entry = authority.named_publication("Garden").unwrap();
+	// The independent ordinary durable name is not the managed display name.
+	let authority = authority
+		.remembered("Orchard", false, false, None, None)
+		.unwrap()
+		.unwrap();
+	let ordinary = authority.named_publication("ORCHARD").unwrap();
+	let id = ordinary.id.text().as_str().unwrap();
+	let cold = Authority::read(&authority.document()).unwrap();
+	assert_eq!(cold.named_publication("orchard"), Some(ordinary.clone()));
+	assert!(!cold.publication_room(id).unwrap().managed);
+	let rooms = crate::server::rooms::Rooms::<u8, u8>::new(None, crate::files::FileLimits::default());
+	let entrance = rooms.enter_publication(id, &cold).unwrap();
+	assert_eq!(entrance.kind, crate::room::policy::MembershipKind::Participant);
+	assert!(rooms.gate_open(1, &entrance, &cold));
+	let revoked = cold.with_room_link_revoked("Orchard").unwrap();
+	assert!(revoked.named_publication("Orchard").is_none());
+	assert!(rooms.enter_publication(id, &revoked).is_err());
+	assert!(!rooms.gate_open(1, &entrance, &revoked));
+	let reissued = revoked
+		.remembered("Orchard", false, false, None, None)
+		.unwrap()
+		.unwrap();
+	assert_ne!(reissued.named_publication("Orchard").unwrap().id, ordinary.id);
+	assert!(rooms.enter_publication(id, &reissued).is_err());
+	let reset = reissued.factory_reset([8; 32]);
+	assert!(reset.publications.is_empty());
+	assert!(reset.named_publication("Orchard").is_none());
+	assert!(reset.publication_room(entry.id.text().as_str().unwrap()).is_none());
+}
+
+#[test]
+fn private_bearer_links_have_no_public_witness_and_managed_public_policy_is_independent() {
+	let opaque = "~00000000000000000000000000000009";
+	let authority = kept().remembered(opaque, false, false, None, None).unwrap().unwrap();
+	assert!(authority.named_publication(opaque).is_none());
+	assert!(authority.publications.values().all(|id| id != opaque));
+	let entry = authority.named_publication("Garden").unwrap();
+	let cleared = authority.with_topic(MANAGED, "").unwrap().unwrap();
+	let revoked = cleared.with_room_link_revoked(MANAGED).unwrap();
+	let cold = Authority::read(&revoked.document()).unwrap();
+	assert!(!cold.room_link_active(MANAGED));
+	assert_eq!(cold.named_publication("Garden"), Some(entry.clone()));
+	assert!(
+		cold.publication_room(entry.id.text().as_str().unwrap())
+			.unwrap()
+			.managed
+	);
+}
+
 fn hex(bytes: &[u8]) -> String {
 	crate::fields::lower_hex(bytes)
 }

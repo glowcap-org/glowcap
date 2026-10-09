@@ -129,6 +129,8 @@ async function sayInto(peer: Page, room: string, line: string): Promise<void> {
 	const row = namedRoomRow(peer, room);
 	await row.hover();
 	await row.locator(".room-leave").click();
+	await row.waitFor({ state: "hidden", timeout: 30_000 });
+	await peer.click(".wordmark-link");
 	await peer.waitForSelector("#joinBtn", { timeout: 30_000 })
 		.catch(() => fail(`the second peer could not step back out of ${JSON.stringify(room)}`));
 }
@@ -191,7 +193,13 @@ export async function run(
 		},
 		"council",
 		{ timeout: 30_000 },
-	).catch(() => fail("a line said into a room nobody was reading never showed as waiting on that room's row"));
+	).catch(async () =>
+		fail(
+			`a line said into a room nobody was reading never showed as waiting on that room's row: ${await tab.locator(
+				"body",
+			).innerText()}; peer=${await second.locator("body").innerText()}`,
+		)
+	);
 
 	const before = await readRail(tab);
 	const entered = ["lobby", "elsewhere", "council", "orchard"];

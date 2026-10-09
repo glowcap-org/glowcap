@@ -15,7 +15,7 @@ use glowcap::{
 use rooms_application::signaling as policy;
 use rooms_glowcap::client::{
 	Deadline, Tasks,
-	directory::{Directory, signaling::Exchange},
+	directory::signaling::{Exchange, Route},
 };
 use std::time::Duration;
 use web_sys::RtcConfiguration;
@@ -26,7 +26,7 @@ use web_sys::RtcConfiguration;
 /// its OCapN handshake budget. Dropping the observer retires its exchange and
 /// asks the Host-owned peer jobs to close; Host.close observes that retirement.
 pub async fn dial<D: Deadline + Tasks + Clone + 'static>(
-	directory: &Directory<D>,
+	directory: &Route<D>,
 	locator: &Locator,
 	config: &RtcConfiguration,
 	handshake: Duration,
@@ -37,13 +37,16 @@ pub async fn dial<D: Deadline + Tasks + Clone + 'static>(
 	if locator.transport != glowcap::TRANSPORT_WEBRTC {
 		return Err(Error::Admission("Rooms WebRTC dial requires a webrtc locator"));
 	}
+	directory.check().await?;
 	let exchange = directory.signaling_exchange(&locator.designator)?;
-	let host = directory.client().session().host();
+	let host = directory.host();
 	let mut peer = RtcPeer::new(&host, RtcRole::Offerer, config)?;
 	let result = directory
-		.client()
 		.platform()
-		.within(policy::TIMEOUT_MS, prepare(&peer, &exchange))
+		.within(policy::TIMEOUT_MS, async {
+			prepare(&peer, &exchange).await?;
+			directory.check().await.map_err(Error::from)
+		})
 		.await
 		.unwrap_or(Err(Error::Timeout));
 	if let Err(error) = result {
@@ -58,7 +61,14 @@ pub async fn dial<D: Deadline + Tasks + Clone + 'static>(
 		let channel = peer.into_channel().await?;
 		// This directory exchange is scoped to the requested key. Browser DTLS
 		// binds the connected channel to the SDP carried by that exchange.
-		Ok(Session::dial_channel(&host, locator, channel, Some(handshake), Some(&locator.designator)).await?)
+		let session =
+			Session::dial_channel(&host, locator, channel, Some(handshake), Some(&locator.designator)).await?;
+		if let Err(error) = directory.check().await {
+			return Err(
+				Error::from(error).retain(session.close(glowcap::PendingWork::Cancel).await.map_err(Error::from))
+			);
+		}
+		Ok(session)
 	}
 	.await;
 	match (result, exchange.close()) {

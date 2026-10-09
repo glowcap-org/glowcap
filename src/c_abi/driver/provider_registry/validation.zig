@@ -21,8 +21,8 @@ pub fn projectOperationOptions(
     return storage;
 }
 
-pub fn multiplexedIoResultValid(result: isize, capacity: usize) bool {
-    if (result == -1 or result == shared.GLOWCAP_MULTIPLEXED_WOULD_BLOCK) return true;
+pub fn tryIoResultValid(result: isize, capacity: usize) bool {
+    if (result == -1 or result == shared.GLOWCAP_TRANSPORT_WOULD_BLOCK) return true;
     if (result < 0) return false;
     return @as(usize, @intCast(result)) <= capacity;
 }

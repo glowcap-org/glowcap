@@ -32,10 +32,11 @@ test "durable publication uses the host's selected acceptable location" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         dial_opts,
@@ -105,12 +106,11 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var done = std.atomic.Value(bool).init(false);
 
-    var first = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    var first = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
     defer first.deinit();
-    var second = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    var second = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
     defer second.deinit();
     var addr_buf: [64]u8 = undefined;
     const first_designator = try allocator.dupe(u8, try first.localDesignator(&addr_buf));
@@ -144,7 +144,7 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     // The client dials only the first server. Enlivening the first sturdyref
     // must select that live dialed session rather than opening a second one.
     var dial_buf: [64]u8 = undefined;
-    const client = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&dial_buf, try tcp.parseDesignator(first_designator)), .ephemeral, dial_opts);
+    const client = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&dial_buf, try tcp.parseDesignator(first_designator)), .ephemeral, dial_opts);
     defer client.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -171,7 +171,7 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     while (!removed.load(.acquire)) {
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5), .real) catch {};
     }
-    const late = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&dial_buf, try tcp.parseDesignator(first_designator)), .ephemeral, dial_opts);
+    const late = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&dial_buf, try tcp.parseDesignator(first_designator)), .ephemeral, dial_opts);
     defer late.deinit();
     try std.testing.expectError(driver.Error.FetchBroken, late.enlivenUri(first_uri.?));
     const still = try client.call(first_cap, "poke", &.{}, arena);

@@ -1,12 +1,62 @@
 //! One field-authoring consumer trace shared by TCP/LMDB and Chromium/IndexedDB.
 //! Shared Zig reference scenarios own exact authority and transaction semantics.
-use super::{Argument, Call, HostResult as Result, Method, Ref, ReferenceRequest, Retry, Session, refusal};
+use super::{
+	Argument, Call, Graph, HostResult as Result, InvocationBounds, Method, Ref, ReferenceRequest, Retry, Session,
+	StagingBounds, ValueBounds, refusal,
+};
+
+pub fn sizing() {
+	let content = StagingBounds::content(1, true).unwrap();
+	assert_eq!(content.changes, 6);
+	let recipes = StagingBounds::references(3592).unwrap();
+	assert_eq!(recipes.changes + 64 + content.changes, 3662);
+	assert!(recipes.record_bytes < content.record_bytes);
+	assert!(StagingBounds::content(0, true).is_err());
+	assert!(StagingBounds::references(usize::MAX).is_err());
+	assert_eq!(StagingBounds::references(0).unwrap().staging_bytes, 0);
+	let empty = ReferenceRequest::call_size_bound(0, 0, 0).unwrap();
+	assert_ne!(empty, 0, "empty declarations still own preparation state");
+	let maximum = ReferenceRequest::call_size_bound(3592, 3592, 4096).unwrap();
+	assert!(maximum > empty);
+	for (restores, saves, uri) in [(1, 1, 4097), (usize::MAX, 1, 4096), (0, usize::MAX, 0)] {
+		assert!(ReferenceRequest::call_size_bound(restores, saves, uri).is_err());
+	}
+	let empty_graph = Graph::call_size_bound(0, 0, 0).unwrap();
+	assert_ne!(
+		empty_graph, 0,
+		"empty graphs still prepare state and stage a root binding"
+	);
+	assert!(Graph::call_size_bound(63, 1024 * 1024, 3592).unwrap() > empty_graph);
+	for (pages, payload, fields) in [(usize::MAX, 0, 0), (1, usize::MAX, 0), (1, 0, usize::MAX)] {
+		assert!(Graph::call_size_bound(pages, payload, fields).is_err());
+	}
+	let invocation = |values, held| InvocationBounds {
+		arguments: ValueBounds {
+			values,
+			bytes: 3,
+			..ValueBounds::default()
+		},
+		reply: ValueBounds {
+			values: 1,
+			..ValueBounds::default()
+		},
+		verb_bytes: 6,
+		held_occurrences: held,
+		receipt: true,
+		dependent: false,
+	};
+	let small = invocation(3, 0).call_size_bound().unwrap();
+	assert!(invocation(3, 3592).call_size_bound().unwrap() > small);
+	assert!(invocation(usize::MAX, 0).call_size_bound().is_err());
+	assert!(invocation(3, usize::MAX).call_size_bound().is_err());
+}
 
 pub fn methods() -> Vec<Method> {
 	[
 		"field",
 		"dependent",
 		"append",
+		"append-live",
 		"replace-field",
 		"fail-field",
 		"remove-field",
@@ -27,6 +77,7 @@ pub fn handles(verb: &str) -> bool {
 		"field",
 		"dependent",
 		"append",
+		"append-live",
 		"replace-field",
 		"fail-field",
 		"remove-field",
@@ -52,13 +103,14 @@ pub fn requests(verb: &str, args: &[Argument]) -> Result<Vec<ReferenceRequest>> 
 			reference: reference(args)?,
 			uri: args.get(1).and_then(Argument::as_str).map(str::to_owned),
 		}]),
+		"append-live" => Ok(vec![ReferenceRequest::SaveLive(reference(args)?)]),
 		_ => Ok(Vec::new()),
 	}
 }
 pub fn invoke(call: &mut Call<'_>, verb: &str, args: &[Argument]) -> Result<Argument> {
 	match verb {
 		"field" | "dependent" => call.disclose(index(args)?, verb == "dependent"),
-		"append" => {
+		"append" | "append-live" => {
 			call.append_reference(&reference(args)?)?;
 			Ok(Argument::Boolean(true))
 		}
@@ -75,6 +127,33 @@ pub fn invoke(call: &mut Call<'_>, verb: &str, args: &[Argument]) -> Result<Argu
 			Ok(Argument::Boolean(true))
 		}
 		_ => Err(refusal("unknown field method")),
+	}
+}
+
+pub async fn live(session: &Session, root: &Ref, target: &Ref) {
+	session
+		.send(root, "append-live", &[Argument::Reference(target.clone())])
+		.await
+		.unwrap();
+	assert_eq!(
+		field(session, root, 1, false).await,
+		*target,
+		"live restoration returns the actual saved capability"
+	);
+	session
+		.send(root, "append-live", &[Argument::Reference(root.clone())])
+		.await
+		.unwrap();
+	assert_eq!(field(session, root, 2, false).await, *root);
+}
+
+pub async fn expired_live(session: &Session, root: &Ref) {
+	for index in [1, 2] {
+		let error = session
+			.send(root, "field", &[Argument::Integer(index)])
+			.await
+			.unwrap_err();
+		assert_eq!(error.message(), Some("LiveReferenceExpired"));
 	}
 }
 async fn field(session: &Session, root: &Ref, index: i64, dependent: bool) -> Ref {
@@ -106,7 +185,8 @@ pub async fn exercise(
 	write_target: &Ref,
 	target_control: &Ref,
 	live: &Ref,
-) -> String {
+) -> (String, super::context::Stamp) {
+	sizing();
 	assert!(
 		session
 			.send(root, "append", &[Argument::Reference(live.clone())])
@@ -164,14 +244,41 @@ pub async fn exercise(
 		.await
 		.unwrap();
 	let dependent = field(session, root, 0, true).await;
+	let root_context = super::context::snapshot(session, root).await;
+	super::context::same_resource(&root_context, &super::context::snapshot(session, &exact).await);
+	super::context::same_resource(&root_context, &super::context::snapshot(session, &dependent).await);
 	assert!(session.send(&dependent, "get", &[]).await.is_ok());
-	session.send(target_control, "pause", &[]).await.unwrap();
+	session
+		.send(
+			target_control,
+			"pause",
+			&[Argument::Bytes(
+				super::management::revision(session, target_control)
+					.await
+					.to_be_bytes()
+					.to_vec(),
+			)],
+		)
+		.await
+		.unwrap();
 	assert!(
 		session.send(&exact, "get", &[]).await.is_err(),
 		"exact restoration still checks the target grant"
 	);
 	assert!(session.send(&dependent, "get", &[]).await.is_err());
-	session.send(target_control, "resume", &[]).await.unwrap();
+	session
+		.send(
+			target_control,
+			"resume",
+			&[Argument::Bytes(
+				super::management::revision(session, target_control)
+					.await
+					.to_be_bytes()
+					.to_vec(),
+			)],
+		)
+		.await
+		.unwrap();
 	session.send(root, "remove-field", &[]).await.unwrap();
 	assert!(session.send(root, "field", &[Argument::Integer(0)]).await.is_err());
 	assert!(
@@ -182,9 +289,9 @@ pub async fn exercise(
 		.send(root, "append", &[Argument::Reference(target.clone())])
 		.await
 		.unwrap();
-	target_name
+	(target_name, root_context)
 }
-pub async fn reopen(session: &Session, root: &Ref, expected: &str) {
+pub async fn reopen(session: &Session, root: &Ref, expected: &str, initial: &super::context::Stamp) {
 	let restored = field(session, root, 0, false).await;
 	assert_eq!(
 		name(session, &restored).await,
@@ -192,4 +299,7 @@ pub async fn reopen(session: &Session, root: &Ref, expected: &str) {
 		"cold restoration preserves the exact saved grant"
 	);
 	assert!(session.send(&restored, "get", &[]).await.is_ok());
+	let root_context = super::context::snapshot(session, root).await;
+	super::context::same_resource(initial, &root_context);
+	super::context::same_resource(&root_context, &super::context::snapshot(session, &restored).await);
 }

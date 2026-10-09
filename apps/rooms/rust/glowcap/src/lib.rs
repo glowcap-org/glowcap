@@ -29,6 +29,17 @@ pub fn host_options() -> glowcap::HostOptions {
 /// an admitted attachment clones its capability guard; no numeric lookup exists.
 #[derive(Clone, Copy)]
 pub struct Value<'a>(pub &'a Argument);
+impl rooms_application::room::authority::Reply for Value<'_> {
+	fn text(&self) -> Option<&str> {
+		self.0.as_str()
+	}
+	fn list_len(&self) -> Option<usize> {
+		self.0.as_list().map(<[Argument]>::len)
+	}
+	fn list_text(&self, index: usize) -> Option<&str> {
+		self.0.as_list()?.get(index)?.as_str()
+	}
+}
 impl rooms_application::room::ListArgument for Value<'_> {
 	fn list_len(&self) -> Option<usize> {
 		self.0.as_list().map(<[Argument]>::len)
@@ -40,6 +51,17 @@ impl rooms_application::room::ListArgument for Value<'_> {
 
 pub fn values(args: &[Argument]) -> impl ExactSizeIterator<Item = Value<'_>> {
 	args.iter().map(Value)
+}
+
+/// Project application-owned mutation data into binding values. Capability
+/// arguments come exclusively from the executor's retained target custody.
+pub fn effect_argument(value: rooms_application::session::effect::Argument) -> Argument {
+	use rooms_application::session::effect::Argument as Data;
+	match value {
+		Data::Text(value) => Argument::String(value),
+		Data::Integer(value) => Argument::Integer(value),
+		Data::List(values) => Argument::List(values.into_iter().map(effect_argument).collect()),
+	}
 }
 
 impl ArgumentView for Value<'_> {

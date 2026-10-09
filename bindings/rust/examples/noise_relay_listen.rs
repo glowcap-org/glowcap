@@ -23,7 +23,7 @@ async fn scene(relay_url: String, register_url: String) -> Result<(), String> {
 		.map_err(|e| e.to_string())?;
 	server
 		.host()
-		.publish_giftable("greeter", || Box::new(greeter))
+		.publish("greeter", || Box::new(greeter))
 		.map_err(|e| e.to_string())?;
 	println!("RELAY-LISTENER-READY {}", server.uri().map_err(|e| e.to_string())?);
 	// The proof owns exactly one accepted session. The client closes after its

@@ -357,9 +357,9 @@ fn renderLayerTable(b: *Build, table: []const LayerSpec) []const u8 {
 /// constructor. Keep this list to injections that genuinely cannot be a DAG
 /// edge.
 const injected_layer_imports = [_]struct { path: []const u8, imports: []const []const u8 }{
-    // Empty: the iroh resident module no longer imports actors/driver_core
-    // (CapTP serving moved to `driver.Bridge` + Host). Keep this table for
-    // future sanctioned injections that cannot be DAG edges.
+    // Empty: the iroh resident module imports neither actors nor driver_core;
+    // `driver.HostRuntime` serves CapTP over it. Keep this table for future
+    // sanctioned injections that cannot be DAG edges.
 };
 
 fn isLayerName(table: []const LayerSpec, name: []const u8) bool {

@@ -1,4 +1,4 @@
-//! Stream and multiplexed-resident connection adoption.
+//! Multiplexed-resident connection adoption.
 
 const std = @import("std");
 
@@ -7,7 +7,6 @@ const net = @import("net");
 const driver_core = @import("driver_core");
 
 const resident_state = @import("resident.zig");
-const stream_wire = @import("stream_wire.zig");
 const runtime = @import("../host_runtime.zig");
 
 const HostRuntime = runtime.HostRuntime;
@@ -15,45 +14,6 @@ const Internal = runtime.Internal;
 const Budget = driver_core.Budget;
 const Error = driver_core.Error;
 const Wire = HostRuntime.Wire;
-
-/// Bind an accepted transport connection to a fresh accepted-half session.
-pub fn acceptWire(
-    self: *HostRuntime,
-    listener: net.netlayer.Listener,
-    transport: []const u8,
-) !*driver_core.HostSession {
-    self.enterDriver();
-    defer self.leaveDriver();
-    var admission = try Internal.acquireOpenAdmission(self, .application);
-    defer admission.release();
-    const session = try self.core.openAcceptedAdvertised(transport);
-    errdefer {
-        Internal.dropWire(self, session.peer_handle);
-        if (Internal.releaseCoreSession(self, session)) |failure|
-            Internal.noteTerminalFailureChain(self, failure);
-    }
-    if (try bindAcceptedWireOutcome(self, session, listener)) |failure|
-        return failure.classification;
-    try Internal.pumpHandshake(self, session, self.opts.handshake);
-    return session;
-}
-
-/// Keep buffers and the accepted connection in one rollback transaction until
-/// `adoptConn` commits them to the Host wire table.
-pub fn bindAcceptedWireOutcome(self: *HostRuntime, session: *driver_core.HostSession, listener: net.netlayer.Listener) !?net.netlayer.AcceptFailure {
-    var prepared = switch (try stream_wire.accept(
-        self.allocator,
-        self.opts.wire_buffer_bytes,
-        listener,
-        session.served.port.peer,
-    )) {
-        .prepared => |prepared| prepared,
-        .failed => |failure| return failure,
-    };
-    defer prepared.deinit();
-    try adoptConn(self, session, &prepared);
-    return null;
-}
 
 /// Resolve and dial through the one provider registry, then adopt the wire.
 pub fn bindWire(
@@ -63,45 +23,17 @@ pub fn bindWire(
     options: net.OperationOptions,
 ) !void {
     const provider = Internal.providerFor(self, locator.transport) orelse return Error.UnknownTransport;
-    switch (provider.source) {
-        .stream => |nl| {
-            if (!nl.supportsDial()) return Error.UnknownTransport;
-            if (try bindStreamWireOutcome(self, session, locator, nl, options)) |failure|
-                return failure.classification;
-        },
-        .resident => |resident_index| {
-            const dialer = self.residents.items[resident_index].resident.dialer() orelse
-                return Error.UnknownTransport;
-            try bindResidentWire(self, session, resident_index, dialer, locator, options);
-        },
-    }
-}
-
-pub fn bindStreamWireOutcome(
-    self: *HostRuntime,
-    session: *driver_core.HostSession,
-    locator: model.PeerLocator,
-    nl: net.netlayer.Netlayer,
-    options: net.OperationOptions,
-) !?net.netlayer.DialFailure {
-    var prepared = switch (try stream_wire.dial(
-        self.allocator,
-        self.opts.wire_buffer_bytes,
-        nl,
-        session.served.port.peer,
-        locator,
-        options,
-    )) {
-        .prepared => |prepared| prepared,
-        .failed => |failure| return failure,
-    };
-    defer prepared.deinit();
-    try adoptConn(self, session, &prepared);
-    return null;
+    const resident_index = provider.resident;
+    const dialer = self.residents.items[resident_index].resident.dialer() orelse
+        return Error.UnknownTransport;
+    try bindResidentWire(self, session, resident_index, dialer, locator, options);
 }
 
 /// Begin a resident dial, await its completion while serving siblings, bind
-/// its channel-proved key, and adopt the claimed connection.
+/// its channel-proved key, adopt the claimed connection, and write what the
+/// session already holds. The await drains core actions, so the session's
+/// flush can fire before its wire exists; a sealed dial's first handshake
+/// message waits in its channel, where no later flush would find it.
 pub fn bindResidentWire(
     self: *HostRuntime,
     session: *driver_core.HostSession,
@@ -124,6 +56,8 @@ pub fn bindResidentWire(
     if (try resident.connRemoteKey(conn_id)) |key|
         session.served.port.peer.bindVerifiedChannelKey(key);
     try adoptResidentConn(self, session, resident_index, &conn);
+    const wire = self.wires.get(session.peer_handle).?;
+    Internal.writeOutbound(self, wire) catch |err| Internal.closeWire(self, wire, err);
 }
 
 /// Park until the resident connect result drains, servicing all other ready
@@ -157,37 +91,9 @@ fn awaitResidentConnect(
             if (remaining <= 0) return Error.HandshakeTimedOut;
             break :blk std.math.cast(i32, remaining) orelse std.math.maxInt(i32);
         } else -1;
-        const source = try Internal.waitAnySource(self, timeout, false) orelse continue;
-        switch (source) {
-            .wire => |wire| _ = try Internal.serviceReadyWire(self, wire, null),
-            .resident => |index| _ = try Internal.serviceResident(self, index, null),
-            .stream_dial => |row| try Internal.adoptPendingStreamDial(self, row),
-            .stream_listen => |row| Internal.finishPendingListener(self, row),
-            .stream_accept => |listener| _ = try self.acceptReady(listener),
-        }
+        const index = try Internal.waitAnySource(self, timeout, false) orelse continue;
+        _ = try Internal.serviceResident(self, index, null);
     }
-}
-
-pub fn adoptConn(self: *HostRuntime, session: *driver_core.HostSession, prepared: *stream_wire.Prepared) !void {
-    const handle = prepared.connection().socketHandle() orelse return Error.TransportNotPollable;
-    if (handle < 0) return Error.TransportNotPollable;
-    if (Internal.descriptorInUse(self, handle)) return error.ReadinessDescriptorConflict;
-    switch (self.drive) {
-        .blocking => {},
-        .stepped => |*stepped| try stepped.ready_set.add(handle),
-    }
-    errdefer Internal.removeReadyFd(self, handle);
-    try Internal.reserveCloseEvent(self);
-    errdefer Internal.releaseCloseEvent(self);
-    try self.wires.ensureUnusedCapacity(self.allocator, 1);
-    const wire = try self.allocator.create(Wire);
-    const parts = prepared.take();
-    wire.* = .{
-        .link = .{ .stream = .{ .conn = parts.conn, .read_buf = parts.read, .write_buf = parts.write } },
-        .session = session,
-    };
-    self.wires.putAssumeCapacity(session.peer_handle, wire);
-    self.open_wire_count += 1;
 }
 
 pub fn adoptResidentConn(
@@ -198,22 +104,27 @@ pub fn adoptResidentConn(
 ) !void {
     const conn = claimed.borrow() orelse return error.ProviderContract;
     const profile = try session.host.transportProfile(session.transport);
-    const read_buf_len = switch (session.wire_framing) {
+    // A resident that lends its received bytes is never read into scratch.
+    const lends = self.residents.items[resident_index].resident.vtable.borrowed_read != null;
+    const read_buf_len: usize = if (lends) 0 else switch (session.wire_framing) {
         .byte_stream => self.opts.wire_buffer_bytes,
         .message => @max(
             self.opts.wire_buffer_bytes,
             @max(session.served.port.peer.limits().max_frame_bytes, profile.max_packet_bytes),
         ),
     };
-    const read_buf = try self.allocator.alloc(u8, read_buf_len);
-    errdefer self.allocator.free(read_buf);
+    if (self.resident_read_scratch.len < read_buf_len) {
+        const grown = try self.allocator.alloc(u8, read_buf_len);
+        self.allocator.free(self.resident_read_scratch);
+        self.resident_read_scratch = grown;
+    }
     try Internal.reserveCloseEvent(self);
     errdefer Internal.releaseCloseEvent(self);
     try self.wires.ensureUnusedCapacity(self.allocator, 1);
     try self.resident_wires.ensureUnusedCapacity(self.allocator, 1);
     const wire = try self.allocator.create(Wire);
     wire.* = .{
-        .link = .{ .resident = .{ .index = resident_index, .conn = conn, .read_buf = read_buf } },
+        .link = .{ .index = resident_index, .conn = conn },
         .session = session,
     };
     self.wires.putAssumeCapacity(session.peer_handle, wire);

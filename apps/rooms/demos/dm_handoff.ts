@@ -190,9 +190,9 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 			onError: (peer, err) => fail(`Bob could not offer an inbox for ${peer}: ${err}`),
 		});
 		const bobRegistrationId = await bobDirectory.register("bob", bob.locator, {
-			onMintInboxFor: (peer, registrationId) => {
+			onMintInboxFor: (peer, registrationId, opening) => {
 				asked = peer;
-				bobOfferer.offer(peer, registrationId);
+				bobOfferer.offer(peer, registrationId, opening);
 			},
 		});
 
@@ -208,16 +208,18 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		const carolToRoom = await dial(room.locator, carol.runtime);
 		services.serve(carolToRoom);
 		const carolDir = await carolToRoom.fetch(DIRECTORY);
-		let carolRegistered = false;
 		let introducible = false;
 		const carolReg = carolToRoom.spawn((verb, args) => {
 			if (verb !== NOTIFY) return null;
-			if (args[0] === "registered") carolRegistered = true;
 			if (args[0] === "introducible" && args[1] === "bob") introducible = true;
 			return null;
 		});
-		await carolToRoom.send(carolDir, REGISTER, ["carol", carol.locator, carolReg]);
-		await untilHealthy(() => carolRegistered, "the room to register Carol");
+		const registration = await carolToRoom.send(carolDir, REGISTER, ["carol", carol.locator, carolReg]);
+		if (
+			!Array.isArray(registration) || registration.length !== 3 || registration[0] !== "carol" ||
+			!(registration[2] instanceof Ref)
+		) fail("Carol did not acquire her exact committed registration");
+		await carolToRoom.release(registration[2]);
 
 		// First contact: Bob has offered no inbox for Carol, so the directory asks
 		// him for one and refuses this ask. One extra round trip, once per pair.

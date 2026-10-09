@@ -5,19 +5,29 @@ const native_relay = @import("native_relay");
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // The key names the peer; the hint names the relay that can reach it.
     const relay_url = "wss://relay.example/relay";
-    var relay: native_relay.Provider = undefined;
-    switch (relay.init(io, allocator, relay_url, null, .system)) {
-        .ready => {},
+    var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+        .ready => |ready| ready.owner,
         .failed => return error.RelayUnavailable,
-    }
-    defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
-    const netlayers = [_]glowcap.net.netlayer.Netlayer{relay.resident(.keyed).netlayer()};
+    };
+    defer switch (tls.release()) {
+        .released => {},
+        .busy, .failed => std.log.err("relay TLS teardown failed", .{}),
+    };
+    var entropy: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
+    try io.randomSecure(&entropy);
+    const transports: glowcap.driver.Transports = .{ .symbols = &.{.keyed_relay}, .relay = .{
+        .url = relay_url,
+        .entropy_seed = entropy,
+        .resolver_io = io,
+        .tls_owner = tls,
+    } };
     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
     const peer_key = "<64 lowercase hex characters from the server>";
     const partner = glowcap.net.relay.keyed.locator(peer_key, relay_url, &hint_storage);
     const session = try glowcap.driver.connect(
         allocator,
-        &netlayers,
+        io,
+        transports,
         partner,
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },

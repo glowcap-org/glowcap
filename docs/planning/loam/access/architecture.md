@@ -74,7 +74,7 @@ identifies their implementation.
 ## Actors, resources, and authority
 
 Rooms already serves actor behaviors through the Rust Host binding. Its
-[session grant publisher](../../../../apps/rooms/rust/runtime/src/grants/publications.rs)
+[session grant publisher](../../../../apps/rooms/rust/runtime/src/session/managed/opening.rs)
 registers guarded behaviors through
 [durable Host publication](../../../../bindings/rust/src/host/public.rs).
 [Archive facets](../../../../apps/rooms/rust/runtime/src/archive/mod.rs) also spawn
@@ -617,6 +617,6 @@ preserving its Rust content and single-memory browser boundaries.
 | Packaging | Core import checks forbid Host/I/O dependencies; archive symbol checks prove one Host implementation; browser linking uses one memory. |
 
 The [Rooms implementation phases](../../rooms/access-grants.md#ordered-implementation-and-exit-criteria)
-replace existing contracts directly. No migration layer, compatibility ledger,
+replace existing contracts directly. No parallel format reader, compatibility ledger,
 or Rust fallback evaluator accompanies this work. Existing development state
 that cannot satisfy the new contract requires an explicit operator reset.

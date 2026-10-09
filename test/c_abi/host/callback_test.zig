@@ -275,6 +275,47 @@ fn deferringBehavior(
     return c.GLOWCAP_OK;
 }
 
+fn optionalDeferringBehavior(ctx: ?*anyopaque, turn: ?*cd.GlowcapHostTurn, _: ?[*]const u8, _: usize, _: ?[*]const c.GlowcapArgument, _: usize, out: ?*c.GlowcapArgument) callconv(.c) i32 {
+    const resolver: *u64 = @ptrCast(@alignCast(ctx.?));
+    out.?.* = argBase();
+    return cd.glowcap_host_turn_defer_if_answer(turn, resolver);
+}
+
+test "libglowcap_host optional deferral preserves calls and mints no resolver for tells" {
+    var resolver: u64 = 99;
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_turn_defer_if_answer(null, &resolver));
+    try std.testing.expectEqual(@as(u64, 0), resolver);
+    const client = try newHost(0x75);
+    defer _ = cd.glowcap_host_release(client);
+    const server = try newHost(0x76);
+    defer _ = cd.glowcap_host_release(server);
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.GlowcapHost{ client, server };
+    const pair = try openPair(&hosts, client, server, "127.0.0.1:7033", &dials, &watches);
+    var local: c.GlowcapReference = undefined;
+    try expectOk(cd.glowcap_host_session_publish(pair.b, "optional", 8, optionalDeferringBehavior, &resolver, null, &local));
+    var fetched = CapturedSettle{};
+    var ticket: u64 = 0;
+    try expectOk(cd.glowcap_host_session_fetch(pair.a, "optional", 8, &ticket));
+    watches.add(client, ticket, &fetched);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    const target = try fetched.requireRef();
+    resolver = 99;
+    try expectOk(cd.glowcap_host_session_tell(pair.a, &target, "notify", 6, null, 0));
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expectEqual(@as(u64, 0), resolver);
+    var sent = CapturedSettle{};
+    try expectOk(cd.glowcap_host_session_send(pair.a, &target, "notify", 6, null, 0, &ticket));
+    watches.add(client, ticket, &sent);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(!sent.fired and resolver != 0);
+    var answer = argBase();
+    try expectOk(cd.glowcap_host_resolver_fulfill(server, resolver, &answer));
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(sent.fired);
+}
+
 test "libglowcap_host: a behavior defers onto a resolver vow, and the settle re-enters top-level (ADR-0102)" {
     const client = try newHost(0x71);
     defer _ = cd.glowcap_host_release(client);

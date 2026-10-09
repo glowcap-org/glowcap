@@ -7,6 +7,29 @@ const driver = @import("driver_core");
 const service = @import("service.zig");
 
 pub const Mutation = struct {
+    /// The complete inbound argument topology bounds the inner receipt args.
+    /// Replay uses the persisted reply topology and borrows its byte leaves.
+    pub fn allocationBound(arguments: hosting.ValueBounds, reply: hosting.ValueBounds, dependent: bool) !hosting.references.AllocationBound {
+        const key_bytes = @sizeOf(@typeInfo(@TypeOf(loam.ObjectId.key)).@"fn".return_type.?);
+        var bound: hosting.references.AllocationBound = .{};
+        try bound.include(@sizeOf(Mutation), @alignOf(Mutation), 1);
+        try bound.include(try std.math.mul(usize, try std.math.add(usize, arguments.values, 2), @sizeOf(driver.Value)), @alignOf(driver.Value), 1);
+        if (dependent) try bound.include(key_bytes, 1, 1);
+        const intent = try records.ValueRecord.encodedSizeBound(driver.Value, try std.math.add(usize, arguments.values, 3), arguments.struct_entries, try std.math.add(usize, arguments.bytes, if (dependent) key_bytes else 0), arguments.capabilities);
+        const result = try records.ValueRecord.encodedSizeBound(driver.Value, reply.values, reply.struct_entries, reply.bytes, reply.capabilities);
+        try bound.include(intent, 1, 1);
+        try bound.include(result, 1, 1);
+        try bound.include(try records.MutationRecord.encodedSizeBound(intent, result), 1, 1);
+        try bound.include(records.EndpointRecord.max_encoded_bytes, 1, 1);
+        const bindings = @min(try std.math.add(usize, arguments.capabilities, reply.capabilities), records.MutationRecord.max_edges);
+        try bound.includeArrayGrowth(Binding, bindings);
+        // Fresh results copy at the foreign boundary. Cold replay allocates
+        // typed containers instead; counting both bounds either path's demand.
+        var containers = reply;
+        containers.bytes = 0;
+        try bound.merge(try hosting.valueAllocationBound(driver.Value, containers));
+        return bound;
+    }
     call: *hosting.Call,
     endpoint: *const records.EndpointRecord,
     sequence: u64,
@@ -21,13 +44,13 @@ pub const Mutation = struct {
 
     pub fn init(call: *hosting.Call, endpoint: *const records.EndpointRecord, sequence: u64, verb: []const u8, args: []const driver.Value, dependent: ?loam.ObjectId) !Mutation {
         var self: Mutation = .{ .call = call, .endpoint = endpoint, .sequence = sequence };
-        const items = try call.arena.alloc(driver.Value, args.len + 2);
+        const items = try call.arena().alloc(driver.Value, args.len + 2);
         items[0] = .{ .string = verb };
-        items[1] = .{ .bytes = if (dependent) |target| try call.arena.dupe(u8, &target.key()) else &.{} };
+        items[1] = .{ .bytes = if (dependent) |target| try call.arena().dupe(u8, &target.key()) else &.{} };
         @memcpy(items[2..], args);
         const request: driver.Value = .{ .list = items };
         try request.forEachCapability(&self, capture);
-        self.intent = try records.ValueRecord.encode(call.arena, request, &self);
+        self.intent = try records.ValueRecord.encode(call.arena(), request, &self);
         return self;
     }
 
@@ -91,7 +114,7 @@ pub const Mutation = struct {
 
     pub fn replay(self: *Mutation) !driver.Value {
         self.call.requireDisclosedReply();
-        return records.ValueRecord.decode(driver.Value, self.call.arena, self.result, self);
+        return records.ValueRecord.decode(driver.Value, self.call.arena(), self.result, self);
     }
 
     pub fn retainResult(self: *Mutation, value: driver.Value) !void {
@@ -99,19 +122,19 @@ pub const Mutation = struct {
         // disclosure merely because the receipt codec retained it.
         _ = try self.call.prepareReply(value, .validate_only);
         try value.forEachCapability(self, capture);
-        self.result = try records.ValueRecord.encode(self.call.arena, value, self);
+        self.result = try records.ValueRecord.encode(self.call.arena(), value, self);
     }
 
     pub fn stage(self: *Mutation, store: *loam.Store) !void {
         if (store != self.call.attachment.store) return error.ForeignStore;
         const receipt = try store.allocateId();
-        const bytes = try (records.MutationRecord{ .intent = self.intent, .result = self.result }).encodeAlloc(self.call.arena);
+        const bytes = try (records.MutationRecord{ .intent = self.intent, .result = self.result }).encodeAlloc(self.call.arena());
         var edges: [records.MutationRecord.max_edges]loam.Edge = undefined;
         for (self.bindings.items, edges[0..self.bindings.items.len]) |binding, *edge| edge.* = binding.edge;
         try store.putCopying(.{ .id = receipt, .revision = 0, .schema = records.profile.mutation, .payload = bytes, .edges = edges[0..self.bindings.items.len] }, null);
         var endpoint = self.endpoint.*;
         try endpoint.mutations.append(receipt);
-        try service.putEndpoint(store, self.call.arena, self.call.view.id, endpoint, self.call.view.rooted, self.call.view.revision);
+        try service.putEndpoint(store, self.call.arena(), self.call.view.id, endpoint, self.call.view.rooted, self.call.view.revision);
     }
 
     pub fn id(self: *const Mutation, ref: driver.Capability) loam.ObjectId {
@@ -130,7 +153,7 @@ pub const Mutation = struct {
     fn capture(self: *Mutation, ref: driver.Capability) !void {
         for (self.bindings.items) |binding| if (binding.ref.eql(ref)) return;
         if (self.bindings.items.len == records.MutationRecord.max_edges) return error.ReceiptCapacity;
-        try self.bindings.ensureUnusedCapacity(self.call.arena, 1);
+        try self.bindings.ensureUnusedCapacity(self.call.arena(), 1);
         self.bindings.appendAssumeCapacity(.{ .ref = ref, .edge = try self.call.capture(ref) });
     }
 };

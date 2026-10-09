@@ -1,4 +1,4 @@
-//! Optional native Loam backend and its persistence evidence.
+//! Optional LMDB Loam backend and its persistence evidence.
 const std = @import("std");
 const execution = @import("execution.zig");
 const Gates = @import("gates.zig").Registered;
@@ -30,7 +30,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     const bench = b.addExecutable(.{ .name = "loam-bench", .root_module = bench_mod });
     const bench_run = execution.addArtifact(b, .benchmark, bench);
     bench_run.addPassthruArgs();
-    b.step("bench-loam", "Measure native Loam residency, wakeups, edits, and collection interference").dependOn(&bench_run.step);
+    b.step("bench-loam", "Measure LMDB-backed Loam residency, wakeups, edits, and collection interference").dependOn(&bench_run.step);
     const bench_smoke = execution.addArtifact(b, .{ .deterministic = 30 }, bench);
     bench_smoke.addArg("--smoke");
     gates.check_step.dependOn(&bench_smoke.step);

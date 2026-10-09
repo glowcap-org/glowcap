@@ -20,6 +20,7 @@ const actors = @import("actors");
 const host_mod = @import("host.zig");
 const host_close = @import("host/close.zig");
 const host_pump = @import("host/pump.zig");
+const host_transports = @import("host/transports.zig");
 const dial_plan = @import("dial_plan.zig");
 const capability_promise = @import("capability_promise.zig");
 const publication = @import("sessions/publication.zig");
@@ -202,8 +203,9 @@ pub fn ensureAcceptAdvertisedLocator(
         .designator = plan.designator,
         .hints = model.Hints.forDirectAddresses(plan.direct_addresses_hint, &hint_buf),
     };
-    const complete = try self.prepareAdvertisedLocator(self.allocator, candidate);
-    defer model.freePeerLocator(self.allocator, complete);
+    var hint_storage: engine.Peer.HelloHints = .{};
+    defer hint_storage.deinit(self.allocator);
+    const complete = try host_transports.borrowPreparedAdvertisedLocator(self, candidate, &hint_storage);
     try self.node.ensureAdvertisedLocator(complete);
 }
 

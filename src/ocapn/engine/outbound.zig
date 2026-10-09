@@ -68,8 +68,8 @@ const SettledAnswer = struct {
 /// stamp proves the payload too.
 pub const Outbound = union(enum) {
     message: model.Message,
-    /// One application answer owner relinquished after its in-process
-    /// observer settled. The position is POD; recording the decrement waits
+    /// One relinquished application answer, including a send still being
+    /// prepared. The position is POD; recording the decrement waits
     /// until the release frame is encoded, so deferred V1.0 answer setup runs
     /// first and allocator/backpressure refusal remains retryable.
     answer_release: model.AnswerPosition,
@@ -95,10 +95,25 @@ pub const Outbound = union(enum) {
     /// name reuse; imported targets drop only when their stamped row is gone or
     /// replaced.
     listener_fire: listener_fire.Carrier,
+    /// The position of a carrier the Node is still staging (its gift ids have
+    /// not arrived). A step stops here, so later carriers keep their order
+    /// behind it; the batch fills the row when it finishes and removes it when
+    /// it fails.
+    staged: Staged,
+
+    pub const Staged = struct {
+        batch: passable.BatchId,
+        /// The staged carrier is a deliver, so a provisional window retracts it.
+        deliver: bool,
+        /// A queued release owns this answer across preparation.
+        release_queued: bool = false,
+        /// A staged send owns this answer before its Session row is installed.
+        answer: ?model.AnswerPosition,
+    };
 
     pub fn deinit(self: Outbound, peer: *Peer) void {
         switch (self) {
-            .answer_release => {},
+            .answer_release, .staged => {},
             .settled_answer => |settled| {
                 peer.session_state.retireDetachedAnswer(settled.target, settled.payload);
                 peer.session_state.releaseAnswerPayload(settled.payload);
@@ -379,7 +394,9 @@ pub fn stepPending(self: *Peer) !void {
     const pending = self.pending_send.peek() orelse unreachable;
     switch (pending.item) {
         .answer_release => |answer| {
-            if (self.sessionIsOpen()) {
+            // Failed preparation leaves no answer to release. A successful
+            // carrier precedes this release in the same pending queue.
+            if (self.sessionIsOpen() and self.session_state.outboundAnswer(answer) != null) {
                 const positions = [_]u64{answer.int()};
                 try emitRecordedPendingMessage(self, .{
                     .gc_answer = .{ .positions = &positions },
@@ -460,6 +477,8 @@ pub fn stepPending(self: *Peer) !void {
             };
             listener_fire.deinitEmitted(emitted, self);
         },
+        // `step` stops before a staged row on an open session.
+        .staged => unreachable,
     }
 }
 

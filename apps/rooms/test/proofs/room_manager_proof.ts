@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // A saved room manager capability, across the reload that re-enters the room.
 //
 // Two facts in this page look like one. The card draws the manager capability
@@ -33,14 +34,14 @@
 
 import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { openRailRoom } from "../support/private_room_page.ts";
-import { fail, freePort, ROOT, waitForHttp, WEB } from "../page/harness.ts";
+import { fail, freePort, ROOT, waitForHttp } from "../page/harness.ts";
 
 const httpPort = freePort();
 const roomPort = freePort();
 
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",

@@ -3,6 +3,12 @@ use std::cell::Cell;
 
 struct DropProbe(Rc<Cell<bool>>);
 
+#[path = "tests/hosting.rs"]
+mod hosting;
+
+#[path = "tests/teardown.rs"]
+mod teardown;
+
 #[cfg(feature = "tcp")]
 #[tokio::test]
 async fn dropped_deferred_reply_breaks_its_remote_answer_after_the_callback() {
@@ -10,7 +16,7 @@ async fn dropped_deferred_reply_breaks_its_remote_answer_after_the_callback() {
 		.run_until(async {
 			let host = Host::new_host();
 			let actor_host = host.clone();
-			host.publish_giftable("abandon", move || {
+			host.publish("abandon", move || {
 				Box::new(move |_, _| {
 					drop(actor_host.defer_turn().unwrap());
 					Ok(Argument::Void)
@@ -68,7 +74,7 @@ async fn dropping_a_resolver_after_its_session_closes_does_not_poison_host_progr
 			let host = Host::new_host();
 			let saved = Rc::new(RefCell::new(None));
 			let (actor_host, actor_saved) = (host.clone(), saved.clone());
-			host.publish_giftable("defer", move || {
+			host.publish("defer", move || {
 				Box::new(move |_, _| {
 					*actor_saved.borrow_mut() = Some(actor_host.defer_turn().unwrap());
 					Ok(Argument::Void)
@@ -151,7 +157,7 @@ fn close_breaks_a_hosted_behavior_host_cycle() {
 		let captured_host = host.clone();
 		let dropped = Rc::new(Cell::new(false));
 		let dropped_by_behavior = Rc::clone(&dropped);
-		host.publish_giftable("cycle", move || {
+		host.publish("cycle", move || {
 			let retained_host = captured_host.clone();
 			let probe = DropProbe(Rc::clone(&dropped_by_behavior));
 			Box::new(move |_verb, _args| {
@@ -180,7 +186,7 @@ fn closed_host_publication_verbs_return_their_refusal() {
 		host.close(crate::PendingWork::Cancel).await.unwrap();
 
 		let publish = host
-			.publish_giftable("late", || Box::new(|_verb, _args| Ok(Argument::Void)))
+			.publish("late", || Box::new(|_verb, _args| Ok(Argument::Void)))
 			.unwrap_err();
 		assert_eq!(publish.code(), sys::ERR_CLOSED);
 		let durable = host
@@ -188,7 +194,7 @@ fn closed_host_publication_verbs_return_their_refusal() {
 			.unwrap_err();
 		assert_eq!(durable.code(), sys::ERR_CLOSED);
 		assert_eq!(host.remove_durable("late").unwrap_err().code(), sys::ERR_CLOSED);
-		assert_eq!(host.unpublish_giftable("late").unwrap_err().code(), sys::ERR_CLOSED);
+		assert_eq!(host.unpublish("late").unwrap_err().code(), sys::ERR_CLOSED);
 	});
 }
 
@@ -201,10 +207,10 @@ fn host_publication_results_cover_success_and_absence() {
 	let local = tokio::task::LocalSet::new();
 	local.block_on(&runtime, async {
 		let host = Host::new_host();
-		host.publish_giftable("alias", || Box::new(|_verb, _args| Ok(Argument::Void)))
+		host.publish("alias", || Box::new(|_verb, _args| Ok(Argument::Void)))
 			.unwrap();
-		assert!(host.unpublish_giftable("alias").unwrap());
-		assert!(!host.unpublish_giftable("alias").unwrap());
+		assert!(host.unpublish("alias").unwrap());
+		assert!(!host.unpublish("alias").unwrap());
 
 		let swiss = host
 			.publish_durable(|| Box::new(|_verb, _args| Ok(Argument::Void)))
@@ -357,7 +363,7 @@ fn panicking_actor_cell_drop_is_contained_and_diagnosed() {
 	let local = tokio::task::LocalSet::new();
 	let diagnostics = local.block_on(&runtime, async {
 		let host = Host::new_host();
-		host.publish_giftable("panicking-drop", move || {
+		host.publish("panicking-drop", move || {
 			let guard = PanicOnDrop;
 			Box::new(move |_verb, _args| {
 				let _keep_captured = &guard;
@@ -422,7 +428,7 @@ fn refused_publication_attaches_panicking_actor_cell_drop() {
 			.is_some_and(|message| message.contains("refused actor cell destructor panic"))
 	);
 	// Rollback did not poison or consume the Host.
-	host.publish_giftable("still-live", || Box::new(|_verb, _args| Ok(Argument::Void)))
+	host.publish("still-live", || Box::new(|_verb, _args| Ok(Argument::Void)))
 		.unwrap();
 }
 

@@ -44,7 +44,8 @@ pub fn sessionId(our_key: foundation.crypto.PeerKey, partner_key: foundation.cry
     return std.fmt.bytesToHex(session_id.bytes, .lower);
 }
 
-/// One reported fact. Strings are borrowed for the callback.
+/// One reported fact. Strings are borrowed for the callback. Explicit replay
+/// repeats current open facts, identified by their existing session handle.
 pub const Event = union(enum) {
     /// A session completed its handshake and is open. `partner` is the
     /// dialed designator or the partner's claimed one.

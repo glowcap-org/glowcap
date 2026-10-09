@@ -1,3 +1,4 @@
+import { managedSessionText as managedText } from "../../../lib/text/managed_session.ts";
 // What a browser is told while its access to a shared session is paused.
 //
 // A pause is a standing fact about the link, not an event that happened once. A
@@ -14,16 +15,20 @@
 // explains itself once.
 
 import { useRoomsState, useSessionPaused } from "../hooks.ts";
-import { sessionPausedNote, sessionPausedSaid } from "../../../lib/text/page.ts";
+import { sessionPausedSaid } from "../../../lib/text/page.ts";
 
 export function SessionPausedNotice() {
 	const paused = useSessionPaused();
-	const note = useRoomsState((state) => state.sessionSuspendedNote);
+	const status = useRoomsState((state) => state.managedAccess.status);
 	if (!paused) return null;
 	return (
 		<div className="session-effect-notice session-paused-notice" role="status" aria-live="polite">
 			<p>
-				{note === "" ? sessionPausedSaid : sessionPausedNote(note)}
+				{status === "paused"
+					? sessionPausedSaid
+					: status === "revoked"
+					? managedText.revoked
+					: managedText.outOfScope}
 			</p>
 		</div>
 	);

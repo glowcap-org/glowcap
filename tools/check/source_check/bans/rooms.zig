@@ -5,7 +5,6 @@ const Ban = @import("../bans.zig").Ban;
 const nullish_absence = [_]Ban{.{
     .where = .{ .files = &.{
         "apps/rooms/lib/operator.ts",
-        "apps/rooms/web/ui/workspace_state.ts",
         "apps/rooms/web/ui/ops/Operator.tsx",
     } },
     .kind = .forbid,
@@ -32,14 +31,14 @@ const readable_loops = [_]Ban{.{
 
 pub const attached_session_authority = [_]Ban{
     .{
-        .where = .{ .file = "apps/rooms/web/ui/session/attached_session.ts" },
+        .where = .{ .file = "apps/rooms/web/ui/session/managed/controller.ts" },
         .kind = .forbid,
         .needles = &.{ "...browser", "createLocalRoomsSession", "RoomsBrowserController &" },
         .check = "attached Rooms authority",
         .why = "an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
     },
     .{
-        .where = .{ .file = "apps/rooms/web/ui/session/attached_session.ts" },
+        .where = .{ .file = "apps/rooms/web/ui/session/managed/controller.ts" },
         .kind = .require,
         .needles = &.{"browser: Pick<RoomsBrowserController"},
         .check = "attached Rooms authority",
@@ -80,26 +79,9 @@ pub const runtime_error_vocabulary = [_]Ban{
             .suffixes = &.{".rs"},
         } },
         .kind = .forbid,
-        .needles = &.{ "Runtime(String)", "Error::runtime" },
+        .needles = &.{ "Runtime(String)", "Error::runtime", "done: watch::Receiver<Option<Result<(), String>>>", "done: watch::Sender<Option<Result<(), String>>>" },
         .check = "Rooms runtime error vocabulary",
         .why = "runtime failures retain their typed class until a CapTP boundary renders them",
-    },
-    .{
-        .where = .{ .file = "apps/rooms/rust/runtime/src/session/commands/mod.rs" },
-        .kind = .forbid,
-        .needles = &.{"done: watch::Receiver<Option<Result<(), String>>>"},
-        .check = "Rooms session completion vocabulary",
-        .why = "concurrent closers retain the worker failure class instead of reconstructing it from text",
-    },
-    .{
-        .where = .{ .file = "apps/rooms/rust/runtime/src/grants/commands.rs" },
-        .kind = .forbid,
-        .needles = &.{
-            "done: watch::Receiver<Option<Result<(), String>>>",
-            "done: watch::Sender<Option<Result<(), String>>>",
-        },
-        .check = "Rooms grant completion vocabulary",
-        .why = "concurrent closers retain the worker failure class instead of reconstructing it from text",
     },
 };
 
@@ -117,8 +99,7 @@ const application_hex_writer = [_]Ban{.{
 
 pub const browser_trouble_reporting = [_]Ban{.{
     .where = .{ .files = &.{
-        "apps/rooms/rust/browser/src/attached/local_signaling.rs",
-        "apps/rooms/rust/browser/src/attached/signaling.rs",
+        "apps/rooms/rust/browser/src/attached/managed/signaling.rs",
     } },
     .kind = .forbid,
     .needles = &.{"web_sys::console::error_1"},

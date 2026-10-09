@@ -1,5 +1,6 @@
 //! Native capability possession selects one grant. These tests exercise the
 //! local API; actor dispatch, publication, and content effects are not hosted.
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");
 const core = f.core;
@@ -8,8 +9,8 @@ const Ledger = core.GrantLedger;
 test "access held use references carry one grant without another credential" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
-    const other = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const other = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
@@ -42,7 +43,7 @@ test "access held use references carry one grant without another credential" {
 test "access control possession edits only its grant with explicit powers" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .object = resource }, &.{ f.read, f.post }, null);
@@ -76,7 +77,7 @@ test "access control possession edits only its grant with explicit powers" {
 test "access control policy ceiling bounds promotion independently of use" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer f.deinitLedger(&ledger);
     const wide = try f.terms(.{ .object = resource }, &.{ f.read, f.post }, null);
@@ -107,7 +108,7 @@ test "access control policy ceiling bounds promotion independently of use" {
 test "access held delegation yields no child reference until committed" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);
@@ -134,7 +135,7 @@ test "access held delegation yields no child reference until committed" {
 test "access capability calls preserve uncertainty fences and terminal revocation" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
-    const resource = try graph.create(graph.revision(), f.kind, null);
+    const resource = try graph.create(graph.revision(), &structural_policy, f.kind, null);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 4 });
     defer f.deinitLedger(&ledger);
     const terms = try f.terms(.{ .object = resource }, &.{f.read}, null);

@@ -26,8 +26,7 @@ async fn scenario() {
 			ConnectOptions::default(),
 		)
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	let token = running.capabilities[0].swiss.clone();
 	let operator = session.fetch(&token).await.unwrap();
 	let client = rooms_glowcap::client::Client::new(session.borrowed(), rooms_platform::HostPlatform);
@@ -77,8 +76,7 @@ async fn scenario() {
 			ConnectOptions::default(),
 		)
 		.await
-		.unwrap()
-		.with_gc();
+		.unwrap();
 	let operator = session.fetch(&token).await.unwrap();
 	session
 		.send(&operator, "resetOperatorScope", &["all".into()])

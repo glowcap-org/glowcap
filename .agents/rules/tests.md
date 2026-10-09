@@ -46,6 +46,9 @@ implementation as the authority in prose.
   what it caught and which states it does not reach
   (`test/net/fuzz_test.zig` is the worked example).
 - Tests that dial name a finite budget ([captp-waits](captp-waits.md)).
+- Before deleting a test file with its subject, read every scenario in it and
+  move each one that exercises a surviving surface: a file is named for what
+  it was filed under, not for everything it proves.
 
 ## Placement
 

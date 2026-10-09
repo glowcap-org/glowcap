@@ -193,9 +193,8 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     iroh_resident_mod.addImport("model", host_mods[layerIndex("model")]);
     iroh_resident_mod.addImport("engine", host_mods[layerIndex("engine")]);
     iroh_resident_mod.addImport("net", host_mods[layerIndex("net")]);
-    // CapTP serving for the scale path is `driver.Bridge` + `driver_core.Host`
-    // in the interop drivers; the resident only supplies the netlayer and the
-    // completion `Backend` (ADR-0076).
+    // CapTP serving is `driver.HostRuntime` over `iroh.MultiplexedAdapter`;
+    // the resident only supplies the netlayer and the completion `Backend`.
 
     for ([_][]const u8{ "dial", "listen" }) |role| {
         common.addSiteZigExampleCompile(b, target, optimize, b.fmt("site-{s}-iroh", .{role}), b.fmt("site/examples/{s}/iroh.zig", .{role}), &.{ .{ .name = "glowcap", .module = lib_mod }, .{ .name = "iroh", .module = iroh_resident_mod } }, ctx.site_zig_examples_check);
@@ -233,8 +232,8 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     //   iroh-loop     — Milestone 3 (ADR-0057): many concurrent connections
     //                   served from one thread through the event-driven sidecar
     //                   superset. Deterministic.
-    //   iroh-bridge-redeem — ADR-0076: recipient on Loop(iroh.Backend, iroh.DialResolver) redeems
-    //                   a handoff via Loop.dialLocator. Deterministic.
+    //   iroh-redeem   — three glowcap Servers and Sessions over iroh: a recipient
+    //                   redeems a handoff by dialing the exporter. Deterministic.
     //   goblins-iroh  — a foreign protocol partner: a real Spritely
     //                   Goblins vat over the iroh netlayer this repository wrote
     //                   for it, both directions. Needs racket + goblins as well
@@ -268,10 +267,10 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .{ .step_name = "iroh-managed", .description = "Native Zig Session and Server over real iroh: identity, fetch, call and accepted-session lifetime (needs cargo)", .exe_name = "glowcap-iroh-managed", .root_source = "test/driver/iroh_managed.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)", .exe_name = "glowcap-iroh-interop", .root_source = "interop/iroh_interop/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "glowcap-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig", .posture = .real_internet },
-        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "glowcap-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
-        .{ .step_name = "iroh-bridge-redeem", .description = "Live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems a handoff via Loop.dialLocator (ADR-0076; needs cargo)", .exe_name = "glowcap-iroh-bridge-redeem", .root_source = "interop/iroh_bridge_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one Server thread (ADR-0057; needs cargo)", .exe_name = "glowcap-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-redeem", .description = "Live three-party redeem over iroh: a recipient Session dials the exporter by node id inside the introducing call (needs cargo)", .exe_name = "glowcap-iroh-redeem", .root_source = "interop/iroh_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a glowcap peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig", .posture = .{ .deterministic = 25 }, .goblins = true },
-        .{ .step_name = "goblins-handoff-iroh", .description = "Live encrypted handoff: Goblins gifts and exports, glowcap completion loop redeems directly over iroh (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-handoff-iroh", .root_source = "interop/goblins_interop/handoff_iroh_driver.zig", .posture = .{ .deterministic = 30 }, .goblins = true },
+        .{ .step_name = "goblins-handoff-iroh", .description = "Live encrypted handoff: Goblins gifts and exports, a glowcap Session redeems directly over iroh (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-handoff-iroh", .root_source = "interop/goblins_interop/handoff_iroh_driver.zig", .posture = .{ .deterministic = 30 }, .goblins = true },
         .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "glowcap-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true, .posture = .benchmark },
     };
     for (iroh_drivers) |drv| {
@@ -291,9 +290,13 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         const run = execution.addArtifact(b, drv.posture, exe);
         run.setCwd(b.path("."));
         run.has_side_effects = true;
-        // The Racket netlayer loads the public companion as well as the
-        // native driver's private sidecar; neither may rely on a previous build.
-        if (drv.goblins) run.step.dependOn(iroh_abi.step);
+        // The Racket netlayer loads the public companion and, through the
+        // Racket binding, the installed host archives, as well as the native
+        // driver's private sidecar; none may rely on a previous build.
+        if (drv.goblins) {
+            run.step.dependOn(iroh_abi.step);
+            run.step.dependOn(b.getInstallStep());
+        }
         if (drv.forwards_args) run.addPassthruArgs();
         live_step.dependOn(&run.step);
     }

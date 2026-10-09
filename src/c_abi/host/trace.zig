@@ -28,6 +28,7 @@ pub fn setTrace(
     }
     inst.trace_cb = callback;
     inst.trace_ctx = ctx;
+    if (callback != null) inst.core.replayTrace() catch |err| return common.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -68,6 +69,7 @@ pub fn setTraceQueue(host: ?*c.GlowcapHost, capacity: usize, payload_cap: usize)
         old.deinit(inst.allocator);
         inst.allocator.destroy(old);
     }
+    inst.core.replayTrace() catch |err| return common.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 

@@ -35,6 +35,10 @@
 (define TPUT-N (if smoke? 20 2000))
 (define CONNS (if smoke? 4 50))
 
+;; Children run with `-y`, as the build runs this file, so each checks its
+;; compiled dependencies. Without it a module whose source is unchanged keeps
+;; its `.zo`, along with any constant it inlined from a module that changed,
+;; such as the binding's archive fingerprint.
 (define RACKET (find-executable-path "racket"))
 (define-runtime-path SERVER "server.rkt")
 (define-runtime-path CLIENT "client.rkt")
@@ -53,7 +57,7 @@
   ;; Goblins vat prints captp teardown traces that are not failures and would
   ;; otherwise clutter the report.
   (define-values (proc out in err)
-    (subprocess #f #f #f RACKET SERVER backend suite HOST (number->string port)))
+    (subprocess #f #f #f RACKET "-y" SERVER backend suite HOST (number->string port)))
   (let loop ()
     (define line (read-line out))
     (when (eof-object? line)
@@ -75,7 +79,7 @@
 ;; Run a client measurement to completion; return its result NDJSON line.
 (define (run-client backend suite port mode n [conns 1])
   (define-values (proc out in err)
-    (subprocess #f #f (current-error-port) RACKET CLIENT backend suite HOST (number->string port)
+    (subprocess #f #f (current-error-port) RACKET "-y" CLIENT backend suite HOST (number->string port)
                 mode (number->string n) (number->string conns)))
   (define lines-box (box #f))
   (define reader (thread (lambda () (set-box! lines-box (port->lines out)))))
@@ -109,7 +113,7 @@
 ;; Returns (values connections-line base-rss loaded-rss).
 (define (run-connections backend suite port pid conns)
   (define-values (proc out in err)
-    (subprocess #f #f #f RACKET CLIENT backend suite HOST (number->string port)
+    (subprocess #f #f #f RACKET "-y" CLIENT backend suite HOST (number->string port)
                 "connections" "0" (number->string conns)))
   ;; Drain stderr so a chatty teardown (50 Goblins vats closing) cannot fill the
   ;; pipe buffer and wedge the client at exit, which would hang the loop below.

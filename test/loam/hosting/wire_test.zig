@@ -156,7 +156,11 @@ test "loam actor released session cannot abandon a load or an admitted commit" {
             try fixture.attached.completeWrite(batch.ticket, fixture.data.backend.commit(batch));
         } else {
             try fixture.attached.completeRead(read.ticket, fixture.data.backend.read(read));
-            try std.testing.expectError(error.UnknownIngress, fixture.attached.advance());
+            try fixture.attached.advance();
+            const failed = for (fixture.attached.operations) |operation| {
+                if (operation.phase == .failed) break operation;
+            } else return error.MissingDisconnectedCallFailure;
+            try std.testing.expectEqual(@as(anyerror, error.UnknownIngress), failed.failure);
         }
         try fixture.attached.advance();
         try std.testing.expectEqual(@as(usize, 0), fixture.host.pending_operations);

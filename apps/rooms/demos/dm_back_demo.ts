@@ -8,7 +8,7 @@
 // browser peer.
 //
 //   Room   (rendezvous)  serves the directory (TCP).
-//   Bob    (member)      publishes a giftable `dm` that answers over the
+//   Bob    (member)      publishes a Host publication `dm` that answers over the
 //                        arriving session (`currentSession()`), listens, and
 //                        registers his dialable locator.
 //   Carol  (sender)      never listens. She opens a `DirectMessage`, which
@@ -42,7 +42,7 @@ function fail(message: string): never {
 async function main(): Promise<void> {
 	const services = new DemoSessions();
 	const until = (ready: () => boolean, what: string) => waitUntil(ready, 10_000, what, () => services.check());
-	// Bob's giftable answers over the session the DM arrived on, to the reply
+	// Bob's Host publication answers over the session the DM arrived on, to the reply
 	// capability the sender handed it. `recordingReplyDm` carries the
 	// eventual-send that answer rides (the reply lands on the next turn).
 	const bobInbox: string[] = [];
@@ -86,6 +86,7 @@ async function main(): Promise<void> {
 	const carol = await Directory.connect(roomLocator, (locator) => dial(locator, carolRuntime));
 	await carol.register("carol", formatPeerUri(TRANSPORT_KEYED_RELAY, carolHost.designator()));
 	const line = await DirectMessage.open(carol, "bob", {
+		ready: (session, reply) => session.release(reply),
 		message: (text) => {
 			carolReplies.push(`bob: ${text}`);
 			return null;

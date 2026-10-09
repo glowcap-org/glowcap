@@ -9,7 +9,7 @@ pub enum Notice {
 	IceUnavailable(String),
 	HttpAcceptRefused(String),
 	HttpConnectionEnded(String),
-	RelayEnded(String),
+	RelayEnded { cause: String, times: u32 },
 	ShutdownConnectionEnded(String),
 	AttachedDirectory(String),
 	DirectoryExited(String),
@@ -29,7 +29,8 @@ impl fmt::Display for Notice {
 			Self::IceUnavailable(cause) => write!(f, "{cause}"),
 			Self::HttpAcceptRefused(cause) => write!(f, "HTTP accept refused, retrying: {cause}"),
 			Self::HttpConnectionEnded(cause) => write!(f, "HTTP connection ended: {cause}"),
-			Self::RelayEnded(cause) => write!(f, "relay ended: {cause}"),
+			Self::RelayEnded { cause, times: 1 } => write!(f, "relay ended: {cause}"),
+			Self::RelayEnded { cause, times } => write!(f, "relay ended: {cause} ({times} times in a row)"),
 			Self::ShutdownConnectionEnded(cause) => write!(f, "connection ended during shutdown: {cause}"),
 			Self::AttachedDirectory(locator) => write!(f, "attaching to the existing directory at {locator}"),
 			Self::DirectoryExited(status) => write!(f, "Rooms server exited ({status}); restarting"),
@@ -45,3 +46,42 @@ impl fmt::Display for Notice {
 }
 
 pub type Report = Rc<dyn Fn(Notice)>;
+
+/// Collapses a failure that repeats with the same cause, such as a browser
+/// retrying a peer that is gone. The first occurrence is reported, then the
+/// count each time it doubles, so a persistent failure stays visible in a
+/// logarithmic number of lines.
+#[derive(Default)]
+pub(super) struct Repeats {
+	last: Option<String>,
+	times: u32,
+}
+impl Repeats {
+	/// The number of times `cause` has now repeated, when that count is worth
+	/// reporting.
+	pub(super) fn observe(&mut self, cause: &str) -> Option<u32> {
+		if self.last.as_deref() == Some(cause) {
+			self.times = self.times.saturating_add(1);
+		} else {
+			self.last = Some(cause.to_owned());
+			self.times = 1;
+		}
+		self.times.is_power_of_two().then_some(self.times)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::Repeats;
+
+	#[test]
+	fn a_repeated_cause_is_reported_when_its_count_doubles() {
+		let mut repeats = Repeats::default();
+		let reported: Vec<_> = (0..9).map(|_| repeats.observe("peer.iroh: timed out")).collect();
+		assert_eq!(
+			reported,
+			[Some(1), Some(2), None, Some(4), None, None, None, Some(8), None]
+		);
+		assert_eq!(repeats.observe("other.iroh: timed out"), Some(1));
+	}
+}

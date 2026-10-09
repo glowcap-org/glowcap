@@ -183,7 +183,7 @@ export async function run(managed: Runtime): Promise<void> {
 	// side.
 	{
 		await using proxyHost = new Host();
-		proxyHost.publishGiftable("tool", (verb) => {
+		proxyHost.publish("tool", (verb) => {
 			if (verb === "ping") return "pong";
 			throw new Error(`no such method: ${verb}`);
 		});
@@ -374,7 +374,7 @@ export async function run(managed: Runtime): Promise<void> {
 		const accepted = new Promise<void>((resolve) => acceptedResolve = resolve);
 		let duringResolve!: (released: boolean) => void;
 		const during = new Promise<boolean>((resolve) => duringResolve = resolve);
-		captpHost.publishGiftable("svc", (verb) => {
+		captpHost.publish("svc", (verb) => {
 			if (verb !== "release-host") return null;
 			void captpHost.close();
 			duringResolve(captpHost.released);

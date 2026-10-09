@@ -101,6 +101,13 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
             return value;
         }
 
+        /// Remove the live row at `index` (counted from the drain cursor),
+        /// keeping every other row in order.
+        pub fn removePending(self: *Self, index: usize) void {
+            const value = self.items.orderedRemove(self.head + index);
+            self.subtractWeight(&value);
+        }
+
         /// Borrow the newest live row until the next queue mutation.
         pub fn backPtr(self: *Self) ?*T {
             if (self.isEmpty()) return null;

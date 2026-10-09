@@ -38,7 +38,7 @@ class _HostFinalizerState:
 
     __slots__ = (
         "raw",
-        "giftables",
+        "publications",
         "displaced",
         "hosted",
         "context",
@@ -46,10 +46,10 @@ class _HostFinalizerState:
     )
 
     def __init__(
-        self, raw, giftables, displaced, hosted, context, diagnostic_id
+        self, raw, publications, displaced, hosted, context, diagnostic_id
     ) -> None:
         self.raw = raw
-        self.giftables = giftables
+        self.publications = publications
         self.displaced = displaced
         self.hosted = hosted
         self.context = context
@@ -117,13 +117,13 @@ def _retire_finalizer_state(state: _HostFinalizerState) -> None:
     """Retire wrapper state after its driver already released the native Host."""
     state.raw = None
     behavior_ids = (
-        set(state.giftables.values())
+        set(state.publications.values())
         | set(state.displaced)
         | set(state.hosted.values())
     )
     for ctx in behavior_ids:
         _unregister_global_behavior(ctx)
-    state.giftables.clear()
+    state.publications.clear()
     state.displaced.clear()
     state.hosted.clear()
     context = state.context

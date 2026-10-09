@@ -131,7 +131,7 @@ export function OperatorReferences(
 													<div className="actions">
 														<Button
 															variant="quiet"
-															disabled={acts.confirming === key}
+															disabled={acts.confirming === key || acts.locked}
 															onClick={() => acts.ask(key)}
 														>
 															Release…

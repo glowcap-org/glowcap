@@ -74,7 +74,7 @@ pub const State = struct {
             return .{ .count = -1 };
         const pending_before = self.raw.hasPendingWrite();
         const count = self.raw.tryRead(dest);
-        if (count < 0 and count != events.GLOWCAP_MULTIPLEXED_WOULD_BLOCK) self.noteFailure(
+        if (count < 0 and count != c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK) self.noteFailure(
             self.raw.takeFailure() orelse foundation.FailureChain.init(error.ConnectionLost),
         );
         const pending_after = self.raw.hasPendingWrite();

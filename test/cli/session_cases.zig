@@ -390,14 +390,17 @@ test "listen --rendezvous reaches the background front, not just argv" {
     defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
 
-    // A relay URL that parses but has nobody behind it: registration fails,
-    // which is a dial failure and not a silent fallback to TCP.
+    // A relay URL that parses but has nobody behind it yet: the listener
+    // registers once the relay answers, retrying on its own timer, and its
+    // locator names the relay route rather than falling back to TCP.
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer parsed.deinit();
     try parsed.setString("rendezvous", "ws://127.0.0.1:1/register");
     try parsed.setString("rendezvous-relay", "ws://127.0.0.1:1/relay");
-    const code = try cli.ocapn.cmdListen(&c, &parsed);
-    try std.testing.expectEqual(cli.exit_codes.dial, code);
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&c, &parsed));
+    try std.testing.expect(c.background_listener != null);
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "keyed-relay") != null);
+    try std.testing.expect(c.closeBackgroundListener() == null);
     try std.testing.expect(c.background_listener == null);
 
     // Registration and dialing are separate relay endpoints. Refuse to emit

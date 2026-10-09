@@ -68,11 +68,12 @@ pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.Read
     } else owner.store.completeRead(ticket, result);
     const failure: ?anyerror = if (completion) |_| null else |err| err;
     const discovered = if (owner.discovery) |discovery| discovery.readFinished(id, failure) else false;
+    const live_missing = if (owner.options.live_scope) |scope| scope.readFinished(ticket, failure) else false;
     if (failure) |err| {
         if (prepared) |index| {
             const op = &owner.operations[index];
             if (err == error.StaleCompletion) {
-                @import("calls.zig").reset(owner, op);
+                @import("calls.zig").reprepare(owner, op);
                 return;
             }
             op.failure = err;
@@ -80,14 +81,14 @@ pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.Read
         } else {
             if (err == error.StaleCompletion) return;
             for (owner.operations) |*operation| {
-                if (operation.phase == .waiting and operation.entry.id.eql(id)) {
+                if ((operation.phase == .waiting or operation.phase == .disclosing) and operation.entry.id.eql(id)) {
                     operation.failure = err;
                     operation.phase = .failed;
                 }
             }
             // A retained index can name a collected descriptor. Discovery
             // owns this expected miss; no storage failure escapes its lane.
-            if (err == error.Gone and (publication.forgetMissingRepublish(owner, id) or discovered)) return;
+            if (err == error.Gone and (publication.forgetMissingRepublish(owner, id) or discovered or live_missing)) return;
         }
         return err;
     }
@@ -144,8 +145,10 @@ pub fn resolve(owner: *h.Attachment, ticket: core.Ticket, resolution: core.Resol
 }
 
 fn finish(owner: *h.Attachment, failure: ?anyerror) void {
+    if (owner.options.live_scope) |scope| scope.writeFinished(owner.writing.?.batch.ticket, failure);
     if (owner.writing.?.operation) |index| {
         const operation = &owner.operations[index];
+        if (operation.call) |*call| if (call.references) |references| references.finish(owner.writing.?.batch.ticket, failure == null);
         if (failure) |err| {
             operation.failure = err;
             operation.phase = .failed;
@@ -161,6 +164,7 @@ fn finish(owner: *h.Attachment, failure: ?anyerror) void {
 pub fn submit(owner: *h.Attachment) !core.Ticket {
     try owner.topLevel();
     if (owner.writing != null) return error.Busy;
+    if (owner.options.live_scope) |scope| try scope.validateStaged();
     const ticket = try owner.store.prepare();
     owner.writing = .{ .batch = try owner.store.beginWrite(ticket), .operation = null };
     return ticket;

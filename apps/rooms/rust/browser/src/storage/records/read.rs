@@ -27,11 +27,21 @@ pub(super) fn page(database: &Database, filter: Filter, after: u64, limit: usize
 			steps.request(steps.store(META)?.get(&"revision".into())?, move |steps, row| {
 				let latest = codec::meta(row, "revision", MAX_SAFE)?;
 				let filter = requested.clone();
-				let range = IdbKeyRange::lower_bound_with_open(&(after as f64).into(), true)?;
-				let request = steps
-					.store(RECORDS)?
-					.index("revision")?
-					.open_cursor_with_range(&range)?;
+				let context = codec::selected_context(&filter);
+				let (index, range) = if let Some(context) = &context {
+					let lower = js_sys::Array::of2(context, &(after as f64).into());
+					let upper = js_sys::Array::of2(context, &(MAX_SAFE as f64).into());
+					(
+						"context",
+						IdbKeyRange::bound_with_lower_open_and_upper_open(&lower, &upper, true, false)?,
+					)
+				} else {
+					(
+						"revision",
+						IdbKeyRange::lower_bound_with_open(&(after as f64).into(), true)?,
+					)
+				};
+				let request = steps.store(RECORDS)?.index(index)?.open_cursor_with_range(&range)?;
 				let mut seen = 0;
 				steps.request(request, move |steps, row| {
 					if row.is_null() {
@@ -48,7 +58,20 @@ pub(super) fn page(database: &Database, filter: Filter, after: u64, limit: usize
 						.dyn_into::<IdbCursorWithValue>()
 						.map_err(|_| Error::Invalid("invalid archive cursor"))?;
 					let entry = codec::decode(cursor.value()?)?;
-					if value::natural(&cursor.key()?, MAX_SAFE)? != entry.revision || entry.revision > latest {
+					let key = cursor.key()?;
+					let revision = if let Some(context) = &context {
+						if !js_sys::Array::is_array(&key) {
+							return Err(Error::Invalid("invalid archive conversation cursor"));
+						}
+						let key = js_sys::Array::from(&key);
+						if key.length() != 2 || key.get(0) != *context || codec::context(&entry.record) != *context {
+							return Err(Error::Invalid("inconsistent archive conversation index"));
+						}
+						value::natural(&key.get(1), MAX_SAFE)?
+					} else {
+						value::natural(&key, MAX_SAFE)?
+					};
+					if revision != entry.revision || entry.revision > latest {
 						return Err(Error::Invalid("inconsistent archive revision index"));
 					}
 					let proceed = steps.data(|page| {

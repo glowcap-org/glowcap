@@ -12,7 +12,6 @@
 // read where it was shown rather than left on a page nobody looks at again.
 
 import type { Page } from "playwright";
-import { WORKSPACE_STATE_KEY } from "../../lib/rooms_state.ts";
 import { fail } from "./harness.ts";
 
 async function openAttachForm(page: Page, capability: string): Promise<void> {
@@ -70,13 +69,6 @@ export async function reattachThroughSettings(page: Page, capability: string, wh
 	if (survived !== mark) {
 		fail(`${what} reloaded over a capability that asked for no change and ended hosting`);
 	}
-	const controller = await page.evaluate(
-		(key) => JSON.parse(localStorage.getItem(key) ?? "null")?.controller,
-		WORKSPACE_STATE_KEY,
-	);
-	if (controller?.sturdyref !== capability) {
-		fail(`${what} moved somewhere over its own capability: ${JSON.stringify(controller)}`);
-	}
 	// A capability that has been used is not a pending change. Left in the field
 	// it is one, and Settings stops the reader on the way out to ask about work
 	// that is already done.
@@ -84,5 +76,11 @@ export async function reattachThroughSettings(page: Page, capability: string, wh
 		fail(`${what} left the attach form still holding the capability it had already used`);
 	}
 	await page.locator(".session-attach-modal").getByRole("button", { name: "Close" }).click();
+	await page.click("#settingsClose");
+	await page.click("#settingsBtn");
+	await page.click("#holdingsTab");
+	if ((await page.textContent("#currentSessionCapability"))?.trim() !== capability) {
+		fail(`${what} moved somewhere over its own capability`);
+	}
 	await page.click("#settingsClose");
 }

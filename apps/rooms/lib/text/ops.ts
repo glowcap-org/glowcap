@@ -34,7 +34,7 @@ export const opsPeeringLead = "Lists a durable room from another server here, fo
  * somebody reads before flipping it rather than in a doc.
  *
  * What a browser publishes is the field list in
- * `rust/runtime/src/session_service/trace/publish.rs`: who the session talked
+ * `rust/runtime/src/trace/publish.rs`: who the session talked
  * to, over what, which operations ran and how big they were. Message bytes are
  * not in that list, and saying "not the text" is only honest because of it. If
  * that list ever grows a payload field, this sentence is wrong and has to move
@@ -44,11 +44,9 @@ export const opsTraceShort = "Trace";
 export const opsTraceLead =
 	"Publishes which peers this session talks to and what it does with them, direct messages included. Not the text of your messages.";
 
-/** How a pasted swiss is redeemed. Five of the six go to the server this page
- * is already talking to; the trace goes to its own endpoint, which is why it
- * is the one that differs. */
-export const opsHowSession = "Paste it here and Rooms fetches the capability on this server's session.";
-export const opsHowTrace = "Paste it here and Rooms presents it to the trace endpoint.";
+/** Each complete URI names the exact exporter and authority to acquire. */
+export const opsHowSession = "Paste its complete URI here and Rooms acquires it from the server it names.";
+export const opsHowTrace = "Paste its complete URI here and Rooms acquires the trace endpoint it names.";
 
 /** Holdings, where the toggles live. It draws a line between holding something
  * now and having saved it for next time, and the lead is where that line gets
@@ -61,15 +59,6 @@ export const holdingsSetChanged = "The saved capability set changed. Your unsave
 export const holdingsSetSaved = "Capability set saved.";
 export const holdingsEditAsText = "Edit capability set as text";
 export const holdingsEditAsControls = "Edit capability set as controls";
-
-/** Why a trace endpoint somebody typed cannot be used. The value is never
- * rewritten to make it work: an operator who typed an address wants to know
- * what is wrong with the one they typed. */
-export const traceEndpointWhitespace = "The trace endpoint can't start or end with a space.";
-export const traceEndpointNotUrl = "The trace endpoint has to be a complete WebSocket URL.";
-export const traceEndpointScheme = "The trace endpoint has to use ws:// or wss://.";
-export const traceEndpointFragment = "The trace endpoint can't have a # on the end.";
-export const traceEndpointSaveRefused = "Couldn't save the trace endpoint.";
 
 export const opsSearchLabel = "Search everything this directory holds";
 export const opsSearchPlaceholder = "Search rooms, names, connections, references…";
@@ -210,9 +199,6 @@ export function traceLead(publisher: string): string {
 }
 export const traceNowTitle = "Publishing now";
 export const traceEndpointLabel = "Endpoint";
-export const traceElsewhereTitle = "Publish somewhere else";
-export const traceEndpointHint =
-	"Leave blank to publish to this page's own endpoint (/trace). Saving reloads this window, and the new endpoint asks for its own capability.";
 
 /** The listeners pane. */
 export const listenersLead = "Where this server accepts connections: one listener per transport, switched here.";
@@ -233,7 +219,7 @@ export function peeringListedAs(name: string): string {
 export const peeringLead = "List a durable room from another directory here, and revoke what this tab published.";
 export const peeringPublishTitle = "Publish a room";
 export const peeringNothingToPublish =
-	"Nothing to publish yet. Join a room on another directory first, and it will be offered here.";
+	"Nothing to publish yet. Hold a room link on another connected directory, and it will be offered here.";
 export const peeringAsHint =
 	"Anyone on this directory can enter it under that name. The room itself stays where it lives. The listing lasts until you revoke it or this directory connection ends.";
 export const peeringPublishedTitle = "Published by this tab";

@@ -33,7 +33,7 @@
 // and a private room's unguessable key stays out of the address entirely —
 // its path carries the label under `?private=1`, which reopens the held
 // conversation in this tab and degrades to the plain join card anywhere
-// else. The `dm` and `trace` page-configuration parameters ride along on every
+// else. The `dm` page-configuration parameter rides along on every
 // address the mirror writes, keeping `prefs.ts`'s bookmark contract.
 
 import * as store from "./store.ts";
@@ -63,6 +63,7 @@ import { crashReload, crashSessionKept, crashTitle } from "../../lib/text/page.t
 
 let routingPage: RoomsPageContext | null = null;
 let mirrored: string | null = null;
+let mirroredHeld: boolean | null = null;
 let stopAddressMirror: (() => void) | null = null;
 
 function routing(): RoomsPageContext {
@@ -80,16 +81,28 @@ function routing(): RoomsPageContext {
  * before the arrival could act. Opening somewhere new is a step the back
  * button can retrace, so it pushes; standing back at the front is where
  * closures land, so it replaces rather than minting an entry that would only
- * lead forward to a conversation that just closed. */
+ * lead forward to a conversation that just closed.
+ *
+ * A room's privacy is what its policy says, and a new room's policy arrives
+ * after the room opens. When it settles the open room's address is replaced in
+ * place, so a private room never keeps the address of a listed one. */
 export function bindRoomsRouting(page: RoomsPageContext): void {
 	routingPage = page;
 	installRouting({ navigateTo, addressOfActive });
+	const heldOf = (active: string | null): boolean | null => {
+		const conv = active === null ? null : page.projection.get().convs.get(active) ?? null;
+		return conv?.type === "room" ? conv.held : null;
+	};
 	mirrored = page.projection.get().activeKey;
+	mirroredHeld = heldOf(mirrored);
 	stopAddressMirror?.();
 	stopAddressMirror = page.projection.subscribe(() => {
 		const active = page.projection.get().activeKey;
-		if (active === mirrored) return;
+		const held = heldOf(active);
+		if (active === mirrored && held === mirroredHeld) return;
+		const settled = active === mirrored;
 		mirrored = active;
+		mirroredHeld = held;
 		// Standing on /ops is an explicit route, independent of whichever
 		// conversation remains active behind the Operations surface. Background
 		// restoration may select or retire a conversation; neither may overwrite a
@@ -99,7 +112,7 @@ export function bindRoomsRouting(page: RoomsPageContext): void {
 		const want = addressOfActive();
 		const at = router.state.location;
 		if (want === `${at.pathname}${at.search}`) return;
-		void router.navigate(want, { replace: active === null });
+		void router.navigate(want, { replace: active === null || settled });
 	});
 }
 
@@ -362,6 +375,7 @@ function IndexRoute() {
 		if (arrival.done) return;
 		arrival.mark();
 		if (routed.key === "default") return;
+		routing().managedSession?.navigation.dismissAcquisition();
 		if (routing().projection.get().activeKey !== null) store.clearConv(routing().projection);
 	}, [arrival, routed.key]);
 	return null;

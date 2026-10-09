@@ -96,6 +96,10 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	pub fn line_answers(&self, key: LineKey) -> bool {
 		self.lines.contains_key(&key)
 	}
+	/// The authoritative notification identity returned with this exact line.
+	pub fn line_id(&self, key: LineKey) -> Option<crate::room::message::LineId> {
+		self.lines.get(&key).map(|line| line.line.id())
+	}
 
 	/// The authority successor a topic change persists first, when the room
 	/// has a durable name; `Ok(None)` when the topic already stands so.

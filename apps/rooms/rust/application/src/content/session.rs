@@ -1,8 +1,15 @@
 //! Session schema declarations shared by metadata and contract proofs. Runtime
 //! adoption requires shared saved-reference and management operations first.
+pub mod bridge;
 pub mod custody;
+pub mod dispatch;
+pub mod effects;
+pub mod local;
+pub mod outgoing;
 pub mod records;
 pub mod requirements;
+pub mod results;
+pub mod uploads;
 pub mod workspace;
 use super::permissions::{InvalidPolicy, Permission, validate};
 use crate::fields::List;
@@ -11,6 +18,8 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
 
 pub const VERSION: u16 = 1;
+/// Stable managed resource kind, independent of the content record schemas.
+pub const KIND: u64 = 1;
 pub const SUPPORTED: &[Permission] = &[
 	History,
 	ReadFile,
@@ -18,6 +27,7 @@ pub const SUPPORTED: &[Permission] = &[
 	InteractWorkspace,
 	ReplaceWorkspace,
 	ManageCustody,
+	ShareCustody,
 	ResolvePending,
 	UseOperations,
 	ReadArchive,
@@ -66,7 +76,20 @@ impl Group {
 	pub const fn fields(self) -> &'static [Permission] {
 		match self {
 			Self::Participation => &[ObserveWorkspace, InteractWorkspace],
-			Self::Custody => &[ReplaceWorkspace, ManageCustody, ResolvePending, UseOperations],
+			Self::Custody => &[
+				ReplaceWorkspace,
+				ManageCustody,
+				ShareCustody,
+				ResolvePending,
+				UseOperations,
+			],
+		}
+	}
+	/// The reader's name for what this group of permissions decides.
+	pub const fn label(self) -> &'static str {
+		match self {
+			Self::Participation => "Taking part",
+			Self::Custody => "Running the workspace",
 		}
 	}
 	pub fn matching(self, terms: &Terms) -> Option<Preset> {
@@ -114,11 +137,11 @@ impl Preset {
 	}
 	pub const fn description(self) -> &'static str {
 		match self {
-			Self::Observer => "Observe live workspace state.",
-			Self::Collaborator => "Observe and change workspace intent through held target authority.",
-			Self::NoCustody => "No workspace replacement, custody, recovery or operations powers.",
+			Self::Observer => "Sees rooms and conversations as they happen, and changes nothing.",
+			Self::Collaborator => "Also posts, joins and acts, using the access this workspace already holds.",
+			Self::NoCustody => "Can't add, remove or share what the workspace holds.",
 			Self::Administrator => {
-				"Replace workspace intent, manage custody, resolve pending effects and use held operators."
+				"Can also replace the workspace, manage and share its keys and links, finish interrupted changes and use operator tools."
 			}
 		}
 	}

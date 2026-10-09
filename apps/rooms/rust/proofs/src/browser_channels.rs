@@ -1,7 +1,5 @@
 //! Actual browser APIs under the same Rust Host and Rooms client. The fixture
 //! owns local RTC signaling; it does not exercise production identity binding.
-#[path = "browser_directory.rs"]
-mod directory_execution;
 #[path = "browser_media.rs"]
 mod media_execution;
 use glowcap::{AcceptedTransport, Argument, ChannelDesignator, Host, Locator, PendingWork, Session, browser};
@@ -49,7 +47,6 @@ pub async fn rooms_browser_websocket_contract(location: String) {
 				Room::subscribe(directory.client().clone(), first.clone(), "browser", Default::default())
 					.await
 					.unwrap();
-			directory_execution::exercise(runtime.clone(), directory.clone(), &location).await;
 			media_execution::exercise(&room, &mut messages).await;
 			room.leave().await.unwrap();
 			drop((room, messages));
@@ -80,7 +77,7 @@ pub async fn rooms_browser_rtc_contract(left: RtcDataChannel, right: RtcDataChan
 
 async fn rtc_sessions(caller: Host, server: Host, left: glowcap::Channel, right: glowcap::Channel) {
 	server
-		.publish_giftable("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
+		.publish("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
 		.unwrap();
 	let caller_key = caller.designator().unwrap();
 	let server_key = server.designator().unwrap();

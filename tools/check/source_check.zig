@@ -100,7 +100,9 @@ pub fn create(b: *Build) *Step {
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/check/source_check_main.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            // This analyzer scans the whole source tree on every gate. Keep
+            // safety checks while optimizing its parsing and traversal loops.
+            .optimize = .ReleaseSafe,
         }),
     });
     const run = b.addRunArtifact(exe);

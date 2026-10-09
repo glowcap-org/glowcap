@@ -14,7 +14,9 @@ const Error = types.Error;
 const GrantCommand = union(enum) {
     issue_root: types.Issue,
     derive: struct { parent: GrantId, request: types.Issue },
+    issue_control: struct { parent: GrantId, ceiling: Terms, request: types.Issue },
     set_policy: struct { grant: GrantId, terms: Terms },
+    set_label: struct { grant: GrantId, label: types.Label },
     pause: GrantId,
     resume_access: GrantId,
     revoke: GrantId,
@@ -23,6 +25,7 @@ pub const Delta = union(enum) {
     issue: types.Entry,
     policy: StoredTerms,
     status: types.Status,
+    label: types.Label,
 };
 
 pub const GrantPlan = struct {
@@ -52,8 +55,9 @@ pub const GrantPlan = struct {
         resources.missing = null;
         if (resources.version.owner != grants.version.owner or resources.version.revision != grants.version.revisions.resources) return error.RevisionConflict;
         return switch (command) {
-            .issue_root => |request| try issue(allocator, grants, resources, policy, max_children, fresh, null, request),
-            .derive => |request| try issue(allocator, grants, resources, policy, max_children, fresh, request.parent, request.request),
+            .issue_root => |request| try issue(allocator, grants, resources, policy, max_children, fresh, null, request, null),
+            .derive => |request| try issue(allocator, grants, resources, policy, max_children, fresh, request.parent, request.request, null),
+            .issue_control => |request| try issue(allocator, grants, resources, policy, max_children, fresh, request.parent, request.request, request.ceiling),
             .set_policy => |request| blk: {
                 if (try grants.effectiveStatus(request.grant) == .revoked) return error.Revoked;
                 const record = try grants.get(request.grant);
@@ -61,6 +65,14 @@ pub const GrantPlan = struct {
                 if (request.terms.eql(record.configured)) break :blk null;
                 _ = try nextRevision(grants);
                 break :blk .{ .base = grants.version, .grant = request.grant, .kind = .policy_changed, .delta = .{ .policy = try StoredTerms.initCopying(allocator, request.terms) } };
+            },
+            .set_label => |request| blk: {
+                try request.label.validate();
+                if (try grants.effectiveStatus(request.grant) == .revoked) return error.Revoked;
+                const record = try grants.get(request.grant);
+                if (record.label.eql(&request.label)) break :blk null;
+                _ = try nextRevision(grants);
+                break :blk .{ .base = grants.version, .grant = request.grant, .kind = .label_changed, .delta = .{ .label = request.label } };
             },
             .pause => |id| try status(grants, id, .paused),
             .resume_access => |id| try status(grants, id, .active),
@@ -75,7 +87,7 @@ pub const GrantPlan = struct {
                 entry.configured.deinit(allocator);
             },
             .policy => |*terms| terms.deinit(allocator),
-            .status => {},
+            .status, .label => {},
         }
         self.* = undefined;
     }
@@ -95,6 +107,7 @@ pub const GrantPlan = struct {
             .issue => {},
             .policy => |replacement| record.configured = replacement.terms,
             .status => |value| record.status = value,
+            .label => |value| record.label = value,
         }
         record.revision = revision;
         var parent_record: ?types.Record = null;
@@ -116,19 +129,27 @@ pub const GrantPlan = struct {
     }
 };
 
-fn issue(allocator: std.mem.Allocator, grants: *GrantView, resources: *ResourceView, policy: *const Policy, max_children: u32, fresh: ?GrantId, parent: ?GrantId, request: types.Issue) Error!GrantPlan {
-    if (parent) |id| try grants.requireActive(id);
+fn issue(allocator: std.mem.Allocator, grants: *GrantView, resources: *ResourceView, policy: *const Policy, max_children: u32, fresh: ?GrantId, parent: ?GrantId, request: types.Issue, management: ?Terms) Error!GrantPlan {
+    try request.label.validate();
+    if (parent) |id| {
+        if (management != null) {
+            if (try grants.effectiveStatus(id) == .revoked) return error.Revoked;
+        } else try grants.requireActive(id);
+    }
     try request.ceiling.validate(resources, policy);
     if (!try request.configured.isSubsetOf(resources, policy, request.ceiling)) return error.CeilingExceeded;
     if (parent) |id| {
         const source = try grants.get(id);
-        if (source.delegation_depth == 0 or request.delegation_depth >= source.delegation_depth) return error.DelegationDenied;
+        if (management) |ceiling| {
+            if (!try request.ceiling.isSubsetOf(resources, policy, ceiling)) return error.CeilingExceeded;
+            if (request.delegation_depth > grants.max_depth) return error.DepthLimit;
+        } else if (source.delegation_depth == 0 or request.delegation_depth >= source.delegation_depth) return error.DelegationDenied;
         if (source.child_count >= max_children) return error.ChildLimit;
         var path = grants.ancestry(id);
         while (try path.next()) |ancestor| {
             if (path.depth > grants.max_depth) return error.DepthLimit;
             if (!try request.ceiling.isSubsetOf(resources, policy, ancestor.ceiling) or
-                !try request.ceiling.isSubsetOf(resources, policy, ancestor.configured)) return error.CeilingExceeded;
+                (management == null and !try request.ceiling.isSubsetOf(resources, policy, ancestor.configured))) return error.CeilingExceeded;
         }
     } else if (request.delegation_depth > grants.max_depth) return error.DepthLimit;
     const id = fresh orelse return error.CapacityExceeded;
@@ -143,6 +164,7 @@ fn issue(allocator: std.mem.Allocator, grants: *GrantView, resources: *ResourceV
         .grant = id,
         .kind = .{ .issued = parent },
         .delta = .{ .issue = .{
+            .label = request.label,
             .parent = parent,
             .ceiling = ceiling,
             .configured = configured,
@@ -169,5 +191,5 @@ fn nextRevision(grants: *const GrantView) Error!identity.Revision {
 }
 
 pub fn recordOf(id: GrantId, entry: types.Entry) types.Record {
-    return .{ .id = id, .parent = entry.parent, .ceiling = entry.ceiling.terms, .configured = entry.configured.terms, .status = entry.status, .revision = entry.revision, .delegation_depth = entry.delegation_depth, .child_count = entry.child_count };
+    return .{ .label = entry.label, .id = id, .parent = entry.parent, .ceiling = entry.ceiling.terms, .configured = entry.configured.terms, .status = entry.status, .revision = entry.revision, .delegation_depth = entry.delegation_depth, .child_count = entry.child_count };
 }

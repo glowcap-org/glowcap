@@ -42,7 +42,7 @@ async fn scenario() {
 	let server = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();
 	let locator = server.locator().unwrap();
 	let (caller, peer) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let peer = Rc::new(peer.unwrap().with_gc());
+	let peer = Rc::new(peer.unwrap());
 	let service = peer.clone();
 	let serving = tokio::task::spawn_local(async move { service.serve().await });
 	let client = Client::new(caller.unwrap(), HostPlatform);
@@ -161,16 +161,10 @@ async fn pressure(session: &Session) {
 		let mut roots = Vec::new();
 		for n in 0..=count {
 			let answers = answers.clone();
+			let host = session.host();
 			let root = session
 				.spawn_owned(move |_, _| {
-					answers.borrow_mut().push(
-						glowcap::current_session()
-							.unwrap()
-							.unwrap()
-							.host()
-							.defer_turn()
-							.unwrap(),
-					);
+					answers.borrow_mut().push(host.defer_turn().unwrap());
 					Ok(Argument::Void)
 				})
 				.unwrap();
@@ -271,16 +265,10 @@ async fn pending_lifetime(session: &Session, cancel: bool) {
 	};
 	let answer = Rc::new(RefCell::new(None));
 	let pending = answer.clone();
+	let host = session.host();
 	let root = session
 		.spawn_owned(move |_, _| {
-			*pending.borrow_mut() = Some(
-				glowcap::current_session()
-					.unwrap()
-					.unwrap()
-					.host()
-					.defer_turn()
-					.unwrap(),
-			);
+			*pending.borrow_mut() = Some(host.defer_turn().unwrap());
 			Ok(Argument::Void)
 		})
 		.unwrap();

@@ -1,21 +1,19 @@
 //! Profile-aware listener shared by native TCP residents and C projections.
 //!
-//! The raw runtime owns the socket. This layer owns the one rule for what a
-//! listener advertises: address-designated TCP publishes its bound address as
-//! the designator; key-designated TCP publishes the durable peer key there and
-//! the bound address as its direct-addresses hint.
+//! The raw runtime owns the socket; `advertisement.zig` owns what a listener
+//! publishes.
 
 const std = @import("std");
 
 const crypto = @import("foundation").crypto;
 const model = @import("model");
 const netlayer = @import("../../netlayer.zig");
-const addressing = @import("addressing.zig");
+const advertisement = @import("advertisement.zig");
 const runtime = @import("runtime.zig");
 
 const IpAddress = std.Io.net.IpAddress;
 
-pub const designator_buf_len = 64;
+pub const designator_buf_len = advertisement.designator_buf_len;
 
 pub const Listener = struct {
     socket: runtime.Listener,
@@ -71,41 +69,11 @@ pub const Listener = struct {
     }
 
     pub fn localLocator(self: *const Listener, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {
-        var address_storage: [designator_buf_len]u8 = undefined;
-        const address = std.fmt.bufPrint(&address_storage, "{f}", .{self.localAddress()}) catch unreachable;
-        var identity_storage: [crypto.PeerKey.designator_len]u8 = undefined;
-        const designator: []const u8 = if (self.identity) |identity| blk: {
-            identity_storage = identity.toDesignator();
-            break :blk &identity_storage;
-        } else address;
-        var hint_storage: [1]model.HintEntry = undefined;
-        const hints = if (self.profile.address_source == .direct_addresses_hint)
-            model.Hints.forDirectAddresses(address, &hint_storage)
-        else
-            model.Hints.emptyFalse();
-        return model.clonePeerLocator(allocator, .{
-            .transport = self.profile.symbol,
-            .designator = designator,
-            .hints = hints,
-        });
+        return advertisement.locator(allocator, self.profile, self.localAddress(), self.identity);
     }
 
-    /// Admit a replacement publication through this TCP profile's locator
-    /// grammar. Address-designated TCP may publish a different reachable
-    /// address (for example after NAT discovery); key-designated profiles keep
-    /// the listener's durable identity and require a dialable address hint.
     pub fn validateLocator(self: *const Listener, locator: model.PeerLocator) netlayer.ListenError!void {
-        model.validatePeerLocator(locator) catch return error.InvalidAddress;
-        if (!std.mem.eql(u8, locator.transport, self.profile.symbol)) return error.InvalidAddress;
-        if (self.identity) |identity| {
-            const expected = identity.toDesignator();
-            if (!std.mem.eql(u8, locator.designator, &expected)) return error.InvalidAddress;
-        }
-        _ = addressing.resolveProfile(
-            self.profile,
-            locator.designator,
-            netlayer.directAddrHint(locator.hints) orelse "",
-        ) catch return error.InvalidAddress;
+        return advertisement.validate(self.profile, self.identity, locator);
     }
 
     pub fn canonicalizeLocator(

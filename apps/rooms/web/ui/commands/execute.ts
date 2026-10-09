@@ -3,6 +3,7 @@
 import { applicationModule } from "../application.ts";
 import type { Conv } from "../types.ts";
 import type { CommandOutcome, CommandPowers, CommandResult, HeldDirectory } from "./types.ts";
+import { CommandRefused } from "./types.ts";
 import { held, hereOf } from "./catalog.ts";
 import { helpCommandFormatting } from "../../../lib/text/writing.ts";
 import { directoryReportLine, helpYouCanUse, roomListLine, whoisLine } from "../../../lib/text/log.ts";
@@ -175,7 +176,7 @@ function pending(result: Promise<CommandOutcome>): Extract<CommandOutcome, { kin
 	return {
 		kind: "done",
 		completion: result.then((outcome) => {
-			if (outcome.kind === "refused") throw new Error(outcome.why);
+			if (outcome.kind === "refused") throw new CommandRefused(outcome.why);
 			if (outcome.kind !== "done") throw new Error("A command effect unexpectedly produced a message");
 			return outcome.completion;
 		}),

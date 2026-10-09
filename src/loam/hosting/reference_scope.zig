@@ -7,6 +7,7 @@ const driver = @import("driver_core");
 const core = @import("loam_core");
 
 pub const Scope = struct {
+    pub const max_name_bytes = @import("reference_recipe.zig").max_attachment_name_bytes;
     allocator: std.mem.Allocator,
     slots: []?*h.Attachment,
 
@@ -25,7 +26,7 @@ pub const Scope = struct {
 
     pub fn register(self: *Scope, owner: *h.Attachment) !void {
         const name = owner.options.attachment_name orelse return error.InvalidAttachmentName;
-        if (name.len == 0 or name.len > 128) return error.InvalidAttachmentName;
+        if (name.len == 0 or name.len > max_name_bytes) return error.InvalidAttachmentName;
         for (self.slots) |slot| if (slot) |prior| {
             if (prior.host != owner.host or prior.store != owner.store) return error.ForeignStore;
             if (std.mem.eql(u8, prior.options.attachment_name.?, name)) return error.DuplicateAttachment;

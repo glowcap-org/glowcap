@@ -5,8 +5,8 @@ Uses the public CLI from a foreign cwd. Docker is a recording fixture here;
 the release workflow separately runs the actual image on both Linux targets.
 Damaged inventories, unrelated executables, failed builds, and a missing
 database secret must fail without activating or destroying another product.
-The build runs ordinary cases and --deadline separately: the latter consumes
-the product's 15-second query budget and needs its own 30-second process limit.
+The build gives installation, deployment, and the exhausted query budget
+separate process limits. Individual product commands also retain their deadlines.
 """
 import hashlib
 import fcntl
@@ -30,6 +30,25 @@ def run(binary, *args, env, ok=True, detached=False):
                             start_new_session=detached)
     assert (result.returncode == 0) == ok, (args, result)
     return result
+
+
+def source_fixture(root, scratch, manifest):
+    # A tiny disposable source exercises failure/upgrade without modifying the
+    # build output. Its executable is real; other product files are fixtures.
+    fixture = scratch / "source fixture"
+    rows = []
+    for row in manifest.read_text().splitlines():
+        _, mode, name = row.split(" ", 2)
+        path = fixture / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if name == "bin/glowcap" or name in ("share/glowcap/release.json", "share/glowcap/deployment/rooms.Dockerfile"):
+            shutil.copyfile(root / name, path)
+        else:
+            path.write_text("fixture\n")
+        path.chmod(0o755 if mode == "x" else 0o644)
+        rows.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()} {mode} {name}\n")
+    (fixture / "share/glowcap/installation.manifest").write_text("".join(rows))
+    return fixture, rows
 
 
 def installation(root, scratch):
@@ -56,20 +75,7 @@ def installation(root, scratch):
     assert not list((prefix / "bin").glob(".glowcap-*"))
     assert Path(run(link, "apps", "rooms", "skills", env=env).stdout.strip()).is_dir()
 
-    # A tiny disposable source exercises failure/upgrade without modifying the
-    # build output. Its executable is real; other product files are fixtures.
-    fixture = scratch / "source fixture"
-    rows = []
-    for row in manifest.read_text().splitlines():
-        _, mode, name = row.split(" ", 2)
-        path = fixture / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if name == "bin/glowcap" or name in ("share/glowcap/release.json", "share/glowcap/deployment/rooms.Dockerfile"):
-            shutil.copyfile(root / name, path)
-        else:
-            path.write_text("fixture\n")
-        path.chmod(0o755 if mode == "x" else 0o644)
-        rows.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()} {mode} {name}\n")
+    fixture, rows = source_fixture(root, scratch, manifest)
     receipt = fixture / "share/glowcap/installation.manifest"
     original = "".join(rows)
     executable = fixture / "bin/glowcap"
@@ -589,18 +595,28 @@ def interruption(binary, scratch):
 
 
 def main():
-    if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--deadline"):
-        raise SystemExit("usage: glowcap_host.py PRODUCT [--deadline]")
+    if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] not in ("--installation", "--deployment", "--deadline")):
+        raise SystemExit("usage: glowcap_host.py PRODUCT [--installation|--deployment|--deadline]")
     root = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix="glowcap-host-") as temporary:
         scratch = Path(temporary)
         os.chdir(scratch)
-        if len(sys.argv) == 3:
+        mode = sys.argv[2] if len(sys.argv) == 3 else None
+        if mode == "--deadline":
             docker_fixture(scratch)
             deadline(root / "bin/glowcap", scratch)
             print("glowcap-host-test: timed-out Docker child diagnostics and retirement passed")
             return
-        binary = installation(root, scratch)
+        if mode != "--deployment":
+            binary = installation(root, scratch)
+            if mode == "--installation":
+                print("glowcap-host-test: verified installation, atomic selection and damaged-inventory refusal passed")
+                return
+        else:
+            prefix = scratch / "installed product"
+            run(root / "bin/glowcap", "install", "--prefix", prefix, env=dict(PATH="", HOME=str(scratch)))
+            binary = prefix / "bin/glowcap"
+            source_fixture(root, scratch, root / "share/glowcap/installation.manifest")
         deployment(binary, root, scratch)
         reset_prompt(binary, scratch)
         child_output(binary, scratch)

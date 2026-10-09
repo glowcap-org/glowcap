@@ -398,7 +398,7 @@ test "core host: a three-vat handoff holds native between the glowcap pair and b
 
     var row_freed = false;
     var row = TaggedRow{ .tag = "greeter", .freed = &row_freed };
-    _ = try exporter.publishGiftable("widget", Tagged, .{ .row = &row });
+    _ = try exporter.publish("widget", Tagged, .{ .row = &row });
 
     // Gifter to exporter: both prefer native, so the session is native.
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7021", &dials);
@@ -525,4 +525,56 @@ test "core host: both ends of a wire tag one message identically" {
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
     const both = client_log.bothOutbound("poke") orelse return error.OnlyOnePoke;
     try std.testing.expect(!std.mem.eql(u8, &both[0], &both[1]));
+}
+
+test "core host: explicit trace replay borrows live rows without admitting reentry" {
+    const Probe = struct {
+        host: *Host,
+        opens: usize = 0,
+        closes: usize = 0,
+        replay_refused: bool = false,
+        replacement_refused: bool = false,
+        fn emit(ctx: ?*anyopaque, event: driver.core.trace.Event) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            switch (event) {
+                .session_open => {
+                    self.opens += 1;
+                    self.host.replayTrace() catch |err| {
+                        self.replay_refused = err == error.ReenteredHost;
+                    };
+                    self.host.setTrace(null) catch |err| {
+                        self.replacement_refused = err == error.ReenteredHost;
+                    };
+                },
+                .session_close => self.closes += 1,
+                .message => {},
+            }
+        }
+    };
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @splat(0x3b), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, @splat(0x3c), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7060", &dials);
+    var probe = Probe{ .host = &client };
+    try client.setTrace(.{ .ctx = &probe, .emit = Probe.emit });
+    try std.testing.expectEqual(@as(usize, 0), probe.opens);
+    try client.replayTrace();
+    try std.testing.expectEqual(@as(usize, 1), probe.opens);
+    try std.testing.expect(probe.replay_refused and probe.replacement_refused);
+    try client.replayTrace();
+    try std.testing.expectEqual(@as(usize, 2), probe.opens);
+    try client.setTrace(null);
+    try client.replayTrace();
+    try std.testing.expectEqual(@as(usize, 2), probe.opens);
+    try client.setTrace(.{ .ctx = &probe, .emit = Probe.emit });
+    try client.releaseSession(pair.a);
+    try server.releaseSession(pair.b);
+    try std.testing.expectEqual(@as(usize, 1), probe.closes);
+    try client.replayTrace();
+    try std.testing.expectEqual(@as(usize, 2), probe.opens);
+    try std.testing.expect(!client.withinCallback());
 }

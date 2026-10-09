@@ -29,10 +29,15 @@ const asFarRef = host_mod.asFarRef;
 /// one, settlement queues an owned completion for the embedder.
 pub const VowRow = struct {
     host: *Host,
-    /// The session the vow rides, or null for a resolver row (ADR-0102).
-    /// Session-scoped vow verbs refuse resolver rows; their holder settles and
-    /// normally retires them directly.
-    peer_handle: ?engine.PeerHandle,
+    owner: union(enum) {
+        session: engine.PeerHandle,
+        resolver,
+        /// A settled local public handle retains no producer or wire answer.
+        public_local,
+        /// Strong producer custody. Its observer is weak, so cancellation
+        /// detaches only the result buffer, not this row or queued input.
+        owning: *@import("../host/local_delivery.zig").Producer,
+    },
     id: u64,
     vow: actors.Vow,
     kind: Kind = .plain,
@@ -41,21 +46,31 @@ pub const VowRow = struct {
     /// reservation while the observer is pending, becomes a POD engine carrier
     /// at settlement, and is cancelled if the session retires first.
     observer_release: ?engine.Peer.PendingReservation = null,
-    pending_cancel: PendingCancel = .row_listener,
+    pending_cancel: PendingCancel = .unpublished,
     inner: ?actors.Listener = null,
     settled: bool = false,
-    /// The session whose turn deferred its answer onto this sessionless row.
-    /// Its resolver settles outside `feed`, so this owner identifies the
-    /// session to mark dirty and lets teardown cancel the deferred answer
-    /// before freeing its Port.
-    forwarded_peer: ?engine.PeerHandle = null,
-    /// A deferred local eventual answer borrows projections only while its
-    /// listeners run. It publishes no capability occurrence to the peer.
-    forwarded_local: bool = false,
+    /// The actual deferred reply destination, independent of the resolver
+    /// row's sessionless storage. Owning results never pass through model refs.
+    forwarded: union(enum) {
+        none,
+        session: struct { peer: engine.PeerHandle, local_answer: bool },
+        owning: struct { producer: *@import("../host/local_delivery.zig").Producer, resolver: u64 },
+    } = .none,
+
+    pub fn forwardedPeer(self: *const VowRow) ?engine.PeerHandle {
+        return if (self.forwarded == .session) self.forwarded.session.peer else null;
+    }
 
     /// Settlement projection applied before dispatch. A fetch enrolls its
     /// fulfilled far capability under a node-unique route.
     pub const Kind = enum { plain, fetch };
+
+    pub fn peer(self: *const VowRow) ?engine.PeerHandle {
+        return switch (self.owner) {
+            .session => |peer_handle| peer_handle,
+            else => null,
+        };
+    }
 
     /// The retire listener installed at mint.
     pub fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
@@ -68,14 +83,21 @@ pub const AnswerRelease = enum {
     none,
     session_private,
     peer_visible,
+    shared_peer_visible,
 };
 
 /// How explicit release cancels a producer that has not settled yet. Fallible
 /// ownership is restricted to rows without an answer release, so retry cannot
 /// follow an already-committed wire effect.
 pub const PendingCancel = union(enum) {
-    row_listener,
+    unpublished,
+    /// Exact installed callback, whose code image may differ from the
+    /// archive through which the embedder later releases this row.
+    row_listener: actors.Listener,
     infallible: Infallible,
+    /// A producer holds one shared answer through pending observation and
+    /// settled public handles. The callback retires one member on either edge.
+    shared_answer: Infallible,
     fallible_no_answer: Fallible,
 
     pub const Infallible = struct {
@@ -88,6 +110,10 @@ pub const PendingCancel = union(enum) {
         func: *const fn (*Host, vow_id: u64, owner: u64) anyerror!void,
         terminal_func: *const fn (*Host, vow_id: u64, owner: u64) void,
     };
+
+    comptime {
+        std.debug.assert(@sizeOf(actors.Listener) <= @sizeOf(Fallible));
+    }
 };
 
 /// Host-core settlement accounting shared with resolver-pair ownership.
@@ -126,7 +152,7 @@ pub fn cancelObserverRelease(row: *VowRow, session: *HostSession) void {
 
 /// Retire the answer position a private or explicitly released row owns.
 pub fn retireAnswerInSession(row: *const VowRow, session: *HostSession) void {
-    if (row.answer_release == .none) return;
+    if (row.answer_release == .none or row.answer_release == .shared_peer_visible) return;
     const answer = switch (row.vow) {
         .far => |value| value,
         .local => unreachable,
@@ -141,7 +167,20 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
     std.debug.assert(!row.settled);
     const inner = row.inner;
     const kind = row.kind;
-    const maybe_peer = row.peer_handle;
+    if (row.owner == .owning) {
+        const source = row.owner.owning;
+        const public = source.destination == .public;
+        if (public) row.owner = .public_local;
+        source.settle(resolution);
+        markRowSettled(self, row);
+        if (!public) {
+            std.debug.assert(self.vows.remove(row.id));
+            self.allocator.destroy(row);
+        }
+        source.release();
+        return;
+    }
+    const maybe_peer = row.peer();
     const id = row.id;
     if (maybe_peer) |peer_handle| {
         if (self.sessions.get(peer_handle)) |session| {
@@ -182,6 +221,10 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
 pub fn settleObservedAnswer(self: *Host, row: *VowRow, session: *HostSession) void {
     switch (row.answer_release) {
         .none => {},
+        .shared_peer_visible => {
+            const owned = row.pending_cancel.shared_answer;
+            owned.func(self, row.id, owned.owner);
+        },
         .session_private => retireAnswerInSession(row, session),
         .peer_visible => {
             const reservation = row.observer_release orelse unreachable;
@@ -189,7 +232,8 @@ pub fn settleObservedAnswer(self: *Host, row: *VowRow, session: *HostSession) vo
                 .far => |value| value,
                 .local => unreachable,
             };
-            const answer_live = session.served.port.peer.session_state.outboundAnswer(answer) != null;
+            const peer = session.served.port.peer;
+            const answer_live = peer.session_state.outboundAnswer(answer) != null or peer.canObserveAnswer(answer);
             if (answer_live and session.sessionOpen() and switch (session.lifecyclePhase()) {
                 .active, .finishing => true,
                 .cancel_pending, .terminating => false,

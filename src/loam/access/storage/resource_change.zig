@@ -47,6 +47,7 @@ pub const ResourceChange = struct {
         var new_parent: ?read.Read.Row = null;
         const changed = switch (action) {
             .move => |parent| value: {
+                try view.header.policy.validatePlacement(canonical.kind, if (parent) |id| (try resources.get(id)).kind else null);
                 const changed = try resources.checkReparent(target, parent, 0);
                 if (parent) |id| new_parent = try row(view, id);
                 break :value changed;

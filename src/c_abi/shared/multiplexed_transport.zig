@@ -20,14 +20,6 @@
 const locator = @import("locator.zig");
 const transport_provider = @import("transport_provider.zig");
 
-/// `try_read` / `try_write` result when the operation cannot progress
-/// without blocking. Distinct from 0 (clean end of stream on read; a full
-/// window's zero-byte write) and -1 (a dead connection). The same value as
-/// the Zig contract's `net.multiplexed_resident.would_block` and the iroh
-/// sidecar's `GLOWCAP_IROH_WOULD_BLOCK`, so trampolines pass results through
-/// unchanged.
-pub const GLOWCAP_MULTIPLEXED_WOULD_BLOCK: isize = -2;
-
 /// Readiness bits in `GlowcapMultiplexedReadyEvent.events`. One drained record may
 /// carry several at once.
 pub const GLOWCAP_MULTIPLEXED_EV_READABLE: u32 = 1;
@@ -103,7 +95,9 @@ pub const GlowcapMultiplexedClaimExternalFn = *const fn (
 /// `transport` is the selected package entry, not a second dispatch guess. A nonempty
 /// `requested_designator` is the identity or address the caller expects this
 /// provider to own; empty asks the provider to publish its canonical
-/// designator. Immediate completion writes `GLOWCAP_LISTEN_READY` and the
+/// designator. `identity_designator` is the durable key of the Host the
+/// listener serves, which a key-designated profile publishes, exactly as the
+/// stream listen receives it. Immediate completion writes `GLOWCAP_LISTEN_READY` and the
 /// provider-owned listener handle. Externally paced setup writes
 /// `GLOWCAP_LISTEN_PENDING`, then emits a listen event carrying `route_id`.
 /// PENDING is legal only when the table supplies both `finish_listen` and
@@ -115,6 +109,8 @@ pub const GlowcapMultiplexedListenFn = *const fn (
     transport_len: usize,
     requested_designator: ?[*]const u8,
     requested_designator_len: usize,
+    identity_designator: ?[*]const u8,
+    identity_designator_len: usize,
     options: ?*const transport_provider.GlowcapTransportOperationOptions,
     out_result: ?*transport_provider.GlowcapListenResult,
     out_failure: ?*transport_provider.GlowcapProviderFailure,
@@ -162,7 +158,7 @@ pub const GlowcapMultiplexedConnTakeFailureFn = *const fn (
 ) callconv(.c) void;
 
 /// Read into `buf`: bytes read, 0 on clean end of stream, -1 on a dead
-/// connection, `GLOWCAP_MULTIPLEXED_WOULD_BLOCK` when nothing is pending.
+/// connection, `GLOWCAP_TRANSPORT_WOULD_BLOCK` when nothing is pending.
 pub const GlowcapMultiplexedTryReadFn = *const fn (
     ctx: ?*anyopaque,
     conn: u64,
@@ -171,7 +167,7 @@ pub const GlowcapMultiplexedTryReadFn = *const fn (
 ) callconv(.c) isize;
 
 /// Write from `bytes`: bytes consumed (the resident owns them once counted),
-/// -1 on a dead connection, `GLOWCAP_MULTIPLEXED_WOULD_BLOCK` or 0 when the window is
+/// -1 on a dead connection, `GLOWCAP_TRANSPORT_WOULD_BLOCK` or 0 when the window is
 /// full. A writable record follows either refusal.
 pub const GlowcapMultiplexedTryWriteFn = *const fn (
     ctx: ?*anyopaque,

@@ -43,6 +43,7 @@
                      glowcap_host_vow_get*
                      glowcap_host_turn_session*
                      glowcap_host_turn_defer*
+                     glowcap_host_turn_defer_if_answer*
                      glowcap_host_turn_spawn*
                      glowcap_host_session_published_ref*))
 
@@ -74,6 +75,7 @@
 (define-host glowcap_host_remove_advertised_locator (_fun _pointer _pointer _size -> _int32))
 (define-host glowcap_host_set_session_limits
   (_fun _pointer (_or-null _GlowcapSessionLimitOptions-pointer) -> _int32))
+(define-host glowcap_host_set_ingress_limits (_fun _pointer _uint32 _uint32 _uint32 -> _int32))
 (define-host glowcap_host_session_open_dialed_locator*
   (_fun _pointer (_or-null _GlowcapLocatorView-pointer) _pointer -> _int32)
   #:c-id glowcap_host_session_open_dialed_locator)
@@ -146,6 +148,8 @@
 (define-host glowcap_host_unpublish (_fun _pointer _pointer _size -> _int32))
 (define-host glowcap_host_publish_durable
   (_fun _pointer _pointer _size _GlowcapHostBehavior _pointer _pointer _pointer _size -> _int32))
+(define-host glowcap_host_publish_reference
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size -> _int32))
 (define-host glowcap_host_remove_durable (_fun _pointer _pointer _size -> _int32))
 (define-host glowcap_host_session_fetch*
   (_fun _pointer _pointer _size _pointer -> _int32)
@@ -209,6 +213,10 @@
   (_fun _pointer _pointer -> _int32)
   #:c-id glowcap_host_turn_defer)
 (define glowcap_host_turn_defer (wrap-out1 glowcap_host_turn_defer* _uint64 0))
+(define-host glowcap_host_turn_defer_if_answer*
+  (_fun _pointer _pointer -> _int32)
+  #:c-id glowcap_host_turn_defer_if_answer)
+(define glowcap_host_turn_defer_if_answer (wrap-out1 glowcap_host_turn_defer_if_answer* _uint64 0))
 (define-host glowcap_host_turn_spawn*
   (_fun _pointer _GlowcapHostBehavior _pointer _pointer (_or-null _GlowcapReference-pointer) -> _int32)
   #:c-id glowcap_host_turn_spawn)

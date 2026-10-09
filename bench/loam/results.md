@@ -4,6 +4,38 @@ These reports record measured workloads at their stated revisions.
 [The workload guide](README.md) owns the runnable profiles and measurement
 boundaries. Earlier reports retain their original scope and numbers.
 
+## Ordinary actor baseline, October 9, 2026
+
+Two runs at `5d1525b52` used Linux aarch64, Zig
+`0.17.0-dev.2294+71403f299`, ReleaseFast and default synchronous LMDB commits.
+The command was `zig build bench-loam -Doptimize=ReleaseFast -- --ordinary-only`,
+through the repository development front. Both runs passed all six populations,
+collection fences, exact reclamation, restart checks and final allocation release.
+
+Each timing range below spans the two observed medians over 128 calls per run.
+The machine was shared and these ranges are not confidence intervals.
+
+| Endpoints | Message bytes | Cold Zig heap bytes | Hot p50 ns | Cold p50 ns | Edit p50 ms |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 | 256 | 102,440 | 848 | 2,128–2,144 | 2.40–2.50 |
+| 64 | 4,096 | 102,440 | 832–1,616 | 2,128–3,729 | 2.40–3.14 |
+| 512 | 256 | 372,776 | 848 | 2,224–2,256 | 2.40 |
+| 512 | 4,096 | 372,776 | 848–1,616 | 2,240–3,888 | 2.40–2.90 |
+| 2,048 | 256 | 1,353,416 | 1,632–1,648 | 3,888 | 2.41–2.50 |
+| 2,048 | 4,096 | 1,353,416 | 848–1,616 | 2,256–3,920 | 2.40–2.60 |
+
+Both runs made zero backend reads for hot calls, one per cold call and zero
+for unrelated-edit rounds. Hot calls allocated twice, cold calls three times
+and edits five times. Each edit committed once. Sixteen same-target bursts
+made sixteen backend reads, and each restart loaded one record. Cold heap
+figures matched between runs and included no resident record buffers.
+
+At 2,048 endpoints with 4,096-byte messages, collection used 673 batches at
+64 steps and 169 batches at 256 steps. Maximum observed foreground delay was
+6.89–8.09 ms and 8.80–9.82 ms respectively. These local synchronous workloads
+exclude transport latency and managed grant evaluation. Their timing variation
+does not establish a population-dependent dispatch cost or explain Rooms latency.
+
 ## Collection custody admission, October 4, 2026
 
 Linux aarch64 ReleaseFast counts used `-- --collection-only`, a fixed rooted

@@ -10,7 +10,9 @@ That run writes `zig-out/bench-reports/loam-references.txt`.
 `-- --managed-only` runs the complete managed population, its native workers
 and foreign fields, writing `zig-out/bench-reports/loam-managed.txt`.
 `-- --foreign-only` isolates foreign fields in
-`zig-out/bench-reports/loam-foreign.txt`. `-- --collection-only` isolates the
+`zig-out/bench-reports/loam-foreign.txt`. `-- --ordinary-only` runs only the
+conversation graph, whose rows the performance page charts, writing
+`zig-out/bench-reports/loam-ordinary.txt`. `-- --collection-only` isolates the
 collection custody counts below and prints to stdout. Select at most one filter.
 
 ## Collection custody cost
@@ -187,6 +189,8 @@ Wall-clock times have no pass/fail threshold.
 - **Unrelated edits:** 128 rounds of one durable header edit followed by seven
   reads of other headers. Each latency sample covers all eight calls. Backend
   reads expose unnecessary invalidation separately from commit latency.
+- **Edits:** 128 durable edits of one resident header. Each sample is one call
+  and one synchronous LMDB commit, so it measures commit cost.
 - **Wakeup bursts:** sixteen bursts of up to 64 calls, either to one cold
   header or to distinct cold headers. Latencies cover entire bursts, including
   admission and settlement. Read counts expose activation coalescing.
@@ -195,6 +199,11 @@ Wall-clock times have no pass/fail threshold.
   it waits, commits, then settles that read. Reports include collected objects,
   batches, backend reloads, maximum fence and foreground service times, and
   extra Zig bytes observed immediately after collection preparation.
+- **Restart:** after the run closes the database, a new Store, Host and
+  Attachment reopen it, restore one conversation and call it. The time covers
+  opening LMDB, which durably records a new incarnation, through the answer.
+  The reply must include every committed edit, and the read count shows that
+  only the called record loads.
 - **Physical storage:** native map size, allocated page high water, current
   record-tree pages, and entry counts before and after collection. High water
   is also sampled after each collection batch, outside its foreground latency
@@ -331,7 +340,7 @@ Read and allocation counts are structural evidence. Wall-clock results depend
 on the machine, filesystem, and competing work. Repeat runs on the same system
 before drawing timing conclusions. Record the revision and command with each
 saved report. All paths validate replies, collection totals, and complete Zig
-allocation release. Hot reads and unrelated edits must cause no reloads;
+allocation release. Hot reads and edits must cause no reloads;
 same-target cold bursts must coalesce to one load. The smoke run holds these
 structural costs without imposing a machine-dependent timing ceiling. It does
 not establish a throughput target or correctness of capability authority.

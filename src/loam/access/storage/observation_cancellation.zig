@@ -109,6 +109,7 @@ pub const Cancellation = opaque {
         closed.descriptor = null;
         closed.publications = @splat(null);
         closed.key = @splat(0);
+        closed.lifetime = null;
         var edges: [records.ObservationRecord.max_edges]loam.Edge = undefined;
         try record.putEncoded(store, value.object, records.profile.observation, closed, closed.edges(&edges), value.expected, false);
         value.staged = true;

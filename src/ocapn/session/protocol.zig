@@ -85,6 +85,20 @@ pub fn recordSend(self: *Session, message: model.Message) !void {
     }
 }
 
+/// Undo `recordSend` for a deliver that never reached the wire, when the turn
+/// that made it failed (ADR-0194): release the export retains it took and
+/// retire the outbound answer it installed. The answer position stays spent.
+pub fn retractSend(self: *Session, message: model.Message) void {
+    apply.releaseSentMessage(self, message);
+    if (message.deliver.answer) |answer| self.abandonOutboundAnswer(answer);
+}
+
+/// Undo `recordPreparedSend` for a listen that never reached the wire.
+pub fn retractPreparedListen(self: *Session, message: model.Message) void {
+    std.debug.assert(message == .listen);
+    apply.releaseSentMessage(self, message);
+}
+
 /// The commit half of the engine's prepare/commit pairs records through
 /// here, and nowhere else does. A prepare, in the same turn, created or
 /// proved-held every position its message names, reserved its queue seat,

@@ -32,7 +32,7 @@ comptime {
     std.debug.assert(c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CLOSED == iroh.loop_ev_closed);
     std.debug.assert(c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_ACCEPT == iroh.loop_ev_accept);
     std.debug.assert(c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CONNECT == iroh.loop_ev_connect);
-    std.debug.assert(c.multiplexed_transport.GLOWCAP_MULTIPLEXED_WOULD_BLOCK == iroh.loop_would_block);
+    std.debug.assert(c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK == iroh.loop_would_block);
 }
 
 /// Fill `out_provider` with this netlayer's complete provider package. Its one
@@ -234,6 +234,9 @@ fn multiplexedListen(
     transport_len: usize,
     requested_designator: ?[*]const u8,
     requested_designator_len: usize,
+    // The node id is iroh's own identity, so the Host key is not read.
+    _: ?[*]const u8,
+    _: usize,
     options: ?*const c.GlowcapTransportOperationOptions,
     out_result: ?*c.GlowcapListenResult,
     out_failure: ?*c.GlowcapProviderFailure,

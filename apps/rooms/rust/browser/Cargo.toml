@@ -9,7 +9,9 @@ publish.workspace = true
 workspace = true
 
 [lib]
-crate-type = ["rlib", "cdylib"]
+# Dependency users need the library. The browser build requests its deployable
+# cdylib explicitly, avoiding a complete Wasm link inside every proof build.
+crate-type = ["rlib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rooms-application = { path = "../application" }

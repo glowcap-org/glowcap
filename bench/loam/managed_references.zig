@@ -36,6 +36,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), self: *m.Managed,
             const returned = try self.host.callCapability(self.allocator, session, self.items[0].use, phase, &.{}, 512);
             defer returned.deinit();
             try lane.drain(self, @as(?*m.Managed, null));
+            if (returned.result() == .failed) std.debug.print("managed_reference phase={s} refusal={s}\n", .{ phase, returned.result().failed.message });
             if (returned.result() != .ready or returned.result().ready != .capability) return error.MissingReturnedAuthority;
             const called = try self.host.callCapability(self.allocator, session, returned.result().ready.capability, "read", &.{}, 512);
             defer called.deinit();

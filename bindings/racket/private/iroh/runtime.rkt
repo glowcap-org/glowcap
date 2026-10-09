@@ -69,8 +69,8 @@
 
 ;; ── the iroh readiness loop (ADR-0057) ────────────────────────────────────────
 ;; The Racket sibling of the Deno binding's `IrohLoop`, the Python binding's
-;; `_IrohLoop`, and Zig's `completion.Loop(iroh.Backend)` + `driver.Bridge` +
-;; `driver_core.Host`: one green thread multiplexes
+;; `_IrohLoop`, and Zig's `driver.HostRuntime` over `iroh.MultiplexedAdapter`:
+;; one green thread multiplexes
 ;; many connections instead of parking a blocking read per connection. The
 ;; netlayer exposes one OS readiness fd; the loop thread parks on it natively with
 ;; `unsafe-file-descriptor->semaphore` — the place's rktio poller wakes the

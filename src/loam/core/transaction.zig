@@ -7,6 +7,7 @@ const collection = @import("collection.zig");
 pub const ObjectId = records.ObjectId;
 pub const StoreId = records.StoreId;
 pub const metadata_key = "m";
+pub const OpenMode = enum(u32) { open = 0, create = 1, bootstrap = 2 };
 
 pub const Metadata = struct {
     store: StoreId,
@@ -19,6 +20,21 @@ pub const Metadata = struct {
     last_digest: [32]u8 = @splat(0),
     collection: collection.Progress = .{},
     pub const encoded_size = 174;
+
+    /// Select metadata inside the adapter's exclusively held atomic opening.
+    /// Bootstrap admits known absence, preserving every existing identity and
+    /// record. It never replaces corrupt, mismatched or unreadable metadata.
+    pub fn select(identity: StoreId, mode: OpenMode, previous: ?[]const u8) !Metadata {
+        const metadata = if (previous) |bytes| blk: {
+            if (mode == .create) return error.AlreadyExists;
+            break :blk try decode(bytes);
+        } else blk: {
+            if (mode == .open) return error.MissingStore;
+            break :blk Metadata{ .store = identity };
+        };
+        if (metadata.store != identity) return error.StoreMismatch;
+        return metadata;
+    }
 
     pub fn encode(self: Metadata) [encoded_size]u8 {
         var bytes: [encoded_size]u8 = undefined;
@@ -105,69 +121,13 @@ pub const Batch = struct {
         return hash.finalResult();
     }
 
-    /// Validates record deltas before writing; index and tracing refusals still
-    /// require atomic backend abort. `kv` supplies bounded transaction-local
-    /// get/put/remove operations. Borrows stay valid until the write pass.
+    pub const Evaluation = @import("evaluation.zig").Evaluation;
+
+    /// The synchronous adapters drive the same evaluator used by asynchronous
+    /// KV embeddings. Index and tracing refusals require atomic backend abort.
     pub fn apply(self: Batch, kv: anytype) !Metadata {
-        if (!std.mem.eql(u8, &self.digest, &fingerprint(self.ticket, self.changes, self.collection))) return error.Corrupt;
-        const old = try Metadata.decode((try kv.get(metadata_key)) orelse return error.Corrupt);
-        if (old.store != self.ticket.store or old.incarnation != self.ticket.incarnation) return error.StaleWriter;
-        if (old.revision != self.ticket.revision) return error.RevisionConflict;
-        if (self.ticket.sequence <= old.last_sequence or (self.changes.len == 0 and self.collection == null) or (self.changes.len != 0 and self.collection != null)) return error.InvalidBatch;
-        var next = old;
-        next.revision = try std.math.add(u64, old.revision, 1);
-        for (self.changes, 0..) |change, i| {
-            if (change.id.store != old.store) return error.ForeignObject;
-            for (self.changes[0..i]) |prior| if (prior.id.eql(change.id)) return error.DuplicateMutation;
-            const proposed = if (change.bytes) |bytes| try records.View.decode(bytes, self.limits, self.schemas) else null;
-            const previous = try kv.get(&change.id.key());
-            if (previous) |bytes| {
-                const view = try records.View.decode(bytes, self.limits, self.schemas);
-                if (!view.id.eql(change.id) or view.revision > old.revision) return error.Corrupt;
-                if (change.expected == null or view.revision != change.expected.?) return error.RevisionConflict;
-                if (proposed) |replacement| {
-                    if (!std.meta.eql(try @import("names.zig").of(view, self.schemas), try @import("names.zig").of(replacement, self.schemas))) return error.NameChanged;
-                }
-                if (change.bytes == null and view.rooted) return error.Rooted;
-                next.record_bytes = std.math.sub(u64, next.record_bytes, bytes.len) catch return error.Corrupt;
-                next.objects = std.math.sub(u64, next.objects, 1) catch return error.Corrupt;
-                next.roots = std.math.sub(u64, next.roots, @intFromBool(view.rooted)) catch return error.Corrupt;
-            } else if (change.expected != null or change.bytes == null) return error.Gone;
-            if (proposed) |view| {
-                const bytes = change.bytes.?;
-                if (!view.id.eql(change.id) or view.revision != next.revision) return error.Corrupt;
-                if (previous == null and change.id.incarnation != old.incarnation) return error.StaleWriter;
-                var edges = view.edges();
-                while (edges.next()) |edge| {
-                    if (edge.strength == .weak) continue;
-                    const target = blk: {
-                        for (self.changes) |candidate| if (candidate.id.eql(edge.target)) break :blk candidate.bytes;
-                        break :blk try kv.get(&edge.target.key());
-                    } orelse return error.DanglingReference;
-                    const target_view = try records.View.decode(target, self.limits, self.schemas);
-                    if (!target_view.id.eql(edge.target) or target_view.revision > next.revision) return error.Corrupt;
-                }
-                next.record_bytes = try std.math.add(u64, next.record_bytes, bytes.len);
-                next.objects = try std.math.add(u64, next.objects, 1);
-                next.roots = try std.math.add(u64, next.roots, @intFromBool(view.rooted));
-            }
-        }
-        next.last_sequence = self.ticket.sequence;
-        next.last_digest = self.digest;
-        for (self.changes) |change| {
-            const key = change.id.key();
-            if (change.bytes) |bytes| try kv.put(&key, bytes) else try kv.remove(&key);
-        }
-        for (self.changes) |change| if (change.bytes) |bytes| {
-            // Proposed bytes belong to the immutable batch, so backend writes
-            // cannot invalidate the edge iterator used by the barrier.
-            const view = try records.View.decode(bytes, self.limits, self.schemas);
-            try @import("names.zig").install(kv, view, self.schemas);
-            try collection.writeBarrier(&next.collection, kv, view);
-        };
-        if (self.collection) |request| try collection.apply(request, &next, kv, self.limits, self.schemas);
-        try kv.put(metadata_key, &next.encode());
-        return next;
+        var evaluation = Evaluation.init(&self);
+        return evaluation.advance(kv);
     }
 
     pub fn resolve(self: Batch, current: Metadata) !Resolution {

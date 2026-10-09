@@ -16,6 +16,7 @@ pub const Work = struct {
     request: Request = undefined,
     result: ?Result = null,
     planned: ?Result = null,
+    evaluation: ?core.Batch.Evaluation = null,
     completed: bool = false,
     pub fn next(owner: *attached.Attachment, force_recovery: bool) !?*Work {
         try owner.value.topLevel();
@@ -32,6 +33,7 @@ pub const Work = struct {
             .lookup => |value| .{ .lookup = value },
         } else return null;
         work.* = .{ .owner = owner, .active = true, .request = request };
+        if (request == .write) work.evaluation = core.Batch.Evaluation.init(&work.request.write);
         owner.works += 1;
         if (recovery) owner.recovery_work = true;
         return work;
@@ -58,10 +60,12 @@ pub const Work = struct {
         self.active = false;
         self.result = null;
         self.planned = null;
+        self.evaluation = null;
     }
 };
 pub fn from(raw: ?*common.c.GlowcapLoamWork) !*Work {
     const work: *Work = @ptrCast(@alignCast(raw orelse return error.NullPointer));
     if (!work.active) return error.StaleCompletion;
+    try common.EvaluationGuard.check(work.owner.store);
     return work;
 }

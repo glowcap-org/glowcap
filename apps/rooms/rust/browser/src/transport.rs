@@ -4,7 +4,7 @@
 use crate::{ice, signaling};
 use glowcap::{Connector, DialOrigin, Host, Locator, Runtime, RuntimeConfig, Session, browser};
 use rooms_application::web_relay;
-use rooms_glowcap::client::{Deadline, Tasks, directory::Directory};
+use rooms_glowcap::client::{Deadline, Tasks, directory::signaling::Route};
 use std::{io, time::Duration};
 use web_sys::Url;
 
@@ -83,6 +83,16 @@ impl WebFront {
 		)
 	}
 	fn target(&self, locator: &Locator) -> Result<String, io::Error> {
+		if let Some(advice) = locator.hints.get(rooms_application::web_channel::HINT) {
+			if locator.transport != glowcap::TRANSPORT_TCP {
+				return Err(invalid("WebSocket byte-channel advice requires cleartext TCP"));
+			}
+			let glowcap::HintValue::String(endpoint) = advice else {
+				return Err(invalid("WebSocket byte-channel advice must be a URL string"));
+			};
+			rooms_application::web_channel::endpoint(endpoint).map_err(invalid)?;
+			return Ok(endpoint.clone());
+		}
 		let target = glowcap::format_locator_uri(locator).map_err(io::Error::other)?;
 		if target.len() > web_relay::MAX_TARGET_BYTES {
 			return Err(invalid("Rooms web forwarding target exceeds its byte limit"));
@@ -100,7 +110,7 @@ impl WebFront {
 pub async fn open<D, F>(host: &Host, front: WebFront, select: F, ice: ice::Source) -> glowcap::Result<Runtime>
 where
 	D: Deadline + Tasks + Clone + 'static,
-	F: Fn(&glowcap::Locator, &DialOrigin) -> Result<Directory<D>, String> + 'static,
+	F: Fn(&glowcap::Locator, &DialOrigin) -> Result<Route<D>, String> + 'static,
 {
 	let connectors = [
 		front.connector()?,

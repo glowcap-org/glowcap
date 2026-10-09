@@ -62,6 +62,7 @@ export const OPEN = "open";
 export const ENTER = "enter";
 export const LIST_PUBLICATIONS = "listPublications";
 export const WATCH_PUBLICATIONS = "watchPublications";
+export const UNWATCH_PUBLICATIONS = "unwatchPublications";
 export const REGISTER = "register";
 export const INTRODUCE = "introduce";
 export const MEMBER_REGISTRATION = "memberRegistration";

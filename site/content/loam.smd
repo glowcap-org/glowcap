@@ -66,6 +66,13 @@ disk itself, the same way glowcap's protocol core never opens a socket. Your
 worker does the I/O, on threads you choose, against LMDB on disk or an
 in-memory store for tests.
 
+[Six layers from top to bottom. Peers call your Host and Vat over CapTP. The Loam attachment wakes actors and saves their state before replying. The Store keeps records, transactions and a bounded cache, and decides every read and write. Your storage worker runs that work on your threads against LMDB, IndexedDB or memory.]($image.siteAsset('diagram-loam-layers.svg'))
+
+Calls travel down from peers to the disk, and replies travel back up. The two
+Loam layers decide what happens; the two below them are yours and do the
+work. The **attachment** is the piece that joins a store to
+the Host you already run.
+
 A card's code is a plain function from its saved record and a call to a
 reply. It can propose new state, and it does no I/O, because a proposal that
 fails to save is thrown away and an email already sent could not be:
@@ -115,6 +122,8 @@ nothing for it.
 
 - Timers, unresolved promises, subscriptions, and handles to outside
   resources can't be saved.
+- [Performance]($link.page('performance').ref('persistent-actors-in-loam'))
+  charts call latency, memory and restart time from one machine.
 - Recovery is tested by killing the process mid-write, not by cutting power.
   The [evidence table](https://github.com/jimisaacs/glowcap/blob/main/docs/stability.md)
   lists every Loam check.
@@ -128,17 +137,31 @@ nothing for it.
 [What ships](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md#resource-models)
 tracks what is built.
 
-# Where to go next
+# Reading the whole story
 
 Chapter 07,
 [durable card](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/07_durable_card.zig),
 runs this page's restart as one short program: it moves a card, shuts
 everything down, and reopens the store to find the move still there.
 
-The [Loam guide](https://github.com/jimisaacs/glowcap/blob/main/docs/loam.md)
-has the exact calls, memory budgets, and failure recovery. The
-[C/Rust guide](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/c-and-rust.md)
-and [browser guide](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/browser.md)
-cover the other languages, and the
-[managed-access guide](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/access.md)
-goes deeper on sharing.
+The guides below go from the model to every contract. Read them in order to
+understand Loam top to bottom, or jump to the one you need.
+
+1. [Loam guide](https://github.com/jimisaacs/glowcap/blob/main/docs/loam.md):
+   the model, a walkthrough of chapter 07, the words used throughout, and how
+   durable actors run.
+2. [Stores, transactions and reads](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/store.md):
+   commits, the cache, and recovering a write whose outcome is unknown.
+3. [Durable names](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/publications.md):
+   how a sturdyref finds its actor after a restart.
+4. [Durable capability fields](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/references.md):
+   saving references to other actors and to objects on other machines.
+5. [Collection](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/collection.md):
+   deleting unreachable records in small batches while the program runs.
+6. [LMDB operations](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/lmdb.md):
+   sizing, growing, compacting, and measuring the store on disk.
+7. [Managed access](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/access.md):
+   grants, use and control references, revocation, and exact retries.
+8. [C and Rust](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/c-and-rust.md)
+   and [the browser](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/browser.md):
+   the same resources from other languages.

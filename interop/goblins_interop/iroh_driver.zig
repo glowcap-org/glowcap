@@ -314,8 +314,9 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
 
     var serving = try io.concurrent(serveGreeter, .{ listener, allocator, secret });
 
+    var child_argv: [8][]const u8 = undefined;
     var child = try std.process.spawn(io, .{
-        .argv = &.{ goblins_child.racket_path, caller_script, node_id, direct_addrs, actor_swiss, greeting_arg },
+        .argv = goblins_child.racketArgv(&child_argv, &.{ caller_script, node_id, direct_addrs, actor_swiss, greeting_arg }),
         .environ_map = environ_map,
         .stdout = .pipe,
         .stderr = .pipe,

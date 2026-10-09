@@ -1,7 +1,7 @@
 """Internal: the behavior trampoline, the ONE native callback in the binding.
 
 Every hosted object — a :meth:`Session.spawn` / :meth:`Session.publish`
-actor, a caretaker or attenuator proxy, or a host-wide giftable registers here
+actor, a caretaker or attenuator proxy, or a Host publication registers here
 and shares a single process-lifetime ``GlowcapHostBehavior`` whose ctx is the
 entry's registry id packed as a pointer-sized integer (``free`` = NULL: the
 registry owns the Python side, so there is nothing for the library to free).
@@ -46,7 +46,7 @@ class _BehaviorEntry:
     """One hosted object's behavior and its Host-local reference resolver.
 
     The resolver lets a :class:`Forward` chain, such as a caretaker over an
-    attenuator, compose in process. A giftable has no resolver until a session
+    attenuator, compose in process. A Host publication has no resolver until a session
     projects it and records that Host identity in the shared hosted index.
     """
 

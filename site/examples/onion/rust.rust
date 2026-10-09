@@ -8,7 +8,7 @@ let server = onion::listen(config, onion::ListenOptions::default()).await?;
 let service_key = server.service_key(); // persist securely to restore this service
 // From here, the CapTP workflow is transport-independent.
 println!("{}", server.uri()?); // hand this locator to partners
-server.host().publish_giftable("greeter", || Box::new(greeter))?;
+server.host().publish("greeter", || Box::new(greeter))?;
 loop {
     let session = server.accept().await?;
     session.serve().await?;

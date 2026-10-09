@@ -11,14 +11,19 @@ export async function denoBrowserSource(directory: string): Promise<string> {
 		await Deno.symlink(`${ROOT}${relative}`, target, { type: "dir" });
 	}
 	const config = JSON.parse(await Deno.readTextFile(`${ROOT}apps/rooms/web/deno.json`));
-	for (const name of ["vite", "@vitejs/plugin-react", "@deno/vite-plugin"]) delete config.imports[name];
+	// Only the browser graph stays: the publisher gets no build or test import.
+	for (const name of ["vite", "@vitejs/plugin-react", "@deno/vite-plugin", "@std/assert"]) {
+		delete config.imports[name];
+	}
 	delete config.tasks;
 	await Deno.writeTextFile(`${web}/deno.json`, JSON.stringify(config));
 	await Deno.copyFile(`${ROOT}apps/rooms/web/deno.lock`, `${web}/deno.lock`);
-	// Prune the copied lock after removing the build dependencies, then restore
-	// the ordinary frozen build. The configured compiler has warmed this cache.
+	// Prune the copied lock after removing the build and test imports, then
+	// restore the ordinary frozen build. Pruning re-resolves each npm specifier
+	// against registry metadata, which a shared cache warmed from the lock can
+	// hold older than the lock, so this may fetch it as the bundle below does.
 	const installed = await new Deno.Command(Deno.execPath(), {
-		args: ["install", "--config", `${web}/deno.json`, "--frozen=false", "--cached-only"],
+		args: ["install", "--config", `${web}/deno.json`, "--frozen=false"],
 		cwd: web,
 		stdout: "piped",
 		stderr: "piped",

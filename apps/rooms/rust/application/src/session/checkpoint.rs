@@ -52,54 +52,6 @@ impl core::error::Error for Refusal {}
 #[derive(PartialEq, Eq)]
 pub struct Checkpoint(model::State);
 impl Checkpoint {
-	/// Opaque expected scope for a bundle edit that may await platform discovery.
-	pub fn operations_bundle_context(&self) -> String {
-		let home = self
-			.0
-			.directories
-			.0
-			.iter()
-			.find(|directory| directory.home)
-			.map(|directory| &directory.id.0);
-		let trace = self
-			.0
-			.capabilities
-			.operations
-			.0
-			.iter()
-			.find(|credential| credential.capability == model::Operation::Trace)
-			.map(|credential| &credential.scope.0)
-			.unwrap_or(&self.0.trace_override.0);
-		serde_json::to_string(&(home, trace)).expect("serializing bounded scope text")
-	}
-	pub fn operations_bundle(&self) -> String {
-		use crate::server::operations::BOOT_CAPABILITIES;
-		let home = self
-			.0
-			.directories
-			.0
-			.iter()
-			.find(|directory| directory.home)
-			.map(|directory| &directory.id.0);
-		BOOT_CAPABILITIES
-			.iter()
-			.filter_map(|capability| {
-				self.0
-					.capabilities
-					.operations
-					.0
-					.iter()
-					.find(|credential| {
-						credential.capability.wire() == capability.id
-							&& (capability.id == "trace" || Some(&credential.scope.0) == home)
-					})
-					.map(|credential| {
-						alloc::format!("{} {}", capability.token, credential.swiss.0.as_str().unwrap_or(""))
-					})
-			})
-			.collect::<alloc::vec::Vec<_>>()
-			.join("\n")
-	}
 	pub fn uses_relay(&self) -> bool {
 		self.0.dm_mode == model::DmMode::Relay
 	}

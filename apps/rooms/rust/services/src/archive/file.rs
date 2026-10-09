@@ -52,6 +52,7 @@ struct Store {
 	shares: rooms_application::archive::shares::Ledger,
 }
 enum Completion {
+	RecordingSource(rooms_application::text::DocumentText),
 	#[cfg(feature = "processes")]
 	OnionKey(Option<Vec<u8>>),
 	Identity(rooms_application::archive::identity::Identity),
@@ -128,6 +129,9 @@ impl FileArchive {
 	}
 }
 impl Backend for FileArchive {
+	async fn clear_source(&mut self, source: &rooms_application::text::DocumentText) -> Result<(), Error> {
+		FileArchive::clear_source(self, source).await
+	}
 	fn blob_access(&self) -> impl super::BlobAccess + use<> {
 		files::ReadAccess(self.store.clone())
 	}

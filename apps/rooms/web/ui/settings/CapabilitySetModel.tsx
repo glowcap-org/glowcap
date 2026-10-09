@@ -157,7 +157,10 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 		mode,
 		text,
 		setMode,
-		setText,
+		setText: (value) => {
+			setText(value);
+			setRetryPending(false);
+		},
 		discard,
 		loaded,
 		busy,
@@ -167,6 +170,7 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 		editing,
 		setDraft: (next) => {
 			setDraftState(next);
+			setRetryPending(false);
 			setErrors([]);
 			setNotice("");
 		},
@@ -184,6 +188,7 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 			const next = new Map(draft);
 			next.set(capability, swiss);
 			setDraftState(next);
+			setRetryPending(false);
 			setEditing(null);
 			setErrors([]);
 			setNotice("");
@@ -202,14 +207,16 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 				try {
 					const requested = formatOpsBundle(wanted);
 					const result = await session.replaceOpsBundle(requested);
-					setDraftState(parseOpsBundleDraft(result.bundle));
+					// A refused atomic replacement keeps the requested draft for
+					// repair. Only its returned committed bundle becomes baseline.
+					setDraftState(result.failures.length === 0 ? parseOpsBundleDraft(result.bundle) : wanted);
 					setSavedBundle(result.bundle);
 					setErrors(
 						result.failures.map(({ capability, reason }) =>
 							capability == null ? reason : `${OPS_CATALOG[capability].label}: ${reason}`
 						),
 					);
-					setRetryPending(result.bundle === requested && result.failures.length > 0);
+					setRetryPending(result.failures.length > 0);
 					if (result.bundle === requested && result.failures.length === 0) setNotice(holdingsSetSaved);
 				} catch (cause) {
 					setErrors([cause instanceof Error ? cause.message : String(cause)]);

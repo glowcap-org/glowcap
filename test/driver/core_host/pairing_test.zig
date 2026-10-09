@@ -126,6 +126,33 @@ test "core host: transport loss unindexes a retained session before reconnect" {
     try host.releaseSession(lost);
 }
 
+test "core host: partial handshake keeps dial authority until terminal closure" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var host = test_host.init(allocator, @as([32]u8, @splat(0x59)), Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    const designator = "127.0.0.1:7031";
+    try host.ensureAdvertisedLocator("tcp");
+    const dialed = try host.openDialedLocator(tcpLocator(designator));
+
+    // A stream may deliver only part of the length prefix before the hello.
+    // Negotiation still owns the dial, even though no session is open yet.
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, host.feedBytes(dialed, "1"));
+    try std.testing.expect(host.dialedSessionFor("tcp", designator) == dialed);
+    failing.fail_index = std.math.maxInt(usize);
+    try host.feedBytes(dialed, "1");
+    try std.testing.expect(!dialed.sessionOpen());
+    try std.testing.expect(host.dialedSessionFor("tcp", designator) == dialed);
+    try std.testing.expectError(error.SessionPairExists, host.openDialedLocator(tcpLocator(designator)));
+
+    try host.transportClosed(dialed, "test connection closed during negotiation");
+    try std.testing.expectEqual(null, host.dialedSessionFor("tcp", designator));
+    const replacement = try host.openDialedLocator(tcpLocator(designator));
+    try host.releaseSession(replacement);
+    try host.releaseSession(dialed);
+}
+
 test "core host: equal designators on different transports remain distinct dials" {
     const allocator = std.testing.allocator;
     var host = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.withFrameCap(frame_cap));

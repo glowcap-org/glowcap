@@ -95,7 +95,7 @@ const DecoyGreeter = struct {
 /// Serve every partner that dials: Alice (who enlivens and deposits) and Carol
 /// (who withdraws). Both sessions share one `driver.Server` host, which is
 /// what lets the gift Alice deposited be withdrawn by Carol; the greeter is
-/// one Host-wide giftable, so both Ports project the same actor (ADR-0096).
+/// one Host publication, so both Ports project the same actor (ADR-0096).
 fn serveExporter(
     server: *driver.Server,
     done: *std.atomic.Value(bool),
@@ -105,7 +105,7 @@ fn serveExporter(
     // One thread drives one host: every host verb — the publication, the
     // accepts, the pumping, and the mid-run alias replacement — lives on this
     // serving thread; main only watches the atomics.
-    try server.publishGiftable(greeter_swiss, Greeter, .{ .primed = primed });
+    try server.publish(greeter_swiss, Greeter, .{ .primed = primed });
 
     var sessions: [4]?*driver.Session = .{ null, null, null, null };
     var count: usize = 0;
@@ -127,7 +127,7 @@ fn serveExporter(
             // Replace the alias with the decoy before Carol exists: the
             // withdrawal must project the deposited actor, not resolve the
             // name again.
-            server.publishGiftable(greeter_swiss, DecoyGreeter, .{}) catch {};
+            server.publish(greeter_swiss, DecoyGreeter, .{}) catch {};
             replaced.store(true, .release);
         }
     }
@@ -151,8 +151,7 @@ pub fn main(init: std.process.Init) !void {
     var bind_buf: [32]u8 = undefined;
     const bind = try std.fmt.bufPrint(&bind_buf, "{s}:{d}", .{ host_addr, glowcap_port });
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = bind }, .ephemeral, opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = bind }, .ephemeral, opts);
     defer server.deinit();
 
     var primed = std.atomic.Value(bool).init(false);
@@ -199,14 +198,14 @@ pub fn main(init: std.process.Init) !void {
 
     // Carol enlivens Alice's introducer, receives the give naming glowcap, and
     // must reach glowcap directly to use it.
+    var carol_argv: [8][]const u8 = undefined;
     var carol = try std.process.spawn(io, .{
-        .argv = &.{
-            goblins_child.racket_path,
+        .argv = goblins_child.racketArgv(&carol_argv, &.{
             recipient_script,
             alice_designator,
             introducer_swiss,
             carol_port_str,
-        },
+        }),
         .environ_map = init.environ_map,
         .stdout = .pipe,
         .stderr = .pipe,

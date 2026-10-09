@@ -25,7 +25,7 @@ amended_by: [ADR-0110]
 > `completion.Loop(webrtc.Backend)` adopts signaled peers and dials through a
 > configured `SignalingAuthority` under `driver.Bridge` and the generic Host,
 > proven by `zig build webrtc-loop`, and the native three-party redeem over a
-> bare `webrtc` give is proven by `zig build webrtc-bridge-redeem`.
+> bare `webrtc` give is proven by `zig build webrtc-redeem`.
 
 ## Decision
 
@@ -199,7 +199,7 @@ other capability.
 Phase 5 shipped the signaling object and its offer, answer, and candidate
 scenarios. This section records that wire shape. Generic Host adoption and
 three-party handoff redemption ship with the standing note's `webrtc-loop` and
-`webrtc-bridge-redeem` proofs.
+`webrtc-redeem` proofs.
 
 **One authority, exact exchange identity after admission.** The host-facing
 signaling authority stays keyed by peer designator: `offer(to, sdp)` resolves
@@ -339,7 +339,7 @@ without bound.
 The port is contained below the C ABI. All eighteen `extern "C"` functions keep
 their signatures, so the Zig resident, the companion archive, and every proof
 keep the same integration point. Six of the live proofs need only cargo, among
-them `webrtc-interop`, `webrtc-loop`, and `webrtc-bridge-redeem`, so most of the
+them `webrtc-interop`, `webrtc-loop`, and `webrtc-redeem`, so most of the
 evidence does not wait on a browser; the four Chromium proofs cover the
 browser-facing arm.
 
@@ -422,7 +422,7 @@ phase gated before the next.
   and candidate-trickle framing in "The signaling capability: the phase-5 wire
   shape" are exercised by the in-tree signaling and mesh scenarios. Host
   adoption and redeem over configured signaling are proved separately
-  (`webrtc-loop`, `webrtc-bridge-redeem`).
+  (`webrtc-loop`, `webrtc-redeem`).
 - **A signaling-aware generic dial completion.** The shared classifier can name
   the `signaling` shape without linking WebRTC. Executing that plan still
   requires a separately supplied signaling capability and an optional WebRTC

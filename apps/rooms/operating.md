@@ -66,10 +66,11 @@ directories, and clear the Rooms origin's browser site data.
 ## Operator capabilities
 
 Each flag below creates one capability. The server keeps its swiss number in
-the state directory and prints it as a `ROOMS-*` line at startup. A
+the state directory and prints its complete URI as a `ROOMS-*` line at startup. A
 capability whose flag was not given does not exist at all.
-`rooms-server --capabilities=<state-directory>` prints the saved lines again
-at any time.
+`rooms-server --capabilities=<state-directory>` prints the saved recipes when
+`GLOWCAP_ROOMS_LOCATOR` supplies the server's advertised locator. A minted
+timeline also needs its advertised locator in `GLOWCAP_ROOMS_TRACE_LOCATOR`.
 
 | Flag | Environment | Prints | Grants |
 | --- | --- | --- | --- |
@@ -160,42 +161,44 @@ attach to it and see the same thing; closing every browser changes nothing.
 glowcap apps rooms session serve --dir=.local/.state/rooms
 ```
 
-When its state, grants, listener, and administrator publication are ready,
-the process prints `ROOMS-SESSION-LISTENING`. It then writes the
-administrator sturdyref to `admin.sturdyref` in the state directory.
-`--readiness-file` puts it somewhere else; the Compose deployment uses a
-private tmpfs.
+When its managed workspace, listener and publications are ready, the process
+prints `ROOMS-SESSION-LISTENING`. It writes the workspace use sturdyref to
+`workspace.sturdyref` and the independent management sturdyref to
+`control.sturdyref` in the state directory. `--readiness-file` moves the use
+publication mirror; the Compose deployment uses a private tmpfs.
 
 - The file has mode 0600. It is removed on an orderly stop and before every
   restart.
 - `rooms-session --check-ready=<path>` reads it back as a health check.
-- The sturdyref grants complete administration of the session. Give it only
-  to the session's owner.
+- The workspace reference authorizes use; the control reference authorizes
+  management. Protect both, and share narrower grants through the access editor.
 
 In the browser, Attach (on the first screen, or under Settings, Session) opens
-the workspace the session owns. A new session adopts that browser's current
-workspace once. From then on, the session is the owner and every browser is a
-view of it.
+the workspace the session owns. Attaching selects that workspace; it does not
+copy the browser's previous session into it. Every attached browser is a view
+of the same managed owner.
 
-The administrator can issue narrower links:
+The access editor groups explicit permissions into presets for reading,
+conversation actions, workspace changes and custody. A held issuing control
+can create narrower or equal-permission access, subject to its own ceiling.
+The issuer keeps the control it can pass on. Sharing management creates a
+separately narrowed control, independent of workspace use permissions.
 
-- **Observe** can only read.
-- **Interact** can use ordinary room and workspace actions.
-- **Admin** manages the other links and the checkpoint.
-
-The session checks what a link may do every time it is used. So the
-administrator can narrow, pause, or revoke a link while someone is holding
-it, and a revocation survives a restart.
+The session checks the exact initiating grant on every operation and returned
+reader. A held control can edit, pause, resume or revoke its scoped grants;
+those changes survive restart. Unknown sends retain their original receipt
+and require review instead of a fresh resend.
 
 A password entered in an IRC bridge form is kept in `bridge-secrets.json` in
 the state directory, and only while a room still needs it. It never goes into
-the checkpoint or into a snapshot sent to an attached view. The file is plain
+the managed workspace or into a snapshot sent to an attached view. The file is plain
 JSON protected by the directory's own permissions, since anyone who can read
 the directory can already act as the session using the identity seed stored
 beside it.
 
-Share, on a local session, is the short-lived version: this browser hosts the
-session until the tab closes or reloads.
+A local browser workspace persists in IndexedDB. Sharing publishes its held
+use or control authority on the tab's current Host. Live connections end when
+the tab closes; reopening restores saved authority through the managed owner.
 
 ### Local command access
 
@@ -368,7 +371,12 @@ lets you override it.
 
 `--trace` serves the live timeline endpoint on loopback at `--trace-port`
 (default 9300, or `0` for any free port). It prints `ROOMS-TRACE-LISTENING`
-followed by the sturdyref its sockets require.
+followed by its trace sturdyref. The locator advertises separate
+`captp-websocket` and `trace-publish` endpoints. `/captp` opens a CapTP byte
+channel; fetching the trace object still requires its Swiss. The `/` viewer
+and `/publish` telemetry routes additionally require `?cap=<swiss>`.
+Use `--trace-connect=<ws-url>` and `--trace-publish=<ws-url>` to advertise
+exact routes through a deployment proxy, including its path prefixes.
 
 To watch: start the [ocapnviz](../ocapnviz/) viewer
 (`zig build ocapnviz-dev`), switch it to **Live**, and paste that sturdyref
@@ -379,17 +387,16 @@ captures, and **Stop** hands the capture to Play.
 Direct messages never pass through the room, so each member publishes its own
 trace to the same endpoint.
 
-- A browser tab reaches the endpoint through its own page origin (`/trace` and
-  `/publish` carry the socket). It publishes only while it holds the trace
+- A browser tab uses the advertised CapTP channel to acquire the trace
+  capability and the separately advertised producer route to publish. It publishes only while it holds the trace
   swiss number, taken through the Protocol visualizer toggle under Holdings.
 - A member's trace records who it talked to, when, which verb, and how many
   bytes, never the bytes themselves. The room server publishes its own frames
   in full.
 - A shared session publishes from the session process, and its attached tabs
   do not publish a second copy.
-- A browser tab cannot discover a free port chosen by
-  `GLOWCAP_ROOMS_TRACE_PORT=0`. Use a fixed port when you want members'
-  direct messages to appear.
+- An ephemeral trace port is carried in both advertised endpoints. A proxy
+  deployment supplies its public endpoints explicitly.
 
 ## The web launcher
 
@@ -454,26 +461,26 @@ transports and browser reachability, are in
   it must not turn those powers into identity inferred from a login string.
 
 - **Durable Rooms sessions do not make every resource durable.** Attached views
-  share one network identity and checkpoint. They also share directory
+  share one network identity and managed workspace. They also share directory
   discovery, archive choice, capabilities, peering intent, history, live files,
   operator actions, listener and IRC administration, and visualizer publication.
   Browser `File` handles and object URLs remain device-local.
-  A browser tab can bind the same actor onto its wasm Host with in-memory session
-  documents. That incarnation is the tab: reload mints a new Host, so a saved
-  hosted selector becomes local reconstruction rather than dialing a dead peer.
+  A browser tab opens its managed workspace in IndexedDB on its Wasm Host.
+  Reload restores durable grants and custody recipes; connection-bound
+  references still require their original authority to be reachable.
 
 - **A durable session's bridge credentials are retained, not encrypted.** The
   password a member answers a bridge form with lives in the session peer's own
   `bridge-secrets.json`, under the state directory's permissions, beside the
   identity seed that already grants the whole session. It never enters a
-  checkpoint, snapshot, or export, and it is dropped once no room still names
+  managed workspace, snapshot, or export, and it is dropped once no room still names
   its scope. A browser's local workspace holds none across a reload, and a
   workspace adopted into a peer carries the intent without the password; both
   ask the member to answer the bridge once more (ADR-0141).
   A live transferred attachment remains available only while its room, direct
   line, and session custody remain valid. A selected member archive may retain
   the same message's bytes separately and serve them after restart through its
-  own scoped capability. The checkpoint stores neither copy nor an invented
+  own scoped capability. The workspace stores neither copy nor an invented
   promise that an archive retained one. Room-link invitations are bounded
   workspace intent: local reconstruction and a durable Rooms session retain
   the handed sturdyref until the reader accepts or dismisses it.

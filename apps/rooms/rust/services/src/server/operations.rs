@@ -53,8 +53,9 @@ pub struct Minted {
 
 impl Minted {
 	/// The flush-left line an operator greps for.
-	pub fn line(&self) -> String {
-		format!("{} {}", self.capability.token, self.swiss)
+	pub fn line(&self, locator: &glowcap::Locator) -> Result<String, Error> {
+		let uri = glowcap::format_sturdyref(locator, self.swiss.as_bytes(), glowcap::CaptpVersion::V1_0)?;
+		Ok(format!("{} {uri}", self.capability.token))
 	}
 }
 
@@ -125,7 +126,7 @@ pub(super) fn publish(state: &Shared, minted: &[Minted]) -> Result<(), Error> {
 			// The other capabilities' behaviors land with their own owners.
 			_ => continue,
 		};
-		host.publish_giftable(&held.swiss, move || behavior)?;
+		host.publish(&held.swiss, move || behavior)?;
 	}
 	Ok(())
 }

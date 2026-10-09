@@ -18,14 +18,17 @@ pub const Store = struct {
     attachments: usize = 0,
     backend_owned: bool = false,
     startup_batch: ?core.Batch = null,
+    startup_evaluation: ?core.Batch.Evaluation = null,
     startup_result: ?core.Resolution = null,
     /// Validate foreign configuration before a storage open has durable effects.
     /// The core checks schema and cache laws; this profile only bounds its ABI.
     pub fn validateConfiguration(schemas: []const c.GlowcapLoamSchema, limits: c.GlowcapLoamLimits) !void {
-        if (schemas.len == 0 or schemas.len > 128 or limits.max_references == 0 or limits.max_operations == 0) return error.InvalidLimits;
+        if (schemas.len == 0 or schemas.len > 128 or limits.max_retentions == 0) return error.InvalidLimits;
+        try hostingOptions(limits).validate(0);
+        if (limits.record_capacity == 0 or limits.record_capacity > limits.max_leases -| 2 or limits.max_reference_saves == 0) return error.InvalidLimits;
         _ = try std.math.add(usize, limits.cache_slots, 1);
-        var declarations: [128 + access.records.profile.schemas.len + 2]core.Schema = undefined;
-        const configured = declarations[0 .. schemas.len + access.records.profile.schemas.len + 2];
+        var declarations: [128 + access.records.profile.schemas.len + 3]core.Schema = undefined;
+        const configured = declarations[0 .. schemas.len + access.records.profile.schemas.len + 3];
         populateSchemas(schemas, configured);
         try core.Store.validateConfiguration(configured, coreLimits(limits));
     }
@@ -33,14 +36,20 @@ pub const Store = struct {
         @memcpy(declarations[0..access.records.profile.schemas.len], &access.records.profile.schemas);
         declarations[access.records.profile.schemas.len] = hosting.publication.schema;
         declarations[access.records.profile.schemas.len + 1] = hosting.references.schema;
-        for (schemas, declarations[access.records.profile.schemas.len + 2 ..]) |schema, *target| target.* = .{ .id = schema.id, .version = schema.version, .max_payload = schema.max_payload, .max_edges = schema.max_edges };
+        declarations[access.records.profile.schemas.len + 2] = hosting.LiveEpoch.schema;
+        for (schemas, declarations[access.records.profile.schemas.len + 3 ..]) |schema, *target| target.* = .{ .id = schema.id, .version = schema.version, .max_payload = schema.max_payload, .max_edges = schema.max_edges };
     }
     fn coreLimits(limits: c.GlowcapLoamLimits) core.Store.Limits {
-        return .{ .records = .{ .max_record_bytes = 64 * 1024, .max_edges = max_content_fields }, .resident_bytes = limits.resident_bytes, .staging_bytes = limits.staging_bytes, .cache_slots = limits.cache_slots, .max_leases = limits.max_leases, .max_changes = limits.max_changes, .max_retentions = limits.max_references };
+        return .{ .records = .{ .max_record_bytes = limits.record_bytes, .max_edges = max_content_fields }, .resident_bytes = limits.resident_bytes, .staging_bytes = limits.staging_bytes, .cache_slots = limits.cache_slots, .max_leases = limits.max_leases, .max_changes = limits.max_changes, .max_retentions = limits.max_retentions };
+    }
+    /// One projection owns every portable attachment limit. The same options
+    /// validate before storage opens and configure the eventual Host attachment.
+    pub fn hostingOptions(limits: c.GlowcapLoamLimits) hosting.Options {
+        return .{ .max_endpoints = limits.max_references, .max_calls = limits.max_operations, .call_bytes = limits.call_bytes, .pending_bytes = limits.pending_bytes, .ingress_bytes = limits.ingress_bytes, .max_reference_saves = limits.max_reference_saves, .max_continuations = limits.max_continuations, .continuation_bytes = limits.continuation_bytes, .max_continuation_targets = limits.max_continuation_targets, .forward_reply_bytes = limits.forward_reply_bytes };
     }
     pub fn init(gpa: std.mem.Allocator, metadata: core.Metadata, schemas: []const c.GlowcapLoamSchema, limits: c.GlowcapLoamLimits) !*Store {
         try validateConfiguration(schemas, limits);
-        const declarations = try gpa.alloc(core.Schema, schemas.len + access.records.profile.schemas.len + 2);
+        const declarations = try gpa.alloc(core.Schema, schemas.len + access.records.profile.schemas.len + 3);
         errdefer gpa.free(declarations);
         populateSchemas(schemas, declarations);
         const owner = try gpa.create(Store);
@@ -59,8 +68,37 @@ pub const Store = struct {
     }
 };
 pub fn store(raw: ?*c.GlowcapLoamStore) !*Store {
-    return @ptrCast(@alignCast(raw orelse return error.NullPointer));
+    const owner: *Store = @ptrCast(@alignCast(raw orelse return error.NullPointer));
+    try EvaluationGuard.check(owner);
+    return owner;
 }
+
+threadlocal var active_evaluation: ?*EvaluationGuard = null;
+
+/// Only the synchronous callback stack owns reentry state. Independent workers
+/// and Host progress share no guard bytes. Each submitted Work still has one
+/// executor; finish, complete and release require that executor to have joined.
+/// Stable local frames support nested different-Store calls without allocation.
+pub const EvaluationGuard = struct {
+    owner: *Store = undefined,
+    prior: ?*EvaluationGuard = null,
+
+    pub fn check(owner: *Store) !void {
+        var frame = active_evaluation;
+        while (frame) |current| : (frame = current.prior) {
+            if (current.owner == owner) return error.ReentrantCall;
+        }
+    }
+    pub fn enter(self: *EvaluationGuard, owner: *Store) !void {
+        try check(owner);
+        self.* = .{ .owner = owner, .prior = active_evaluation };
+        active_evaluation = self;
+    }
+    pub fn leave(self: *EvaluationGuard) void {
+        std.debug.assert(active_evaluation == self);
+        active_evaluation = self.prior;
+    }
+};
 pub fn object(raw: c.GlowcapLoamObject) !core.ObjectId {
     return core.ObjectId.fromKey(&raw.key);
 }
@@ -74,6 +112,7 @@ pub fn code(err: anyerror) i32 {
         error.Busy, error.RecordUnloaded, error.PendingRead => shared.GLOWCAP_ERR_WOULD_BLOCK,
         error.OutOfMemory => shared.GLOWCAP_ERR_INTERNAL,
         error.StorageFailure => shared.GLOWCAP_ERR_IO,
+        error.Gone => shared.GLOWCAP_ERR_NOT_FOUND,
         error.RecoveryRequired, error.OutcomeUnknown => @import("mod.zig").GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED,
         error.StaleCompletion, error.WorkerNotRetired => @import("mod.zig").GLOWCAP_LOAM_ERR_STALE_COMPLETION,
         error.Denied, error.Paused, error.Revoked, error.OutOfScope, error.CeilingExceeded, error.DelegationDenied => @import("mod.zig").GLOWCAP_LOAM_ERR_DENIED,
@@ -84,7 +123,7 @@ pub fn code(err: anyerror) i32 {
 }
 pub fn policy(raw: c.GlowcapLoamPolicy) !access.core.Policy {
     const P = access.core.Policy;
-    if (raw.permission_count > P.max_permissions or raw.constraint_count > P.max_constraints) return error.PolicyLimit;
+    if (raw.permission_count > P.max_permissions or raw.constraint_count > P.max_constraints or raw.kind_count > P.max_kinds) return error.PolicyLimit;
     var permissions: [P.max_permissions]P.Key = undefined;
     var constraints: [P.max_constraints]P.Constraint = undefined;
     for (raw.permissions[0..raw.permission_count], 0..) |key, i| permissions[i] = @fromBackingInt(key);
@@ -93,7 +132,10 @@ pub fn policy(raw: c.GlowcapLoamPolicy) !access.core.Policy {
         1 => .upper_bound,
         else => return error.InvalidArgument,
     } };
-    return (try P.init(.{ .id = @fromBackingInt(std.mem.readInt(u128, &raw.identity, .big)), .permissions = permissions[0..raw.permission_count], .constraints = constraints[0..raw.constraint_count] })).withPrerequisiteMasks(raw.prerequisite_masks);
+    var kinds: [P.max_kinds]P.KindRule = undefined;
+    for (raw.kind_rules[0..raw.kind_count], kinds[0..raw.kind_count]) |source, *target| target.* = .{ .kind = @fromBackingInt(source.kind), .permissions = source.permissions, .subtree_permissions = source.subtree_permissions };
+    const vocabulary = try P.init(.{ .id = @fromBackingInt(std.mem.readInt(u128, &raw.identity, .big)), .permissions = permissions[0..raw.permission_count], .constraints = constraints[0..raw.constraint_count] });
+    return (try vocabulary.withPrerequisiteMasks(raw.prerequisite_masks)).withKinds(kinds[0..raw.kind_count]);
 }
 
 pub fn slice(comptime T: type, ptr: ?[*]const T, len: usize) ![]const T {

@@ -44,14 +44,14 @@ the locator and any per-connect options.
 >     defer endpoint.deinit() catch |err| std.log.err("iroh endpoint: {s}", .{@errorName(err)});
 >     var adapter = try iroh.MultiplexedAdapter.init(allocator, &endpoint);
 >     defer if (adapter.deinit()) |failure| std.log.err("iroh adapter: {s}", .{failure.primaryName()});
->     const providers = [_]glowcap.driver.HostRuntime.ProviderRegistration{.{
->         .multiplexed = .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
->     }};
+>     const residents = [_]glowcap.driver.HostRuntime.ProviderRegistration{
+>         .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
+>     };
 >
->     const session = try glowcap.driver.connectProviders(
+>     const session = try glowcap.driver.connect(
 >         allocator,
 >         io,
->         &providers,
+>         .{ .residents = &residents },
 >         partner,
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -151,13 +151,13 @@ snippet is not yet published.
 >     defer endpoint.deinit() catch |err| std.log.err("iroh endpoint: {s}", .{@errorName(err)});
 >     var adapter = try iroh.MultiplexedAdapter.init(allocator, &endpoint);
 >     defer if (adapter.deinit()) |failure| std.log.err("iroh adapter: {s}", .{failure.primaryName()});
->     const providers = [_]glowcap.driver.HostRuntime.ProviderRegistration{.{
->         .multiplexed = .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
->     }};
->     const server = try glowcap.driver.listenProviders(
+>     const residents = [_]glowcap.driver.HostRuntime.ProviderRegistration{
+>         .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
+>     };
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         io,
->         &providers,
+>         .{ .residents = &residents },
 >         iroh.transport_name,
 >         .{ .designator = "" },
 >         .{ .keyed = secret },

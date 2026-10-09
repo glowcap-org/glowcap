@@ -40,15 +40,32 @@ export async function proveSharedMixedDirect(
 		() => document.getElementById("roomName")?.textContent?.trim() === "ordinary-member",
 		undefined,
 		{ timeout: 30_000 },
+	).catch(async () =>
+		fail(`the mixed DM did not select its conversation: ${await first.locator("body").innerText()}`)
 	);
 	await first.fill("#line", "shared member opened the mixed browser line");
 	await first.click("#sendBtn");
 	await openDmTo(ordinary, "durable-member");
 	await awaitBubble(ordinary, "shared member opened the mixed browser line", "ordinary browser");
-	await ordinary.type("#line", "ordinary typing");
+	// Both attached views must have consumed the durable conversation feed
+	// before testing a transient typing notice from the ordinary browser.
 	for (const page of attached) {
-		await typingShown(page, "ordinary-member", "ordinary typing did not reach an attached browser");
+		await awaitBubble(page, "shared member opened the mixed browser line", "attached browser");
 	}
+	await ordinary.type("#line", "ordinary typing");
+	await Promise.all(
+		attached.map((page, index) =>
+			typingShown(page, "ordinary-member", `ordinary typing did not reach attached browser ${index + 1}`).catch(
+				async (error) => {
+					console.error(
+						"MIXED-TYPING-VIEWS",
+						await Promise.all([...attached, ordinary].map((view) => view.locator("body").innerText())),
+					);
+					throw error;
+				},
+			)
+		),
+	);
 	await ordinary.fill("#line", "");
 	await first.type("#line", "shared typing");
 	await typingShown(ordinary, "durable-member", "shared typing did not reach the ordinary browser");

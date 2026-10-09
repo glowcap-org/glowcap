@@ -156,7 +156,7 @@ const registered = [_]Table{
     },
     .{
         .file = "driver/core/host.zig",
-        .name = "giftables",
+        .name = "publications",
         .owner = "Application-installed bootstrap aliases in one Host; only that Host's projection seam resolves them for its session Ports.",
         .epoch = "Replacement intentionally changes discovery in place and Host teardown removes the row. Issued capabilities and deposited gifts retain Vat targets instead of this mutable name.",
     },
@@ -239,12 +239,6 @@ const registered = [_]Table{
         .epoch = "A row enters when `finishConnect` or `finishAccept` claims the connection and leaves at `closeConnection` (or adapter teardown, which sweeps stragglers). A stale id looks up nothing — the resident contract's drain-to-nothing rule.",
     },
     .{
-        .file = "driver/bridge_connect.zig",
-        .name = "by_slot",
-        .owner = "Loop slot indices this bridge itself handed out; a slot is the loop's own array position, never a number a partner supplied.",
-        .epoch = "A row lives from dial admission through application adoption or the redeem session-open edge, and leaves on completion, cancellation, or close before a slot can be reused.",
-    },
-    .{
         .file = "net/completion/kqueue.zig",
         .name = "pending",
         .owner = "File descriptors this backend opened or accepted, in one process's descriptor table. No peer names one.",
@@ -317,6 +311,66 @@ const registered = [_]Table{
         .name = "listeners",
         .owner = "In-process designators registered in one process-local registry.",
         .epoch = "A row lives while its listener is bound and is removed when it closes.",
+    },
+    .{
+        .file = "net/transport/inproc/exchange.zig",
+        .name = "listeners",
+        .owner = "Designators served through one Exchange, which several completion backends in one process share.",
+        .epoch = "A row lives from `listen` to `unlisten`; dials it never accepted see their peer close, so a later listener under the same designator inherits none of them.",
+    },
+    .{
+        .file = "net/transport/inproc/completion.zig",
+        .name = "conns",
+        .owner = "Synthetic descriptors this backend mints from its own `next_id` counter for in-process link ends. Nothing outside this backend chooses one.",
+        .epoch = "Monotonic and never reused, so a stale descriptor or a queued end whose row is gone finds no row rather than another connection's.",
+    },
+    .{
+        .file = "net/transport/external/completion.zig",
+        .name = "conns",
+        .owner = "Synthetic descriptors this backend mints from its own `next_id` counter for foreign provider connections. The provider's own handles and readiness descriptors live inside each row and never key it.",
+        .epoch = "Monotonic and never reused, so a late poll completion or a stale descriptor finds no row rather than another connection's.",
+    },
+    .{
+        .file = "net/completion_resident.zig",
+        .name = "conns",
+        .owner = "Connection ids this resident mints from its own `next_conn` counter and hands to the one HostRuntime it serves; backend descriptors live inside each row and never key it.",
+        .epoch = "Monotonic and never reused, so a late completion for a closed connection finds no row or its own closing row, never another connection.",
+    },
+    .{
+        .file = "net/completion_resident.zig",
+        .name = "dials",
+        .owner = "Request ids the serving HostRuntime mints per resident registration (`mintRuntimeId`) and passes to `start_connect`.",
+        .epoch = "The runtime never reuses a request id, and the row leaves at finish or settled cancel.",
+    },
+    .{
+        .file = "net/completion_resident.zig",
+        .name = "listeners",
+        .owner = "Listener tokens this resident mints from `next_listener`; the runtime's route id rides inside the row and never keys it.",
+        .epoch = "Monotonic and never reused, so a stopped listener's late accept cannot reach a later listener the runtime gave the same route.",
+    },
+    .{
+        .file = "net/completion_resident.zig",
+        .name = "conn_failures",
+        .owner = "The same connection ids `conns` keys; an entry exists only for a failed row whose backend lent a structured failure.",
+        .epoch = "The entry leaves when the runtime claims the failure or the row is released, and connection ids are never reused.",
+    },
+    .{
+        .file = "net/completion_resident.zig",
+        .name = "dial_failures",
+        .owner = "The same runtime request ids `dials` keys; an entry exists only for a failed dial whose backend lent a structured failure.",
+        .epoch = "The entry leaves at finish or cancel with its dial row, and the runtime never reuses a request id.",
+    },
+    .{
+        .file = "net/completion/uring_listeners.zig",
+        .name = "rows",
+        .owner = "Listening descriptors this io_uring backend opened itself in `openListener`.",
+        .epoch = "A row leaves when its descriptor closes (`forget`, a plain close, or the settled cancel), before the kernel can hand the number out again.",
+    },
+    .{
+        .file = "net/completion/uring_listeners.zig",
+        .name = "accepts",
+        .owner = "The user_data of each armed accept, chosen by the backend's caller, which gives every listener's accept its own value.",
+        .epoch = "An entry lives from the accept's submission to its one CQE, so a reused user_data names only the accept armed after that CQE retired.",
     },
 };
 

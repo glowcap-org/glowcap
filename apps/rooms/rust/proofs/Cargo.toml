@@ -13,10 +13,12 @@ publish.workspace = true
 unsafe_op_in_unsafe_fn = "deny"
 
 [features]
-async-host = ["glowcap/browser", "dep:rooms-glowcap", "dep:rooms-runtime", "dep:rooms-browser", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:gloo-timers", "dep:tokio", "dep:web-sys"]
+async-host = ["glowcap/browser", "dep:rooms-glowcap", "dep:rooms-runtime", "dep:rooms-browser", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:gloo-timers", "dep:tokio", "dep:web-sys", "dep:futures-util"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+# Native tests consume the library. Wasm proof builds explicitly request the
+# exported module, so ordinary Cargo tests do not link an unused shared library.
+crate-type = ["rlib"]
 
 [dependencies]
 rooms-application = { path = "../application" }
@@ -34,12 +36,17 @@ js-sys = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = ["WebSocket", "RtcDataChannel", "RtcConfiguration"] }
 gloo-timers = { workspace = true, features = ["futures"], optional = true }
 tokio = { workspace = true, features = ["io-util"], optional = true }
+futures-util = { workspace = true, features = ["alloc"], optional = true }
 glowcap = { package = "glowcap-rust-dogfood", path = "../../../../bindings/rust", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 glowcap = { workspace = true, features = ["loam"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rooms-services = { path = "../services" }
+rooms-platform = { path = "../platform" }
+rooms-runtime = { path = "../runtime" }
 rooms-glowcap = { path = "../glowcap", features = ["loam"] }
 glowcap = { workspace = true, features = ["tcp"] }
 tokio.workspace = true
+futures-util = { workspace = true, features = ["alloc"] }

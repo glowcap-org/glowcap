@@ -15,9 +15,9 @@ pub fn native(store: *h.loam.core.Store, backend: anytype) !void {
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(wide, 1) })).?.grant;
     const use = try c.use(&caps, backend, try c.descriptor(&caps, backend, owner, grant, null, true));
     defer use.release();
-    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = wide }, true));
+    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = wide }, true));
     defer root.release();
-    const id = try m.attenuation(&caps, backend, root, .{ .pause = true, .policy_ceiling = narrow });
+    const id = try m.attenuation(&caps, backend, root, .{ .delegate_control = true, .pause = true, .policy_ceiling = narrow });
     const child = try c.control(&caps, backend, id);
     defer child.release();
     {
@@ -68,7 +68,7 @@ fn descriptorBeforeHeader(store: *h.loam.core.Store, backend: anytype) !void {
     const resource = try f.resource(store, backend, owner, null);
     const terms = try f.vocabulary.terms(.{ .object = resource }, &.{f.vocabulary.read}, null);
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 0) })).?.grant;
-    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .pause = true }, true));
+    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .delegate_control = true, .pause = true }, true));
     defer root.release();
     const late = try root.begin(8);
     defer late.deinit() catch unreachable;
@@ -107,7 +107,7 @@ fn composedOutcome(store: *h.loam.core.Store, backend: anytype, committed: bool)
     const resource = try f.resource(store, backend, owner, null);
     const terms = try f.vocabulary.terms(.{ .object = resource }, &.{f.vocabulary.read}, null);
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 1) })).?.grant;
-    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .pause = true }, true));
+    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .delegate_control = true, .pause = true }, true));
     defer root.release();
     const child = try c.control(&caps, backend, try m.attenuation(&caps, backend, root, .{ .pause = true }));
     defer child.release();

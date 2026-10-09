@@ -13,7 +13,11 @@ pub fn run() {
 		vec![text("room")],
 		vec![text("standing"), text("directory"), text("conversation")],
 		vec![text("room"), text(""), text("conversation")],
-		vec![text("room"), text("directory"), text(&"a".repeat(513))],
+		vec![
+			text("room"),
+			text("directory"),
+			text(&"a".repeat(rooms_application::archive::MAX_CONVERSATION_BYTES + 1)),
+		],
 		vec![text("room"), text(&"é".repeat(4097)), text("conversation")],
 		vec![text("room"), Arg::Integer(3), text("conversation")],
 	] {

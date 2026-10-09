@@ -79,7 +79,7 @@ async def call_greeter(partner: Locator, expected: str) -> None:
 
 async def scene_happy() -> None:
     server = await tcp.keyed.listen("127.0.0.1", 0, seed=SEED_HAPPY)
-    server.host.publish_giftable("greeter", greeter)
+    server.host.publish("greeter", greeter)
     task = asyncio.create_task(serve_once(server))
     await call_greeter(server.locator, server.designator)
     await task
@@ -93,7 +93,7 @@ async def scene_squatter() -> None:
     designator = honest.designator
     await honest.close()
     squatter = await tcp.keyed.listen("127.0.0.1", 0, seed=SEED_SQUATTER)
-    squatter.host.publish_giftable("greeter", greeter)
+    squatter.host.publish("greeter", greeter)
     task = asyncio.create_task(serve_once(squatter))
     partner = tcp.keyed.locator(designator, "127.0.0.1", squatter.port)
     try:
@@ -108,7 +108,7 @@ async def scene_squatter() -> None:
 
 async def scene_restart() -> None:
     first = await tcp.keyed.listen("127.0.0.1", 0, seed=SEED_RESTART)
-    first.host.publish_giftable("greeter", greeter)
+    first.host.publish("greeter", greeter)
     designator = first.designator
     task = asyncio.create_task(serve_once(first))
     await call_greeter(first.locator, designator)
@@ -116,7 +116,7 @@ async def scene_restart() -> None:
     await first.close()
 
     second = await tcp.keyed.listen("127.0.0.1", 0, seed=SEED_RESTART)
-    second.host.publish_giftable("greeter", greeter)
+    second.host.publish("greeter", greeter)
     if second.designator != designator:
         fail("keyed-tcp-restart", f"restart designator drifted: {designator} vs {second.designator}")
     task = asyncio.create_task(serve_once(second))

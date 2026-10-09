@@ -62,7 +62,6 @@ from _protocol_gen import (  # noqa: E402
     POST,
     PUBLICATION_FIELDS,
     REGISTER,
-    REGISTRATION_EVENT_FIELDS,
     REGISTRATION_ID_PATTERN,
     REGISTRATION_ROW_FIELDS,
     ROOM_SENDER,
@@ -74,12 +73,8 @@ from _protocol_gen import (  # noqa: E402
     WATCH_SNAPSHOT_FIELDS,
 )
 
-# How long `register` waits for the directory's `notify("registered")` before it
-# gives up. Matches the TypeScript client's `REGISTER_ACK_TIMEOUT_MS`: a
-# registration whose ack never lands must surface as a failure the caller can
-# retry, not a silent hang, and the window sits far above the round-trip a
-# healthy directory answers within.
-REGISTER_ACK_TIMEOUT_S = 10.0
+# Registration acquires identity and custody in one bounded reply.
+REGISTER_TIMEOUT_S = 10.0
 MAX_UNREAD_LINES = 256
 
 
@@ -228,6 +223,7 @@ class Directory:
         self.session = session
         self._directory = directory
         self._runtime = runtime
+        self._name: Ref | None = None
 
     @classmethod
     async def connect(cls, locator: str) -> "Directory":
@@ -270,26 +266,29 @@ class Directory:
         return _watch_rooms(await self.session.send(self._directory, WATCH_PUBLICATIONS, [inbox]))
 
     async def register(self, nick: str, locator: str) -> str:
-        """Announce a dialable DM member. Resolves once the directory acks
-        ``registered``, and raises
-        :class:`TimeoutError` if that ack never lands, so a caller can retry
-        instead of waiting forever on a directory that failed the registration
-        after accepting the message."""
-        done = asyncio.get_running_loop().create_future()
-        fields, _room = WATCH_KINDS["registered"]
-
-        def inbox(verb: str, args: list):
-            if verb == NOTIFY and args and args[0] == "registered" and not done.done():
-                # The member's own register inbox hears the name and the id, the
-                # watcher shape without its count.
-                if not _fits([field for field in fields if field[0] != "count"], args[1:]) or args[1] != nick:
-                    raise ValueError(f'register("{nick}") received a malformed acknowledgement')
-                done.set_result(args[2])
-            return None
-
-        observer = self.session.spawn(inbox)
-        await self.session.send(self._directory, REGISTER, [nick, locator, observer])
-        return await asyncio.wait_for(done, REGISTER_ACK_TIMEOUT_S)
+        """Acquire the committed nickname, identity and exact live name."""
+        observer = self.session.spawn(lambda _verb, _args: None)
+        try:
+            reply = await asyncio.wait_for(
+                self.session.send(self._directory, REGISTER, [nick, locator, observer]),
+                REGISTER_TIMEOUT_S,
+            )
+        finally:
+            self.session.release(observer)
+        if not isinstance(reply, list) or len(reply) != 3 or reply[0] != nick or not isinstance(reply[2], Ref):
+            if isinstance(reply, list) and len(reply) == 3 and isinstance(reply[2], Ref):
+                self.session.release(reply[2])
+            raise ValueError(f'register("{nick}") did not return its committed registration')
+        try:
+            registration_id = _registration_id(reply[1], f'register("{nick}")')
+        except ValueError:
+            self.session.release(reply[2])
+            raise
+        previous = self._name
+        self._name = reply[2]
+        if previous is not None:
+            self.session.release(previous)
+        return registration_id
 
     async def member_registration(self, peer: str) -> str:
         """Return the exact live generation of ``peer``'s nickname."""

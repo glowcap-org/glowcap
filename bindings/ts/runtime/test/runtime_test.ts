@@ -117,6 +117,7 @@ Deno.test("Host session limits carry independent transient and durable byte budg
 		outboundHighWaterBytes: 128 * 1024,
 		maxRetainedSentAnswerBytes: 8 * 1024 * 1024,
 	});
+	host.setIngressLimits({ maxPendingTurns: 4096, maxPendingBytes: 1024 * 1024, maxChunkBytes: 128 * 1024 });
 	let refused = false;
 	try {
 		host.setSessionLimits({ maxRetainedSentAnswerBytes: -1 });

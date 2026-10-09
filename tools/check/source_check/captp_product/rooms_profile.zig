@@ -161,8 +161,8 @@ pub fn checkRoomsInputParseFailures(
     const consumers = [_][]const u8{
         "apps/rooms/web/ui/page_bootstrap.ts",
         "apps/rooms/web/ui/joining.ts",
-        "apps/rooms/web/ui/session/attached_session.ts",
-        "apps/rooms/web/ui/session/attached_command_powers.ts",
+        "apps/rooms/web/ui/session/managed/controller.ts",
+        "apps/rooms/web/ui/session/managed/commands.ts",
     };
     for (consumers) |path| {
         const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {

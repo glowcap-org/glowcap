@@ -230,6 +230,7 @@ pub fn irohDriverModule(
 /// form they use.
 pub const InstalledArchive = struct {
     static: *std.Build.Step.Compile,
+    static_install: *std.Build.Step.InstallArtifact,
     dynamic: *std.Build.Step.Compile,
     dynamic_install: *std.Build.Step.InstallArtifact,
 };
@@ -256,6 +257,7 @@ pub fn installArchive(
     b.getInstallStep().dependOn(&dynamic_install.step);
     return .{
         .static = static_lib,
+        .static_install = static_install,
         .dynamic = shared_lib,
         .dynamic_install = dynamic_install,
     };

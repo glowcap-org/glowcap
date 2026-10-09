@@ -214,12 +214,12 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # native Host while the first owner is still joining its DIAL tasks.
         self._release_task: "Optional[asyncio.Task]" = None
         self._release_started = False
-        # Trampoline ctx of each giftable, by published name, so
+        # Trampoline ctx of each Host publication, by published name, so
         # `Session.published_ref` can find the one it must bind. The registry is
         # process-global, not host-scoped, so nothing drops these when the host
-        # dies — close() frees them, or one row leaks per giftable per Host
+        # dies — close() frees them, or one row leaks per Host publication per Host
         # generation.
-        self._giftables: "dict[str, int]" = {}
+        self._publications: "dict[str, int]" = {}
         # Every ordinary Session.spawn/publish trampoline on this Host. Actors
         # live in the Host Vat, so closing the Port that first projected one
         # must not unregister behavior another Port can still call.
@@ -227,7 +227,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # Ctx ids a re-publish displaced. Existing capabilities and gifts still
         # reach the old Host-Vat actor, so its trampoline stays registered until
         # close() drops it with the rest.
-        self._displaced_giftables: "list[int]" = []
+        self._displaced_publications: "list[int]" = []
         # Strong ownership of process-global callback entries belongs to the
         # Host, not the global lookup. This map may contain a behavior that
         # captures this Host; Python's collector can reclaim that local cycle.
@@ -245,8 +245,8 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             self._diagnostic_id = diagnostic_id.value
             self._finalizer_state = _HostFinalizerState(
                 self._raw,
-                self._giftables,
-                self._displaced_giftables,
+                self._publications,
+                self._displaced_publications,
                 self._hosted,
                 context,
                 self._diagnostic_id,
@@ -300,8 +300,8 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         self._diagnostic_id = diagnostic_id.value
         self._finalizer_state = _HostFinalizerState(
             out,
-            self._giftables,
-            self._displaced_giftables,
+            self._publications,
+            self._displaced_publications,
             self._hosted,
             context,
             self._diagnostic_id,

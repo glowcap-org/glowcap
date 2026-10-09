@@ -1,5 +1,6 @@
 //! Resource lookup supplies data; the shared managed access scope evaluator owns the
 //! answer. Fake unloaded rows model record demand, not asynchronous storage.
+const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");
 const core = f.core;
@@ -190,15 +191,15 @@ test "access resident graph views expire on reparent and allocate no read storag
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var graph = try f.graphInit(failing.allocator());
     defer graph.deinit() catch unreachable;
-    const root = try graph.create(graph.revision(), f.kind, null);
-    const other = try graph.create(graph.revision(), f.kind, null);
-    const child = try graph.create(graph.revision(), f.kind, root);
+    const root = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const other = try graph.create(graph.revision(), &structural_policy, f.kind, null);
+    const child = try graph.create(graph.revision(), &structural_policy, f.kind, root);
     var view = graph.readView();
     const allocations = failing.alloc_index;
     failing.fail_index = allocations;
     const subtree: core.Scope = .{ .owned_subtree = root };
     try std.testing.expect(try subtree.contains(&view, child));
-    try graph.reparent(graph.revision(), child, other);
+    try graph.reparent(graph.revision(), &structural_policy, child, other);
     try std.testing.expectError(error.RevisionConflict, subtree.contains(&view, child));
     view = graph.readView();
     try std.testing.expect(!try subtree.contains(&view, child));

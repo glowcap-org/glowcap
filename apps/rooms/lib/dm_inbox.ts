@@ -1,7 +1,7 @@
 // Being reachable by direct message: one inbox per peer, offered to the room.
 //
-// The inbox is a *giftable* rather than published on one session because the peer
-// reaches it by redeeming an introduction, which dials this host, and a giftable
+// The inbox is a *Host publication* rather than published on one session because the peer
+// reaches it by redeeming an introduction, which dials this host, and a Host publication
 // is what answers on the connection that dial opens. `Session.publishedRef` then
 // names the position the directory's own connection granted it.
 //
@@ -21,7 +21,7 @@ import type { Directory } from "./room/client.ts";
 export interface InboxOfferer {
 	/** Mint an inbox for `peer`'s registration ID if there is none, and offer it to the
 	 * directory. Always re-offers across a directory reconnect. */
-	offer(peer: string, registrationId: string): void;
+	offer(peer: string, registrationId: string, opening: string): void;
 	/** Forget the inbox minted for `registrationId`, so a later `offer` mints a fresh one.
 	 * Call it when the registration leaves: the next holder of that name is someone else
 	 * and must not inherit their inbox. The old issued capability keeps its exact
@@ -72,7 +72,7 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 		}
 		return held.publisher;
 	}
-	// Every live or provisional alias, and whether `publishGiftable` has taken
+	// Every live or provisional alias, and whether `publish` has taken
 	// it. Retirement removes a published name only after scheduling native
 	// unpublication ahead of any replacement publication.
 	const names = new Map<string, boolean>();
@@ -101,7 +101,7 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 				const pending = new Promise<void>((resolve) =>
 					queueMicrotask(() => {
 						try {
-							host.unpublishGiftable(name);
+							host.unpublish(name);
 							retiringNames.delete(name);
 						} catch (error) {
 							// The native alias is still live, so restore the ledger rather than
@@ -119,7 +119,7 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 				return pending;
 			};
 			return {
-				offer(peer: string, registrationId: string): void {
+				offer(peer: string, registrationId: string, opening: string): void {
 					if (closed) return;
 					const key = registrationId;
 					if (opts.skip?.(peer)) return;
@@ -156,11 +156,11 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 						let ref: Ref | null = null;
 						try {
 							if (names.get(name) !== true) {
-								host.publishGiftable(name, opts.behaviorFor(peer, registrationId));
+								host.publish(name, opts.behaviorFor(peer, registrationId));
 								names.set(name, true);
 							}
 							ref = dir.session.publishedRef(name);
-							if (ref === null) throw new Error("the giftable has no live capability");
+							if (ref === null) throw new Error("the Host publication has no live capability");
 						} catch (err) {
 							// A name the Host never took is free immediately. Once published,
 							// keep it for a later re-offer; explicit forget/close retires it.
@@ -171,7 +171,7 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 							opts.onError?.(peer, err);
 							return;
 						}
-						dir.offerInbox(peer, registrationId, ref).catch((err) => opts.onError?.(peer, err));
+						dir.offerInbox(peer, registrationId, opening, ref).catch((err) => opts.onError?.(peer, err));
 					});
 				},
 				forget(registrationId: string): void {

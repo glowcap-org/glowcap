@@ -12,16 +12,16 @@ struct State {
 pub struct Inbox<D: Tasks> {
 	state: Rc<RefCell<State>>,
 	reply: Option<Ref>,
-	_client: Client<D>,
+	_client: Caller<D>,
 	closed: Option<D::Task>,
 }
-impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
+impl<D: Deadline + Tasks + Clone + 'static> Route<D> {
 	/// Host and file the answering inbox on this exact directory connection.
 	/// The caller owns its event stream and feeds its WebRTC transport adapter.
 	pub async fn signaling_inbox(&self) -> Result<Inbox<D>, Error> {
 		let state = Rc::new(RefCell::new(State::default()));
 		let weak = Rc::downgrade(&state);
-		let reply = self.client.session.spawn_owned(move |verb, args| {
+		let reply = self.caller.host().spawn(move |verb, args| {
 			let state = weak.upgrade().ok_or("the signaling inbox has ended")?;
 			if state.borrow().ended {
 				return Err("the signaling inbox has ended".into());
@@ -38,18 +38,20 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 			Ok(Argument::Void)
 		})?;
 		let weak = Rc::downgrade(&state);
-		let session = self.client.session.clone();
-		let closed = self.client.deadline.spawn(async move {
-			let _ = session.closed().await;
-			if let Some(state) = weak.upgrade() {
-				close(&state);
-			}
+		let session = self.introducer.clone().or_else(|| self.caller.session().cloned());
+		let closed = session.map(|session| {
+			self.caller.platform().spawn(async move {
+				let _ = session.closed().await;
+				if let Some(state) = weak.upgrade() {
+					close(&state);
+				}
+			})
 		});
 		let inbox = Inbox {
 			state,
 			reply: Some(reply.clone()),
-			_client: self.client.clone(),
-			closed: Some(closed),
+			_client: self.caller.clone(),
+			closed,
 		};
 		self.offer_signaling(&reply).await?;
 		Ok(inbox)

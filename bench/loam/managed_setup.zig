@@ -80,7 +80,10 @@ pub fn issue(self: anytype, command: core.GrantPlan.Command) !core.GrantId {
     } else return error.NoProgress;
     var append: ?storage.Append = if (plan.?.delta == .issue) try storage.Append.init(&read, .grant) else null;
     defer if (append) |*path| path.deinit() catch unreachable;
-    if (append) |*path| try pump(self, path);
+    if (append) |*path| {
+        path.grant_parent = plan.?.delta.issue.parent;
+        try pump(self, path);
+    }
     try self.store.begin();
     errdefer if (self.store.phase == .staging) self.store.abort() catch unreachable;
     const result = try storage.stage.grant(&read, &plan.?, if (append) |*path| path else null);

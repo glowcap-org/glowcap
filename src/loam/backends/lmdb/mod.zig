@@ -1,4 +1,4 @@
-//! Optional blocking native storage. The embedding executes reads and commits
+//! Optional blocking storage. The embedding executes reads and commits
 //! off the Host turn and joins them before close. No mapped value escapes a
 //! backend call, and no LMDB transaction follows the lifetime of a capability.
 const std = @import("std");
@@ -19,7 +19,7 @@ pub const Lmdb = struct {
     pub const Options = struct {
         map_bytes: usize = 256 * 1024 * 1024,
         max_readers: u32 = 16,
-        mode: union(enum) { create: core.StoreId, open: core.StoreId },
+        mode: union(enum) { create: core.StoreId, open: core.StoreId, bootstrap: core.StoreId },
     };
 
     /// The directory must exist. Create refuses an existing Loam store; open
@@ -34,7 +34,10 @@ pub const Lmdb = struct {
         errdefer c.loam_lmdb_close_fd(directory);
         const fd = c.loam_lmdb_lock(directory);
         if (fd < 0) return error.CustodyUnavailable;
-        errdefer c.loam_lmdb_close_fd(fd);
+        errdefer {
+            _ = c.loam_lmdb_unlock(fd);
+            c.loam_lmdb_close_fd(fd);
+        }
         var env: ?*c.Env = null;
         try check(c.mdb_env_create(&env));
         errdefer c.mdb_env_close(env.?);
@@ -50,16 +53,12 @@ pub const Lmdb = struct {
         try check(c.mdb_dbi_open(txn.?, null, 0, &dbi));
         var kv: Kv = .{ .txn = txn.?, .dbi = dbi };
         const stored = try kv.get(core.metadata_key);
-        const meta: core.Metadata = switch (options.mode) {
-            .create => |id| blk: {
-                if (stored != null) return error.AlreadyExists;
-                break :blk .{ .store = id };
-            },
-            .open => |id| blk: {
-                const found = try core.Metadata.decode(stored orelse return error.MissingStore);
-                if (found.store != id) return error.StoreMismatch;
-                break :blk found;
-            },
+        // Absent metadata means new storage only when no physical rows remain.
+        // One cursor seek verifies this under the same exclusive transaction;
+        // reclaiming an allocator/identity floor would revive stale authority.
+        if (stored == null and try kv.next("", null) != null) return error.Corrupt;
+        const meta = switch (options.mode) {
+            inline else => |id, mode| try core.Metadata.select(id, @field(core.OpenMode, @tagName(mode)), stored),
         };
         const claimed = try meta.claim();
         try kv.put(core.metadata_key, &claimed.encode());
@@ -76,7 +75,11 @@ pub const Lmdb = struct {
     /// Store must also retire its leases and staging before its own deinit.
     pub fn close(self: *Lmdb) !void {
         if (self.users.fetchOr(closing, .acq_rel) & ~closing != 0) return error.Busy;
-        if (self.environment_open) c.mdb_env_close(self.env);
+        if (self.environment_open) {
+            c.mdb_env_close(self.env);
+            self.environment_open = false;
+        }
+        try check(c.loam_lmdb_unlock(self.lock_fd));
         c.loam_lmdb_close_fd(self.lock_fd);
         c.loam_lmdb_close_fd(self.directory_fd);
         self.* = undefined;
@@ -187,7 +190,7 @@ pub const Lmdb = struct {
         return self.statistics();
     }
 
-    /// Increase the native map between backend operations. Copied record leases
+    /// Increase the LMDB map between backend operations. Copied record leases
     /// remain valid. Active workers refuse growth; remapping failure fences the
     /// backend for close/reopen because LMDB may have released the old mapping.
     /// A later successful write persists the increased size in LMDB metadata.
@@ -277,28 +280,41 @@ pub const Lmdb = struct {
         errdefer c.mdb_txn_abort(txn.?);
         var kv: Kv = .{ .txn = txn.?, .dbi = self.dbi };
         const next = try batch.apply(&kv);
-        return .{ .owner = self, .txn = txn, .metadata = next };
+        return .{ .owner = self, .state = .{ .active = .{ .txn = txn.?, .metadata = next } } };
     }
 
     pub const Commit = struct {
         owner: *Lmdb,
-        txn: ?*c.Txn,
-        metadata: core.Metadata,
+        state: union(enum) {
+            active: struct { txn: *c.Txn, metadata: core.Metadata },
+            finished: core.Outcome,
+        },
 
+        /// Commit once and retain the reported outcome. A repeated completion
+        /// must not turn an applied or uncertain write into confirmed absence.
         pub fn finish(self: *Commit) core.Outcome {
-            const active = self.txn orelse return .{ .unchanged = error.Closed };
-            self.txn = null;
-            defer self.owner.release();
-            if (c.mdb_txn_commit(active) != 0) return .unknown;
-            return .{ .committed = self.metadata };
+            const active = switch (self.state) {
+                .active => |value| value,
+                .finished => |outcome| return outcome,
+            };
+            const outcome: core.Outcome = if (c.mdb_txn_commit(active.txn) == 0)
+                .{ .committed = active.metadata }
+            else
+                .unknown;
+            self.state = .{ .finished = outcome };
+            self.owner.release();
+            return outcome;
         }
 
+        /// Abandon an active transaction. A finished outcome stays final.
         pub fn abort(self: *Commit) void {
-            if (self.txn) |active| {
-                c.mdb_txn_abort(active);
-                self.owner.release();
-            }
-            self.txn = null;
+            const active = switch (self.state) {
+                .active => |value| value,
+                .finished => return,
+            };
+            c.mdb_txn_abort(active.txn);
+            self.state = .{ .finished = .{ .unchanged = error.Closed } };
+            self.owner.release();
         }
     };
 
@@ -338,7 +354,9 @@ const Kv = struct {
         defer c.mdb_cursor_close(cursor.?);
         var key = val(after orelse prefix);
         var value: c.Val = undefined;
-        var rc = c.mdb_cursor_get(cursor.?, &key, &value, 17); // MDB_SET_RANGE
+        // MDB_SET_RANGE requires a nonempty key. Empty prefix with no floor
+        // selects the first physical row, including on a brand-new database.
+        var rc = c.mdb_cursor_get(cursor.?, &key, &value, if (prefix.len == 0 and after == null) 0 else 17); // MDB_FIRST / MDB_SET_RANGE
         if (rc == c.not_found) return null;
         try check(rc);
         if (after) |previous| {

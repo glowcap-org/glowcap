@@ -236,7 +236,7 @@ export class Session extends SessionApplication {
  * behavior must reply to its caller (send to a reply capability it was handed,
  * or hand back a fresh one), it reads the arriving session here:
  *
- *   host.publishGiftable("dm", (verb, args) => {
+ *   host.publish("dm", (verb, args) => {
  *     const from = String(args[0]), text = String(args[1]);
  *     const reply = args[2];                     // a Ref the caller passed
  *     const session = currentSession();          // the session it arrived through

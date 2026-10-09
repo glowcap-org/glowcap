@@ -38,6 +38,13 @@ pub fn claimOutboundRelease(self: *Session, id: model.AnswerPosition) bool {
     return true;
 }
 
+/// Consume the application notification before invoking its observer. An
+/// absent row has already retired or failed before publication.
+pub fn consumeOutboundNotification(self: *Session, id: model.AnswerPosition) void {
+    const entry = self.outbound_answers.getPtr(id) orelse return;
+    entry.application_notification_consumed = true;
+}
+
 /// Reserve storage for one fresh inbound answer without publishing its name.
 /// The caller has already selected the wire or virtual namespace identity and
 /// commits it only after the rest of the inbound frame is prepared.

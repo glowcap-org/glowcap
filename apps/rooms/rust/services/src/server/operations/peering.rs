@@ -20,6 +20,7 @@ use tokio::sync::watch;
 
 const PUBLISH: &str = rooms_application::protocol_data::PUBLISH_DURABLE_ROOM;
 const READY: &str = rooms_application::protocol_data::PUBLICATION_READY;
+const DESCRIBE: &str = rooms_application::protocol_data::PUBLICATION_DESCRIBE;
 const REVOKE: &str = rooms_application::protocol_data::REVOKE;
 
 /// What a lease's `ready` waits on: nothing yet, live, or why not.
@@ -142,10 +143,19 @@ fn lease(shared: Shared, id: String) -> impl FnMut(&str, &[Argument]) -> Result<
 				"room publication lease {verb} does not take capability arguments"
 			));
 		}
-		if !args.is_empty() && (verb == READY || verb == REVOKE) {
+		if !args.is_empty() && matches!(verb, READY | REVOKE | DESCRIBE) {
 			return Err(format!("{verb} takes no arguments"));
 		}
 		match verb {
+			DESCRIBE => {
+				let state = shared.borrow();
+				let phase = match state.peering_ready.get(&id).map(|ready| ready.borrow().clone()) {
+					Some(None) => "publishing",
+					Some(Some(Ok(()))) => "live",
+					Some(Some(Err(_))) | None => "failed",
+				};
+				Ok(phase.into())
+			}
 			READY => {
 				let state = shared.borrow();
 				let Some(ready) = state.peering_ready.get(&id) else {
@@ -222,7 +232,10 @@ fn fresh_id(state: &State) -> Result<Id, String> {
 	for _ in 0..8 {
 		rooms_platform::entropy::fill(&mut bytes).map_err(|e| format!("drawing a publication identity failed: {e}"))?;
 		let id = Id::from_entropy(bytes);
-		if state.foreign.by_id(id.as_str()).is_none() && !state.rooms.entry_id_known(&id) {
+		if state.foreign.by_id(id.as_str()).is_none()
+			&& !state.rooms.entry_id_known(&id)
+			&& state.authority.publication_room(id.as_str()).is_none()
+		{
 			return Ok(id);
 		}
 	}

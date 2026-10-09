@@ -1,9 +1,10 @@
 //! One completion turn for the keyed-relay adapter.
 //!
 //! The backend owns state and public verbs. This module owns the turn-level
-//! order: drain resolver completions, retry owed internal submissions, poll
-//! the wrapped platform, dispatch each returned completion, then drain ready
-//! external completions.
+//! order: drain resolver completions, retry owed internal submissions, service
+//! the registration, poll the wrapped platform, dispatch each returned
+//! completion, service the registration again, then drain ready external
+//! completions.
 
 const completion = @import("../../../completion/loop.zig");
 
@@ -19,6 +20,7 @@ pub fn Machine(
             Access.retryPendingDialCloses(backend);
             Access.retryPendingSecureSends(backend);
             Access.retryPendingCloses(backend);
+            Access.serviceRegistration(backend);
             // Pool starvation is an owed platform arm, but polling does not
             // create capacity. Retry only after a wrapped buffer is recycled.
             if (backend.recv_recycle_progress) {
@@ -41,6 +43,8 @@ pub fn Machine(
                 effectiveTimeout(backend, has_ready, timeout_ms),
             );
             for (tmp[0..n]) |comp| try dispatch(backend, comp);
+            // A completion may have promoted or retired a registration leg.
+            Access.serviceRegistration(backend);
             return backend.ready.drain(out);
         }
 
@@ -76,7 +80,7 @@ pub fn Machine(
 
         /// Re-arm the receives the platform pool starved. A refused re-arm
         /// leaves that seat owed for the next recycle edge rather than
-        /// failing the poll: the sealing and onion legs owe it the same way,
+        /// failing the poll: the onion leg owes it the same way,
         /// and a poll error would retire every connection on the loop for one
         /// leg's transient submission pressure.
         fn retryPlatformRecvStarvation(backend: *Backend) void {
@@ -88,8 +92,21 @@ pub fn Machine(
             }
         }
 
+        /// How long a caller may wait before this backend's timers need it.
+        pub fn waitBound(backend: *const Backend, requested: i32) i32 {
+            return effectiveTimeout(backend, backend.ready.len() > 0, requested);
+        }
+
         fn effectiveTimeout(backend: *const Backend, has_ready: bool, requested: i32) i32 {
             if (has_ready) return 0;
+            const bounded = if (Access.registrationWaitMs(backend)) |limit|
+                if (requested < 0) limit else @min(requested, limit)
+            else
+                requested;
+            return retryTimeout(backend, bounded);
+        }
+
+        fn retryTimeout(backend: *const Backend, requested: i32) i32 {
             const resolver_unarmed = if (backend.resolver) |resolver|
                 resolver.hasLiveJobs() and !backend.resolver_wake_armed
             else

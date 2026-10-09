@@ -2,7 +2,7 @@
 //! callbacks admit only bounded control text; trace policy stays in the runtime.
 use crate::platform::Platform;
 use rooms_runtime::Error;
-use rooms_runtime::service::trace::{Input, Socket, Transport};
+use rooms_runtime::trace::{Input, Socket, Transport};
 use tokio::sync::{mpsc, watch};
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{CloseEvent, Event, MessageEvent, WebSocket};

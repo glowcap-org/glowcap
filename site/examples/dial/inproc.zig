@@ -2,15 +2,16 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 pub fn example(
+    io: std.Io,
     allocator: std.mem.Allocator,
-    network: *glowcap.net.inproc.Network,
+    exchange: *glowcap.net.inproc_completion.Exchange,
 ) !void {
     // The listening peer and dialer share this process-local switchboard.
-    const netlayers = [_]glowcap.net.netlayer.Netlayer{network.netlayer()};
     const partner = glowcap.net.inproc.locator("greeter");
     const session = try glowcap.driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.inproc}, .inproc = exchange },
         partner,
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },

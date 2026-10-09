@@ -16,17 +16,36 @@ pub const Scope = union(enum) {
 
     pub const Error = ResourceView.Error || error{ ScopeLimit, NonCanonicalScope };
 
-    pub fn validate(self: Scope, graph: *ResourceView) Error!void {
-        switch (self) {
-            .object, .owned_subtree => |id| _ = try graph.get(id),
-            .objects => |ids| {
-                if (ids.len > max_scope_objects) return error.ScopeLimit;
-                for (ids, 0..) |id, i| {
-                    _ = try graph.get(id);
-                    if (i != 0 and !ResourceId.lessThan(ids[i - 1], id)) return error.NonCanonicalScope;
-                }
-            },
+    /// Visits only the selected objects or subtree root, never descendants.
+    /// Each step validates its name and the selection's canonical order.
+    pub const Targets = struct {
+        scope: Scope,
+        graph: *ResourceView,
+        index: usize = 0,
+
+        pub fn next(self: *Targets) Error!?ResourceView.Record {
+            const id = switch (self.scope) {
+                .object, .owned_subtree => |id| if (self.index == 0) id else return null,
+                .objects => |ids| value: {
+                    if (ids.len > max_scope_objects) return error.ScopeLimit;
+                    if (self.index == ids.len) return null;
+                    if (self.index != 0 and !ResourceId.lessThan(ids[self.index - 1], ids[self.index])) return error.NonCanonicalScope;
+                    break :value ids[self.index];
+                },
+            };
+            const record = try self.graph.get(id);
+            self.index += 1;
+            return record;
         }
+    };
+
+    pub fn targets(self: Scope, graph: *ResourceView) Targets {
+        return .{ .scope = self, .graph = graph };
+    }
+
+    pub fn validate(self: Scope, graph: *ResourceView) Error!void {
+        var selected = self.targets(graph);
+        while (try selected.next()) |_| {}
     }
 
     /// Checks structural coverage only. Lifecycle, permissions, and retained

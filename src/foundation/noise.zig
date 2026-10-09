@@ -16,8 +16,7 @@
 //! `crypto.zig`; everything here works in raw X25519 material.
 //!
 //! Callers are `foundation.sealed.SealedChannel` (the composition the
-//! byte-fed Host boxes per sealed session and the completion-loop sealing
-//! adapter embeds) and the cacophony vectors in
+//! byte-fed Host boxes per sealed session) and the cacophony vectors in
 //! `test/foundation/noise_test.zig`. Nothing else imports this module.
 
 const std = @import("std");

@@ -14,7 +14,20 @@ const crypto = glowcap.foundation.crypto;
 /// Resolved through PATH so the live interop runs on any host with a working
 /// Racket, not only the devcontainer's install location. The spawned child
 /// still self-locates its `collects` from its own resolved executable path.
-pub const racket_path = "racket";
+const racket_path = "racket";
+
+/// The argv that runs one Racket script: `racket -y <script> <args...>`.
+/// `-y` makes Racket rebuild a stale compiled dependency before loading it.
+/// Racket inlines constants across modules, so without it a script can load
+/// a binding module compiled against an older generated constant and refuse
+/// the archive it was just built beside.
+pub fn racketArgv(buf: [][]const u8, script_argv: []const []const u8) []const []const u8 {
+    std.debug.assert(buf.len >= script_argv.len + 2);
+    buf[0] = racket_path;
+    buf[1] = "-y";
+    for (script_argv, 0..) |arg, i| buf[i + 2] = arg;
+    return buf[0 .. script_argv.len + 2];
+}
 
 /// True once the peer's session has completed the handshake, the `runUntil`
 /// predicate every interop driver pumps toward.
@@ -298,11 +311,9 @@ pub fn spawnHostAwaitReadiness(
     argv_tail: []const []const u8,
     stdin: std.process.SpawnOptions.StdIo,
 ) !SpawnedHostReadiness {
-    var argv_buf: [8][]const u8 = undefined;
-    argv_buf[0] = racket_path;
-    for (argv_tail, 0..) |arg, i| argv_buf[i + 1] = arg;
+    var argv_buf: [10][]const u8 = undefined;
     var child = try std.process.spawn(io, .{
-        .argv = argv_buf[0 .. argv_tail.len + 1],
+        .argv = racketArgv(&argv_buf, argv_tail),
         .environ_map = environ_map,
         .stdin = stdin,
         .stdout = .pipe,

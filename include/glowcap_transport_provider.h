@@ -23,8 +23,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* try_read and try_write result when the operation cannot progress without blocking. */
-#define GLOWCAP_MULTIPLEXED_WOULD_BLOCK (-2)
+/* Stream and multiplexed try_read and try_write result when the operation cannot progress without blocking. */
+#define GLOWCAP_TRANSPORT_WOULD_BLOCK (-2)
 /* GlowcapMultiplexedReadyEvent.events: subject has readable bytes. */
 #define GLOWCAP_MULTIPLEXED_EV_READABLE 1
 /* GlowcapMultiplexedReadyEvent.events: subject can resume writing. */
@@ -130,7 +130,7 @@ typedef int32_t (*GlowcapMultiplexedDrainReadyFn)(void *ctx, GlowcapMultiplexedR
 typedef int32_t (*GlowcapMultiplexedStartConnectFn)(void *ctx, uint64_t request_id, const GlowcapLocatorView *locator, const GlowcapTransportOperationOptions *options, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapMultiplexedFinishConnectFn)(void *ctx, uint64_t request_id, uint64_t *out_conn, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapMultiplexedClaimExternalFn)(void *ctx, uint64_t subject, uint64_t *out_conn, GlowcapProviderFailure *out_failure);
-typedef int32_t (*GlowcapMultiplexedListenFn)(void *ctx, uint64_t route_id, const uint8_t *transport, size_t transport_len, const uint8_t *requested_designator, size_t requested_designator_len, const GlowcapTransportOperationOptions *options, GlowcapListenResult *out_result, GlowcapProviderFailure *out_failure);
+typedef int32_t (*GlowcapMultiplexedListenFn)(void *ctx, uint64_t route_id, const uint8_t *transport, size_t transport_len, const uint8_t *requested_designator, size_t requested_designator_len, const uint8_t *identity_designator, size_t identity_designator_len, const GlowcapTransportOperationOptions *options, GlowcapListenResult *out_result, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapMultiplexedFinishListenFn)(void *ctx, uint64_t route_id, void **out_listener, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapTransportListenerLocatorFn)(void *listener_ctx, void *sink_ctx, GlowcapLocatorSinkFn sink, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapTransportListenerAdvertiseFn)(void *listener_ctx, const GlowcapLocatorView *locator, void *sink_ctx, GlowcapLocatorSinkFn sink, GlowcapProviderFailure *out_failure);
@@ -183,9 +183,9 @@ typedef struct GlowcapMultiplexedTransport {
     GlowcapMultiplexedFinishAcceptFn finish_accept;
     /* Stop listener; asynchronous retirement emits LISTEN, then cancel_listen claims cleanup. */
     GlowcapMultiplexedStopListenFn stop_listen;
-    /* Read: 0..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_MULTIPLEXED_WOULD_BLOCK. */
+    /* Read: 0..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK. */
     GlowcapMultiplexedTryReadFn try_read;
-    /* Write: 0..len bytes consumed, -1 when dead, or GLOWCAP_MULTIPLEXED_WOULD_BLOCK. */
+    /* Write: 0..len bytes consumed, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK. */
     GlowcapMultiplexedTryWriteFn try_write;
     /* Close connection; asynchronous retirement emits CLOSED, then a repeated call claims cleanup. */
     GlowcapMultiplexedSubjectFn conn_close;
@@ -205,8 +205,8 @@ typedef int32_t (*GlowcapStreamListenerWaitFn)(void *ctx, void *listener, int32_
 typedef int32_t (*GlowcapStreamListenerReadinessFdFn)(void *ctx, void *listener);
 typedef int32_t (*GlowcapStreamAcceptFn)(void *ctx, void *listener, void **out_conn, int32_t *out_readiness_fd, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapStreamListenerCloseFn)(void *ctx, void *listener, GlowcapProviderFailure *out_failure);
-typedef intptr_t (*GlowcapStreamReadFn)(void *ctx, void *conn, uint8_t *out, size_t cap);
-typedef int32_t (*GlowcapStreamWriteAllFn)(void *ctx, void *conn, const uint8_t *bytes, size_t len);
+typedef intptr_t (*GlowcapStreamTryReadFn)(void *ctx, void *conn, uint8_t *out, size_t cap);
+typedef intptr_t (*GlowcapStreamTryWriteFn)(void *ctx, void *conn, const uint8_t *bytes, size_t len);
 typedef int32_t (*GlowcapStreamConnCloseFn)(void *ctx, void *conn, GlowcapProviderFailure *out_failure);
 typedef void (*GlowcapStreamConnTakeFailureFn)(void *ctx, void *conn, GlowcapProviderFailure *out_failure);
 typedef uint8_t (*GlowcapTransportProviderSameConfigurationFn)(void *ctx, void *other_ctx);
@@ -272,10 +272,10 @@ typedef struct GlowcapStreamTransport {
     GlowcapStreamAcceptFn accept;
     /* Close listener. */
     GlowcapStreamListenerCloseFn listener_close;
-    /* Read bytes. */
-    GlowcapStreamReadFn read;
-    /* Write all bytes. */
-    GlowcapStreamWriteAllFn write_all;
+    /* Read: 1..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK. */
+    GlowcapStreamTryReadFn try_read;
+    /* Write: 1..len bytes consumed, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK. */
+    GlowcapStreamTryWriteFn try_write;
     /* Close connection. */
     GlowcapStreamConnCloseFn conn_close;
     /* Atomically claim the connection's retained read/write failure. */

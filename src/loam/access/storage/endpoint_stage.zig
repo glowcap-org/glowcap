@@ -32,7 +32,7 @@ fn validate(read: *Read, value: records.EndpointRecord) !void {
     try read.opened();
     try read.prepareIdentities(1);
     if (read.store.phase != .staging) return error.WrongPhase;
-    var scratch: [core.max_scope_objects * @sizeOf(core.ResourceId)]u8 align(@alignOf(core.ResourceId)) = undefined;
+    var scratch: [records.CapabilityRecord.selection_bytes]u8 align(@alignOf(core.ResourceId)) = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(&scratch);
     const proposed = try read.store.proposed(value.descriptor);
     const lease: ?loam.Lease = if (proposed == null) read.store.resident(value.descriptor) catch |err| {
@@ -47,6 +47,9 @@ fn validate(read: *Read, value: records.EndpointRecord) !void {
     if (value.content) |content| {
         if (descriptor.value.role != .use or content.resource.owner != read.header.owner) return error.WrongRole;
     } else if (descriptor.value.role != .control) return error.WrongRole;
+    if (value.administration) |binding| {
+        if (descriptor.value.role != .control or binding.resource.owner != read.header.owner) return error.WrongRole;
+    }
 }
 
 fn stage(read: *Read, allocator: std.mem.Allocator, object: loam.ObjectId, value: records.EndpointRecord, rooted: bool) !void {

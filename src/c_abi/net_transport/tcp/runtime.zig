@@ -239,8 +239,8 @@ fn streamTransport(profile: *ProviderProfile) c.GlowcapStreamTransport {
         .listener_advertise = providerListenerAdvertise,
         .accept = providerAccept,
         .listener_close = providerListenerClose,
-        .read = providerRead,
-        .write_all = providerWriteAll,
+        .try_read = providerTryRead,
+        .try_write = providerTryWrite,
         .conn_close = providerConnClose,
         .conn_take_failure = providerConnTakeFailure,
     };
@@ -350,6 +350,12 @@ fn providerFinishConnect(
                 return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
             };
             conn.* = .{ .connection = connection, .owner = attempt.owner };
+            if (!net.socket.setNoSigpipe(connection.readinessFd())) {
+                conn.connection.close();
+                attempt.owner.allocator.destroy(conn);
+                _ = attempt.owner.tasks.reap(&attempt.operation);
+                return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, error.SocketConfigurationFailed);
+            }
             slot.* = conn;
             fd_slot.* = connection.readinessFd();
             _ = attempt.owner.tasks.reap(&attempt.operation);
@@ -504,6 +510,11 @@ fn providerAccept(_: ?*anyopaque, listener_raw: ?*anyopaque, out_conn: ?*?*anyop
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
     };
     conn.* = .{ .connection = connection, .owner = owner };
+    if (!net.socket.setNoSigpipe(connection.readinessFd())) {
+        conn.connection.close();
+        owner.allocator.destroy(conn);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, error.SocketConfigurationFailed);
+    }
     slot.* = conn;
     fd_slot.* = connection.readinessFd();
     return GLOWCAP_OK;
@@ -526,14 +537,14 @@ fn rawConn(raw: ?*anyopaque) *RawConn {
     return @ptrCast(@alignCast(raw.?));
 }
 
-fn providerRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usize) callconv(.c) isize {
+fn providerTryRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usize) callconv(.c) isize {
     const conn = rawConn(conn_raw);
     const dest = (out orelse {
         c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
         return -1;
     })[0..cap];
-    const got = conn.connection.read(dest) catch |err| {
-        if (err == error.EndOfStream) return 0;
+    const got = net.socket.receiveNonblocking(conn.connection.readinessFd(), dest) catch |err| {
+        if (err == error.WouldBlock) return c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK;
         if (c.transport_provider.providerFailureEmpty(conn.failure))
             c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
         return -1;
@@ -541,18 +552,19 @@ fn providerRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usize) 
     return @intCast(got);
 }
 
-fn providerWriteAll(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const u8, len: usize) callconv(.c) i32 {
+fn providerTryWrite(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const u8, len: usize) callconv(.c) isize {
     const conn = rawConn(conn_raw);
     const source = bytes orelse {
         c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-        return GLOWCAP_ERR_NULL_POINTER;
+        return -1;
     };
-    conn.connection.writeAll(source[0..len]) catch |err| {
+    const wrote = net.socket.sendNonblocking(conn.connection.readinessFd(), source[0..len]) catch |err| {
+        if (err == error.WouldBlock) return c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK;
         if (c.transport_provider.providerFailureEmpty(conn.failure))
             c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
-        return GLOWCAP_ERR_IO;
+        return -1;
     };
-    return GLOWCAP_OK;
+    return @intCast(wrote);
 }
 
 fn providerConnTakeFailure(_: ?*anyopaque, conn_raw: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) void {

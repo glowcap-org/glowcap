@@ -393,7 +393,7 @@ export async function watchDirectory(session: Session): Promise<{
 	};
 }
 
-/** Register `nick` and wait for the directory's ack, returning the reg-inbox
+/** Acquire `nick` from the committed reply, returning the reg-inbox
  * observations a DM test cares about: who the directory asked us to mint for, and
  * which peers it said were introducible. */
 export async function registerAndWatch(
@@ -404,24 +404,21 @@ export async function registerAndWatch(
 ): Promise<{ askedFor: string[]; introducible: string[]; registrationId: string }> {
 	const askedFor: string[] = [];
 	const introducible: string[] = [];
-	let acked = false;
-	let claim = "";
 	const inbox = session.spawn((verb, args) => {
 		if (verb !== NOTIFY) return null;
 		const peer = typeof args[1] === "string" ? args[1] : "";
-		if (args[0] === "registered" && typeof args[2] === "string") {
-			claim = args[2];
-			acked = true;
-		}
 		if (args[0] === "mintInboxFor" && peer) askedFor.push(peer);
 		if (args[0] === "introducible" && peer) introducible.push(peer);
 		return null;
 	});
-	await session.send(directory, REGISTER, [nick, locator, inbox]);
-	const deadline = Date.now() + 3_000;
-	while (!acked && Date.now() < deadline) await delay(25);
-	assert(acked, `${nick} should be registered`);
-	return { askedFor, introducible, registrationId: claim };
+	const reply = await session.send(directory, REGISTER, [nick, locator, inbox]);
+	assert(
+		Array.isArray(reply) && reply.length === 3 && reply[0] === nick &&
+			typeof reply[1] === "string" && reply[2] instanceof Ref,
+		`${nick} should acquire its exact committed registration`,
+	);
+	await session.release(reply[2]);
+	return { askedFor, introducible, registrationId: reply[1] };
 }
 
 /** The room code a verb refused with, or null when it did not refuse. */

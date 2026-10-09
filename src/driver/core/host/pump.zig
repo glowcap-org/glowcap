@@ -68,8 +68,8 @@ pub fn finishVerb(self: *Host) !void {
 fn drainWork(self: *Host) !void {
     var remaining = self.opts.host_work_quantum;
     work: while (remaining != 0) {
-        var lanes_checked: u2 = 0;
-        while (lanes_checked < 3) : (lanes_checked += 1) {
+        var lanes_checked: u3 = 0;
+        while (lanes_checked < 4) : (lanes_checked += 1) {
             const lane = self.next_work_lane;
             self.next_work_lane = lane.next();
             switch (lane) {
@@ -133,6 +133,15 @@ fn drainWork(self: *Host) !void {
                         continue :work;
                     }
                     if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_handle);
+                    continue :work;
+                },
+                .local => if (self.vat.local_ingress.pending_turns != 0) {
+                    remaining -= 1;
+                    if (self.lifecyclePhase() == .terminating or self.lifecyclePhase() == .closed) {
+                        @import("local_delivery.zig").cancel(self);
+                    } else {
+                        _ = try self.vat.driveIngressBudgeted(.local, 1);
+                    }
                     continue :work;
                 },
                 .node => if (try drainNodeAction(self)) {
@@ -352,7 +361,7 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
             leaveCallback(self);
         }
         body.call() catch |err| {
-            if (!session.sessionOpen()) {
+            if (session.sessionClosed()) {
                 if (session.served.partnerAbort() != null) {
                     // A partner abort is the successful terminal outcome of
                     // this feed. Keep unwinding through `finishDispatch` so
@@ -366,7 +375,7 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
                 return failDispatch(self, session.peer_handle, err);
             }
         };
-        if (!session.sessionOpen()) {
+        if (session.sessionClosed()) {
             if (session.served.partnerAbort() != null)
                 try retirePartnerAbortedSession(self, session)
             else

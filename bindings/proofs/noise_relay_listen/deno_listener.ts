@@ -15,7 +15,7 @@ const [relayUrl, registerUrl] = Deno.args.slice(-2);
 const seed = crypto.getRandomValues(new Uint8Array(32));
 await using server = await noise.listen({ relayUrl, registerUrl, seed });
 
-server.host.publishGiftable("greeter", (verb: string, args: Argument[]) => {
+server.host.publish("greeter", (verb: string, args: Argument[]) => {
 	if (verb !== "greet") throw new Error("no such method");
 	if (args.length !== 1 || typeof args[0] !== "string") throw new Error("bad invocation");
 	return `Hello, ${args[0]}`;

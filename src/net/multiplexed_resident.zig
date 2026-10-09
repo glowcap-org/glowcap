@@ -30,6 +30,7 @@ pub const would_block = readiness.would_block;
 pub const ContractError = readiness.ContractError;
 
 pub const TeardownOutcome = @import("multiplexed_resident/teardown.zig").Outcome;
+pub const borrowed_read = @import("multiplexed_resident/borrowed_read.zig");
 pub const ReadyEvent = readiness.ReadyEvent;
 pub const ev_readable = readiness.ev_readable;
 pub const ev_writable = readiness.ev_writable;
@@ -148,6 +149,11 @@ pub const MultiplexedResident = struct {
         /// The resident's one OS-pollable readiness descriptor. Level-shaped
         /// by contract: it reads ready while drained records are pending.
         readiness_fd: *const fn (ctx: *anyopaque) i32,
+        /// The longest the runtime may wait, given `requested_ms` (negative
+        /// for no limit), before this resident has timed work that no
+        /// descriptor will report. The runtime services the resident when a
+        /// wait ends on this bound. Absent means it has none.
+        wait_bound_ms: ?*const fn (ctx: *anyopaque, requested_ms: i32) i32 = null,
         /// Drain pending ready records into `out`, clearing the descriptor's
         /// coalesced wake. Returns how many records were written.
         drain_ready: *const fn (ctx: *anyopaque, out: []ReadyEvent) ContractError!usize,
@@ -161,10 +167,17 @@ pub const MultiplexedResident = struct {
         /// Read into `buf`: bytes read, 0 on clean end of stream, -1 on a
         /// dead connection, `would_block` when nothing is pending.
         try_read: *const fn (ctx: *anyopaque, conn: usize, buf: []u8) isize,
+        /// Present when the resident can lend received bytes instead.
+        borrowed_read: ?borrowed_read.VTable = null,
         /// Write from `bytes`: bytes consumed (the resident owns them once
         /// counted), -1 on a dead connection, `would_block` or 0 when the
         /// window is full. An `ev_writable` record follows either refusal.
         try_write: *const fn (ctx: *anyopaque, conn: usize, bytes: []const u8) isize,
+        /// The caller finished one batch of writes on `conn`. A resident that
+        /// declares it may hold consumed bytes until this call, so a frame
+        /// and its length prefix leave in one send; one without it sends as
+        /// each write arrives.
+        flush_writes: ?*const fn (ctx: *anyopaque, conn: usize) void = null,
         /// Claim one exact connection-local read/write failure. Null is clean
         /// EOF or no retained failure; a claimed value cannot reappear.
         take_failure: ?*const fn (ctx: *anyopaque, conn: usize) ?foundation.FailureChain = null,
@@ -225,18 +238,18 @@ pub const MultiplexedResident = struct {
 
     pub const ListenVTable = struct {
         /// Begin accepting the selected transport profile through this resident.
-        /// `requested_designator` is the caller's expected identity/address;
-        /// empty asks the resident to use its canonical designator.
-        /// Immediate completion returns the listener handle; externally paced
-        /// setup returns pending and later emits `ev_listen` for `route_id`. An
-        /// error admits no operation; the provider has already cleaned partial
-        /// work.
+        /// `config` is the stream listen's own: `designator` is the caller's
+        /// expected identity or address, empty asking for the canonical one,
+        /// and `identity` is the durable key of the Host the listener serves,
+        /// which a key-designated profile publishes. Immediate completion
+        /// returns the listener handle; externally paced setup returns pending
+        /// and later emits `ev_listen` for `route_id`. An error admits no
+        /// operation; the provider has already cleaned partial work.
         listen: *const fn (
             ctx: *anyopaque,
             route_id: usize,
             transport: []const u8,
-            requested_designator: []const u8,
-            options: netlayer.OperationOptions,
+            config: netlayer.ListenConfig,
         ) RawListenStartOutcome,
         /// Present only when `listen` may return pending. Immediate-only
         /// residents carry no fabricated completion capability.
@@ -373,16 +386,9 @@ pub const MultiplexedResident = struct {
             self: Acceptor,
             route_id: usize,
             transport: []const u8,
-            requested_designator: []const u8,
-            options: netlayer.OperationOptions,
+            config: netlayer.ListenConfig,
         ) ListenStartOutcome {
-            const outcome = self.operations().listen(
-                self.resident.ctx,
-                route_id,
-                transport,
-                requested_designator,
-                options,
-            );
+            const outcome = self.operations().listen(self.resident.ctx, route_id, transport, config);
             return switch (outcome) {
                 .failed => |failure| .{ .failed = failure },
                 .admitted => |listener_ctx| switch (listener_ctx) {
@@ -594,6 +600,11 @@ pub const MultiplexedResident = struct {
         return self.vtable.readiness_fd(self.ctx);
     }
 
+    pub fn waitBoundMs(self: MultiplexedResident, requested_ms: i32) i32 {
+        const bound = self.vtable.wait_bound_ms orelse return requested_ms;
+        return bound(self.ctx, requested_ms);
+    }
+
     pub fn drainReady(self: MultiplexedResident, out: []ReadyEvent) ContractError![]ReadyEvent {
         const count = try self.vtable.drain_ready(self.ctx, out);
         if (count > out.len) return error.ProviderContract;
@@ -606,6 +617,10 @@ pub const MultiplexedResident = struct {
 
     pub fn tryWrite(self: MultiplexedResident, conn: usize, bytes: []const u8) isize {
         return self.vtable.try_write(self.ctx, conn, bytes);
+    }
+
+    pub fn flushWrites(self: MultiplexedResident, conn: usize) void {
+        if (self.vtable.flush_writes) |flush| flush(self.ctx, conn);
     }
 
     pub fn connClose(self: MultiplexedResident, conn: usize) ?foundation.FailureChain {

@@ -504,7 +504,7 @@ pub const Session = struct {
     pub fn publish(self: *Session, name: []const u8, comptime Behavior: type, initial: Behavior) !Capability {
         self.enterCall();
         defer self.leaveCall();
-        return self.runtime.core.publish(self.hs, name, driver_core.Hosting(Behavior), .{ .inner = initial });
+        return self.runtime.core.sessionPublish(self.hs, name, driver_core.Hosting(Behavior), .{ .inner = initial });
     }
 
     /// Return the Host capability published under `name` on this session, or

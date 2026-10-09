@@ -95,7 +95,7 @@ impl Directs {
 				if event.kind == Kind::MintInboxFor {
 					let offered = tokio::select! {
 						_ = stopping.changed() => return Ok(()),
-						result = offering.offer_via(&directory,&attachment.exporter,&attachment.importer,event.peer.text().as_str().ok_or("IRC cannot address this Rooms name")?,&event.registration) => result,
+						result = offering.offer_via(&directory,&attachment.exporter,&attachment.importer,event.peer.text().as_str().ok_or("IRC cannot address this Rooms name")?,&event.registration,event.opening.as_ref().ok_or("missing direct opening")?.text().as_str().ok_or("invalid direct opening")?) => result,
 					};
 					if let Err(error) = offered {
 						notices

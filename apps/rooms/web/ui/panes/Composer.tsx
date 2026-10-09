@@ -196,7 +196,8 @@ export function Composer(
 	// stopping — sending, going idle, blurring, switching away, closing the tab —
 	// is this one condition going false.
 	useTypingSignal(
-		enabled && focused && conv !== null && draft.trim() !== "" && conversationCarries(conv, "typing"),
+		enabled && focused && conv !== null && (conv.type !== "dm" || conv.line === "live") &&
+			draft.trim() !== "" && conversationCarries(conv, "typing"),
 		draft,
 		session.setTyping,
 	);
@@ -204,10 +205,18 @@ export function Composer(
 	// Never carry a stray tray across a conversation switch. Arriving at a
 	// conversation on a wide screen also takes the caret, so you can type at once;
 	// on a phone it must not, because forcing the keyboard up would cover the
-	// messages you just opened.
+	// messages you just opened. The composer can become sendable after the
+	// reader has moved on to another field, such as naming a new room; taking
+	// the caret then would close that field under their typing.
 	useEffect(() => {
 		setEmojiOpen(false);
-		if (!mobile && enabled) field.current?.focus();
+		if (mobile || !enabled) return;
+		const held = document.activeElement;
+		if (
+			held instanceof HTMLElement && held !== field.current &&
+			held.matches("input, textarea, select, [contenteditable='true']")
+		) return;
+		field.current?.focus();
 	}, [conv?.key, mobile, enabled]);
 
 	useEffect(() => {

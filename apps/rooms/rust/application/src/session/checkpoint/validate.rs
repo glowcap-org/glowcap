@@ -27,25 +27,18 @@ pub(super) fn route(text: &DocumentText, routes: &impl Routes, link: bool) -> Re
 	};
 	Ok(authority.ok_or(Refusal::Route)?.into())
 }
-fn websocket(text: &DocumentText, canonical: bool) -> bool {
+fn websocket(text: &DocumentText) -> bool {
 	let scalar = text.utf8_lossy();
 	let s = scalar.as_ref();
 	let Ok(url) = crate::session::visualizer::parse_endpoint(s) else {
 		return false;
 	};
-	if canonical {
-		text.as_str() == Some(url.as_str())
-	} else {
-		url.fragment().is_none_or(str::is_empty)
-	}
+	text.as_str() == Some(url.as_str())
 }
 
 pub(super) fn state(s: &mut State, routes: &impl Routes) -> Result<(), Refusal> {
 	if s.version != 1 {
 		return Err(Refusal::Schema);
-	}
-	if s.trace_override.0.utf16().next().is_some() && !websocket(&s.trace_override.0, false) {
-		return Err(Refusal::Visualizer);
 	}
 	let mut directories = BTreeMap::new();
 	let mut homes = 0;
@@ -135,7 +128,7 @@ pub(super) fn state(s: &mut State, routes: &impl Routes) -> Result<(), Refusal> 
 		}
 		if c.capability == Operation::Trace {
 			visualizers += 1;
-			if visualizers > 1 || !websocket(&c.scope.0, true) {
+			if visualizers > 1 || !websocket(&c.scope.0) {
 				return Err(Refusal::Visualizer);
 			}
 		} else if !directories.contains_key(&c.scope.0) {

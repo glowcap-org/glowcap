@@ -1,28 +1,25 @@
-//! The host durable Rooms session peer. One process owns one member's
-//! intended workspace: it reconnects the directories, rooms, and direct
-//! conversations the checkpoint names, records what it is asked to keep, and
-//! answers attached views over the administrator sturdyref and the grants it
-//! publishes. [`peer::Peer`] owns host acceptance and readiness; the application lifecycle and capability verbs live in `rooms_runtime::service`; [`error::Error`] is the one failure vocabulary.
+//! Process composition for one managed Rooms workspace. Loam owns
+//! authority, the runtime owns callbacks and effects, and adapters own I/O.
 mod config;
 pub mod control;
 mod error;
+mod local;
 mod notice;
 mod peer;
 mod readiness;
-mod trace;
 mod transports;
-mod verbs;
 
 pub use config::{Config, HELP, Transport};
 pub use error::{Error, Worker};
+pub use local::{Event, Local};
 pub use notice::{Notice, Report};
 pub use peer::Peer;
 
 use std::future::Future;
 
 /// Run one peer inside a current-thread `LocalSet` until `shutdown` resolves.
-/// `ready` receives the administrator sturdyref only after identity, listener,
-/// grants, and the administrator publication are all admitted; `report`
+/// `ready` receives the workspace use sturdyref after storage and publication
+/// are admitted; management is published independently. `report`
 /// receives every failure that has no caller left to answer.
 pub async fn run(
 	config: Config,
@@ -30,9 +27,17 @@ pub async fn run(
 	ready: impl FnOnce(&str),
 	report: Report,
 ) -> Result<(), Error> {
-	let peer = Peer::open(config, report).await?;
+	let mut peer = Peer::open(config, report.clone()).await?;
 	ready(peer.link());
-	peer.serve(shutdown).await
+	let result = peer.serve(shutdown).await;
+	while let Err(cause) = peer.close().await {
+		report(Notice::Activity {
+			operation: "session close".into(),
+			cause: glowcap::loam::refusal(cause.to_string()),
+		});
+		tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+	}
+	result
 }
 
 #[cfg(test)]

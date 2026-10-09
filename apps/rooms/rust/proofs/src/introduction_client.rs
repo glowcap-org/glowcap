@@ -7,6 +7,16 @@ fn id(n: usize) -> Id {
 }
 pub fn run() {
 	captured();
+	let mut openings = Notices::<usize, (Id, String)>::default();
+	let old = (id(1), String::from("old"));
+	let fresh = (id(1), String::from("fresh"));
+	openings.notify(&old);
+	let ticket = openings.wait(&fresh, true, 7).unwrap().unwrap();
+	assert_eq!(openings.observe(&ticket, 7), Ok(false));
+	assert!(openings.notify(&old).is_empty());
+	assert_eq!(openings.observe(&ticket, 7), Ok(false));
+	assert_eq!(openings.notify(&fresh), vec![7]);
+	assert_eq!(openings.observe(&ticket, 7), Ok(true));
 	let (alice, bob) = (id(1), id(2));
 	let mut notices = Notices::<usize>::default();
 	assert!(notices.notify(&alice).is_empty());
@@ -56,16 +66,20 @@ fn captured() {
 	use rooms_application::directory::introduction::Retries;
 	let rows: serde_json::Value = serde_json::from_str(include_str!("../fixtures/introduction-client.json")).unwrap();
 	for row in rows.as_array().unwrap() {
-		let mut notices = Notices::<()>::default();
+		let mut notices = Notices::<(), (Id, String)>::default();
 		let mut retries = Retries::default();
 		let mut waiting = None;
 		let mut attempts = 0;
 		let mut result = None;
 		let registration = Id::parse("11111111-1111-4111-8111-111111111111").unwrap();
+		let opening = String::from("opening");
 		for step in row["trace"].as_array().unwrap() {
 			match step["kind"].as_str().unwrap() {
 				"notify" => {
-					notices.notify(&Id::parse(step["id"].as_str().unwrap()).unwrap());
+					notices.notify(&(
+						Id::parse(step["id"].as_str().unwrap()).unwrap(),
+						step["opening"].as_str().unwrap().into(),
+					));
 					if let Some(ticket) = waiting.as_ref()
 						&& notices.observe(ticket, ()).unwrap()
 					{
@@ -78,10 +92,16 @@ fn captured() {
 					assert_eq!(step["verb"], "introduce");
 					assert_eq!(step["args"][0], "bob");
 					assert_eq!(step["args"][1], registration.as_str());
+					assert_eq!(step["args"][2], opening);
+					assert_eq!(step["args"].as_array().unwrap().len(), 3);
 					attempts += 1;
 				}
 				"pending" => match retries.next_wait() {
-					Some(banked) => waiting = notices.wait(&registration, banked, ()).unwrap(),
+					Some(banked) => {
+						waiting = notices
+							.wait(&(registration.clone(), opening.clone()), banked, ())
+							.unwrap()
+					}
 					None => result = Some("introduction-pending"),
 				},
 				"capability" => result = Some("capability"),

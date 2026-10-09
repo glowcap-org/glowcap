@@ -29,7 +29,9 @@ fn application(context: ?*anyopaque) !*Application {
     return @ptrCast(@alignCast(context orelse return error.Refused));
 }
 
-fn requirement(_: ?*anyopaque, _: std.mem.Allocator, _: loam.core.RecordView, verb: []const u8, args: []const driver.Value) !c.core.Policy.Requirement {
+fn requirement(_: ?*anyopaque, _: std.mem.Allocator, input: access.ContentInvocation) !c.core.Policy.Requirement {
+    const verb = input.verb;
+    const args = input.args;
     if ((std.mem.eql(u8, verb, "get") or std.mem.startsWith(u8, verb, "share") or std.mem.startsWith(u8, verb, "smuggle")) and args.len == 0) return .{ .permissions = &.{f.vocabulary.read} };
     if ((std.mem.startsWith(u8, verb, "replace-reference") or std.mem.startsWith(u8, verb, "remove-reference")) and args.len == 0) return .{ .permissions = &.{f.vocabulary.post} };
     if (std.mem.eql(u8, verb, "delete-resource") and args.len == 0) return .{ .permissions = &.{f.vocabulary.post} };
@@ -58,7 +60,10 @@ fn wrap(call: *access.ContentCall, verb: []const u8, value: driver.Value) !drive
     return value;
 }
 
-fn counter(context: ?*anyopaque, call: *access.ContentCall, view: loam.core.RecordView, verb: []const u8, args: []const driver.Value) !driver.Value {
+fn counter(context: ?*anyopaque, call: *access.ContentCall, input: access.ContentInvocation) !driver.Value {
+    const view = input.content;
+    const verb = input.verb;
+    const args = input.args;
     if (view.payload.len != 8) return error.InvalidRecord;
     const old = std.mem.readInt(i64, view.payload[0..8], .little);
     if (std.mem.eql(u8, verb, "get")) return .{ .integer = old };
@@ -128,14 +133,17 @@ pub fn seedDepth(store: *loam.core.Store, backend: anytype, depth: u16) !Data {
     return seedPolicy(store, backend, depth, try c.core.Policy.init(f.vocabulary.descriptor), &.{});
 }
 pub fn seedPolicy(store: *loam.core.Store, backend: anytype, depth: u16, policy: c.core.Policy, bounds: []const c.core.Policy.Bound) !Data {
-    return seedConfigured(store, backend, depth, policy, bounds, false);
+    return seedConfigured(store, backend, depth, policy, bounds, false, @fromBackingInt(81));
 }
 pub fn seedIndependentTarget(store: *loam.core.Store, backend: anytype) !Data {
-    return seedConfigured(store, backend, 0, try c.core.Policy.init(f.vocabulary.descriptor), &.{}, true);
+    return seedConfigured(store, backend, 0, try c.core.Policy.init(f.vocabulary.descriptor), &.{}, true, @fromBackingInt(81));
 }
-fn seedConfigured(store: *loam.core.Store, backend: anytype, depth: u16, policy: c.core.Policy, bounds: []const c.core.Policy.Bound, independent_target: bool) !Data {
+pub fn seedAuthority(store: *loam.core.Store, backend: anytype, owner_id: c.core.OwnerId) !Data {
+    return seedConfigured(store, backend, 0, try c.core.Policy.init(f.vocabulary.descriptor), &.{}, false, owner_id);
+}
+fn seedConfigured(store: *loam.core.Store, backend: anytype, depth: u16, policy: c.core.Policy, bounds: []const c.core.Policy.Bound, independent_target: bool, owner_id: c.core.OwnerId) !Data {
     try store.begin();
-    const owner = try c.storage.stage.createOwner(store, @fromBackingInt(81), policy, .{});
+    const owner = try c.storage.stage.createOwner(store, owner_id, policy, .{});
     try f.commit(store, backend);
     const resource = try f.resource(store, backend, owner, null);
     const terms: c.core.Terms = .{ .scope = .{ .objects = &.{resource} }, .policy = try policy.value(policy.permission_keys[0..policy.permission_count], bounds) };
@@ -151,10 +159,10 @@ fn seedConfigured(store: *loam.core.Store, backend: anytype, depth: u16, policy:
     var caps = try c.storage.Capabilities.init(store.allocator, store, .{});
     defer caps.deinit() catch unreachable;
     const use_descriptor = try c.descriptor(&caps, backend, owner, grant, null, false);
-    const control_descriptor = try c.descriptor(&caps, backend, owner, if (independent_target) ancestor else grant, .{ .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, false);
+    const control_descriptor = try c.descriptor(&caps, backend, owner, if (independent_target) ancestor else grant, .{ .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, false);
     const target_use_descriptor = try c.descriptor(&caps, backend, owner, target_grant, null, false);
     const target_control_descriptor = if (independent_target)
-        try c.descriptor(&caps, backend, owner, target_grant, .{ .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, false)
+        try c.descriptor(&caps, backend, owner, target_grant, .{ .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, false)
     else
         null;
     var endpoint_owner = try c.storage.Read.init(store.allocator, store, owner, 1);
@@ -316,7 +324,10 @@ fn retry(_: ?*anyopaque, verb: []const u8, _: []const driver.Value) !access.Retr
     return if (std.mem.eql(u8, verb, "get") or std.mem.startsWith(u8, verb, "share") or std.mem.startsWith(u8, verb, "smuggle")) .read_only else .receipt;
 }
 
-fn resourceAction(_: ?*anyopaque, _: std.mem.Allocator, resource: c.core.ResourceId, _: loam.core.RecordView, verb: []const u8, args: []const driver.Value) !?c.storage.ResourceChange.Action {
+fn resourceAction(_: ?*anyopaque, _: std.mem.Allocator, input: access.ContentInvocation) !?c.storage.ResourceChange.Action {
+    const resource = input.bound_resource.id;
+    const verb = input.verb;
+    const args = input.args;
     if (std.mem.eql(u8, verb, "delete-resource")) return .delete_leaf;
     if (std.mem.eql(u8, verb, "move-resource")) {
         if (args[0].integer < 0) return .{ .move = null };

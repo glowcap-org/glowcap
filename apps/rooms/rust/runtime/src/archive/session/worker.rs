@@ -3,7 +3,7 @@ use crate::archive::{
 	BlobAccess,
 	ingestion::{self, Queue, Reads},
 };
-use glowcap::{Host, Locator};
+use glowcap::{Argument, Host, Locator};
 use rooms_application::archive::{
 	MAX_READ, MAX_RECORDS,
 	index::Scan,
@@ -12,7 +12,11 @@ use rooms_application::archive::{
 use std::collections::HashMap;
 use targets::{Selection, Targets};
 use tokio::task::{Id, JoinError, JoinSet};
+mod reads;
+mod recording;
 mod shares;
+use reads::ReadReplies;
+mod shared_blobs;
 enum Files<P: Platform> {
 	Live(Vec<File<P>>),
 	Captured(Vec<capture::Captured>),
@@ -29,9 +33,12 @@ impl<P: Platform> Files<P> {
 /// worker keeps answering everything else meanwhile and stores the record
 /// when the last byte lands, so one slow or vanished source never holds
 /// history reads behind it.
-struct Capturing {
+struct Capturing<P: Platform> {
+	abort: tokio::task::AbortHandle,
+	erased: bool,
 	record: Record,
 	nick: String,
+	writer: Keeper<P>,
 	files: FileRecording,
 	answer: Answer<Recorded>,
 	/// Admission charged until the record is stored or refused.
@@ -45,10 +52,11 @@ pub struct Worker<B, P: Platform> {
 	sources: rooms_glowcap::client::sources::Sources<P>,
 	targets: Targets<P>,
 	erase_required: bool,
+	erase_source_required: Option<rooms_application::text::DocumentText>,
 	standings: rooms_application::archive::recording::Standings,
 	issuer: Option<Issuer>,
 	captures: JoinSet<Result<Vec<capture::Captured>, Error>>,
-	capturing: HashMap<Id, Capturing>,
+	capturing: HashMap<Id, Capturing<P>>,
 }
 fn peer_unavailable() -> Error {
 	Error::closed("the selected archive peer is unavailable")
@@ -82,6 +90,7 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 			sources: rooms_glowcap::client::sources::Sources::new(state.platform.clone()),
 			targets: Targets::new(state.platform.clone(), runtime),
 			erase_required: false,
+			erase_source_required: None,
 			standings: Default::default(),
 			issuer: None,
 			captures: JoinSet::new(),
@@ -124,6 +133,17 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 				break;
 			};
 			match command {
+				Command::SharedReader(mut request) => {
+					let result = self.shared_reader(&request).await.map(Argument::Reference);
+					resolve(&mut request.reply, result, &mut report);
+				}
+				Command::SharedRead(work, reader, offset, maximum, mut reply) => {
+					let result = self
+						.shared_read(&work, &reader, offset, maximum)
+						.await
+						.map(Argument::Bytes);
+					resolve(&mut reply, result, &mut report);
+				}
 				Command::BlobReader(digest, answer) => {
 					let result = match self.local_ready().await {
 						Ok(()) => {
@@ -215,23 +235,50 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 					// An erasure covers every line admitted before it, including
 					// those whose bytes are still arriving; they land refused.
 					self.captures.abort_all();
+					for capture in self.capturing.values_mut() {
+						capture.erased = true;
+					}
 					self.erase_required = true;
 					let result = self.local_ready().await;
 					complete(answer, result, &mut report);
 				}
-				Command::Record(record, nick, capture, files, answer) => match capture {
+				Command::ClearSource(source, answer) => {
+					let result = async {
+						self.local_ready().await?;
+						for capture in self
+							.capturing
+							.values_mut()
+							.filter(|capture| capture.record.coordinates().source == source)
+						{
+							capture.erased = true;
+							capture.abort.abort();
+						}
+						self.erase_source_required = Some(source);
+						self.local_ready().await
+					}
+					.await;
+					complete(answer, result, &mut report);
+				}
+				Command::Record(destination, record, nick, capture, files, answer) => match capture {
 					None => {
-						let result = self.store(record, &nick, Vec::new(), files, &mut report).await;
+						let result = match self.recording_writer(destination).await {
+							Ok(writer) => self.store(&writer, record, &nick, Vec::new(), files, &mut report).await,
+							Err(error) => Err(error),
+						};
 						recorded(answer, result, &mut report);
 					}
-					Some(capture) => match self.target_ready().await {
-						Ok(()) => {
-							let id = self.captures.spawn_local(capture.finish()).id();
+					Some(capture) => match self.recording_writer(destination).await {
+						Ok(writer) => {
+							let abort = self.captures.spawn_local(capture.finish());
+							let id = abort.id();
 							self.capturing.insert(
 								id,
 								Capturing {
+									abort,
+									erased: false,
 									record,
 									nick,
+									writer,
 									files,
 									answer,
 									_custody: _permit,
@@ -245,7 +292,10 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 					},
 				},
 				Command::Put(record, sources, answer) => {
-					let result = self.put(record, Files::Live(sources), &mut report).await;
+					let result = match self.selected_writer() {
+						Ok(writer) => self.put(&writer, record, Files::Live(sources), &mut report).await,
+						Err(error) => Err(error),
+					};
 					complete(answer, result, &mut report);
 				}
 				Command::Read(filter, answer) => {
@@ -275,170 +325,6 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 		}
 		self.finished.send_replace(Some(report.clone()));
 		report
-	}
-	/// Store a recording whose capture landed. Bytes the source could not
-	/// deliver leave the line archived without them, the same line the room
-	/// keeps; a capture cut short by an erasure or by closing is refused.
-	async fn captured(
-		&mut self,
-		landed: Result<(Id, Result<Vec<capture::Captured>, Error>), JoinError>,
-		report: &mut Report,
-	) {
-		let (id, outcome) = match landed {
-			Ok((id, Ok(captured))) => (id, Ok(captured)),
-			Ok((id, Err(reason))) => (id, Err(Cut::Failed(reason))),
-			Err(error) if error.is_cancelled() => (error.id(), Err(Cut::Cancelled)),
-			Err(error) => (error.id(), Err(Cut::Failed(Error::closed(error.to_string())))),
-		};
-		let Some(Capturing {
-			record,
-			nick,
-			files,
-			answer,
-			_custody,
-		}) = self.capturing.remove(&id)
-		else {
-			unreachable!("every capture task parks its recording");
-		};
-		let result = match outcome {
-			Ok(captured) => self.store(record, &nick, captured, files, report).await,
-			Err(Cut::Failed(reason)) => {
-				let files = FileRecording::MetadataOnly(MetadataReason::SourceFailed(reason.to_string()));
-				self.store(record, &nick, Vec::new(), files, report).await
-			}
-			Err(Cut::Cancelled) => Err(Error::closed(
-				"the archive let this line go before its file bytes arrived",
-			)),
-		};
-		recorded(answer, result, report);
-	}
-	async fn local_ready(&mut self) -> Result<(), Error> {
-		if self.erase_required {
-			self.backend.clear().await?;
-			self.standings.clear();
-			self.erase_required = false;
-			let _ = self.state.changes.send(rooms_application::archive::change::Change::All);
-		}
-		Ok(())
-	}
-	/// Whether the selected target can take a recording now.
-	async fn target_ready(&mut self) -> Result<(), Error> {
-		match &self.targets.selected {
-			Selection::Local => self.local_ready().await,
-			Selection::Unavailable(_) => Err(peer_unavailable()),
-			Selection::Peer(_) => Ok(()),
-		}
-	}
-	/// Write one recording and its standing to the selected target.
-	async fn store(
-		&mut self,
-		record: Record,
-		nick: &str,
-		captured: Vec<capture::Captured>,
-		files: FileRecording,
-		report: &mut Report,
-	) -> Result<Recorded, Error> {
-		self.target_ready().await?;
-		let standing = match &self.targets.selected {
-			Selection::Local => self.standings.prepare(&record, nick),
-			Selection::Peer(peer) => peer.standings.borrow().prepare(&record, nick),
-			Selection::Unavailable(_) => return Err(peer_unavailable()),
-		}
-		.map_err(Error::invalid_by)?;
-		let revision = self.put(record, Files::Captured(captured), report).await?;
-		let standing = match standing {
-			None => Ok(None),
-			Some(standing) => match self.put(standing.clone(), Files::Live(Vec::new()), report).await {
-				Err(error) => Err(error),
-				Ok(revision) => {
-					match &self.targets.selected {
-						Selection::Local => self.standings.remember(standing),
-						Selection::Peer(peer) => peer.standings.borrow_mut().remember(standing),
-						Selection::Unavailable(_) => unreachable!("selection cannot overtake an admitted recording"),
-					}
-					.expect("prepared standing has validated kind");
-					Ok(Some(revision))
-				}
-			},
-		};
-		Ok(Recorded {
-			revision,
-			standing,
-			files,
-		})
-	}
-	async fn put(&mut self, record: Record, sources: Files<P>, report: &mut Report) -> Result<u64, Error> {
-		let change = rooms_application::archive::change::Change::of(&record);
-		if matches!(self.targets.selected, Selection::Local) {
-			self.local_ready().await?;
-		}
-		let mut reads = ReadReplies {
-			reads: self.backend.blob_access(),
-			report,
-			erase_required: self.erase_required,
-		};
-		let mut peer_failed = false;
-		let result: Result<u64, Error> = match &self.targets.selected {
-			Selection::Unavailable(_) => Err(peer_unavailable()),
-			Selection::Peer(peer) => {
-				let result = if sources.is_empty() {
-					peer.archive.put(&record).await
-				} else {
-					match sources {
-						Files::Live(sources) => {
-							let attachments: Vec<_> = sources.iter().map(|s| s.attachment().clone()).collect();
-							self.requests
-								.during(peer.archive.put_files(&record, &attachments), &mut reads)
-								.await
-						}
-						Files::Captured(sources) => {
-							let sources = sources.into_iter().map(capture::Captured::into_source).collect();
-							self.requests
-								.during(peer.archive.put_sources(&self.sources, &record, sources), &mut reads)
-								.await
-						}
-					}
-				};
-				result.map_err(|error| {
-					peer_failed = error.connection_failed();
-					Error::peer(error)
-				})
-			}
-			Selection::Local => {
-				if sources.is_empty() {
-					self.backend.put(record).await
-				} else {
-					match sources {
-						Files::Live(sources) => {
-							self.requests
-								.during(self.backend.put_files(record, &sources), &mut reads)
-								.await
-						}
-						Files::Captured(sources) => {
-							self.requests
-								.during(self.backend.put_files(record, &sources), &mut reads)
-								.await
-						}
-					}
-				}
-			}
-		};
-		let result = result.map_err(|error| {
-			if peer_failed {
-				self.selected_peer_unavailable(error)
-			} else {
-				error
-			}
-		});
-		let revision = result.and_then(|revision| {
-			rooms_application::fields::SafeInteger::<true>::new(revision)
-				.map(|n| n.get())
-				.ok_or_else(|| Error::storage_message("archive backend returned an invalid revision"))
-		})?;
-		if let Some(change) = change {
-			let _ = self.state.changes.send(change);
-		}
-		Ok(revision)
 	}
 
 	async fn shared_page(&mut self, work: &Work<P>, filter: &Filter, after: u64, limit: usize) -> Result<Page, Error> {
@@ -533,6 +419,27 @@ fn complete<T>(answer: Answer<T>, result: Result<T, Error>, report: &mut Report)
 		report.lost_replies += 1;
 	}
 }
+fn resolve(reply: &mut glowcap::Resolver, result: Result<glowcap::Argument, Error>, report: &mut Report) {
+	let delivered = match result {
+		Ok(value) => match reply.fulfill_value(&value) {
+			Ok(()) => {
+				report.completed += 1;
+				Ok(())
+			}
+			Err(error) => {
+				report.refused += 1;
+				reply.break_with(&error.to_string())
+			}
+		},
+		Err(error) => {
+			report.refused += 1;
+			reply.break_with(&error.into_refusal())
+		}
+	};
+	if delivered.is_err() {
+		report.lost_replies += 1;
+	}
+}
 /// `complete` for a recording, counting what it could not fully keep.
 fn recorded(answer: Answer<Recorded>, result: Result<Recorded, Error>, report: &mut Report) {
 	if let Ok(receipt) = &result {
@@ -555,37 +462,5 @@ enum Cut {
 impl<B, P: Platform> Drop for Worker<B, P> {
 	fn drop(&mut self) {
 		self.state.stop.send_replace(true);
-	}
-}
-
-impl<P: Platform> ingestion::Request for Pending<P> {
-	fn reads_blob(&self) -> bool {
-		matches!(self.command, Command::ReadBlob(..))
-	}
-	fn fences_blob_reads(&self) -> bool {
-		matches!(self.command, Command::Clear(_) | Command::Revoke(..))
-	}
-}
-struct ReadReplies<'a, R> {
-	reads: R,
-	report: &'a mut Report,
-	erase_required: bool,
-}
-impl<R: BlobAccess, P: Platform> Reads<Pending<P>> for ReadReplies<'_, R> {
-	async fn answer(&mut self, pending: Pending<P>, fenced: bool) {
-		let Command::ReadBlob(reader, offset, maximum, answer) = pending.command else {
-			unreachable!("classified blob read")
-		};
-		let result = if fenced || self.erase_required {
-			Err(Error::stale(
-				"archive byte reads are fenced by queued erasure or revocation",
-			))
-		} else {
-			self.reads
-				.read(reader, offset, maximum)
-				.await
-				.and_then(|bytes| crate::archive::checked_bytes(bytes, maximum))
-		};
-		complete(answer, result, self.report);
 	}
 }

@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 // The rooms page sends a direct message, end to end, from a real browser. A
 // headless Chromium loads the shipped page, joins a room, and messages a member
 // privately — the three-party handoff `demo-rooms-dm-iroh` proves, now with the
@@ -24,11 +25,10 @@ import { Directory, Room } from "../../lib/room/client.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { dial, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort } from "../support/rooms_server.ts";
 import { fail, until } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, from a browser";
@@ -53,20 +53,20 @@ const httpPort = freePort();
 
 // serve.ts hosts the page and an iroh room + relay; its room server picks its own
 // iroh endpoint (no port to pin).
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", "--transport=iroh", "--reachability=direct", String(httpPort)],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
 
-// Bob: a native iroh member in this process. He mints one giftable inbox per peer
+// Bob: a native iroh member in this process. He mints one Host publication inbox per peer
 // the directory asks him for, served on his own iroh endpoint (the redeem
 // target), joins the room, and registers his iroh locator.
 const bobInbox: string[] = [];
 const bobSeed = crypto.getRandomValues(new Uint8Array(32));
 const bobHost = roomsHost(bobSeed);
-// A giftable answers the browser over the connection the DM arrived on
+// A Host publication answers the browser over the connection the DM arrived on
 // (`currentSession()`), sending to the reply inbox the browser hosts on that same
 // connection. Bob never dials the browser, which cannot be dialed — the shared
 // `recordingReplyDm` owns that receiver primitive.
@@ -139,7 +139,13 @@ try {
 
 	// Send the DM: this redeems the introduction and dials Bob's iroh endpoint
 	// through the relay, straight to him.
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
+	await tab.waitForFunction(
+		() =>
+			(document.getElementById("roomName")?.textContent ?? "").trim() === "bob" &&
+			(document.getElementById("line") as HTMLTextAreaElement | null)?.disabled === false,
+		null,
+		{ timeout: 30_000 },
+	);
 	await tab.fill("#line", DM_TEXT);
 	await tab.press("#line", "Enter");
 

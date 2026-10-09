@@ -50,9 +50,9 @@ class HostState(Protocol):
     _close_activity: asyncio.Event
     _dial_tasks: dict[tuple[int, int], asyncio.Task[Any]]
     _release_task: Optional[asyncio.Task[Any]]
-    _giftables: dict[str, int]
+    _publications: dict[str, int]
     _hosted: dict[int, int]
-    _displaced_giftables: list[int]
+    _displaced_publications: list[int]
     _behavior_entries: dict[int, _BehaviorEntry]
     _connectors: dict[str, Connector]
 

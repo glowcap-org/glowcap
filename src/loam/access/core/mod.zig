@@ -1,5 +1,5 @@
 //! Portable resource structure, policy algebra, and managed grant lifecycle.
-//! Owners create native use and control references to committed grants.
+//! Owners create their own use and control references to committed grants.
 //! Holding a reference conveys its authority; shared views own evaluation.
 
 const identity = @import("identity.zig");

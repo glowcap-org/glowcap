@@ -27,8 +27,7 @@ async fn listener_changes_serialize_and_failed_forgetting_preserves_intent() {
 						ConnectOptions::default(),
 					)
 					.await
-					.unwrap()
-					.with_gc();
+					.unwrap();
 				let admin = session.fetch(&running.capabilities[0].swiss).await.unwrap();
 				// A stalled relay handshake holds its own preparation, never the
 				// document writer or another transport's lifecycle.

@@ -6,7 +6,6 @@ const glowcap = @import("glowcap");
 const driver = glowcap.driver;
 const model = glowcap.ocapn.model;
 const net = glowcap.net;
-const onion = net.onion;
 const support_actors = @import("../support/actors.zig");
 const fake = @import("../support/onion_fake_daemon.zig");
 
@@ -36,11 +35,10 @@ test "onion at the host tier: publish, dial, fetch, and call with no Tor" {
     var daemon = try fake.Daemon.start(allocator, io);
     defer daemon.stop();
 
-    var host_res: onion.Resident = .{ .io = io, .config = .{
-        .socks = daemon.socksText(),
-        .control_endpoint = daemon.controlText(),
-    } };
-    var server = try driver.listen(allocator, host_res.netlayer(), .{ .designator = "" }, .ephemeral, dial_opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.onion}, .onion = .{
+        .socks = try net.tcp.parseDesignator(daemon.socksText()),
+        .control = try net.tcp.parseDesignator(daemon.controlText()),
+    } }, model.transport.onion, .{ .designator = "" }, .ephemeral, dial_opts);
     defer server.deinit();
 
     var designator_buf: [128]u8 = undefined;
@@ -77,10 +75,9 @@ test "onion at the host tier: publish, dial, fetch, and call with no Tor" {
 }
 
 fn clientHalf(allocator: std.mem.Allocator, io: std.Io, socks: []const u8) !void {
-    var res: onion.Resident = .{ .io = io, .config = .{ .socks = socks } };
-    const layers = [_]net.netlayer.Netlayer{res.netlayer()};
-    var session = try driver.connect(allocator, &layers, .{
-        .transport = onion.transport_name,
+    const transports: driver.Transports = .{ .symbols = &.{.onion}, .onion = .{ .socks = try net.tcp.parseDesignator(socks) } };
+    var session = try driver.connect(allocator, io, transports, .{
+        .transport = model.transport.onion,
         .designator = fake.service_id,
         .hints = model.Hints.emptyFalse(),
     }, .ephemeral, dial_opts);
@@ -112,11 +109,10 @@ test "onion profile by knowledge: a hinted dial settles glowcap-next, a bare dia
     var daemon = try fake.Daemon.start(allocator, io);
     defer daemon.stop();
 
-    var host_res: onion.Resident = .{ .io = io, .config = .{
-        .socks = daemon.socksText(),
-        .control_endpoint = daemon.controlText(),
-    } };
-    var server = try driver.listen(allocator, host_res.netlayer(), .{ .designator = "" }, .ephemeral, next_opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.onion}, .onion = .{
+        .socks = try net.tcp.parseDesignator(daemon.socksText()),
+        .control = try net.tcp.parseDesignator(daemon.controlText()),
+    } }, model.transport.onion, .{ .designator = "" }, .ephemeral, next_opts);
     defer server.deinit();
 
     // Handed the glowcap-hinted form of the address, the dialer knows its
@@ -155,14 +151,13 @@ fn profileClient(
     want_version: model.CaptpVersion,
     want_codec: model.CodecId,
 ) !void {
-    var res: onion.Resident = .{ .io = io, .config = .{ .socks = socks } };
-    const layers = [_]net.netlayer.Netlayer{res.netlayer()};
+    const transports: driver.Transports = .{ .symbols = &.{.onion}, .onion = .{ .socks = try net.tcp.parseDesignator(socks) } };
     const profile_hints = [_]model.HintEntry{.{
         .name = model.transport.hint_captp_version,
         .value = .{ .string = model.CaptpVersion.next.wireString() },
     }};
-    var session = try driver.connect(allocator, &layers, .{
-        .transport = onion.transport_name,
+    var session = try driver.connect(allocator, io, transports, .{
+        .transport = model.transport.onion,
         .designator = fake.service_id,
         .hints = switch (form) {
             .hinted => .{ .entries = &profile_hints },

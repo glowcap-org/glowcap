@@ -8,17 +8,130 @@
 #![allow(dead_code)]
 
 use super::layouts::*;
-use crate::sys::host::GlowcapHost;
+use crate::sys::host::{GlowcapHost, GlowcapHostSession};
 use crate::sys::ocapn::GlowcapContext;
 use crate::sys::{GlowcapArgument, GlowcapReference};
 use core::ffi::{c_int, c_uchar, c_uint, c_void};
 
 unsafe extern "C" {
+	pub fn glowcap_loam_call_disclose_reads_copying(
+		call: *mut GlowcapLoamCall,
+		target: *const GlowcapReference,
+		interfaces: *const GlowcapLoamReadInterface,
+		interface_count: usize,
+		role: usize,
+		out_reference: *mut GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_read_scope_size_bound(
+		arguments: *const GlowcapLoamValueBounds,
+		source_verb_bytes: usize,
+		interfaces: usize,
+		methods: usize,
+		verb_bytes: usize,
+		result_roles: usize,
+		targets: usize,
+		out_bytes: *mut usize,
+	) -> c_int;
+	pub fn glowcap_loam_call_source(call: *mut GlowcapLoamCall, out_reference: *mut GlowcapReference) -> c_int;
+	pub fn glowcap_loam_call_retain_prepared_reference(
+		call: *mut GlowcapLoamCall,
+		reference: *const GlowcapReference,
+		out_reference: *mut GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_call_reserve_continuation_copying(
+		call: *mut GlowcapLoamCall,
+		targets: *const GlowcapReference,
+		target_count: usize,
+		out_reservation: *mut *mut GlowcapLoamContinuationReservation,
+		out_pending: *mut *mut GlowcapLoamPendingContinuation,
+	) -> c_int;
+	pub fn glowcap_loam_continuation_reservation_source(
+		reservation: *mut GlowcapLoamContinuationReservation,
+		out_reference: *mut GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_continuation_reservation_target(
+		reservation: *mut GlowcapLoamContinuationReservation,
+		index: usize,
+		out_reference: *mut GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_pending_continuation_take(
+		pending: *mut GlowcapLoamPendingContinuation,
+		out_continuation: *mut *mut GlowcapLoamContinuation,
+	) -> c_int;
+	pub fn glowcap_loam_pending_continuation_release(pending: *mut GlowcapLoamPendingContinuation) -> c_int;
+	pub fn glowcap_loam_continuation_release(continuation: *mut GlowcapLoamContinuation) -> c_int;
+	pub fn glowcap_loam_continuation_project(
+		continuation: *mut GlowcapLoamContinuation,
+		index: usize,
+		out_reference: *mut GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_continuation_project_reads_copying(
+		continuation: *mut GlowcapLoamContinuation,
+		index: usize,
+		interfaces: *const GlowcapLoamReadInterface,
+		interface_count: usize,
+		role: usize,
+		out_reference: *mut GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_continuation_execute_copying(
+		continuation: *mut GlowcapLoamContinuation,
+		index: usize,
+		verb: *const c_uchar,
+		verb_len: usize,
+		args: *const GlowcapArgument,
+		args_len: usize,
+		reply_bytes: usize,
+		out_execution: *mut *mut GlowcapLoamEffectExecution,
+	) -> c_int;
+	pub fn glowcap_loam_effect_execution_result(
+		execution: *mut GlowcapLoamEffectExecution,
+		out_result: *mut GlowcapLoamEffectResult,
+	) -> c_int;
+	pub fn glowcap_loam_effect_execution_release(execution: *mut GlowcapLoamEffectExecution) -> c_int;
+	pub fn glowcap_loam_continuation_size_bound(
+		arguments: *const GlowcapLoamValueBounds,
+		verb_bytes: usize,
+		targets: usize,
+		out_bounds: *mut GlowcapLoamContinuationBounds,
+	) -> c_int;
+	pub fn glowcap_loam_effect_execution_result_size_bound(
+		reply_bytes: usize,
+		out_bounds: *mut GlowcapLoamEffectExecutionBounds,
+	) -> c_int;
 	pub fn glowcap_loam_validate_configuration(
 		schemas: *const GlowcapLoamSchema,
 		schema_count: usize,
 		limits: *const GlowcapLoamLimits,
 	) -> c_int;
+	pub fn glowcap_loam_schema_size_bound(raw: *const GlowcapLoamSchema, out_bytes: *mut usize) -> c_int;
+	pub fn glowcap_loam_reference_call_size_bound(
+		restores: usize,
+		saves: usize,
+		uri_bytes: usize,
+		out_bytes: *mut usize,
+	) -> c_int;
+	pub fn glowcap_loam_reference_uri_call_size_bound(count: usize, uri_bytes: usize, out_bytes: *mut usize) -> c_int;
+	pub fn glowcap_loam_graph_call_size_bound(
+		pages: usize,
+		payload_bytes: usize,
+		fields: usize,
+		out_bytes: *mut usize,
+	) -> c_int;
+	pub fn glowcap_loam_invocation_call_size_bound(
+		bounds: *const GlowcapLoamInvocationBounds,
+		out_bytes: *mut usize,
+	) -> c_int;
+	pub fn glowcap_loam_forwarding_size_bound(
+		bounds: *const GlowcapLoamValueBounds,
+		out_reply_bytes: *mut usize,
+		out_call_bytes: *mut usize,
+	) -> c_int;
+	pub fn glowcap_loam_content_staging_size_bound(
+		resource_path: usize,
+		receipt: c_uint,
+		out_bounds: *mut GlowcapLoamStagingBounds,
+	) -> c_int;
+	pub fn glowcap_loam_reference_staging_size_bound(saves: usize, out_bounds: *mut GlowcapLoamStagingBounds) -> c_int;
 	pub fn glowcap_loam_metadata_claim(
 		identity: *const c_uchar,
 		create: c_uint,
@@ -51,6 +164,12 @@ unsafe extern "C" {
 	pub fn glowcap_loam_work_report_unstarted(raw: *mut GlowcapLoamWork) -> c_int;
 	pub fn glowcap_loam_policy_value(
 		policy: *const GlowcapLoamPolicy,
+		requirement: *const GlowcapLoamRequirement,
+		out_value: *mut GlowcapLoamPolicyValue,
+	) -> c_int;
+	pub fn glowcap_loam_policy_value_for_kind(
+		policy: *const GlowcapLoamPolicy,
+		kind: u64,
 		requirement: *const GlowcapLoamRequirement,
 		out_value: *mut GlowcapLoamPolicyValue,
 	) -> c_int;
@@ -94,6 +213,48 @@ unsafe extern "C" {
 	pub fn glowcap_loam_work_release(raw: *mut GlowcapLoamWork) -> c_int;
 	pub fn glowcap_loam_call_reply(call: *mut GlowcapLoamCall, value: *const GlowcapArgument) -> c_int;
 	pub fn glowcap_loam_call_replace_copying(call: *mut GlowcapLoamCall, bytes: *const c_uchar, len: usize) -> c_int;
+	pub fn glowcap_loam_call_replace_graph_copying(
+		call: *mut GlowcapLoamCall,
+		payload: *const c_uchar,
+		payload_len: usize,
+		pages: *const GlowcapLoamPageReplacement,
+		count: usize,
+	) -> c_int;
+	pub fn glowcap_loam_call_page_reference(
+		call: *mut GlowcapLoamCall,
+		page: *const GlowcapLoamPageHandle,
+		index: usize,
+		out_reference: *mut GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_call_disclose_page(
+		call: *mut GlowcapLoamCall,
+		page: *const GlowcapLoamPageHandle,
+		index: usize,
+		dependent: c_uint,
+		out_value: *mut GlowcapArgument,
+	) -> c_int;
+	pub fn glowcap_loam_references_restore_page(
+		references: *mut GlowcapLoamReferences,
+		page: *const GlowcapLoamPageHandle,
+		index: usize,
+	) -> c_int;
+	pub fn glowcap_loam_references_restore_page_with_uri(
+		references: *mut GlowcapLoamReferences,
+		page: *const GlowcapLoamPageHandle,
+		index: usize,
+	) -> c_int;
+	pub fn glowcap_loam_references_inspect_page_uri(
+		references: *mut GlowcapLoamReferences,
+		page: *const GlowcapLoamPageHandle,
+		index: usize,
+	) -> c_int;
+	pub fn glowcap_loam_call_page_saved_uri(
+		call: *mut GlowcapLoamCall,
+		page: *const GlowcapLoamPageHandle,
+		index: usize,
+		out_uri: *mut *const c_uchar,
+		out_len: *mut usize,
+	) -> c_int;
 	pub fn glowcap_loam_call_disclose(
 		call: *mut GlowcapLoamCall,
 		index: usize,
@@ -107,6 +268,40 @@ unsafe extern "C" {
 		uri: *const c_uchar,
 		uri_len: usize,
 	) -> c_int;
+	pub fn glowcap_loam_references_save_live(
+		raw: *mut GlowcapLoamReferences,
+		reference: *const GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_references_save_live_dependent(
+		raw: *mut GlowcapLoamReferences,
+		source: *const GlowcapReference,
+		target: *const GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_call_prepared_live_dependent(
+		call: *mut GlowcapLoamCall,
+		source: *const GlowcapReference,
+		target: *const GlowcapReference,
+		out_reference: *mut GlowcapReference,
+	) -> c_int;
+	pub fn glowcap_loam_call_matches_live_dependent(
+		call: *mut GlowcapLoamCall,
+		facet: *const GlowcapReference,
+		source: *const GlowcapReference,
+		target: *const GlowcapReference,
+		out_matches: *mut u32,
+	) -> c_int;
+	pub fn glowcap_loam_call_live_dependent_exporter(
+		call: *mut GlowcapLoamCall,
+		facet: *const GlowcapReference,
+		out_session: *mut *mut GlowcapHostSession,
+	) -> c_int;
+	pub fn glowcap_loam_live_start(
+		raw: *mut GlowcapLoamAttachment,
+		prior: *const GlowcapLoamObject,
+		capacity: c_uint,
+	) -> c_int;
+	pub fn glowcap_loam_live_marker(raw: *mut GlowcapLoamAttachment, out_marker: *mut GlowcapLoamObject) -> c_int;
+	pub fn glowcap_loam_live_generation(raw: *mut GlowcapLoamAttachment, out_generation: *mut u64) -> c_int;
 	pub fn glowcap_loam_call_append_reference(call: *mut GlowcapLoamCall, reference: *const GlowcapReference) -> c_int;
 	pub fn glowcap_loam_call_replace_reference(
 		call: *mut GlowcapLoamCall,

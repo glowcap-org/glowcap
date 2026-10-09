@@ -4,16 +4,10 @@
 mod browser_archive;
 #[path = "browser_channels.rs"]
 mod browser_channels;
-#[path = "browser_facets.rs"]
-mod browser_facets;
-#[path = "browser_grants.rs"]
-mod browser_grants;
 #[path = "browser_ice.rs"]
 mod browser_ice;
 #[path = "browser_relay.rs"]
 mod browser_relay;
-#[path = "browser_session.rs"]
-mod browser_session;
 #[path = "browser_signaling.rs"]
 mod browser_signaling;
 #[path = "browser_storage.rs"]
@@ -37,7 +31,7 @@ pub async fn rooms_browser_host_contract() -> Result<(), JsValue> {
 		.await
 }
 
-fn install_panic_hook() {
+pub(crate) fn install_panic_hook() {
 	std::panic::set_hook(Box::new(|panic| report_panic(&panic.to_string())));
 }
 
@@ -57,7 +51,7 @@ async fn run() -> Result<(), String> {
 		server.designator().map_err(message)?
 	);
 	server
-		.publish_giftable(rooms_application::directory::NAME, || {
+		.publish(rooms_application::directory::NAME, || {
 			Box::new(|verb, args| match (verb, args) {
 				(rooms_application::directory::LIST, []) => Ok(Argument::List(Vec::new())),
 				(rooms_application::directory::creation::LOCATION, []) => {
@@ -68,7 +62,7 @@ async fn run() -> Result<(), String> {
 		})
 		.map_err(message)?;
 	server
-		.publish_giftable("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
+		.publish("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
 		.map_err(message)?;
 	let (left, right) = tokio::io::duplex(4096);
 	let locator = Locator::bare("tcp", "127.0.0.1:9000");
@@ -120,14 +114,12 @@ async fn run() -> Result<(), String> {
 	);
 	assert_eq!(seen.get(), 1);
 	browser_archive::exercise(&client, &accepted, &locator).await;
-	browser_grants::exercise(&client, &accepted, &locator).await;
-	browser_facets::exercise(client.platform().clone()).await;
 
 	// A retained remote resolver holds pending work while finite close expires.
 	let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 	let deferred_host = server.clone();
 	server
-		.publish_giftable("pending", move || {
+		.publish("pending", move || {
 			Box::new(move |_, _| {
 				tx.try_send(deferred_host.defer_turn().map_err(message)?)
 					.map_err(message)?;

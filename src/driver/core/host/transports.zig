@@ -27,19 +27,31 @@ pub fn prepareAdvertisedLocator(
     allocator: std.mem.Allocator,
     locator: model.PeerLocator,
 ) !model.PeerLocator {
+    var hint_storage: engine.Peer.HelloHints = .{};
+    defer hint_storage.deinit(self.allocator);
+    const complete = try borrowPreparedAdvertisedLocator(self, locator, &hint_storage);
+    return model.clonePeerLocator(allocator, complete);
+}
+
+/// Internal preparation borrows input bytes and caller-owned hint scratch
+/// through Node retention. No input is used after the Node replaces its row;
+/// its single deep copy therefore also protects aliased catalog input.
+/// Public owned preparation copies because its result outlives both borrows.
+pub fn borrowPreparedAdvertisedLocator(
+    self: *Host,
+    locator: model.PeerLocator,
+    hint_storage: *engine.Peer.HelloHints,
+) !model.PeerLocator {
     try admission.admitConfigurationMutation(self);
     if ((try self.transportProfile(locator.transport)).dial_shape == .route_bundle)
         return HostError.UnknownTransport;
     if (try designatorScheme(self, locator.transport) == .key)
         try sessions.refuseUnheldIdentity(self, locator.designator);
-    var hint_storage: engine.Peer.HelloHints = .{};
-    defer hint_storage.deinit(self.allocator);
-    const complete = try hint_storage.extend(self.allocator, locator, .{
+    return hint_storage.extend(self.allocator, locator, .{
         .captp_version = self.opts.captp_version,
         .codec = self.opts.codec,
         .features = self.opts.features,
     }, false);
-    return model.clonePeerLocator(allocator, complete);
 }
 
 /// Retain an already prepared locator without changing acceptable-location
@@ -51,17 +63,19 @@ pub fn retainPreparedAdvertisedLocator(self: *Host, locator: model.PeerLocator) 
 
 /// Complete and retain a route without selecting it.
 pub fn retainAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
-    const complete = try prepareAdvertisedLocator(self, self.allocator, locator);
-    defer model.freePeerLocator(self.allocator, complete);
-    try retainPreparedAdvertisedLocator(self, complete);
+    var hint_storage: engine.Peer.HelloHints = .{};
+    defer hint_storage.deinit(self.allocator);
+    const complete = try borrowPreparedAdvertisedLocator(self, locator, &hint_storage);
+    try self.node.retainAdvertisedLocator(complete);
 }
 
 /// Publish and select this node's complete acceptable location. The node
 /// retains snapshots for other transports so deployment policy can select
 /// a different route later (ADR-0109).
 pub fn setAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
-    const complete = try prepareAdvertisedLocator(self, self.allocator, locator);
-    defer model.freePeerLocator(self.allocator, complete);
+    var hint_storage: engine.Peer.HelloHints = .{};
+    defer hint_storage.deinit(self.allocator);
+    const complete = try borrowPreparedAdvertisedLocator(self, locator, &hint_storage);
     try self.node.setAdvertisedLocator(complete);
 }
 

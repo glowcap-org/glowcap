@@ -135,6 +135,7 @@ test "loam LMDB composed managed changes reopen atomically after commit and unkn
             var child_plan = (try f.prepare(&read, &db, .{ .derive = .{ .parent = issued.change.grant, .request = f.vocabulary.issue(selected, 0) } })).?;
             defer child_plan.deinit(a);
             var child_append = try f.storage.Append.init(&read, .grant);
+            child_append.grant_parent = child_plan.delta.issue.parent;
             _ = try f.pump(&child_append, &db);
             const derived = try f.storage.stage.grant(&read, &child_plan, &child_append);
             derived_grant = derived.change.grant;
@@ -192,4 +193,50 @@ test "loam LMDB composed managed changes reopen atomically after commit and unkn
         store.evict();
         try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
     }
+}
+
+const process = struct {
+    extern "c" fn fork() c_int;
+    extern "c" fn pipe(*[2]c_int) c_int;
+    extern "c" fn read(c_int, [*]u8, usize) isize;
+    extern "c" fn write(c_int, [*]const u8, usize) isize;
+    extern "c" fn close(c_int) c_int;
+    extern "c" fn waitpid(c_int, *c_int, c_int) c_int;
+    extern "c" fn _exit(c_int) noreturn;
+};
+
+test "loam LMDB closing releases custody while a forked child awaits exec" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", a);
+    defer a.free(path);
+    const terminated = try a.dupeSentinel(u8, path, 0);
+    defer a.free(terminated);
+    var db = try Lmdb.open(terminated, .{ .mode = .{ .create = f.store_id } });
+    var closed = false;
+    defer if (!closed) db.close() catch unreachable;
+    var signal: [2]c_int = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), process.pipe(&signal));
+    defer _ = process.close(signal[0]);
+    defer _ = process.close(signal[1]);
+    const child = process.fork();
+    try std.testing.expect(child >= 0);
+    if (child == 0) {
+        // A spawned child can retain inherited descriptors until exec, even
+        // though it never calls Loam or accesses the inherited environment.
+        var byte: [1]u8 = undefined;
+        process._exit(if (process.read(signal[0], &byte, 1) == 1) 0 else 1);
+    }
+    defer {
+        _ = process.write(signal[1], "x", 1);
+        var status: c_int = 0;
+        std.testing.expectEqual(child, process.waitpid(child, &status, 0)) catch unreachable;
+        std.testing.expectEqual(@as(c_int, 0), status) catch unreachable;
+    }
+    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } }));
+    try db.close();
+    closed = true;
+    var reopened = try Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } });
+    defer reopened.close() catch unreachable;
+    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } }));
 }

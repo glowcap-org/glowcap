@@ -35,7 +35,8 @@ export interface RoomsBrowserController {
 	setHelpTab(tab: HelpTab): void;
 	closeHelp(): void;
 	openOperations(): void;
-	showActiveConversation(): void;
+	/** Acknowledge a conversation after its selection settles, while this arrival remains current. */
+	showActiveConversation(selection: Promise<void>): Promise<void>;
 	setOpsPane(pane: OpsCap): void;
 	changeLine(id: number, text: string): void;
 	changeFiles(id: number, caption: string, keeping: readonly AttachmentView[]): void;
@@ -62,13 +63,13 @@ export interface RoomsBrowserController {
 	}): void;
 	attachRoomsSession(sturdyref: string): Promise<string>;
 	shareRoomsSession(): Promise<string>;
-	useLocalRoomsSession(): string;
-	leaveRoomsSession(): string;
+	useLocalRoomsSession(): Promise<string>;
+	leaveRoomsSession(): Promise<string>;
 	readonly controllerSelection: {
 		getSnapshot(): RoomsControllerSelection;
 		subscribe(changed: () => void): () => void;
 	};
-	resetBrowserWorkspace(): string;
+	resetBrowserWorkspace(): Promise<string>;
 	deleteBrowserData(): Promise<string>;
 }
 

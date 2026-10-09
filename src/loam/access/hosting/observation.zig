@@ -65,7 +65,7 @@ const State = struct {
             const result = try observation.result();
             if (!result.changed and std.mem.eql(u8, self.verb, "receive")) {
                 // Attachment restarts this preparation on the next commit.
-                // Waiting retains no model leases or native source operation.
+                // Waiting retains no model leases or source operation.
                 try observation.deinit();
                 self.observation = null;
                 self.waiting = true;
@@ -74,7 +74,7 @@ const State = struct {
             self.result = result;
             // The snapshot owns every value. Attachment checks the Store
             // revision again before invocation, so a ready reply needs no
-            // native operation or model leases while waiting its turn.
+            // operation or model leases while waiting its turn.
             try observation.deinit();
             self.observation = null;
         } else if (self.cancellation) |cancellation| {
@@ -131,7 +131,7 @@ fn prepare(call: *hosting.Call, verb: []const u8, args: []const driver.Value) !h
         if (args.len > 1 or (args.len == 1 and (args[0] != .bytes or args[0].bytes.len != @sizeOf(storage.Observation.Cursor)))) return error.InvalidArguments;
         if (args.len == 1) cursor = args[0].bytes[0..@sizeOf(storage.Observation.Cursor)].*;
     }
-    const value = try call.arena.create(State);
+    const value = try call.arena().create(State);
     value.* = .{ .call = call, .config = config, .endpoint = endpoint, .verb = verb, .cursor = cursor };
     return .{ .context = value, .advanceFn = advance, .completeFn = complete, .deinitFn = deinit };
 }
@@ -166,22 +166,22 @@ fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const dri
     if (value.publication) |lease| {
         const view = try value.store().currentView(lease);
         const name = driver.Host.DurableSwiss.fromEntropy(view.payload[0..@sizeOf(driver.Host.DurableSwiss.Entropy)].*);
-        return .{ .string = try call.arena.dupe(u8, name.slice()) };
+        return .{ .string = try call.arena().dupe(u8, name.slice()) };
     }
     if (value.cancellation != null) {
         if (value.changed) call.transaction = .{ .context = value, .stage = stage };
         return .{ .boolean = value.changed };
     }
     const result = value.result.?;
-    const parts = try call.arena.alloc(driver.Value, 5);
-    parts[0] = .{ .bytes = try call.arena.dupe(u8, &result.cursor) };
+    const parts = try call.arena().alloc(driver.Value, 5);
+    parts[0] = .{ .bytes = try call.arena().dupe(u8, &result.cursor) };
     parts[1] = switch (result.snapshot) {
-        .use => |snapshot| try description.encode(call.arena, snapshot),
-        .control => |snapshot| try description.controlSnapshot(call.arena, snapshot),
+        .use => |snapshot| try description.encode(call.arena(), snapshot),
+        .control => |snapshot| try description.controlSnapshot(call.arena(), snapshot),
     };
     parts[2] = .{ .boolean = result.resync };
     parts[3] = .{ .boolean = result.changed };
-    const flags = try call.arena.alloc(driver.Value, @intFromBool(result.notices.access) + @as(usize, @intFromBool(result.notices.target)) + @intFromBool(result.notices.inventory) + @intFromBool(result.notices.management));
+    const flags = try call.arena().alloc(driver.Value, @intFromBool(result.notices.access) + @as(usize, @intFromBool(result.notices.target)) + @intFromBool(result.notices.inventory) + @intFromBool(result.notices.management));
     var count: usize = 0;
     inline for (.{ "access", "target", "inventory", "management" }) |field| if (@field(result.notices, field)) {
         flags[count] = .{ .symbol = field };

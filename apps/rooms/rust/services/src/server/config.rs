@@ -25,6 +25,8 @@ pub struct Config {
 	/// The loopback port the live timeline endpoint binds while `trace` is
 	/// asked; zero takes an ephemeral one.
 	pub trace_port: u16,
+	pub trace_publish: Option<String>,
+	pub trace_connect: Option<String>,
 }
 
 /// The timeline endpoint's port when nothing overrides it.
@@ -43,13 +45,24 @@ pub const HELP: &str =
   --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)
   --admin-listeners --diagnostics --operator --peering --irc --trace  mint an operator capability and print its swiss
   --trace-port=<port>  the loopback port the live timeline endpoint binds (default: 9300; 0 takes any)
+  --trace-connect=<ws-url>  advertise the CapTP byte-channel endpoint through a deployment proxy
+  --trace-publish=<ws-url>  advertise the producer endpoint through a deployment proxy
 Options override GLOWCAP_ROOMS_* environment variables. TCP defaults to 127.0.0.1:0.
 rooms-server --capabilities[=<state-directory>]  print kept operator capabilities without starting a server
 The directory defaults to GLOWCAP_ROOMS_STATE. Kept capabilities may be disabled in the current server.
+Set GLOWCAP_ROOMS_LOCATOR to the server's advertised locator to print complete recipes.
+For a minted timeline, also set GLOWCAP_ROOMS_TRACE_LOCATOR to its advertised locator.
 ";
 
 /// The options beyond the transport's own that take a value.
-const KEYS: &[&str] = &["state", "storage", "storage-password-file", "trace-port"];
+const KEYS: &[&str] = &[
+	"state",
+	"storage",
+	"storage-password-file",
+	"trace-port",
+	"trace-publish",
+	"trace-connect",
+];
 /// The options that are flags: present, or `1`/`true`/`yes` in the environment.
 const FLAGS: &[&str] = &[
 	"history",
@@ -134,6 +147,18 @@ impl Config {
 			storage,
 			asked,
 			trace_port,
+			trace_connect: value("trace-connect")
+				.map(|endpoint| {
+					rooms_application::web_channel::endpoint(&endpoint).map_err(Error::refused)?;
+					Ok::<_, Error>(endpoint)
+				})
+				.transpose()?,
+			trace_publish: value("trace-publish")
+				.map(|endpoint| {
+					rooms_application::server::trace::producer_endpoint(&endpoint).map_err(Error::refused)?;
+					Ok::<_, Error>(endpoint)
+				})
+				.transpose()?,
 		}))
 	}
 	/// Explicit storage wins over the state directory. With neither, history

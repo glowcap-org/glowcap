@@ -131,14 +131,14 @@ pub const DropSessionOnClose = struct {
 pub fn connectAndHold(
     allocator: std.mem.Allocator,
     io: std.Io,
-    netlayer: net.netlayer.Netlayer,
     address: std.Io.net.IpAddress,
     stop: *const std.atomic.Value(bool),
 ) !void {
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const session = try driver.connect(
         allocator,
-        &.{netlayer},
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
         opts,

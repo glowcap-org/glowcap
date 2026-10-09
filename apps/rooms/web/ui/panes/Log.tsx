@@ -20,6 +20,7 @@ import {
 	conversationBeginning,
 	conversationClosedDirect,
 	conversationDirectory,
+	conversationJoiningRoom,
 	conversationLiveDirect,
 	conversationLoadingEarlier,
 	conversationPendingDirect,
@@ -29,6 +30,7 @@ import {
 	logNewMessages,
 } from "../../../lib/text/conversation.ts";
 import { messagesLabel } from "../../../lib/text/controls.ts";
+import { DirectReconnect } from "./DirectReconnect.tsx";
 
 /** The line the "New messages" rule hangs above, or null when there is none. */
 function rulePlace(unread: Unread): number | null {
@@ -43,6 +45,7 @@ function rulePlace(unread: Unread): number | null {
 function introBody(conv: Conv): string {
 	if (conv.type === "directory") return conversationDirectory;
 	if (conv.type === "room") {
+		if (conv.membership === "joining") return conversationJoiningRoom;
 		const beginning = conversationBeginning((conv.earlierHistory ?? "none") as EarlierHistory);
 		return beginning + (conv.held ? conversationPrivateRoom : conversationPublicRoom);
 	}
@@ -222,6 +225,7 @@ function LogPane(
 							{conv.type === "directory" ? directoryName(conv.dir, homeDir) : conv.id}
 						</h2>
 						<p>{introBody(conv)}</p>
+						{conv.type === "dm" && conv.line === "closed" && <DirectReconnect key={conv.key} conv={conv} />}
 					</div>
 					{conv.type === "room" && conv.earlierHistory === "loading" && (
 						<div className="history-loading" role="status" aria-label={conversationLoadingEarlier}>

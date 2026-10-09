@@ -10,6 +10,7 @@ const glowcap = @import("glowcap");
 const support_actors = @import("../support/actors.zig");
 
 const driver = glowcap.driver;
+const model = glowcap.ocapn.model;
 const net = glowcap.net;
 const tcp = net.tcp;
 
@@ -54,8 +55,7 @@ test "releasing the last handle reclaims a spawned actor while its session stays
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
     defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
@@ -68,9 +68,8 @@ test "releasing the last handle reclaims a spawned actor while its session stays
 }
 
 fn clientHalf(allocator: std.mem.Allocator, io: std.Io, address: std.Io.net.IpAddress) !void {
-    var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);

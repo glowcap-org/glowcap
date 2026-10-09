@@ -78,7 +78,7 @@ drawn row and loaded file URLs.
 
 ## Scope (what this does not decide)
 
-No storage migrates between archives, and no archive copies another's records;
+Storage stays with each archive, and no archive copies another's records;
 the combination exists only at the reader. There is no source-picker
 interface: the reader chooses accounts by reading or discarding each offered
 share, and attribution dividers name what is standing. The shared-account blob
@@ -88,7 +88,7 @@ room's own account, coordinate-less by design.
 
 ## Alternatives considered
 
-- **Migrating device history into the peer at selection.** Rejected by
+- **Copying device history into the peer at selection.** Rejected by
   ADR-0131 for its duplication and provenance semantics; the combined read
   answers the same need without moving anything.
 - **Chronological interleave of archive rows with live traffic.** The attached

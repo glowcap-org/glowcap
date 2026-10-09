@@ -51,11 +51,11 @@ import { Directory, Room } from "../../apps/rooms/lib/room/client.ts";
 import { enterOrOpen } from "../../apps/rooms/lib/enter_room.ts";
 import { openRoomsRuntime } from "../../apps/rooms/lib/runtime.ts";
 import { DM } from "../../apps/rooms/lib/protocol.ts";
-import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../apps/rooms/lib/locator.ts";
+import { dial, loopbackTcpDesignator, roomsHost, roomsListen, roomsLocator } from "../../apps/rooms/lib/locator.ts";
 import {
+	acquireTraceCapability,
 	connectTraceViewer,
 	scrapeTraceSturdyref,
-	traceMemorySeed,
 	traceUrlOf,
 } from "../../apps/rooms/test/trace/viewer.ts";
 import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
@@ -219,7 +219,8 @@ try {
 	web = new Deno.Command(WEB, {
 		args: [
 			"--transport=tcp",
-			...(IROH ? ["--transport=iroh"] : []),
+			// The Goblins netlayer dials the addresses announced by this fixture.
+			...(IROH ? ["--transport=iroh", "--reachability=direct"] : []),
 			String(httpPort),
 			String(roomPort),
 		],
@@ -328,9 +329,9 @@ try {
 		// The locator registered here is what the room stamps as this member's
 		// exporter location, and therefore what the vat's give has to name.
 		await nativeDir.register(NATIVE_NICK, native.locator, {
-			onMintInboxFor: (peer, registrationId) => {
+			onMintInboxFor: (peer, registrationId, opening) => {
 				console.log(`  [native] the room asked for an inbox for ${peer}`);
-				nativeOfferer.offer(peer, registrationId);
+				nativeOfferer.offer(peer, registrationId, opening);
 			},
 		});
 		console.log(`  [native] registered as ${NATIVE_NICK} at ${native.locator}`);
@@ -339,10 +340,6 @@ try {
 	// The browser tab.
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const context = await browser.newContext();
-	await context.addInitScript(
-		({ key, value }) => localStorage.setItem(key, value),
-		traceMemorySeed(httpPort, traceRef),
-	);
 	const tab: Page = await context.newPage();
 	tab.on("console", (message) => {
 		if (message.type() === "error" || message.type() === "warning") {
@@ -352,6 +349,7 @@ try {
 	tab.on("pageerror", (e) => console.error("  [page error]", e.message));
 	await tab.goto(`http://127.0.0.1:${httpPort}/`);
 	await establishLocalSession(tab);
+	await acquireTraceCapability(tab, traceRef);
 	await tab.waitForSelector("#joinBtn", { timeout: 10_000 }).catch(async (error) => {
 		console.error(`  [page url] ${tab.url()}`);
 		console.error(`  [page body] ${JSON.stringify((await tab.locator("body").innerText()).slice(0, 2_000))}`);
@@ -462,9 +460,7 @@ try {
 	// one to the tab — and this is the other one: its far end is not the room's
 	// designator. That is the headline of a direct message stated in the picture
 	// rather than only in the delivery.
-	const roomDesignator = roomLocator.includes("://")
-		? roomLocator.slice("ocapn://".length).split(".")[0]
-		: roomLocator;
+	const roomDesignator = roomsLocator(roomLocator).designator;
 	const vatSessions = opensNow().filter((r) => r.a_profile === GOBLINS_PROFILE);
 	if (!vatSessions.some((r) => r.b === roomDesignator)) {
 		fail(

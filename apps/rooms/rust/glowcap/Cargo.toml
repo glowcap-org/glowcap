@@ -13,5 +13,6 @@ loam = ["glowcap/loam"]
 
 [dependencies]
 serde.workspace = true
+serde_json = { workspace = true, features = ["std"] }
 rooms-application = { path = "../application" }
 glowcap.workspace = true

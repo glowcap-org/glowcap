@@ -28,10 +28,10 @@
 //! `DialPlan.signaling`, and `GLOWCAP_DIAL_SHAPE_SIGNALING` ships in every
 //! binding's constants table. The resident compiles and type-checks under
 //! `zig build check` but is not a `Netlayer`. Generic Host integration is the
-//! completion `Backend` below: `completion.Loop(Backend, DialResolver)` under
-//! `driver.Bridge` serves adopted answerers and drives offerer dials through a
-//! configured `SignalingAuthority` (`zig build webrtc-loop`; the three-party
-//! redeem over a bare webrtc give is `zig build webrtc-bridge-redeem`). A
+//! completion `Backend` below: as a `net.completion_resident` on
+//! `driver.HostRuntime` it serves adopted answerers and drives offerer dials
+//! through a configured `SignalingAuthority` (`zig build webrtc-loop`; the
+//! three-party redeem over a bare webrtc give is `zig build webrtc-redeem`). A
 //! blocking caller may still drive signaling and adopt the channel
 //! explicitly.
 //!
@@ -101,3 +101,6 @@ pub const Resident = sidecar.Resident;
 pub const DialResolver = backend.DialResolver;
 pub const SignalingAuthority = backend.SignalingAuthority;
 pub const Backend = backend.Backend;
+/// `Backend` as a HostRuntime resident's transport policy:
+/// `net.completion_resident.Resident(Backend, ResidentPolicy)`.
+pub const ResidentPolicy = @import("webrtc/resident_policy.zig").ResidentPolicy(Backend);

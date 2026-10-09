@@ -464,15 +464,23 @@ mod tests {
 			Argument::from("not-a-seat"),
 			Argument::from("participant"),
 			Argument::Void,
+			Argument::Void,
 		]);
 		assert!(membership_seat(&unseated).is_none());
 		let unoffered = Argument::from(vec![
 			Argument::from("not-a-seat"),
 			Argument::from("steward"),
 			Argument::Void,
+			Argument::Void,
 		]);
 		assert!(membership_seat(&unoffered).is_none());
 		assert!(membership_seat(&Argument::from("not-a-list")).is_none());
-		assert_eq!(SUBSCRIBE_ANSWER_FIELDS.len(), 3);
+		assert_eq!(
+			SUBSCRIBE_ANSWER_FIELDS
+				.iter()
+				.map(|field| field.name)
+				.collect::<Vec<_>>(),
+			["seat", "kind", "topic", "files"],
+		);
 	}
 }

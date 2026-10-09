@@ -259,8 +259,8 @@ export function conversationReach(
 	return reachPublicRoom(roomCalled(conv.id, false));
 }
 
-/** The rooms this tab could publish into the home directory: joined rooms on
- * some other, connected directory, in the order the conversations hold them.
+/** The rooms this tab could publish into the home directory: rooms with held
+ * durable entrances on another connected directory, in conversation order.
  * The peering pane's choices, derived here so they carry the same directory
  * words the rail uses. */
 export function peeringSourcesOf(
@@ -270,7 +270,7 @@ export function peeringSourcesOf(
 ): PeeringSource[] {
 	const sources: PeeringSource[] = [];
 	for (const conv of convs.values()) {
-		if (conv.type !== "room" || conv.dir === home) continue;
+		if (conv.type !== "room" || conv.dir === home || conv.linkToken == null) continue;
 		if (dirs.get(conv.dir)?.session !== "connected") continue;
 		sources.push({ key: conv.key, room: conv.id, directory: directoryName(conv.dir, home) });
 	}

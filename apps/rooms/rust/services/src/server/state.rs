@@ -547,13 +547,17 @@ impl State {
 	}
 }
 
-/// A member notice as its inbox hears it: `[kind, nick, registration id]`.
-pub(super) fn notice_args(notice: &MemberNotice) -> [Argument; 3] {
+/// Direct-opening notices also carry the original opening identity.
+pub(super) fn notice_args(notice: &MemberNotice) -> Vec<Argument> {
 	let (kind, nick, id) = match notice {
 		MemberNotice::Registered { nick, id } => (rooms_application::protocol_data::REGISTERED, nick, id),
-		MemberNotice::Introducible { nick, id } => ("introducible", nick, id),
-		MemberNotice::MintInboxFor { nick, id } => ("mintInboxFor", nick, id),
+		MemberNotice::Introducible { nick, id, .. } => ("introducible", nick, id),
+		MemberNotice::MintInboxFor { nick, id, .. } => ("mintInboxFor", nick, id),
 		MemberNotice::DirectRequested { nick, id } => (rooms_application::protocol_data::DIRECT_REQUESTED, nick, id),
 	};
-	[kind.into(), nick.as_str().into(), id.as_str().into()]
+	let mut args = vec![kind.into(), nick.as_str().into(), id.as_str().into()];
+	if let MemberNotice::Introducible { opening, .. } | MemberNotice::MintInboxFor { opening, .. } = notice {
+		args.push(opening.as_str().into());
+	}
+	args
 }

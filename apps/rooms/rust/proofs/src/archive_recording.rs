@@ -92,12 +92,33 @@ pub fn run() {
 		);
 	}
 	let input = &fixture["cases"][0]["inputs"][0];
+	let mut longest = input.clone();
+	longest["conversation"] = "r".repeat(rooms_application::archive::MAX_CONVERSATION_BYTES).into();
+	let longest = message(&longest)
+		.expect("every admitted workspace identity fits the archive")
+		.unwrap();
+	let encoded = serde_json::to_string(&longest).unwrap();
+	assert_eq!(serde_json::from_str::<Record>(&encoded).unwrap(), longest);
+	let mut multilingual = input.clone();
+	let identity = "界".repeat(rooms_application::content::session::workspace::MAX_ID_UNITS);
+	assert!(rooms_application::content::session::workspace::Id::new(identity.clone().into()).is_some());
+	multilingual["conversation"] = identity.into();
+	let multilingual = message(&multilingual)
+		.expect("the maximum UTF-8 expansion fits recording")
+		.unwrap();
+	assert_eq!(
+		serde_json::from_str::<Record>(&serde_json::to_string(&multilingual).unwrap()).unwrap(),
+		multilingual
+	);
 	for (field, value) in [
 		("nick", serde_json::json!("everyone")),
 		("from", serde_json::json!("everyone")),
 		("generation", serde_json::json!("bad\u{0000}generation")),
 		("directory", serde_json::json!("d".repeat(8193))),
-		("conversation", serde_json::json!("r".repeat(513))),
+		(
+			"conversation",
+			serde_json::json!("r".repeat(rooms_application::archive::MAX_CONVERSATION_BYTES + 1)),
+		),
 		(
 			"text",
 			serde_json::json!("t".repeat(rooms_application::room::line::MAX_LINE_BYTES + 1)),

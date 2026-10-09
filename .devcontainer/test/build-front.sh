@@ -9,6 +9,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 container_dir="${repo_root}/.devcontainer"
 front="${repo_root}/.agents/skills/work/bin/glowcap-dev"
 lease_runner="${repo_root}/.agents/skills/work/bin/glowcap-build-lease"
+unset CARGO_BUILD_BUILD_DIR CARGO_BUILD_JOBS RUSTC
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "test/build-front: python3 is required to exercise the portable build lease" >&2
@@ -37,6 +38,9 @@ printf '%s\n' \
     '#!/usr/bin/env bash' \
     'if [[ "$1" == ps ]]; then printf "abc123\\n"; exit 0; fi' \
     'if [[ "$*" == "exec abc123 uname -m" ]]; then printf "%s\\n" "${FAKE_CONTAINER_ARCH:-$(uname -m)}"; exit 0; fi' \
+    'if [[ "$*" == *"kill -TERM"* && -n "${FAKE_DOCKER_LOG:-}" ]]; then printf "%s\\n" "$*" >> "${FAKE_DOCKER_LOG}"; kill "$(cat "${FAKE_DOCKER_LOG}.client")"; exit 0; fi' \
+    'if [[ "$*" == *setsid* && -n "${FAKE_DOCKER_HANG:-}" ]]; then echo "$$" > "${FAKE_DOCKER_LOG}.client"; exec sleep 30; fi' \
+    'if [[ "$*" == *setsid* && -n "${FAKE_DOCKER_READY:-}" ]]; then touch "$FAKE_DOCKER_READY"; for _ in {1..200}; do [[ -f "$FAKE_DOCKER_READY.release" ]] && break; sleep 0.01; done; [[ -f "$FAKE_DOCKER_READY.release" ]] || exit 37; fi' \
     'printf "%s\\n" "$*"' > "${scratch}/bin/docker"
 # shellcheck disable=SC2016
 printf '%s\n' \
@@ -49,14 +53,102 @@ printf '%s\n' \
 chmod 755 "${scratch}/bin/docker" "${scratch}/bin/local-probe" "${scratch}/bin/zig"
 
 host_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" /bin/true)"
-[[ "${host_exec}" == *"--workdir /workspaces/glowcap abc123 /bin/true"* ]]
+[[ "${host_exec}" == *"--workdir /workspaces/glowcap abc123 setsid --wait sh -c "* ]]
+[[ "${host_exec}" == *" /bin/true" ]]
+[[ "${host_exec}" == *"--env CARGO_BUILD_BUILD_DIR=/home/vscode/.cache/glowcap-dev-zig-work/cargo/{workspace-path-hash}"* ]]
+[[ "${host_exec}" == *"--env CARGO_BUILD_JOBS=4"* ]]
+inherited_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container CARGO_BUILD_JOBS=7 "${front}" /bin/true)"
+[[ "${inherited_exec}" == *"--env CARGO_BUILD_JOBS=7"* && "${inherited_exec}" != *"--env CARGO_BUILD_JOBS=4"* ]]
+
+# The native linker finds the active compiler's bundled LLD independently of
+# cwd, preserves argument boundaries, and propagates compiler refusal.
+linker_lib="${scratch}/rust toolchain/lib/rustlib/native/lib"
+linker_bin="$(dirname "${linker_lib}")/bin/gcc-ld"
+mkdir -p "${linker_lib}" "${linker_bin}"
+touch "${linker_bin}/ld.lld"
+chmod 755 "${linker_bin}/ld.lld"
+# shellcheck disable=SC2016 # Expanded only by the isolated fake tools.
+printf '%s\n' '#!/usr/bin/env bash' '[[ "$*" == "--print target-libdir" ]]' 'printf "%s\n" "$LINKER_TEST_LIB_DIR"' > "${scratch}/bin/rustc"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$@"' 'exit "${LINKER_TEST_STATUS:-0}"' > "${scratch}/bin/cc"
+chmod 755 "${scratch}/bin/rustc" "${scratch}/bin/cc"
+linker_args="$(cd / && PATH="${scratch}/bin:${PATH}" LINKER_TEST_LIB_DIR="${linker_lib}" bash "${container_dir}/bin/rust-linker.sh" 'one object.o')"
+[[ "${linker_args}" == "-B${linker_bin}"$'\n-fuse-ld=lld\none object.o' ]]
+linker_status=0
+PATH="${scratch}/bin:${PATH}" LINKER_TEST_LIB_DIR="${linker_lib}" LINKER_TEST_STATUS=17 \
+    bash "${container_dir}/bin/rust-linker.sh" >"${scratch}/linker-log" 2>&1 || linker_status=$?
+[[ ${linker_status} -eq 17 ]]
+rm "${linker_bin}/ld.lld"
+linker_status=0
+PATH="${scratch}/bin:${PATH}" LINKER_TEST_LIB_DIR="${linker_lib}" \
+    bash "${container_dir}/bin/rust-linker.sh" >"${scratch}/linker-log" 2>&1 || linker_status=$?
+[[ ${linker_status} -eq 1 ]]
+grep -F 'no bundled Linux LLD' "${scratch}/linker-log" >/dev/null
+
+# The front's wait must report its child status even if the checkout front is
+# edited while the child runs. Mutate only this isolated copy in place.
+mutable_root="${scratch}/mutable"
+mkdir -p "${mutable_root}/.devcontainer/bin"
+ln -s "${container_dir}/lib" "${mutable_root}/.devcontainer/lib"
+cp "${container_dir}/pins.sh" "${mutable_root}/.devcontainer/pins.sh"
+mutable_front="${mutable_root}/.devcontainer/bin/run.sh"
+cp "${container_dir}/bin/run.sh" "${mutable_front}"
+ready="${scratch}/front-ready"
+PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container FAKE_DOCKER_READY="${ready}" \
+    bash "${mutable_front}" /bin/true >"${scratch}/mutable-log" 2>&1 &
+mutable_pid=$!
+for _ in {1..100}; do
+    [[ -f ${ready} ]] && break
+    sleep 0.01
+done
+[[ -f ${ready} ]]
+{ for _ in {1..200}; do printf '# inserted source line\n'; done; cat "${mutable_front}"; } >"${scratch}/edited-front"
+cat "${scratch}/edited-front" >"${mutable_front}"
+: >"${ready}.release"
+mutable_status=0
+wait "${mutable_pid}" || mutable_status=$?
+if [[ ${mutable_status} -ne 0 ]]; then
+    cat "${scratch}/mutable-log" >&2
+    echo "test/build-front: editing the front changed its child's exit status (${mutable_status})" >&2
+    exit 1
+fi
+
+# Stopping a front with no terminal signals the command's container process
+# group instead of leaving it running.
+docker_log="${scratch}/docker-log"
+(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container FAKE_DOCKER_HANG=1 FAKE_DOCKER_LOG="${docker_log}" exec "${front}" /bin/true </dev/null) &
+front_pid=$!
+sleep 1
+kill -TERM "${front_pid}"
+front_status=0
+wait "${front_pid}" || front_status=$?
+[[ ${front_status} -eq 143 ]]
+grep -F "kill -TERM" "${docker_log}" >/dev/null
 
 build_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build test)"
-[[ "${build_exec}" == *"/workspaces/glowcap/.devcontainer/bin/build-lease zig build --test-timeout 30s test"* ]]
-[[ "${build_exec}" == *"exec -i --user"* ]]
+[[ "${build_exec}" == *"/workspaces/glowcap/.devcontainer/bin/build-lease zig build --cache-poison --test-timeout 30s test"* ]]
+[[ "${build_exec}" == *"exec -i "* && "${build_exec}" == *"--user vscode"* ]]
+waiting_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container GLOWCAP_BUILD_LEASE_TIMEOUT=600 "${front}" zig build test)"
+[[ "${waiting_exec}" == *"exec -i --env GLOWCAP_BUILD_LEASE_TIMEOUT=600 "* ]]
 explicit_timeout_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build test --test-timeout 7s)"
-[[ "${explicit_timeout_exec}" == *"build-lease zig build test --test-timeout 7s"* ]]
+[[ "${explicit_timeout_exec}" == *"build-lease zig build --cache-poison test --test-timeout 7s"* ]]
 [[ "${explicit_timeout_exec}" != *"--test-timeout 30s"* ]]
+override_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --env CARGO_BUILD_JOBS=1 zig build test)"
+[[ "${override_exec}" == *"--env CARGO_BUILD_JOBS=1"* ]]
+[[ "${override_exec}" != *"--env CARGO_BUILD_JOBS=4"* ]]
+[[ "${override_exec}" == *"build-lease zig build --cache-poison --test-timeout 30s test"* ]]
+# shellcheck disable=SC2016 # Both the literal value and the child expansion are intentional.
+override_local="$(cd / && PATH="${scratch}/bin:${PATH}" "${front}" --local --env 'GLOWCAP_TEST_VALUE=two words=$literal' bash -c 'printf "%s" "$GLOWCAP_TEST_VALUE"')"
+# shellcheck disable=SC2016 # Compare the exact literal delivered to the child.
+[[ "${override_local}" == 'two words=$literal' ]]
+for invalid in 'missing-assignment' '1INVALID=value' '=value'; do
+    override_status=0
+    "${front}" --env "${invalid}" /bin/true >"${scratch}/override-log" 2>&1 || override_status=$?
+    [[ ${override_status} -eq 2 ]]
+done
+override_status=0
+"${front}" --env >"${scratch}/override-log" 2>&1 || override_status=$?
+[[ ${override_status} -eq 2 ]]
 service_status=0
 if service_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build docs-serve 2>&1)"; then
     echo "test/build-front: glowcap-dev accepted a host-side service without a terminal" >&2
@@ -70,13 +162,13 @@ fi
 local_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" "${front}" local-probe one two)"
 [[ "${local_exec}" == "${repo_root}|one two" ]]
 local_build_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" GLOWCAP_BUILD_LEASE_FILE="${scratch}/local-build.lock" "${front}" zig build test)"
-[[ "${local_build_exec}" == "${repo_root}|build --test-timeout 30s test" ]]
+[[ "${local_build_exec}" == "${repo_root}|build --cache-poison --test-timeout 30s test" ]]
 forced_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" GLOWCAP_DEV_CONTAINER=test-container "${front}" /bin/true)"
-[[ "${forced_container_exec}" == *"--workdir /workspaces/glowcap abc123 /bin/true"* ]]
+[[ "${forced_container_exec}" == *"--workdir /workspaces/glowcap abc123 setsid --wait sh -c "*" /bin/true" ]]
 
 if [[ $(uname -s) == Linux ]]; then
     auto_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --auto zig build rooms-build)"
-    [[ "${auto_container_exec}" == *"abc123 /workspaces/glowcap/.devcontainer/bin/build-lease zig build --test-timeout 30s rooms-build"* ]]
+    [[ "${auto_container_exec}" == *"abc123 setsid --wait sh -c "*" /workspaces/glowcap/.devcontainer/bin/build-lease zig build --cache-poison --test-timeout 30s rooms-build"* ]]
 fi
 explicit_local="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --local local-probe local)"
 [[ "${explicit_local}" == "${repo_root}|local" ]]

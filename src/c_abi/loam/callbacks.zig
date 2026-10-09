@@ -2,7 +2,6 @@
 const std = @import("std");
 const common = @import("common.zig");
 const c = common.c;
-const core = common.core;
 const access = common.access;
 const driver = common.driver;
 const shared = common.shared;
@@ -14,7 +13,9 @@ pub const Content = struct {
     allocator: std.mem.Allocator,
     declaration: c.GlowcapLoamContent,
     methods: []c.GlowcapLoamMethod,
+    graph: ?access.hosting.graph.Spec = null,
     host: *driver.Host = undefined,
+    attachment: *@import("attachment.zig").Attachment = undefined,
     /// Copy names because foreign declaration buffers may die after attach.
     /// At most 64 methods of 256 bytes belong to this registration and are
     /// freed on refused construction or successful detach; contexts stay borrowed.
@@ -34,15 +35,24 @@ pub const Content = struct {
             method.verb = copy.ptr;
             count += 1;
         }
-        return .{ .allocator = gpa, .declaration = raw, .methods = methods };
+        const graph = if (raw.graph) |spec| try @import("graph_callbacks.zig").copySpec(gpa, spec.*) else null;
+        errdefer if (graph) |spec| @import("graph_callbacks.zig").freeSpec(gpa, spec);
+        if (graph) |spec| for (spec.requirement_verbs) |verb| {
+            const declared = for (methods) |method| {
+                if (std.mem.eql(u8, method.verb.?[0..method.verb_len], verb)) break true;
+            } else false;
+            if (!declared) return error.UnknownGraphMethod;
+        };
+        return .{ .allocator = gpa, .declaration = raw, .methods = methods, .graph = graph };
     }
     pub fn deinit(self: *Content) void {
         const gpa = self.allocator;
         for (self.methods) |method| gpa.free(method.verb.?[0..method.verb_len]);
         gpa.free(self.methods);
+        if (self.graph) |spec| @import("graph_callbacks.zig").freeSpec(gpa, spec);
     }
     pub fn behavior(self: *Content) access.hosting.ContentBehavior {
-        return .{ .schema = self.declaration.schema, .version = self.declaration.version, .context = self, .requirement = requirement, .retry = retry, .invoke = invoke, .references = if (self.declaration.references != null) @import("reference_callbacks.zig").declare else null, .dependent_requirement = if (self.declaration.dependent_requirement != null) dependentRequirement else null };
+        return .{ .schema = self.declaration.schema, .version = self.declaration.version, .graph = self.graph, .context = self, .requirement = requirement, .retry = retry, .invoke = invoke, .references = if (self.declaration.references != null) @import("reference_callbacks.zig").declare else null, .dependent_requirement = if (self.declaration.dependent_requirement != null) dependentRequirement else null };
     }
     fn find(self: *Content, verb: []const u8) !c.GlowcapLoamMethod {
         for (self.methods) |method| if (std.mem.eql(u8, method.verb.?[0..method.verb_len], verb)) return method;
@@ -55,34 +65,41 @@ fn content(ctx: ?*anyopaque) *Content {
 /// C child spines occupy the existing bounded retained call arena. Leaves
 /// borrow the retained invocation; direct layout aliasing is impossible because
 /// C tags and Host Values differ. No new heap arena or inbound frame pin exists.
-pub fn input(arena: std.mem.Allocator, view: core.RecordView, verb: []const u8, args: []const driver.Value) !c.GlowcapLoamInvocation {
+pub fn input(arena: std.mem.Allocator, invocation: access.hosting.ContentInvocation, graph: bool) !c.GlowcapLoamInvocation {
+    const view = invocation.content;
+    const verb = invocation.verb;
+    const args = invocation.args;
+    const resource = invocation.bound_resource;
     // C resource creation reserves the first strong edge for the managed row.
     // Application field indices omit that binding, so edits cannot replace it.
     const binding = try common.hosting.references.edgeAt(view, 0);
-    if (binding.restoration != .object) return error.InvalidRecord;
+    if (binding.restoration != .object or binding.strength != .strong or !binding.target.eql(resource.object)) return error.InvalidRecord;
     const projected = try arena.alloc(shared.GlowcapArgument, args.len);
     for (args, projected) |value, *target| target.* = try common.host.embedding.valueToC(arena, value);
-    return .{ .payload = view.payload.ptr, .payload_len = view.payload.len, .verb = verb.ptr, .verb_len = verb.len, .args = projected.ptr, .args_len = projected.len, .field_count = view.edge_count - 1 };
+    var owner: [16]u8 = undefined;
+    std.mem.writeInt(u128, &owner, @backingInt(resource.id.owner), .big);
+    const pages = try @import("graph_callbacks.zig").project(arena, invocation.graph);
+    return .{ .bound_resource = .{ .id = .{ .owner = owner, .slot = resource.id.slot, .generation = resource.id.generation }, .kind = @backingInt(resource.kind), .object = common.objectToC(resource.object), .revision = @backingInt(resource.revision) }, .delivery = if (invocation.delivery == .local) 0 else 1, .content = common.objectToC(view.id), .content_revision = view.revision, .payload = view.payload.ptr, .payload_len = view.payload.len, .verb = verb.ptr, .verb_len = verb.len, .args = projected.ptr, .args_len = projected.len, .field_count = if (graph) 0 else view.edge_count - 1, .graph_prepared = @intFromBool(invocation.graph != null), .pages = pages.ptr, .page_count = pages.len };
 }
-fn requirement(ctx: ?*anyopaque, arena: std.mem.Allocator, view: core.RecordView, verb: []const u8, args: []const driver.Value) !access.core.Policy.Requirement {
+fn requirement(ctx: ?*anyopaque, arena: std.mem.Allocator, invocation: access.hosting.ContentInvocation) !access.core.Policy.Requirement {
     const registration = content(ctx);
-    _ = try registration.find(verb);
-    return requirementWith(registration, registration.declaration.requirement.?, arena, view, verb, args);
+    _ = try registration.find(invocation.verb);
+    return requirementWith(registration, registration.declaration.requirement.?, arena, invocation);
 }
-fn dependentRequirement(ctx: ?*anyopaque, arena: std.mem.Allocator, view: core.RecordView, verb: []const u8, args: []const driver.Value) !access.core.Policy.Requirement {
+fn dependentRequirement(ctx: ?*anyopaque, arena: std.mem.Allocator, invocation: access.hosting.ContentInvocation) !access.core.Policy.Requirement {
     const registration = content(ctx);
-    return requirementWith(registration, registration.declaration.dependent_requirement.?, arena, view, verb, args);
+    return requirementWith(registration, registration.declaration.dependent_requirement.?, arena, invocation);
 }
 /// Copy fixed callback output into retained arena keys/facts. Admission revisits
 /// it after a read, when the callback's output stack is already gone.
-fn requirementWith(registration: *Content, callback: c.GlowcapLoamRequirementFn, arena: std.mem.Allocator, view: core.RecordView, verb: []const u8, args: []const driver.Value) !access.core.Policy.Requirement {
-    const call = try input(arena, view, verb, args);
+fn requirementWith(registration: *Content, callback: c.GlowcapLoamRequirementFn, arena: std.mem.Allocator, invocation: access.hosting.ContentInvocation) !access.core.Policy.Requirement {
+    const call = try input(arena, invocation, registration.graph != null);
     var out: c.GlowcapLoamRequirement = std.mem.zeroes(c.GlowcapLoamRequirement);
     const was_in_callback = registration.host.in_callback;
     registration.host.in_callback = true;
     defer registration.host.in_callback = was_in_callback;
     if (callback(registration.declaration.context, &call, &out) != shared.GLOWCAP_OK) return error.ApplicationRefused;
-    if (out.permission_count > 64 or out.fact_count > 16) return error.PolicyLimit;
+    if (out.permission_count > access.core.Policy.max_permissions or out.fact_count > access.core.Policy.max_constraints) return error.PolicyLimit;
     const permissions = try arena.alloc(access.core.Policy.Key, out.permission_count);
     for (out.permissions[0..out.permission_count], permissions) |key, *target| target.* = @fromBackingInt(key);
     const facts = try arena.alloc(access.core.Policy.Bound, out.fact_count);
@@ -100,15 +117,16 @@ fn retry(ctx: ?*anyopaque, verb: []const u8, _: []const driver.Value) !access.ho
 pub const Call = struct {
     content_call: *access.hosting.ContentCall,
     host: *driver.Host,
+    attachment: *@import("attachment.zig").Attachment,
     reply: ?driver.Value = null,
     active: bool = true,
 };
-fn invoke(ctx: ?*anyopaque, content_call: *access.hosting.ContentCall, view: core.RecordView, verb: []const u8, args: []const driver.Value) !driver.Value {
+fn invoke(ctx: ?*anyopaque, content_call: *access.hosting.ContentCall, invocation: access.hosting.ContentInvocation) !driver.Value {
     const registration = content(ctx);
-    const call_input = try input(content_call.allocator(), view, verb, args);
+    const call_input = try input(content_call.allocator(), invocation, registration.graph != null);
     // The synchronous callback token is borrowed only during this invocation.
     // Replacement and reply setters copy into the retained arena before return.
-    var call: Call = .{ .content_call = content_call, .host = registration.host };
+    var call: Call = .{ .content_call = content_call, .host = registration.host, .attachment = registration.attachment };
     const was_in_callback = registration.host.in_callback;
     registration.host.in_callback = true;
     defer registration.host.in_callback = was_in_callback;

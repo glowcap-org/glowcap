@@ -287,7 +287,7 @@ test "accept readiness uses the endpoint reservation before later settlement" {
         64,
     );
     defer backend.deinit();
-    _ = try backend.openListener(0);
+    _ = try backend.openListener({});
 
     // First poll reserves the transient completion batch and arms both signal
     // descriptors. No sidecar work is available yet.

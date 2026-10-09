@@ -30,7 +30,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), self: *m.Managed,
         defer operation.deinit() catch unreachable;
         try setup.pump(self, operation);
         for (0..256) |_| {
-            operation.prepareAttenuationCopying(.{ .revoke = true }) catch |err| {
+            operation.prepareAttenuationCopying(.{ .revoke = true, .delegate_control = true }) catch |err| {
                 if (err != error.RecordUnloaded) return err;
                 try setup.pump(self, operation);
                 continue;

@@ -14,8 +14,10 @@ const protocol = @import("../../websocket.zig").client_protocol;
 const completion_buffers = @import("completion/buffers.zig");
 const completion_dial_race = @import("completion/dial_race.zig");
 const completion_dial_identity = @import("completion/dial_identity.zig");
+const completion_leg_start = @import("completion/leg_start.zig");
 const completion_machines = @import("completion/machines.zig");
 const completion_poll = @import("completion/poll.zig");
+const completion_registration = @import("completion/registration.zig");
 const completion_resolver = @import("completion/resolver.zig");
 const completion_state = @import("completion/state.zig");
 const completion_options = @import("completion/options.zig");
@@ -35,9 +37,11 @@ const close_retry_batch = completion_options.close_retry_batch;
 
 pub const LoopConnectTarget = dial_resolver.LoopConnectTarget;
 pub const DialResolver = dial_resolver.DialResolver;
+pub const ResidentPolicy = @import("completion/resident_policy.zig").ResidentPolicy;
 
-/// A host-platform completion backend with native keyed-relay outbound dials.
-/// Accepted sockets and ordinary TCP dials delegate straight to `Platform`.
+/// A host-platform completion backend with native keyed-relay dials and, when
+/// configured with a registration, a listener that accepts dialers through
+/// the relay. Ordinary TCP dials and listeners delegate straight to `Platform`.
 /// `keyed-relay` dials use synthetic negative fds and drive TCP connect,
 /// WebSocket upgrade, frame parse, control replies, masking, and close as
 /// internal platform operations. No blocking socket or `std.Io` reader/writer
@@ -50,7 +54,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
         pub const Fd = Platform.Fd;
         pub const adapter_depth = Namespace.depth;
         pub const ConnectTarget = LoopConnectTarget;
-        pub const ListenerAddress = Platform.ListenerAddress;
+        pub const ListenerAddress = union(enum) {
+            platform: Platform.ListenerAddress,
+            /// Dialers reach this listener through the relay registration.
+            relay,
+        };
 
         const ConnId = Types.ConnId;
         const InternalOp = Types.InternalOp;
@@ -81,6 +89,14 @@ pub fn CompletionBackend(comptime Platform: type) type {
             pub fn internalOp(user_data: u64) InternalOp {
                 return Self.internalOp(user_data);
             }
+
+            pub fn promoteParked(backend: *Self, c: *RelayConn) void {
+                Registration.promote(backend, c);
+            }
+
+            pub fn isRegistrationLeg(backend: *const Self, id: ConnId) bool {
+                return backend.registration.isLeg(id);
+            }
         };
         const MachineSet = completion_machines.Machines(
             Self,
@@ -106,11 +122,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
 
             pub fn adoptWinner(backend: *Self, pending: *PendingDial, fd: Fd) void {
-                backend.adoptDialWinner(pending, fd);
+                LegStart.adoptWinner(backend, pending, fd);
             }
 
             pub fn destroyPending(backend: *Self, pending: *PendingDial) void {
-                backend.destroyPendingDial(pending);
+                LegStart.destroyPending(backend, pending);
             }
 
             pub fn retirePending(
@@ -121,6 +137,14 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
         };
         const DialRace = completion_dial_race.Machine(Self, Types, DialRaceAccess);
+        const LegStart = completion_leg_start.Machine(Self, Types, MachineSet, DialRace, resolver_wake_ud);
+        const Registration = completion_registration.Machine(
+            Self,
+            Types,
+            Namespace,
+            LegStart,
+            operation_retry_ms,
+        );
         pub const white_box = completion_dial_race.WhiteBox(Self, Types, DialRace);
         const PollAccess = struct {
             pub fn armPlatformRecv(backend: *Self, c: *RelayConn) !void {
@@ -137,6 +161,14 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
             pub fn retryPendingCloses(backend: *Self) void {
                 Lifecycle.retryPendingCloses(backend);
+            }
+
+            pub fn serviceRegistration(backend: *Self) void {
+                Registration.service(backend);
+            }
+
+            pub fn registrationWaitMs(backend: *const Self) ?i32 {
+                return Registration.waitMs(backend);
             }
 
             pub fn resolverCompleted(backend: *Self, job: *completion_resolver.Job) void {
@@ -194,16 +226,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
         const ConnMap = Types.ConnMap;
         const PendingDialMap = Types.PendingDialMap;
 
-        /// A row id is held by the admitted table and by the still-opening
-        /// table alike; reservation must skip both.
-        const RowOccupancy = struct {
-            backend: *const Self,
-
-            pub fn contains(occupancy: RowOccupancy, id: ConnId) bool {
-                return occupancy.backend.conns.contains(id) or
-                    occupancy.backend.pending_dials.contains(id);
-            }
-        };
         const RecvRetryQueue = Types.RecvRetryQueue;
         const CloseRetryQueue = Types.CloseRetryQueue;
         const TlsMap = Types.TlsMap;
@@ -252,6 +274,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// Secure writes whose platform submission was refused before
         /// admission. TLS state supplies intrusive links; no ciphertext moves.
         tls_send_retries: TlsSendRetryQueue = .{},
+        registration: completion_registration.State,
         next_id: ConnId = 1,
         rng: std.Random.DefaultCsprng,
 
@@ -313,7 +336,21 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 return error.OutOfMemory;
             var relay: ?RelayConfig = null;
             var resolver: ?*completion_resolver.Runtime = null;
+            var registration: completion_registration.State = .{};
+            errdefer registration.deinit(allocator);
             if (relay_options) |options| {
+                registration = try .init(allocator, options.registration);
+                // A registration that could never start is refused here, so
+                // the listener's retry only ever waits out the relay.
+                if (registration.config) |config| {
+                    if (config.url.scheme.secure() and options.tls_owner == null)
+                        return error.SecureCarrierUnavailable;
+                    const literal = if (std.Io.net.IpAddress.parse(config.url.host, config.url.port)) |_| true else |_| false;
+                    if (!literal and options.resolver_io == null) return error.ResolverUnavailable;
+                }
+                if (options.resolver_io) |resolver_io|
+                    resolver = try completion_resolver.Runtime.init(allocator, resolver_io);
+                errdefer if (resolver) |runtime| runtime.deinit();
                 const url = options.url;
                 const bytes = try allocator.dupe(u8, url);
                 errdefer allocator.free(bytes);
@@ -328,14 +365,13 @@ pub fn CompletionBackend(comptime Platform: type) type {
                     .tls = tls,
                 };
                 tls = null;
-                if (options.resolver_io) |resolver_io|
-                    resolver = try completion_resolver.Runtime.init(allocator, resolver_io);
             }
             return .{
                 .allocator = allocator,
                 .platform = platform,
                 .relay = relay,
                 .resolver = resolver,
+                .registration = registration,
                 .ready = .{},
                 .buffer_pool = buffer_pool,
                 .raw_in_limit = raw_in_limit,
@@ -373,6 +409,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.ready.deinit(self.allocator);
             if (self.resolver) |resolver| resolver.deinit();
             if (self.relay) |*relay| relay.deinit(self.allocator);
+            self.registration.deinit(self.allocator);
         }
 
         /// Delegate the wrapped Linux TCP backend selection.
@@ -380,16 +417,63 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return self.platform.tcpBackendStatus();
         }
 
-        pub fn openListener(self: *Self, port: u16) !Fd {
-            return self.platform.openListener(port);
+        /// Listen through the relay registration when one is configured, or
+        /// on the platform port otherwise.
+        /// Adapter work that completes off the caller's thread reaches this
+        /// backend through a platform operation, so the platform's descriptor
+        /// reports it; work that completes synchronously waits in the ready
+        /// queue for the caller's next `poll`.
+        pub fn readinessFd(self: *const Self) Fd {
+            return self.platform.readinessFd();
+        }
+
+        pub fn flush(self: *Self) !void {
+            return self.platform.flush();
+        }
+
+        pub fn submitPoll(self: *Self, user_data: u64, fd: Fd, interest: completion.Interest) !void {
+            return self.platform.submitPoll(user_data, fd, interest);
+        }
+
+        pub fn waitBoundMs(self: *const Self, requested_ms: i32) i32 {
+            return Poll.waitBound(self, self.platform.waitBoundMs(requested_ms));
+        }
+
+        pub fn listenerIp4(self: *const Self) [4]u8 {
+            return self.platform.listenerIp4();
+        }
+
+        /// The relay arm registers the listening Host's key, so a backend
+        /// holds at most one relay listener; it needs `Options.registration`.
+        pub const ListenTarget = union(enum) {
+            platform: Platform.ListenTarget,
+            relay: crypto.PeerKey,
+        };
+
+        pub fn loopListenTarget(port: u16) ListenTarget {
+            return .{ .platform = Platform.loopListenTarget(port) };
+        }
+
+        pub fn openListener(self: *Self, target: ListenTarget) !Fd {
+            switch (target) {
+                .platform => |platform_target| return self.platform.openListener(platform_target),
+                .relay => |identity| {
+                    if (self.registration.config == null) return error.RelayRegistrationNotConfigured;
+                    return Registration.open(self, identity);
+                },
+            }
         }
 
         pub fn listenerAddress(self: *Self, fd: Fd) !ListenerAddress {
-            return self.platform.listenerAddress(fd);
+            if (fd == Registration.listen_fd) return .relay;
+            return .{ .platform = try self.platform.listenerAddress(fd) };
         }
 
         pub fn listenerPort(address: ListenerAddress) ?u16 {
-            return Platform.listenerPort(address);
+            return switch (address) {
+                .platform => |platform| Platform.listenerPort(platform),
+                .relay => null,
+            };
         }
 
         pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
@@ -412,6 +496,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         pub fn closeFd(self: *Self, fd: Fd) void {
+            if (fd == Registration.listen_fd) return Registration.release(self);
             if (idFromFd(fd)) |id| if (self.pending_dials.get(id)) |pending| {
                 DialRace.requestClose(self, pending, null);
                 return;
@@ -420,6 +505,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         pub fn shutdownFd(self: *Self, fd: Fd) void {
+            // The registration's close retires its legs; there is no socket.
+            if (fd == Registration.listen_fd) return;
             if (idFromFd(fd)) |id| if (self.pending_dials.get(id)) |pending| {
                 DialRace.requestClose(self, pending, null);
                 return;
@@ -449,6 +536,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         pub fn submitAccept(self: *Self, user_data: u64, listen_fd: Fd) !void {
+            if (listen_fd == Registration.listen_fd) return Registration.submitAccept(self, user_data);
             try self.platform.submitAccept(user_data, listen_fd);
         }
 
@@ -512,6 +600,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         pub fn submitClose(self: *Self, user_data: u64, fd: Fd) !void {
+            if (fd == Registration.listen_fd) return Registration.submitClose(self, user_data);
             if (idFromFd(fd)) |id| if (self.pending_dials.get(id)) |pending| {
                 if (pending.external_close_ud != null) return error.AlreadyClosing;
                 try self.ready.ensureUnusedCapacity(self.allocator, 2);
@@ -528,79 +617,12 @@ pub fn CompletionBackend(comptime Platform: type) type {
         fn startRelayDial(self: *Self, user_data: u64, target: @FieldType(ConnectTarget, "keyed_relay")) !Fd {
             const relay_url = target.relay orelse if (self.relay) |relay| relay.url else return error.NoRendezvousConfigured;
             if (crypto.PeerKey.fromDesignator(target.designator) == null) return error.InvalidAddress;
-            const secure_lease = if (relay_url.scheme.secure())
-                if (self.relay) |relay| relay.tls orelse
-                    return error.SecureCarrierUnavailable else return error.SecureCarrierUnavailable
-            else
-                null;
-            const id = try Identity.reserveId(&self.next_id, RowOccupancy{ .backend = self });
-            errdefer self.next_id = id;
-            const fd = try Identity.fdFromId(id);
-            try self.conns.ensureUnusedCapacity(self.allocator, 1);
-            try self.pending_dials.ensureUnusedCapacity(self.allocator, 1);
-            try self.ready.ensureUnusedCapacity(self.allocator, 2);
-            const c = try self.allocator.create(RelayConn);
-            errdefer self.allocator.destroy(c);
-            c.* = .{
-                .id = id,
-                .inner_fd = undefined,
-                .external_connect_ud = user_data,
-                .expected_accept = undefined,
-            };
-            errdefer c.deinit(self.allocator);
-            if (secure_lease != null) try Tls.prepare(self, c);
-            errdefer Tls.destroy(self, c);
-            // Rendering completes synchronously, so no target-designator copy
-            // belongs in the admitted connection's scale footprint.
-            try Dispatch.buildUpgrade(self, c, relay_url, target.designator);
-            const pending = try self.allocator.create(PendingDial);
-            pending.* = .{ .id = id, .conn = c };
-            self.pending_dials.putAssumeCapacity(id, pending);
-            var admitted = true;
-            errdefer if (admitted) {
-                std.debug.assert(self.pending_dials.remove(id));
-                self.allocator.destroy(pending);
-            };
-            if (std.Io.net.IpAddress.parse(relay_url.host, relay_url.port)) |address| {
-                try DialRace.startLiteral(self, pending, address);
-            } else |_| {
-                const resolver = self.resolver orelse return error.ResolverUnavailable;
-                pending.resolver_job = try resolver.start(id, relay_url.host, relay_url.port);
-                resolver.maintainWake(self, resolver_wake_ud);
-            }
-            if (secure_lease) |lease| switch (lease.open(relay_url.host)) {
-                .client => |client| Tls.adoptClient(self, c, client),
-                .failed => |failure| {
-                    Tls.abandonPending(self, c);
-                    DialRace.failAdmitted(
-                        self,
-                        pending,
-                        Types.TlsState.fromTlsFailure(failure),
-                    );
-                    admitted = false;
-                    return fd;
-                },
-            };
-            admitted = false;
-            return fd;
-        }
-
-        fn adoptDialWinner(self: *Self, pending: *PendingDial, winner_fd: Fd) void {
-            const c = pending.conn;
-            c.inner_fd = winner_fd;
-            self.conns.putAssumeCapacity(c.id, c);
-            self.allocator.destroy(pending);
-            Dispatch.connected(self, c) catch |err| {
-                Lifecycle.failWith(self, c, .websocket_upgrade, err);
-                Lifecycle.beginPlatformClose(self, c);
-            };
-        }
-
-        fn destroyPendingDial(self: *Self, pending: *PendingDial) void {
-            Tls.destroy(self, pending.conn);
-            pending.conn.deinit(self.allocator);
-            self.allocator.destroy(pending.conn);
-            self.allocator.destroy(pending);
+            return LegStart.start(self, .{
+                .url = relay_url,
+                .leg = .rendezvous,
+                .query_value = target.designator,
+                .connect_ud = user_data,
+            });
         }
 
         fn armPlatformRecv(self: *Self, c: *RelayConn) !void {

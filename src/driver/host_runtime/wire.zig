@@ -7,7 +7,6 @@
 const std = @import("std");
 
 const foundation = @import("foundation");
-const net = @import("net");
 const driver_core = @import("driver_core");
 const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 
@@ -31,8 +30,7 @@ pub const Wire = struct {
     /// a view holding it observes closed state rather than a dangling row.
     closed: bool = false,
     /// Physical carrier retirement is a separate barrier from logical CapTP
-    /// closure. Waiting states name the descriptor interest needed to advance
-    /// a stream; resident progress arrives through its runtime readiness row.
+    /// closure; its progress arrives through the resident's readiness row.
     carrier_close: CarrierClose = .open,
     carrier_close_deadline_ms: ?i64 = null,
     /// The logical primary plus the first carrier-cleanup consequence. Static
@@ -46,15 +44,12 @@ pub const Wire = struct {
     retiring_next: ?*Wire = null,
     /// One owning session handle claimed release authority for this wire.
     session_handle_claimed: bool = false,
-    /// Whether inbound application frames may dispatch. A stream can leave
-    /// bytes in the kernel while unattended; a resident must park its pushed
-    /// records in the bounded buffer below.
+    /// Whether inbound application frames may dispatch. While unattended, the
+    /// link parks the resident's pushed records in its bounded buffer.
     attended: bool = true,
 
     pub const CarrierClose = enum {
         open,
-        wait_read,
-        wait_write,
         wait_resident,
         complete,
     };
@@ -63,26 +58,20 @@ pub const Wire = struct {
         return self.carrier_close == .complete;
     }
 
-    pub const Link = union(enum) {
-        stream: StreamLink,
-        resident: ResidentLink,
-    };
-
-    pub const StreamLink = struct {
-        conn: net.Connection,
-        read_buf: []u8,
-        write_buf: []u8,
-        transport_released: bool = false,
-    };
-
-    pub const ResidentLink = struct {
+    /// The wire's connection on its resident, with the outbound frame the
+    /// resident's window refused and the inbound records parked while the
+    /// session is unattended.
+    pub const Link = struct {
         index: usize,
         conn: usize,
-        read_buf: []u8,
         pending: ?PendingOut = null,
         parked: std.ArrayListUnmanaged(u8) = .empty,
         parked_packets: std.ArrayListUnmanaged([]u8) = .empty,
         parked_packet_bytes: usize = 0,
+        /// The read loop stopped at the chunk that opened the session, so the
+        /// embedder's post-open setup runs before later chunks dispatch;
+        /// `resumeFeedTails` finishes the read once the open commits.
+        read_deferred: bool = false,
 
         pub const PendingOut = struct {
             frame: foundation.Frame,

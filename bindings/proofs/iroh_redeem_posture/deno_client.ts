@@ -17,7 +17,7 @@
 // one process sharing one address book.
 //
 // Topology:
-//   Exporter  binds a `LocalDiscovery` endpoint, publishes a node-giftable
+//   Exporter  binds a `LocalDiscovery` endpoint, publishes a Host-published
 //             `greeter`.
 //   Gifter    binds its own endpoint, dials the exporter by id (one node
 //             identity), fetches the greeter, and records the exporter's
@@ -44,9 +44,9 @@ parseOptionalPortArg("deno-iroh-redeem-posture");
 const watchdog = setTimeout(() => fail("deno-iroh-redeem-posture", "timed out after 90s"), 90_000);
 Deno.unrefTimer(watchdog);
 
-// ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
+// ── Exporter: a Host-published greeter on its own local-discovery endpoint ─────
 const exporter = await listen({ reachability: Reachability.LocalDiscovery });
-exporter.host.publishGiftable("greeter", (verb, args) => {
+exporter.host.publish("greeter", (verb, args) => {
 	if (verb !== "greet") return null;
 	return `hello ${String(args[0] ?? "")} over a configured-posture redeem`;
 });
@@ -75,7 +75,7 @@ toExporter.setExporterLocator(
 		hintWireForm: "boolean-false",
 	},
 );
-gifter.host.publishGiftable("introducer", (verb) => {
+gifter.host.publish("introducer", (verb) => {
 	if (verb !== "get-greeter") return null;
 	return greeterRef;
 });

@@ -40,6 +40,29 @@ pub trait ArgumentView {
 	fn contains_capability(&self) -> bool;
 }
 
+/// Native command text is still text. Numeric-looking strings and Boolean
+/// words never acquire the semantics of another wire value.
+impl ArgumentView for alloc::string::String {
+	fn boolean(&self) -> Option<bool> {
+		None
+	}
+	fn is_null(&self) -> bool {
+		false
+	}
+	fn text(&self) -> Option<&str> {
+		Some(self)
+	}
+	fn integer(&self) -> Option<i128> {
+		None
+	}
+	fn float(&self) -> Option<f64> {
+		None
+	}
+	fn contains_capability(&self) -> bool {
+		false
+	}
+}
+
 /// A borrowed nested value. Returning another view must not clone a capability
 /// or copy a decoded list; only admitted application data is retained.
 pub trait ListArgument: ArgumentView + Sized {

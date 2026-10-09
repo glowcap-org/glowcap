@@ -21,8 +21,8 @@ fn host(io: std.Io, allocator: std.mem.Allocator, endpoint: *iroh.Resident, secr
     errdefer ready.store(2, .release);
     var adapter = try iroh.MultiplexedAdapter.init(allocator, endpoint);
     defer if (adapter.deinit()) |failure| std.log.err("iroh adapter: {s}", .{failure.primaryName()});
-    const providers = [_]driver.HostRuntime.ProviderRegistration{.{ .multiplexed = .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() } }};
-    const server = try driver.listenProviders(allocator, io, &providers, iroh.transport_name, .{ .designator = "" }, .{ .keyed = secret }, opts);
+    const providers = [_]driver.HostRuntime.ProviderRegistration{.{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() }};
+    const server = try driver.listen(allocator, io, .{ .residents = &providers }, iroh.transport_name, .{ .designator = "" }, .{ .keyed = secret }, opts);
     var owns_server = true;
     defer if (owns_server) server.deinit();
     const original = try model.clonePeerLocator(allocator, try server.advertisedLocator());
@@ -70,13 +70,13 @@ fn call(io: std.Io, allocator: std.mem.Allocator, client: *iroh.Resident, server
     if (ready.load(.acquire) != 1) return error.ListenFailed;
     var adapter = try iroh.MultiplexedAdapter.init(allocator, client);
     defer if (adapter.deinit()) |failure| std.log.err("iroh adapter: {s}", .{failure.primaryName()});
-    const providers = [_]driver.HostRuntime.ProviderRegistration{.{ .multiplexed = .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() } }};
+    const providers = [_]driver.HostRuntime.ProviderRegistration{.{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() }};
     var designator: [iroh.node_id_len]u8 = undefined;
     const addresses = try server.directAddrsOwned(allocator);
     defer allocator.free(addresses);
     var hints: [1]model.HintEntry = undefined;
     const locator = iroh.locatorWithDirectAddresses(server.nodeId(&designator), addresses, &hints);
-    const session = try driver.connectProviders(allocator, io, &providers, locator, .ephemeral, opts);
+    const session = try driver.connect(allocator, io, .{ .residents = &providers }, locator, .ephemeral, opts);
     defer session.deinit();
     const partner = try session.partnerIdentity();
     if (!partner.durableIdentityAuthenticated() or !std.mem.eql(u8, partner.designator, locator.designator)) return error.WrongPartner;

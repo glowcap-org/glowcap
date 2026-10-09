@@ -94,6 +94,14 @@ concern, exactly as for the bootstrap-fetch it rides.
   reference. A non-`far` fulfillment, a `break`, or a malformed settlement
   releases any owned payload and fails with `Error.EnlivenmentBroke`.
 
+Host attaches concurrent callers to one fetch through
+[`enliven/group.zig`](../../../src/driver/core/enliven/group.zig). Each caller
+owns a separate vow and capability retain. Cancellation detaches that caller;
+the last pending observer cancels the listener and clears the in-flight marker.
+One reserved answer-release carrier survives settlement while public handles
+still permit pipelining, and retires with the last handle. Owned callers consume
+the result directly. An in-process vow listener borrows it during its callback.
+
 The dedup state lives on the session
 ([`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig)):
 `cacheSturdyrefEnlivenment` / `sturdyrefImportFor` / `sturdyrefKindFor` over a

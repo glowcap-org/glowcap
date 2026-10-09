@@ -238,9 +238,9 @@ pub fn discardCapabilityObservation(self: *Host, session: *HostSession, referenc
 /// Mint and reserve the Host identity for one fresh local actor. Host-core
 /// verbs call this immediately before spawn/publication and commit the token
 /// without another capability-registry operation in between.
-pub fn reserveFreshCapability(self: *Host, session: *HostSession) !capability.FreshLocalReservation {
+pub fn reserveFreshCapability(self: *Host, session: ?*HostSession) !capability.FreshLocalReservation {
     self.assertOwner();
-    try self.checkSession(session);
+    if (session) |home| try self.checkSession(home);
     return self.capabilities.reserveFreshLocal(self.allocator);
 }
 
@@ -273,6 +273,18 @@ pub fn capabilityFromRaw(self: *const Host, raw: u64) capability.Ref {
     return self.capabilities.refFromRaw(raw);
 }
 
+/// Borrow the settled identity of an inline handoff. The original occurrence
+/// retains its target through the promise row; this query transfers no custody.
+/// Pending redemption and terminal failure remain distinct from live objects.
+pub fn settledCapability(self: *Host, ref: capability.Ref) !capability.Ref {
+    self.assertOwner();
+    const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
+    return switch (target) {
+        .local, .remote => ref,
+        .deferred => |id| try capability_promise.resolvedRef(self, id),
+    };
+}
+
 /// The Vat actor a live local capability names, or null for a remote or stale
 /// ref. The owning send verbs use it to run a same-side call as a direct local
 /// send: no wire position is minted and no export-binding root taken
@@ -290,7 +302,8 @@ pub fn localActorFor(self: *Host, ref: capability.Ref) ?actors.Ref {
 /// project them. A returned shell remains Host-owned and is invalidated with
 /// its remote import session.
 pub fn capabilitySession(self: *Host, ref: capability.Ref) ?*HostSession {
-    const target = self.capabilities.resolve(ref) orelse return null;
+    const settled = self.settledCapability(ref) catch return null;
+    const target = self.capabilities.resolve(settled) orelse return null;
     return switch (target) {
         .local, .deferred => null,
         .remote => |remote| self.sessions.get(remote.peer_handle),

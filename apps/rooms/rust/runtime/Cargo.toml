@@ -10,8 +10,12 @@ workspace = true
 
 [dependencies]
 rooms-application = { path = "../application" }
-rooms-glowcap = { path = "../glowcap" }
-glowcap.workspace = true
+rooms-glowcap = { path = "../glowcap", features = ["loam"] }
+glowcap = { workspace = true, features = ["loam"] }
 serde_json.workspace = true
+serde.workspace = true
 tokio.workspace = true
 sha2.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+glowcap = { workspace = true, features = ["tcp"] }

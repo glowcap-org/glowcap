@@ -1,16 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
-const test_host = @import("../support/core_host.zig");
 
 const net = glowcap.net;
 const completion = glowcap.net.completion;
 const onion = glowcap.net.onion;
 const engine = glowcap.ocapn.engine;
-const driver = glowcap.driver;
-
-const Host = driver.core.Host;
-const NativeOnionBridge = driver.Bridge(net.OnionLoop);
 
 const service_id = "wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd";
 
@@ -59,6 +54,12 @@ const ScriptBackend = struct {
         self.sent_bytes.deinit(self.allocator);
         self.closed_fds.deinit(self.allocator);
         self.recycled_tokens.deinit(self.allocator);
+    }
+
+    pub const ListenTarget = u16;
+
+    pub fn loopListenTarget(port: u16) ListenTarget {
+        return port;
     }
 
     pub fn openListener(_: *ScriptBackend, _: u16) !Fd {
@@ -221,7 +222,7 @@ fn makePeer(_: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
 }
 
-test "native OnionLoop composes the onion adapter, completion Loop, and driver Bridge" {
+test "native OnionLoop composes the onion adapter and completion Loop" {
     if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
 
     comptime {
@@ -231,30 +232,14 @@ test "native OnionLoop composes the onion adapter, completion Loop, and driver B
     }
 
     const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-
-    var host = test_host.init(allocator, @as([32]u8, @splat(0x81)), Host.Options.withFrameCap(4096));
-    defer host.deinit();
-
     const platform = try net.Backend.init(allocator, 8, 1, 4096);
     const socks = try std.Io.net.IpAddress.parse("127.0.0.1", 9050);
     const backend = net.OnionBackend.initOnion(allocator, platform, .{ .socks = socks });
 
-    var loop: net.OnionLoop = undefined;
-    var bridge = NativeOnionBridge.init(allocator, &host, threaded.io(), &loop, .{});
-    defer bridge.deinit();
-
-    loop = try net.OnionLoop.initWithBackend(
-        allocator,
-        backend,
-        NativeOnionBridge.makePeer,
-        @ptrCast(&bridge),
-        NativeOnionBridge.hookOptions(.{
-            .max_conns = 1,
-            .listen = null,
-        }),
-    );
+    var loop = try net.OnionLoop.initWithBackend(allocator, backend, makePeer, null, .{
+        .max_conns = 1,
+        .listen = null,
+    });
     defer loop.deinit();
 
     try std.testing.expect(loop.listenerAddress() == null);
@@ -281,7 +266,7 @@ test "onion completion Loop owns the listener address across backend move" {
     });
     defer loop.deinit();
 
-    const address = loop.listenerAddress().?;
+    const address = loop.listenerAddress().?.onion;
     try std.testing.expectEqualSlices(u8, service_id, &address);
     try std.testing.expect(loop.port() == null);
 }
@@ -407,14 +392,14 @@ test "onion completion publishes backend listener metadata and holds control lif
     backend.inner.max_send_bytes = 1;
     defer backend.deinit();
 
-    const listener_fd = try backend.openListener(0);
+    const listener_fd = try backend.openListener(.{ .onion = 0 });
     const address = try backend.listenerAddress(listener_fd);
-    try std.testing.expectEqualSlices(u8, service_id, &address);
+    try std.testing.expectEqualSlices(u8, service_id, &address.onion);
     try std.testing.expect(Backend.listenerPort(address) == null);
     try std.testing.expect(std.mem.indexOf(u8, backend.inner.sent_bytes.items, "127.0.0.1:4242") != null);
     try std.testing.expectEqual(@as(usize, 0), backend.inner.closed_fds.items.len);
 
-    const stable_id = address;
+    const stable_id = address.onion;
     try backend.submitClose(501, listener_fd);
     try std.testing.expectEqual(@as(usize, 1), backend.inner.closed_fds.items.len);
     try std.testing.expectEqual(@as(ScriptBackend.Fd, 20), backend.inner.closed_fds.items[0]);
@@ -433,7 +418,7 @@ test "onion completion bounds control setup and drains the timed-out operation" 
     });
     defer backend.deinit();
 
-    try std.testing.expectError(error.ControlSetupTimedOut, backend.openListener(0));
+    try std.testing.expectError(error.ControlSetupTimedOut, backend.openListener(.{ .onion = 0 }));
     try std.testing.expect(backend.control_fd == null);
     try std.testing.expect(backend.inner.pending_connect_ud == null);
     try std.testing.expect((try pollOne(&backend)) == null);

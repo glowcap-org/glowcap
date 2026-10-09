@@ -1,8 +1,10 @@
 # Access grants across Rooms
 
 Status: active plan. The access module's resource, policy, and local grant core is implemented.
-Rooms integration and replacement of its existing grant machinery have not
-started. The
+Managed session storage, admission, management and browser consumers are
+described by the [session guide](../../rooms/session.md). Production startup,
+the main page and access editor consume this owner. This plan covers recursive
+resource composition beyond the session. The
 [roadmap](../../roadmap.md#durable-applications) owns its priority. This plan covers
 application authority and its user experience across recursively composed
 Rooms resources and content. It serves the [vision](../../vision.md) through operations for
@@ -31,7 +33,7 @@ no additional grant or recipient-specific revocation control.
 The [content plan](content.md) defines conversations, branching, message
 membership, reorganization, deep links, and the directory/room/conversation UX.
 The [managed access API sketch](../loam/access/api.md) describes typed resource and policy definitions,
-real sharing and invocation flows, persistence, and native/foreign interfaces.
+real sharing and invocation flows, persistence, and interfaces in Zig and language bindings.
 The [access architecture](../loam/access/architecture.md) specifies Zig managed access within Loam,
 with Rust bindings and actor integration through the existing Host.
 
@@ -321,11 +323,10 @@ label or rights field must never determine a grant's locator. Do not invent a
 new cryptographic primitive or duplicate the Host's sturdyref mechanism.
 Revoked IDs cannot be reused, including after a crash or an exhausted ledger.
 
-Native persistent grants survive restart only with their owning state and
-identity intact. Browser-hosted sessions currently use volatile grant state;
-retain their explicit tab lifetime. Shared machinery must run in native and
-Wasm contexts, but this plan does not silently make a tab durable or add
-browser-hosted directory/room services.
+Persistent grants survive restart only with their owning state and
+identity intact. Browser-hosted sessions use per-tab IndexedDB state and retain
+their explicit tab execution lifetime. Shared machinery runs in Linux and Wasm
+contexts. Browser-hosted directory and room services remain outside this plan.
 
 Every owner must bound active grants, retained tombstones, invitation receipts,
 child count, delegation depth, active seats, watches, pending mutations, and
@@ -335,8 +336,8 @@ does not release the resource cost of rooms that still exist.
 
 The [storage and budget contract](persistence.md) defines application schemas,
 per-owner and aggregate quotas, transaction limits, and startup, admission and
-branch-revocation acceptance. Its selected operating limits use native workload
-evidence as inputs. Rooms measurements must accompany implementation; native
+branch-revocation acceptance. Its selected operating limits use Linux workload
+evidence as inputs. Rooms measurements must accompany implementation; Loam
 foundation results do not establish application or browser performance.
 
 Logs, traces, snapshots, clipboard affordances, and exports must distinguish
@@ -413,7 +414,7 @@ reconcile these differences rather than citing the ADR as execution evidence.
 | `rooms-application` | Rooms content schemas, concrete operation requirements, content facts, permission declarations, presets, admission receipts, and application transactions composing content with access decisions. |
 | `rooms-glowcap` | Typed application clients and marshalling of capabilities, methods, and errors through the existing binding. |
 | `rooms-runtime` | Reusable lifecycle workers, facet custody, subscriptions, scoped cancellation, and session integration. Move shared directory/room execution here when both owners need it. |
-| `rooms-services` | Native directory/room composition and effects; remove duplicated lifecycle decisions as they move into shared owners. |
+| `rooms-services` | Host directory/room composition and effects; remove duplicated lifecycle decisions as they move into shared owners. |
 | `rooms-platform` and `rooms-browser` | Storage, entropy, scheduling, and transport adapters. Neither decides access. |
 | `web/ui` | Generated policy metadata, scoped view rendering, form state, navigation, and commitments. |
 | Zig Host and OCapN core | Existing reference identity, export/import ownership, handoff, and protocol validation. Application rights stay above them. |
@@ -440,7 +441,7 @@ application method support is established by the peer, not inferred from its
 implementation language. Unsupported access methods produce typed unavailability
 and never trigger a retry through a more powerful public or root capability.
 
-Preserve native clients, browser local/attached sessions, the CLI peer, the IRC
+Preserve desktop clients, browser local/attached sessions, the CLI peer, the IRC
 front and bridge, and Goblins peers as real consumers. An IRC adapter cannot
 invent a stronger grant to emulate a missing channel mode. Peering must publish
 the exact entrance supplied by its room owner, not reconstruct authority from
@@ -457,15 +458,15 @@ claim system completion while a sibling surface still uses a bypass or copied
 authority model. The design does not claim shipped Rooms integration.
 
 The [Loam implementation order](../loam/architecture.md#implementation-order-and-acceptance)
-owns the shared foundation, with remaining native task priority in the
+owns the shared foundation, with remaining backend task priority in the
 [completion queue](../loam/completion.md#execution-order). The next Rooms phase
-follows the native implementation/Linux checkpoint and the proved C/Rust and
+follows the Loam implementation/Linux checkpoint and the proved C/Rust and
 browser consumer path. macOS acceptance remains maintainer-owned and outside
 this agent sequence; it cannot be replaced by Linux measurements or a
 documentation change.
 
-2. **Build the common lifecycle and integrate session access.** Use
-   the implemented native [Loam readiness checkpoint](../loam/architecture.md#readiness-before-the-c-abi),
+2. **Build the common lifecycle and integrate session access. Complete.** Use
+   the implemented [Loam readiness checkpoint](../loam/architecture.md#readiness-before-the-c-abi),
    including management, resource lifecycle, observation, retries, retirement,
    restoration and maintenance. Shared fixed-resource C/Rust and browser
    registration, lifecycle and bounded managed-control helpers have consumer
@@ -476,12 +477,12 @@ documentation change.
    model independent of Rooms. Session schema, requirement, preset and typed
    custody declarations are implemented in `rooms-application::content`;
    [scope and evidence](integration.md#shared-prerequisite-and-remaining-order)
-   distinguish the declarations, shared reference-field front and bounded codecs
-   from runtime integration. Persisted permission dependencies are implemented;
-   project scope-aware applicability, exact targets and management through the shared runtime
-   registration before replacing session persistence. General graph editing
-   follows with recursive content. The completed declaration prerequisite does not complete
-   this phase or its session-specific replacement obligations.
+   record the completed declarations, codecs and runtime integration. Persisted
+   dependencies and session applicability are enforced. Exact target admission,
+   receipt persistence, shared management and production consumers use the same
+   managed owner. Linux and Wasm proofs cover restart, failure, scoped recovery
+   and retained-reference revocation. The replaced session owners are removed.
+   General graph editing follows with recursive content.
    Integrate existing actors and
    Host APIs without introducing another engine, driver, Host, or event loop.
    Establish content ownership within `rooms-application`, which supplies
@@ -491,7 +492,7 @@ documentation change.
    Include bounded children, explicit management authority, and branch
    administration. Replace the session-specific ledger and editor contract;
    deliver direct sharing and the planned issue/edit/pause/revoke interaction.
-   Prove equal-permission managed facets as well as narrower ones. Exit after native
+   Prove equal-permission managed facets as well as narrower ones. Exit after Linux
    and Wasm policy/storage proofs, restart and failure injection, and
    retained-reference revocation tests pass. Delete the copied
    or replaced implementation in this slice.
@@ -501,7 +502,7 @@ documentation change.
    Add recursive collection references, stable conversations, and message/file
    scopes with retained source and sharing context. Ship room access inventory,
    item sharing, member-to-grant inspection, the editor, and
-   invitation choice/acceptance together with native client support. Exit when
+   invitation choice/acceptance together with desktop client support. Exit when
    a helper can speak without inviting, lose file/topic powers on retained
    references, pause/resume, and reconnect under the same limited grant; branch
    revocation survives restart and separate room grants remain usable. Delete
@@ -537,9 +538,8 @@ documentation change.
    when every completion criterion below has evidence or has
    been explicitly removed from the approved scope.
 
-Prerelease replaces unsupported contracts at their owners. There is no schema
-migration workstream, dual reader, legacy wire alias, compatibility shim, or
-fallback to earlier authority. Update all in-tree producers, consumers, and
+Prerelease replaces unsupported contracts at their owners. Stored state uses
+one exact schema, and operations retain their actual authority. Update all in-tree producers, consumers, and
 fixtures in the owning slice. The final schema remains version 1 under the
 [prerelease rule](../../../.agents/rules/prerelease.md); old experimental formats
 do not earn versioned support. Identify affected development stores and the
@@ -555,7 +555,7 @@ OCapN conformance establishes reference semantics, not the meaning of room roles
 
 | Scenario | Evidence required |
 | --- | --- |
-| Allowed and denied operations | Every operation in the rights matrix succeeds with its required authority and is refused without it, through native and browser clients. |
+| Allowed and denied operations | Every operation in the rights matrix succeeds with its required authority and is refused without it, through desktop and browser clients. |
 | No public bypass | Refetching bootstrap, using old directory/room entrances, or invoking alternate verbs cannot recover privately withheld powers. Intentionally public access remains available. |
 | Exact scope | Foreign resource IDs, old generations, sibling grants, reused names, stale dialogs, and forged view records confer no authority. |
 | Delegation | Copies share revocation; bounded children attenuate; parent restriction constrains descendants; parent expansion cannot exceed a child's issuance ceiling; independent grants survive. |
@@ -572,7 +572,7 @@ OCapN conformance establishes reference semantics, not the meaning of room roles
 | External consumers | Goblins and shipped language/IRC clients use actual limited references and observe both permitted and refused behavior on baseline CapTP. |
 
 Place deterministic policy tests in `rooms-application` and replay contract
-fixtures through `rooms-contract-proofs` natively and in Wasm. Exercise storage
+fixtures through `rooms-contract-proofs` in Rust and Wasm. Exercise storage
 and live ownership in service/platform tests, browser custody through the real
 browser exports, and UI through production page proofs. Validate new property
 checks against injected defects, including stale cached rights and a bootstrap

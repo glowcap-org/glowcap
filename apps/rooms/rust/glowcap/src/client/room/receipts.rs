@@ -161,9 +161,6 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 		// Once admitted, inbox completion owns the body on both acceptance and
 		// rejection. Losing or cancelling the reply observer cannot leak it.
 		let reply = pending.await?;
-		Ok(crate::client::posted_line::PostedLine::from_reply(
-			self.inner.client.clone(),
-			reply,
-		))
+		crate::client::posted_line::PostedLine::from_room_reply(self.inner.client.clone(), reply)
 	}
 }

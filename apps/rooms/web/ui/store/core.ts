@@ -1,3 +1,5 @@
+import type { UseView } from "../session/managed/model.ts";
+import { DEFAULT_ROOMS_VIEW_STATE } from "../../../lib/view_state.ts";
 // The one place a page's presentation state lives.
 //
 // Everything the interface shows is a field here, and everything that changes it
@@ -19,11 +21,6 @@ import type { DraftPreview } from "../link_preview.ts";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ArchiveShareView, ArchiveTargetView } from "../archive_model.ts";
 import type {
-	RoomsSessionAccess,
-	RoomsSessionGrantView,
-	RoomsSessionPendingEffect,
-} from "../../../lib/session/client.ts";
-import type {
 	AttachmentView,
 	Conv,
 	DiagnosticRow,
@@ -35,6 +32,7 @@ import type {
 	ListenerRow,
 	MemberRef,
 	OpsCap,
+	OpsHeld,
 	PeeringState,
 	RoomsOperatorState,
 	SettingsTab,
@@ -97,6 +95,8 @@ export type HelpTab = "about" | "writing" | "glossary";
 export interface State {
 	/** The conversation on screen, or null while the join card is up. */
 	activeKey: string | null;
+	/** The destination being acquired by the current navigation gesture. */
+	navigationTarget: string | null;
 	/** Every conversation this tab has open, keyed as `makeConv` describes.
 	 *
 	 * This is also the answer to which rooms we are in. A room conversation is
@@ -243,17 +243,8 @@ export interface State {
 	/** Room stewardships reported by the held Rooms operator capability. */
 	operator: RoomsOperatorState | null;
 	/** Durable session operations awaiting explicit recovery. Bearer results stay in the session owner. */
-	sessionEffects: readonly RoomsSessionPendingEffect[];
-	/** Restart-stable attenuated grants visible only through session administration. */
-	sessionGrants: readonly RoomsSessionGrantView[];
-	/** What the shared session this browser is attached to lets it do now,
-	 * including nothing at all while that access is suspended. Null when this
-	 * browser owns its own session. */
-	sessionAccess: RoomsSessionAccess | null;
-	/** Why this browser's access to a shared session carries nothing, when it
-	 * carries nothing. Empty otherwise. A link that has gone quiet has to be able
-	 * to account for itself, or the application simply looks broken. */
-	sessionSuspendedNote: string;
+	sessionEffects: readonly string[];
+	managedAccess: UseView;
 	/** Whether the selected archive keeps room and direct-message history. The
 	 * Rust archive behind the session owns the bytes; this is only what the
 	 * switch draws. */
@@ -270,6 +261,8 @@ export interface State {
 	trouble: readonly TroubleRow[];
 	/** Which operations pane is selected while more than one is held. */
 	opsPane: OpsCap;
+	/** Possession projected from canonical custody, independent of loaded rows. */
+	opsHeld: OpsHeld;
 	/** What the inspect capability last said, or null while this tab holds none.
 	 * Holding the live reference is the Rust application's job; this is only what to draw. */
 	diagnostics: readonly DiagnosticRow[] | null;
@@ -316,6 +309,7 @@ export interface State {
 export function initialState(): State {
 	return {
 		activeKey: null,
+		navigationTarget: null,
 		standing: "",
 		invites: [],
 		convs: new Map(),
@@ -338,36 +332,29 @@ export function initialState(): State {
 		// supersedes it.
 		reaching: { source: "restore", seq: 0 },
 		edits: { seq: 0 },
-		remembered: { room: "", locator: "", nick: "" },
+		...DEFAULT_ROOMS_VIEW_STATE,
 		// Syrup by default. The dark face is the product's own, not a
 		// concession to a desktop setting, so a reader who has never
 		// touched the switch gets it and the stylesheet agrees with this
 		// line before the bundle has run. Light is one press away and it
 		// is remembered.
-		theme: "dark",
-		notifyOn: false,
-		railOpen: true,
 		listScreen: false,
-		rosterOpen: true,
 		rosterSheet: false,
 		settingsOpen: false,
 		// The panel selections survive a reload: a reader working the
 		// Holdings toggles or one operations pane lands back where they were.
-		settingsTab: "session",
 		helpOpen: false,
 		helpTab: "about",
-		opsPane: "listeners",
 		keepHistory: true,
-		archiveTarget: { kind: "owned", owner: "browser" },
+		archiveTarget: { kind: "owned" },
 		archiveShares: [],
 		irc: null,
 		operator: null,
 		sessionEffects: [],
-		sessionGrants: [],
-		sessionAccess: null,
-		sessionSuspendedNote: "",
+		managedAccess: { status: "outOfScope" },
 		trouble: [],
 		diagnostics: null,
+		opsHeld: { listeners: false, diagnostics: false, irc: false, operator: false, peering: false, trace: false },
 		listeners: null,
 		peering: null,
 		trace: null,

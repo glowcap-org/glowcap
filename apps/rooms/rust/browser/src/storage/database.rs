@@ -44,7 +44,9 @@ impl Database {
 			.map_err(Error::from)?
 			.dyn_into()
 			.map_err(|_| Error::Unavailable)?;
-		let request = factory.open_with_u32("rooms-history", 1).map_err(Error::from)?;
+		let request = factory
+			.open_with_u32("rooms-history", schema::VERSION)
+			.map_err(Error::from)?;
 		let opening = Opening::start(request);
 		while !opening.answered.get() {
 			opening.changed.notified().await;
@@ -109,11 +111,27 @@ impl Database {
 			.iter()
 			.map(|name| wasm_bindgen::JsValue::from_str(name))
 			.collect::<js_sys::Array>();
-		let transaction = self
-			.0
-			.database
-			.transaction_with_str_sequence_and_mode(&names, mode)
-			.map_err(Error::from)?;
+		let transaction = if mode == IdbTransactionMode::Readwrite {
+			// web-sys gates this stable browser option behind unstable bindings.
+			// Invoke the platform method directly, keeping the complete/abort
+			// event owner and its callback custody in the existing Operation.
+			let options = js_sys::Object::new();
+			js_sys::Reflect::set(&options, &"durability".into(), &"strict".into())?;
+			let method = js_sys::Reflect::get(&self.0.database, &"transaction".into())?
+				.dyn_into::<js_sys::Function>()
+				.map_err(|_| Error::Unavailable)?;
+			let transaction = method
+				.call3(&self.0.database, &names, &"readwrite".into(), &options)?
+				.dyn_into::<IdbTransaction>()
+				.map_err(|_| Error::Unavailable)?;
+			if js_sys::Reflect::get(&transaction, &"durability".into())? != "strict" {
+				transaction.abort()?;
+				return Err(Error::Invalid("browser storage requires strict transaction durability"));
+			}
+			transaction
+		} else {
+			self.0.database.transaction_with_str_sequence_and_mode(&names, mode)?
+		};
 		self.0.active.set(self.0.active.get() + 1);
 		Ok(transaction)
 	}

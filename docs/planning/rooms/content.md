@@ -297,7 +297,7 @@ restore working access through a broader publication.
 
 The parent plan owns implementation order. This document supplies content and
 interaction requirements for its recursive Rooms and conversation phases.
-Portable content fixtures own semantic expectations; native/browser journeys
+Portable content fixtures own semantic expectations; process/browser journeys
 prove that controls and navigation exercise the same capabilities.
 
 | Journey | Evidence required |
@@ -314,6 +314,6 @@ prove that controls and navigation exercise the same capabilities.
 | Continuity | Preserve reply targets, provenance, original creation markers, and destination ordering through reorganizations and restart. |
 
 Implementation updates the content schemas, protocol definitions, storage,
-native/browser clients, editor, and operation receipts together. Unsupported
-development formats are reset explicitly; no migration readers, broad fallback
-links, or duplicate conversation models accompany the replacement.
+process/browser clients, editor, and operation receipts together. Unsupported
+development formats are reset explicitly. Each runtime uses the same content
+model and exact selected authority.

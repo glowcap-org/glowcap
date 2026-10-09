@@ -3,49 +3,52 @@
 
 import * as store from "../store.ts";
 import * as net from "../page_navigation.ts";
-import {
-	installWorkspaceStatePersistence,
-	setWorkspaceControllerSelection,
-	workspaceControllerSelection,
-} from "../workspace_state.ts";
-import { clearWorkspaceState } from "../workspace/bundle.ts";
-import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
-import { homeLocator } from "../page_bootstrap.ts";
+import { tabIdentity } from "../session/managed/open.ts";
 import { attachedSessionFailureText } from "../session/attached_failure.ts";
+import type { openManagedSession } from "../session/managed/open.ts";
 import type { RoomsPageContext } from "../page.ts";
 import type { RoomsBrowserController } from "./browser.ts";
-import { deleteRoomsBrowserData } from "./browser_data.ts";
-import { coverForReload, finishCoveredReload, reloadNow, uncoverReload } from "../boot.ts";
-import { forgetWorkspaceRefused, leaveSessionRefused, localCopySaveRefused } from "../../../lib/text/attached.ts";
-
-function leaveAttachedSession(
-	page: RoomsPageContext,
-	controller: { kind: "local" } | { kind: "none" },
-	refusal: string,
-): string {
-	coverForReload();
-	if (!setWorkspaceControllerSelection(page, controller)) {
-		uncoverReload();
-		return refusal;
-	}
-	finishCoveredReload(controller.kind === "none");
-	return "";
-}
+import { coverForReload, finishCoveredReload, uncoverReload } from "../boot.ts";
+import { requestBrowserDataDeletion } from "./browser_data.ts";
 
 export function createRoomsBrowserController(
 	page: RoomsPageContext,
 	navigate: (path: string) => void,
 	addressOfActive: () => string,
+	openWorkspace: () => ReturnType<typeof openManagedSession>,
 ): RoomsBrowserController {
 	const backToRooms = <A extends unknown[]>(act: (...args: A) => void) => (...args: A): void => {
 		act(...args);
 		if (location.pathname.startsWith("/ops")) queueMicrotask(() => navigate(addressOfActive()));
 	};
 	const projection = page.projection;
+	let sharing: Promise<string> | null = null;
+	let conversationGesture = 0;
+	const managed = async () => {
+		return page.managedSession ?? (await openWorkspace()).session;
+	};
+	const selectLocal = async (chosen: boolean): Promise<string> => {
+		coverForReload();
+		try {
+			const session = await managed();
+			await session.selectWorkspace(null);
+			if (chosen) localStorage.setItem(chosenKey(), "yes");
+			else localStorage.removeItem(chosenKey());
+			await session.close();
+			finishCoveredReload(!chosen);
+			return "";
+		} catch (error) {
+			uncoverReload();
+			return attachedSessionFailureText(error);
+		}
+	};
 	return {
 		showRail: (shown) => store.showRail(projection, shown),
 		reachFor: backToRooms((act) => net.reachFor(page, act)),
-		showJoinCard: backToRooms(() => store.showJoinCard(projection)),
+		showJoinCard: backToRooms(() => {
+			page.managedSession?.navigation.dismissAcquisition();
+			store.showJoinCard(projection);
+		}),
 		aboutDirectory: (dir, askingLeave) => net.aboutDirectory(page, dir, askingLeave),
 		showDirectory: backToRooms((dir) => net.showDirectory(page, dir)),
 		aboutMember: (about) => net.aboutMember(page, about),
@@ -72,10 +75,22 @@ export function createRoomsBrowserController(
 		setHelpTab: (tab) => store.setHelpTab(projection, tab),
 		closeHelp: () => store.closeHelp(projection),
 		openOperations: () => {
+			page.managedSession?.navigation.dismissAcquisition();
 			store.closeSettings(projection);
 			navigate("/ops");
 		},
-		showActiveConversation: () => navigate(addressOfActive()),
+		showActiveConversation: async (selection) => {
+			const gesture = ++conversationGesture;
+			const arrival = globalThis.history?.state?.key;
+			await selection;
+			// The operation retains its receipt, but a newer gesture or browser
+			// arrival owns navigation. Acknowledgment must not reopen its view.
+			if (gesture !== conversationGesture || arrival !== globalThis.history?.state?.key) return;
+			const address = addressOfActive();
+			// Acknowledging the visible conversation is not a fresh route act.
+			// Re-entering the directory route would cancel its pending room lookup.
+			if (address !== `${location.pathname}${location.search}`) navigate(address);
+		},
 		setOpsPane: (pane) => store.setOpsPane(projection, pane),
 		changeLine: (id, text) => store.startChange(projection, id, text),
 		changeFiles: (id, caption, keeping) => store.startRefile(projection, id, caption, keeping),
@@ -90,50 +105,56 @@ export function createRoomsBrowserController(
 		retryPreview: (key, id) => store.retryDraftPreview(projection, key, id),
 		closeViewer: () => store.closeViewer(projection),
 		editJoin: (patch) => store.editJoin(projection, patch),
-		attachRoomsSession: async (sturdyref) => {
-			const before = workspaceControllerSelection(page);
-			let why = "";
+		attachRoomsSession: async (uri) => {
+			const current = page.controllerSelection.getSnapshot();
+			if ((current.kind === "attached" || current.kind === "hosted") && current.sturdyref === uri) return "";
+			coverForReload();
 			try {
-				if (page.workspace.persistenceControl == null) installWorkspaceStatePersistence(page);
-				await page.workspace.persistenceControl!.attach(sturdyref, await homeLocator(page));
+				const session = await managed();
+				await session.selectWorkspace(uri);
+				localStorage.setItem(chosenKey(), "yes");
+				await session.close();
+				finishCoveredReload();
+				return "";
 			} catch (error) {
-				why = attachedSessionFailureText(error);
+				uncoverReload();
+				return attachedSessionFailureText(error);
 			}
-			if (why === "") {
-				const after = workspaceControllerSelection(page);
-				const beforeShared = sharedRoomsSession(before);
-				const afterShared = sharedRoomsSession(after);
-				if (
-					before.kind !== after.kind ||
-					beforeShared?.sturdyref !== afterShared?.sturdyref
-				) {
-					reloadNow();
+		},
+		shareRoomsSession: () =>
+			sharing ??= (async () => {
+				try {
+					const uri = await (await managed()).workspace.publish();
+					const local = page.controllerSelection.getSnapshot().kind !== "attached";
+					page.controllerSelection.set({ kind: local ? "hosted" : "attached", sturdyref: uri });
+					return "";
+				} catch (error) {
+					return attachedSessionFailureText(error);
 				}
+			})().finally(() => {
+				sharing = null;
+			}),
+		useLocalRoomsSession: () => selectLocal(true),
+		leaveRoomsSession: () => selectLocal(false),
+		controllerSelection: page.controllerSelection,
+		resetBrowserWorkspace: async () => {
+			try {
+				await (await managed()).actions.clear();
+				return await selectLocal(false);
+			} catch (error) {
+				return attachedSessionFailureText(error);
 			}
-			return why;
 		},
-		shareRoomsSession: () => page.hostedSession.share(),
-		useLocalRoomsSession: () => leaveAttachedSession(page, { kind: "local" }, localCopySaveRefused),
-		leaveRoomsSession: () => leaveAttachedSession(page, { kind: "none" }, leaveSessionRefused),
-		controllerSelection: page.workspace.controllerSelection,
-		resetBrowserWorkspace: () => {
-			coverForReload();
-			if (!clearWorkspaceState(page)) {
-				uncoverReload();
-				return forgetWorkspaceRefused;
+		deleteBrowserData: () => {
+			try {
+				requestBrowserDataDeletion();
+			} catch (error) {
+				return Promise.resolve(attachedSessionFailureText(error));
 			}
-			finishCoveredReload(true);
-			return "";
-		},
-		deleteBrowserData: async () => {
 			coverForReload();
-			const why = await deleteRoomsBrowserData(page);
-			if (why !== "") {
-				uncoverReload();
-				return why;
-			}
 			finishCoveredReload(true);
-			return "";
+			return Promise.resolve("");
 		},
 	};
 }
+export const chosenKey = () => `rooms.workspace-choice.${tabIdentity()}`;

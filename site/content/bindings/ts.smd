@@ -251,7 +251,7 @@ function greeter(verb: string, args: Argument[]): string {
 	return `Hello, ${args[0]}`;
 }
 
-server.host.publishGiftable("greeter", greeter);
+server.host.publish("greeter", greeter);
 for await (const accepted of server) {
 	await using session = accepted;
 	await session.serve();
@@ -277,10 +277,10 @@ An actor is a callback, `(verb, args) => AppValue`, that you register with
 `session.spawn` or `session.publish`; it returns any value you can send, and the
 partner receives that as the reply. A throw becomes the caller's broken promise.
 To hand one actor across an introduction so a third peer can reach it directly,
-publish it on a `Host` with `publishGiftable`. You hold a `Host` as `server.host`
+publish it on a `Host` with `publish`. You hold a `Host` as `server.host`
 from `listen`, or mint one with `new Host()`. The `Host` is the multi-session
 product in [modules]($link.page('modules')), and
-[Concepts]($link.page('concepts')) explains the three-party handoff a giftable
+[Concepts]($link.page('concepts')) explains the three-party handoff a Host publication
 rides on.
 
 The complete API lives in the

@@ -101,6 +101,42 @@ dev_tip=$(git -C "${tree}" rev-parse dev)
 git -C "${tree}" merge-base --is-ancestor "${race_tip}" dev
 [[ $(git -C "${tree}" show dev:main-advance) == "main advance" ]]
 
+# Advancing a checked-out ref leaves its index and files behind. Refuse both
+# primary and linked checkouts, preserving even staged and unstaged user work.
+for checkout in "${repo}" "${scratch}/dev-checkout"; do
+	if [[ ${checkout} == "${repo}" ]]; then
+		git -C "${repo}" switch -q dev
+	else
+		git -C "${repo}" worktree add -q "${checkout}" dev
+	fi
+	for state in clean dirty; do
+		if [[ ${state} == dirty ]]; then
+			printf 'staged\n' >"${checkout}/base"
+			git -C "${checkout}" add base
+			printf 'unstaged\n' >>"${checkout}/base"
+		fi
+		before_index=$(git -C "${checkout}" write-tree)
+		before_file=$(git -C "${checkout}" hash-object base)
+		if (cd "${tree}" && "${integrate}") >"${scratch}/checked-out.log" 2>&1; then
+			echo "worktree-integration-test: published while dev was checked out" >&2
+			exit 1
+		fi
+		grep -Fq 'dev is checked out' "${scratch}/checked-out.log"
+		[[ $(git -C "${checkout}" write-tree) == "${before_index}" ]]
+		[[ $(git -C "${checkout}" hash-object base) == "${before_file}" ]]
+		[[ $(git -C "${tree}" rev-parse dev) == "${dev_tip}" ]]
+		[[ $(git -C "${tree}" rev-parse HEAD) == "${feature_tip}" ]]
+		(cd "${tree}" && "${integrate}" --sync >/dev/null)
+	done
+	# Only this disposable fixture's intentional dirty state is discarded.
+	git -C "${checkout}" reset --hard -q HEAD
+	if [[ ${checkout} == "${repo}" ]]; then
+		git -C "${repo}" switch -q main
+	else
+		git -C "${repo}" worktree remove "${checkout}"
+	fi
+done
+
 # Small commits stay on the worktree, and dev takes them as one squash. Without
 # a subject the command refuses and moves nothing. With one, dev gains exactly
 # one commit holding the branch's tree, and the branch moves onto it.

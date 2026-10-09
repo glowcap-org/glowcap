@@ -1,6 +1,6 @@
 // The registered half of the keyed-relay rendezvous proof (ADR-0088): a
 // non-listening peer that holds inbound sockets at the reference relay under
-// its key designator and answers `greet` on a host-wide giftable. Every
+// its key designator and answers `greet` on a Host publication. Every
 // per-binding client cold-dials this peer's identity through the relay's
 // `?rendezvous=` bridge; the keyed handshake runs end to end and the relay
 // parses nothing.
@@ -20,7 +20,7 @@ if ((relayUrl.protocol !== "ws:" && relayUrl.protocol !== "wss:") || relayUrl.pa
 }
 
 const host = new Host();
-host.publishGiftable("greeter", (verb, args) => {
+host.publish("greeter", (verb, args) => {
 	if (verb !== "greet") throw new Error(`greeter has no method ${verb}`);
 	const who = typeof args[0] === "string" ? args[0] : "?";
 	return `hello ${who}, cold-dialed by rendezvous`;

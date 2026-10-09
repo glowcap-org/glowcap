@@ -1,7 +1,7 @@
 //! Owned transfer capabilities. Upload mutation is exclusive; independent blob
 //! readers may share the same session without sharing progress or cancellation.
 pub mod capture;
-use super::{Client, Deadline, Error};
+use super::{Caller, Client, Deadline, Error};
 use glowcap::{Argument, Ref};
 use rooms_application::{
 	files::{
@@ -114,65 +114,93 @@ impl<D: Deadline> Upload<D> {
 }
 
 pub struct File<D> {
-	client: Client<D>,
+	reader: FileReader<D>,
 	attachment: Attachment<Ref>,
-	exporter: Option<std::cell::OnceCell<Option<glowcap::Session>>>,
+}
+enum FileReader<D> {
+	Capability(Caller<D>),
+	Mediated {
+		reader: Box<dyn super::sources::Reader>,
+		bytes: usize,
+	},
 }
 impl<D: Deadline> File<D> {
 	pub fn new(client: Client<D>, attachment: Attachment<Ref>) -> Self {
 		Self {
-			client,
+			reader: FileReader::Capability(Caller::Remote(client)),
 			attachment,
-			exporter: None,
 		}
+	}
+	/// Read an already mediated capability on the existing Host. This creates
+	/// no Session and adds no authority beyond the held attachment.
+	pub fn local(host: glowcap::Host, platform: D, attachment: Attachment<Ref>) -> Self {
+		Self {
+			reader: FileReader::Capability(Caller::Local { host, platform }),
+			attachment,
+		}
+	}
+	/// A domain owner can retain exact admission around every source read.
+	/// The reader owns that check and its deadline; File validates each chunk.
+	pub fn mediated<R: super::sources::Reader + 'static>(
+		attachment: Attachment<Ref>,
+		reader: R,
+		backing_bytes: usize,
+	) -> Self {
+		Self {
+			reader: FileReader::Mediated {
+				reader: Box::new(reader),
+				bytes: core::mem::size_of::<R>().saturating_add(backing_bytes),
+			},
+			attachment,
+		}
+	}
+	/// Heap retained beyond this inline File, including a mediated reader's
+	/// boxed body and its explicitly supplied shared or owned backing storage.
+	pub fn retained_heap_bytes(&self) -> usize {
+		self.attachment
+			.description
+			.retained_bytes()
+			.saturating_add(match &self.reader {
+				FileReader::Mediated { bytes, .. } => *bytes,
+				FileReader::Capability(_) => 0,
+			})
 	}
 	pub fn attachment(&self) -> &Attachment<Ref> {
 		&self.attachment
 	}
-	/// Bind an incoming attachment to its delivering context. The first read
-	/// resolves and retains its actual exporter outside the actor turn; local
-	/// references use the delivering client. No guessed directory is involved.
+	/// Keep the delivering client alive; the Host routes each held blob to its
+	/// actual owner, including local facades and third-party handoffs.
 	pub fn received(client: Client<D>, attachment: Attachment<Ref>) -> Self {
-		Self {
-			client,
-			attachment,
-			exporter: Some(Default::default()),
-		}
-	}
-	fn session(&self) -> Result<&glowcap::Session, Error> {
-		let Some(exporter) = &self.exporter else {
-			return Ok(self.client.session());
-		};
-		if exporter.get().is_none() {
-			let owner = self.client.session().host().reference_session(&self.attachment.blob)?;
-			let _ = exporter.set(owner);
-		}
-		Ok(exporter
-			.get()
-			.expect("resolved exporter")
-			.as_ref()
-			.unwrap_or(self.client.session()))
+		Self::new(client, attachment)
 	}
 	pub async fn read(&self, offset: u64, maximum: usize) -> Result<Vec<u8>, Error> {
 		let expected = transfer::read_length(self.attachment.description.size(), offset, maximum)?;
 		if expected == 0 {
 			return Ok(Vec::new());
 		}
-		let reply = self
-			.client
-			.call_on(
-				self.session()?,
-				&self.attachment.blob,
-				rooms_application::protocol_data::READ,
-				&[Argument::Integer(offset as i64), Argument::Integer(expected as i64)],
-				"the file stopped arriving",
-				transfer::STALL_MS,
-			)
-			.await?;
-		transfer::accept_chunk(expected, reply.0.as_bytes().map(<[u8]>::len))?;
-		let Argument::Bytes(bytes) = reply.0 else {
-			unreachable!("validated byte reply")
+		let bytes = match &self.reader {
+			FileReader::Mediated { reader, .. } => reader
+				.read(offset as usize, expected)
+				.await
+				.map_err(glowcap::loam::refusal)?,
+			FileReader::Capability(caller) => {
+				let reply = caller
+					.call_reference(
+						&self.attachment.blob,
+						rooms_application::protocol_data::READ,
+						&[Argument::Integer(offset as i64), Argument::Integer(expected as i64)],
+						"the file stopped arriving",
+						transfer::STALL_MS,
+					)
+					.await?;
+				transfer::accept_chunk(expected, reply.as_bytes().map(<[u8]>::len))?;
+				let Argument::Bytes(bytes) = reply else {
+					unreachable!("validated byte reply")
+				};
+				bytes
+			}
 		};
+		transfer::accept_chunk(expected, Some(bytes.len()))?;
 		Ok(bytes)
 	}
 	/// Explicit whole-file assembly. Streaming callers use read and never

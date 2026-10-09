@@ -9,7 +9,7 @@
 //! Topology — three iroh endpoints (separate identities) in one process, the
 //! relay-less `Direct` posture on loopback, so the gate is deterministic and
 //! flake-free (no discovery service, no network):
-//!   Exporter  binds an iroh endpoint and publishes a host-giftable `greeter`.
+//!   Exporter  binds an iroh endpoint and publishes a Host-published `greeter`.
 //!   Gifter    binds its own endpoint, dials the exporter (sharing one node
 //!             identity), fetches the greeter, records the exporter's dialable
 //!             URI as the give's exporter location, and publishes an `introducer`
@@ -48,10 +48,10 @@ async fn main() -> Result<(), Fail> {
 }
 
 async fn run() -> Result<(), Fail> {
-	// ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
+	// ── Exporter: a Host-published greeter on its own endpoint ────────────────────
 	let exporter =
 		Rc::new(iroh::listen(iroh::Config::new(Reachability::Direct), iroh::ListenOptions::default()).await?);
-	exporter.host().publish_giftable("greeter", || Box::new(greeter()))?;
+	exporter.host().publish("greeter", || Box::new(greeter()))?;
 	let (exporter_id, exporter_addrs) = dialable(&exporter).await?;
 	helpers::serve_iroh_sessions(Rc::clone(&exporter));
 	println!("rust-iroh-handoff: exporter published greeter on {exporter_id}");
@@ -80,14 +80,14 @@ async fn run() -> Result<(), Fail> {
 	if primed.as_str() != Some("primed") {
 		return Err(format!("prime did not land: {primed:?}").into());
 	}
-	exporter.host().publish_giftable("greeter", || {
+	exporter.host().publish("greeter", || {
 		Box::new(|_verb: &str, _args: &[Argument]| Ok(Argument::from("decoy")))
 	})?;
 	// The exporter's own signed session record names it by node id alone — not
 	// dialable under the relay-less Direct posture — so record its full dialable
 	// location (id + direct-addresses) as the give's exporter location.
 	to_exporter.set_exporter_locator(Some(&exporter_locator))?;
-	gifter_host.publish_giftable("introducer", move || {
+	gifter_host.publish("introducer", move || {
 		let greeter = greeter_ref.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {
 			if verb == "get-greeter" {

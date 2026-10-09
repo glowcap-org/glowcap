@@ -66,6 +66,9 @@ struct ReaderState {
 	digest: String,
 }
 impl Reader {
+	pub fn scope(&self) -> &Filter {
+		&self.0.scope
+	}
 	pub fn attachment(facet: &Facet, record: &Record, index: usize) -> Result<Self, Error> {
 		if !facet.scope().matches(record) {
 			return Err(Error::Filter);

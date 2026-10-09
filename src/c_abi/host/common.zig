@@ -193,13 +193,6 @@ pub fn instOf(core: *Host) *Instance {
     return @fieldParentPtr("core", core);
 }
 
-/// The session a running wire turn arrived through. The Vat is Host-wide;
-/// the turn's Port, not its Vat, recovers the session projection.
-pub fn sessionOfTurn(t: *actors.Turn) *HostSession {
-    const served: *driver_core.Served = @fieldParentPtr("port", t.port.?);
-    return @alignCast(@fieldParentPtr("served", served));
-}
-
 /// Map a host-tier error to a C return code, recording the name for
 /// `glowcap_host_last_error`.
 pub fn errToCode(err: anyerror) i32 {
@@ -248,11 +241,16 @@ pub const HostedBehavior = struct {
     /// `out_reply` storage is only valid until the callback returns, and the
     /// reply must own its bytes for the turn window, exactly like a native
     /// reply.
-    pub fn handle(erased: *anyopaque, turn: *actors.Turn, msg: actors.Message) anyerror!model.Argument {
+    pub fn handle(erased: *anyopaque, turn: *actors.Turn, msg: actors.Message) actors.HostedActor.Result {
+        return actors.HostedActor.Result.fromResult(handleOwned(erased, turn, msg));
+    }
+
+    fn handleOwned(erased: *anyopaque, turn: *actors.Turn, msg: actors.Message) anyerror!model.Argument {
         const self: *HostedBehavior = @ptrCast(@alignCast(erased));
         const arena = turn.arena;
-        const session = sessionOfTurn(turn);
-        const inst = instOf(session.host);
+        const host_turn = try driver_core.HostTurn.fromActorTurn(turn);
+        const session = host_turn.session orelse return error.OwningReplyRequired;
+        const inst = instOf(host_turn.host);
         const c_args = try hostArgsToC(inst, session, arena, msg.args);
         var reply = shared.zero_argument;
         const code = self.behavior(
@@ -266,6 +264,35 @@ pub const HostedBehavior = struct {
         );
         if (code != GLOWCAP_OK) return error.ForeignBehaviorBroke;
         return try hostArgumentFromCOwned(inst, session, arena, reply, 0);
+    }
+
+    /// The same foreign callback receives owning values on a trusted local
+    /// turn. It has no session, and its reply is copied directly into the
+    /// bounded owning result before the actor's frame can retire.
+    pub fn handleOpaque(erased: *anyopaque, turn: *actors.Turn, msg: actors.OpaqueMessage) ?[]const u8 {
+        handleOpaqueOwned(erased, turn, msg) catch |err| return @errorName(err);
+        return null;
+    }
+
+    fn handleOpaqueOwned(erased: *anyopaque, turn: *actors.Turn, _: actors.OpaqueMessage) anyerror!void {
+        const self: *HostedBehavior = @ptrCast(@alignCast(erased));
+        var host_turn = try driver_core.HostTurn.fromActorTurn(turn);
+        try host_turn.beginLocal();
+        const inst = instOf(host_turn.host);
+        const input = try host_turn.localArguments();
+        const c_args = valuesToC(turn.arena, input.args) catch |err| {
+            // Observation custody transfers at callback entry. Projection
+            // refusal must retract it independently of the queue keepers.
+            host_turn.releaseValues(input.args);
+            return err;
+        };
+        var reply = shared.zero_argument;
+        const code = self.behavior(self.ctx, @ptrCast(turn), input.verb.ptr, input.verb.len, if (c_args.len == 0) null else c_args.ptr, c_args.len, &reply);
+        if (code != GLOWCAP_OK) return error.ForeignBehaviorBroke;
+        if (turn.forwarded) return;
+        const replies = [_]shared.GlowcapArgument{reply};
+        const values = try shared.valuesFromCWith(driver_core.Value, anyerror, inst, decodeHostCapability, turn.arena, &replies, 1, 0, false);
+        try host_turn.prepareLocalReply(values[0]);
     }
 
     /// The actor's box `free`: run the consumer's `free` on the foreign `ctx`,
@@ -292,7 +319,7 @@ pub fn hostedBridge(
         return e;
     };
     bridge.* = .{ .behavior = behavior, .ctx = ctx, .free = free, .allocator = alloc };
-    return .{ .ctx = bridge, .handle = HostedBehavior.handle, .free = HostedBehavior.freeThunk };
+    return .{ .ctx = bridge, .handle = HostedBehavior.handle, .handleOpaque = HostedBehavior.handleOpaque, .free = HostedBehavior.freeThunk };
 }
 
 pub const ValueMessage = struct {
@@ -370,6 +397,15 @@ pub fn hostArgumentFromCOwned(
     depth: usize,
 ) !model.Argument {
     return shared.argumentFromCWith(anyerror, HostRefContext{ .inst = inst, .session = session }, decodeHostReference, arena, arg, depth, true);
+}
+
+/// Argument leaves borrow their owner. Every struct value is already counted
+/// among values; its key adds one C slot. Container requests split that total.
+pub fn valueProjectionBound(comptime Bound: type, values: usize, entries: usize) !Bound {
+    const slots = try std.math.add(usize, values, entries);
+    var bound: Bound = .{};
+    try bound.includeTotal(try std.math.mul(usize, slots, @sizeOf(shared.GlowcapArgument)), @alignOf(shared.GlowcapArgument), slots);
+    return bound;
 }
 
 pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!shared.GlowcapArgument {

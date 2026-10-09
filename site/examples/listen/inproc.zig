@@ -2,11 +2,13 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    var network = glowcap.net.inproc.Network.init(allocator, io);
-    defer network.deinit();
+    var exchange = glowcap.net.inproc_completion.Exchange.init(allocator);
+    defer exchange.deinit();
     const server = try glowcap.driver.listen(
         allocator,
-        network.netlayer(),
+        io,
+        .{ .symbols = &.{.inproc}, .inproc = &exchange },
+        glowcap.ocapn.model.transport.inproc,
         .{ .designator = "greeter" },
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -26,7 +28,7 @@ const Greeter = struct {
 };
 
 fn serve(server: *glowcap.driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
+    try server.publish("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();
         defer session.deinit();

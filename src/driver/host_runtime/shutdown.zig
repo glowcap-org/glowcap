@@ -278,10 +278,6 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
     Internal.closeOwnedListeners(self);
     Internal.detachClosingListeners(self);
     for (self.pending_opens.items) |row| switch (row.stage) {
-        .stream_dial => {
-            if (row.stage.stream_dial.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
-            if (Internal.releaseCoreSession(self, row.session)) |failure| Internal.noteTerminalFailureChain(self, failure);
-        },
         .resident_dial => {
             if (row.stage.resident_dial.attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
             if (Internal.releaseCoreSession(self, row.session)) |failure| Internal.noteTerminalFailureChain(self, failure);
@@ -305,6 +301,7 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
     std.debug.assert(self.claimed_session_handles == 0);
     self.wires.deinit(self.allocator);
     self.resident_wires.deinit(self.allocator);
+    self.allocator.free(self.resident_read_scratch);
     self.pending_resident_dials.deinit(self.allocator);
     for (self.pending_opens.items) |row| {
         switch (row.outcome) {
@@ -318,10 +315,7 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
     self.pending_opens.deinit(self.allocator);
     std.debug.assert(self.open_admissions == 0);
     for (self.pending_listeners.items) |row| {
-        switch (row.stage) {
-            .stream => |*attempt| if (attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure),
-            .resident => |*pending| if (pending.attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure),
-        }
+        if (row.attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
         Internal.releaseListenerProfile(self, row.transport);
         row.observation.observer.abandoned(row.observation.observer.ctx, row.observation.tag);
         self.allocator.destroy(row);
@@ -343,12 +337,6 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
     }
     self.provider_packages.deinit(self.allocator);
     self.poll_scratch.deinit(self.allocator);
-    self.conn_scratch.deinit(self.allocator);
-    self.dial_scratch.deinit(self.allocator);
-    self.listen_scratch.deinit(self.allocator);
-    self.active_listener_scratch.deinit(self.allocator);
-    self.borrow_scratch.deinit(self.allocator);
-    self.wait_interest_scratch.deinit(self.allocator);
     self.extra_fd_scratch.deinit(self.allocator);
     self.listener_fds.deinit(self.allocator);
     if (self.mailbox) |mailbox| mailbox.deinit();

@@ -51,6 +51,7 @@ pub extern "c" fn mdb_cursor_get(cursor: *Cursor, key: *Val, value: *Val, operat
 pub extern "c" fn loam_lmdb_canonical_path(path: [*:0]const u8, result: [*]u8, capacity: usize) c_int;
 pub extern "c" fn loam_lmdb_directory(path: [*:0]const u8) c_int;
 pub extern "c" fn loam_lmdb_lock(directory: c_int) c_int;
+pub extern "c" fn loam_lmdb_unlock(fd: c_int) c_int;
 pub extern "c" fn loam_lmdb_close_fd(fd: c_int) void;
 pub const ReplacementFiles = extern struct { directory: c_int, copy: c_int };
 pub extern "c" fn loam_lmdb_replacement_begin(directory: c_int, source_path: [*:0]const u8, copy_path: [*]u8, capacity: usize, files: *ReplacementFiles) c_int;

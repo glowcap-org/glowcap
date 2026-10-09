@@ -307,7 +307,7 @@ pub fn sessionCloseActionDelivered(self: *const Host, session: *const HostSessio
 /// terminal path discards a live deadline; timeout has already replaced that
 /// row with its sticky result and keeps it through release.
 pub fn markSessionTerminating(self: *Host, session: *HostSession) void {
-    if (self.publication_lookup) |lookup| lookup.cancel(lookup.context, session.peer_handle);
+    if (self.publication_lookup) |lookup| lookup.cancel(lookup.context, .{ .origin = .{ .peer = session.peer_handle } });
     if (self.session_close_timing.get(session.peer_handle)) |timing| {
         if (timing == .deadline_ms) {
             const removed = self.session_close_timing.fetchRemove(session.peer_handle) orelse unreachable;
@@ -343,11 +343,13 @@ pub fn advanceCloseLifecycle(self: *Host) bool {
         startTermination(self, .graceful_shutdown, false);
     }
 
+    @import("local_delivery.zig").cancel(self);
     var started_terminal = false;
     const terminal = &self.lifecycle.terminating;
     if (!terminal.sessions_started) {
         terminal.sessions_started = true;
         started_terminal = true;
+        if (self.publication_lookup) |lookup| lookup.cancel(lookup.context, .{ .local_shutdown = "host closing" });
         enliven_mod.cancelParkedEnlivens(self, "host closing");
         var sessions = self.sessions.valueIterator();
         while (sessions.next()) |session|

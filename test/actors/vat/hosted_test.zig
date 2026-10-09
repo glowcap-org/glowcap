@@ -33,7 +33,10 @@ const HostedState = struct {
     n: i64,
     sink: ?actors.Ref = null,
 
-    fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+    fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+        return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
+    }
+    fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
         const self: *HostedState = @ptrCast(@alignCast(ctx));
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "add")) {
@@ -103,11 +106,11 @@ test "spawnHosted whose box allocation fails still runs the hosted free" {
 
     var freed = false;
     const F = struct {
-        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
             _ = ctx;
             _ = turn;
             _ = msg;
-            return .{ .void = {} };
+            return .{ .returned = .{ .void = {} } };
         }
         fn free(ctx: *anyopaque) void {
             const flag: *bool = @ptrCast(@alignCast(ctx));
@@ -138,8 +141,8 @@ test "a failed export bind can discard the freshly spawned hosted actor" {
 
     var freed = false;
     const F = struct {
-        fn handle(_: *anyopaque, _: *Turn, _: Message) anyerror!model.Argument {
-            return .{ .void = {} };
+        fn handle(_: *anyopaque, _: *Turn, _: Message) actors.HostedActor.Result {
+            return .{ .returned = .{ .void = {} } };
         }
         fn free(ctx: *anyopaque) void {
             const flag: *bool = @ptrCast(@alignCast(ctx));
@@ -173,7 +176,10 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     // A gate that refuses every call with its own diagnostic, then returns
     // normally: the staged break must win over the void return value.
     const Gate = struct {
-        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+            return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
+        }
+        fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
             _ = ctx;
             _ = msg;
             try turn.breakWith("Attenuated");

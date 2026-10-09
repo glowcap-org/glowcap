@@ -68,11 +68,9 @@ pub async fn rooms_browser_relay_contract(
 			let locator = locator(&profile, &receiver.designator().unwrap(), &route);
 			receiver.set_advertised_locator(&locator).unwrap();
 			receiver
-				.publish_giftable("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
+				.publish("echo", || Box::new(|_, args| Ok(Argument::List(args.to_vec()))))
 				.unwrap();
-			caller
-				.publish_giftable("callback", || Box::new(|_, _| Ok(true.into())))
-				.unwrap();
+			caller.publish("callback", || Box::new(|_, _| Ok(true.into()))).unwrap();
 			let accepting = relay::accept(&receiver, &locator, &register, Duration::from_secs(5));
 			let dialing = async {
 				// The fixture observes the native registration's WebSocket OPEN,

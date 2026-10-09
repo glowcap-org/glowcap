@@ -6,25 +6,18 @@
 // Rooms session", "Its label alone cannot find it". The facts are the same and
 // the subject is now whoever is reading.
 
-/** Message history. Each of these is a state the reader is in, and the two
- * that are on say what turning them off costs, because one of them erases
- * something. */
-export const historyOffShared =
+/** Session message retention and the archive capability it selects. */
+export const historyOffSession =
 	"Nothing is saved. Messages show up in whatever windows are open, and are gone after that.";
-export const historyOffLocal = "Nothing is saved. Messages show up while you are here, and are gone after that.";
-export const historyOnShared = "Messages are saved by the shared session. Turn this off and new ones stop being saved.";
-export const historyOnLocal = "Messages are saved in this browser. Turn this off and what's saved here is erased.";
+export const historyOnSession = "Messages are saved in this session. Turn this off and new ones stop being saved.";
 
 export const historyKeepLabel = "Keep message history";
 export const historyArchivePeerLabel = "Archive peer capability";
 export const historyArchivePeerTitle = "Archive peer";
 export const historyBuiltInSession = "Built-in session archive";
-export const historyBuiltInBrowser = "Built-in browser archive";
 export const historyPeerUnavailable = "That archive can't be reached right now.";
 export const historyPeerDurable = "Connected. Its saved link lets this session reconnect on its own.";
-export const historyPeerSession = "Connected for this session only.";
 export const historyPeerSaved = "Saved";
-export const historyPeerLive = "Live";
 export const historyPeerReconnect = "Reconnect";
 export const historyPeerLead =
 	"A link that can read and write the archive. A new one starts keeping messages from now on, and doesn't copy what's already there.";
@@ -125,16 +118,17 @@ export const archiveSharesEmpty = "This archive has issued no durable shares.";
 /** The operations capability set. */
 export const capabilitySetTitle = "Capability set";
 export function capabilitySetEditSwiss(label: string): string {
-	return `Edit ${label} swiss number`;
+	return `Edit ${label} capability URI`;
 }
 export function capabilitySetInclude(label: string): string {
 	return `Include ${label}`;
 }
 export const capabilitySetRetry = "Retry";
 export const capabilitySetSave = "Save changes";
-export const capabilitySetSwissRefused = "Enter the exact bare swiss number the server printed.";
+export const capabilitySetSwissRefused = "Enter the complete capability URI printed by the server.";
+export const capabilitySetIncomplete = "Supply a complete capability URI for every enabled capability.";
 export function capabilitySetMintedSaid(flag: string, how: string): string {
-	return `The server mints it with ${flag}. ${how} It is bearer authority and is kept in the Rooms state bundle.`;
+	return `The server mints it with ${flag}. ${how} It is bearer authority and is retained by this session.`;
 }
 export const capabilitySetSaveTo = "Save to capability set";
 

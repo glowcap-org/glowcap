@@ -8,7 +8,8 @@ import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { memo, useMemo } from "react";
 import { type BridgeFacts, membersHere, type RoomConv, type Standing } from "../types.ts";
-import { useConversationMembers, useSessionPaused } from "../hooks.ts";
+import { useConversationMembers, useRoomsState, useSessionPaused } from "../hooks.ts";
+import { openingDirect } from "../../../lib/text/managed_session.ts";
 import { memberDetail, memberIdentity } from "../member_identity.ts";
 import { nothingWhilePaused } from "../text.ts";
 import { useOpenModal } from "../modal.ts";
@@ -75,6 +76,9 @@ function MemberRow(
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
 	const openModalFrom = useOpenModal();
+	// The line being opened to this member spins on the button that asked for
+	// it. A boolean selector repaints only the row whose answer changes.
+	const opening = useRoomsState((state) => state.navigationTarget === name);
 	// Away is a third thing to be, and it is about somebody who is here rather
 	// than a way of being absent: the pip says away, and the reason goes beside
 	// the name where it answers the question the pip raises.
@@ -154,9 +158,10 @@ function MemberRow(
 					<IconButton
 						className="dm-btn"
 						icon="direct"
-						label={rosterMessageDirectly(identity.name)}
+						label={opening ? openingDirect(identity.name) : rosterMessageDirectly(identity.name)}
 						size="small"
 						tone="teal"
+						busy={opening}
 						onClick={(e) => {
 							e.stopPropagation();
 							session.startDm(name);

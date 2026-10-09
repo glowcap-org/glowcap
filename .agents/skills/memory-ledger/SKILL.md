@@ -7,21 +7,14 @@ description: "Use when adding, deleting, moving, or renaming an allocation or co
 
 The [memory rule](../../rules/memory.md) says when a wire-path allocation or copy may
 exist at all: forbidden by default, named only after a full derivation,
-measured when deleted. This file is the inventory of the ones that earned a
-name.
+measured when deleted. This file inventories the named costs.
 
 ## The ledger
 
-Every allocation and copy that survived that derivation, one line each.
-
-**The full derivation lives at the declaration, not here.** Each entry names the
-symbol that owns the cost, and that symbol's doc comment carries the argument:
-the hazard, the lifetime, and what breaks if the copy is deleted. Read it before
-touching the site. This list exists so nothing is unnamed and so a reviewer can
-see the whole budget at once; duplicating each argument here would give one fact
-two authorities that drift apart. `source-check` holds every symbol below to a
-declaration under `src/`, so a rename breaks the entry instead of quietly
-pointing it at nothing.
+Each entry names a cost and its owning symbol. The declaration's doc comment
+explains the hazard, lifetime, and consequence of removing it. Read that
+derivation before editing the site. `source-check` verifies that every named
+symbol has a declaration under `src/`.
 
 ### Wire path: session and engine
 
@@ -101,15 +94,14 @@ pointing it at nothing.
   `steady_proxy_recipient_arena_bytes`, so a full fan-out pays one backing
   allocation rather than one per recipient.
 - **Inline Passable projection staging** — `Node.stageOutbound`,
-  `Peer.reserveInlinePassableStaging`. One complete owned message waits outside
-  the ordinary outbound queue while object projections receive gift ids and
-  promise projections prepare their shared home listener plus recipient
-  escrows. No partial rewrite, exporter deposit, proxy listener, or recipient
-  import becomes visible. Its measured model bytes remain charged to the
-  recipient's ordinary outbound waterline, total staged capability occurrences
-  remain under that session's queue cap, and every same-exporter deposit is
-  admitted as one cumulative batch. The message moves into the ordinary queue
-  at commit; it is never cloned a second time.
+  `Peer.reserveInlinePassableStaging`. One owned message waits for gift ids,
+  shared promise listeners and recipient escrows. No partial rewrite, deposit,
+  proxy listener or recipient import is visible. Staged bytes and occurrences
+  stay under the recipient's outbound waterline and queue cap. Deposits for one
+  exporter are admitted together. Commit moves the message without another clone.
+  `Peer.publishAnswerRelease` owns a bounded POD carrier, including before staging
+  completes. A release flag fits the staged row's 32-byte budget. Success transfers
+  it to Session, failure drops it. Public release copies no position array.
 - **Projection anchors** — `Peer.respondToProjection`. One dupe of the field name
   or tag, because the projection outlives the view that carried it. `op:index`
   dupes nothing. Bounded per answer by `max_listeners_per_target` (ADR-0050).
@@ -127,6 +119,9 @@ pointing it at nothing.
   the right owner only because those tables never remove a row**, which is why
   the FIFO-evicting `sturdyref_cache` and the individually-removed
   `pending_enlivens` keep their bytes on the gpa instead.
+- **Sturdyref FIFO topology** — `sturdyref_cache.Entry` retains two inline row
+  indexes per admitted cache row; no additional allocation or idle Session
+  footprint. Dense removal repairs only relocated rows, bounded by the cache cap.
 - **Resolver-export link** — `Session.outbound_resolver_link`. One POD row per
   live listen (ADR-0095), no owned bytes.
 - **Shortening GC closure** — `expandGcExportReleases`. Rare outbound-GC
@@ -148,8 +143,14 @@ pointing it at nothing.
   the enliven transaction rather than silently disabling dedup.
 - **Owned Host enlivenment** — `Host.enlivenCapability` allocates one fixed-size
   operation from the caller's allocator, with an inline bounded failure message.
-  It reuses the existing vow/cache bridge and reserves observer answer-release
-  capacity before wire admission. A parked row carries one recipient union;
+  `enliven/group.zig` reserves one group, member, vow and answer-release carrier
+  before admission. Followers keep their member and vow and retire the unused
+  group reservation. One Host-wide pending index adds 24 inline bytes and no
+  session storage. The group owns the sole wire listener and GC carrier through
+  the last observer or public pipeline handle; each result owns its own retain.
+  A temporary capability retain protects shared projection through the callback
+  turn. `HostRuntime.enliven` consumes the owned result directly, removing its
+  cache-completion parking state. A parked row carries one recipient union;
   its locator bytes retain their existing Host owner. Cancellation releases
   observation storage without copying a result or allocating a GC carrier.
 - **Freed export ranges** — `engine.Node.freed_export_bases`. Export ranges are a
@@ -218,11 +219,60 @@ pointing it at nothing.
 
 ### Actor layer
 
+- **Opaque ingress custody** — `OpaqueMessage` charges its requested bytes before
+  guarded copy admission. `local_delivery.Input.copy` materializes verb, Value
+  spines/leaves and keeper retains in the existing queue arena. The queued target
+  and every capability occurrence outlive observer cancellation. Callback
+  observations acquire independent retains; projection refusal releases them
+  before callback entry. Consuming retirement prevents repeated cleanup across
+  dispatch, rollback, ingress cancellation and teardown. The ordinary queue row
+  is 72 bytes on 64-bit, with 56 turns per chunk; footprint tests pin both.
+- **Archive-neutral actor callbacks** — `HandlerFailure` carries immutable
+  archive-owned text and scalar error-domain metadata on the call stack.
+  The producing archive catches the error; receivers recover a typed ordinal
+  only in that compilation. No allocation, payload copy or traversal is added.
+  `OpaqueMessage.VTable` adds one constant 16-byte protocol identity, independent
+  of its address. `Vat.turn_failure` retains an optional text slice for rollback,
+  adding 16 inline bytes on 64-bit; sessions and queue rows gain none.
+- **Owning local completion** — `local_delivery.Producer` and `VowRow` cost
+  312 and 152 bytes on 64-bit. The reply destination tag adds one inline word;
+  warm admission allocates those two owners;
+  `Host.Call` separately allocates its 328-byte operation and exactly the
+  configured reply backing. Reply preparation copies Value spines/leaves and
+  acquires occurrence retains before state replacement or resolver consumption.
+  `completion.retainValue` uses the stable Value as its rollback receipt,
+  without another inventory allocation or capability-count walk.
+  `ReplyAllocator` is a synchronous stack proxy over the fixed backing; its
+  refusal latch distinguishes reply capacity from Host heap pressure without
+  another allocation, copy, walk or persistent field.
+  Local forwarding reuses that Producer, row and reply backing; each hop owns a copied
+  input and the existing forwarding context. Measurements cover caller demand,
+  warm admission, terminal live bytes and heterogeneous logical copy demand.
+- **Public local reply** — `local_completion.Reply` embeds the Producer in one
+  384-byte allocation on 64-bit, plus the existing 152-byte public vow row.
+  One arena materializes trusted output and moves into the reserved Host action;
+  preparation/publication and queue adoption preserve the same pointers.
+  A child queued inside a running parent also needs the existing overlapping
+  queue chunk and its backing: measured warm send/tell admission costs four/three
+  allocations. Tell uses only its 312-byte discard Producer and queued input,
+  with no Call, Host vow row or reply allocation. Constructor refusal, deferred
+  preparation retry and aggregate retirement pin custody.
+- **Foreign owning answer transfer** — `foreign_forward.ForeignForward` embeds
+  the existing `ForwardContext`, actual peer and original Producer custody in one
+  64-byte box on 64-bit. The observed wire vow owns that box and answer-release
+  reservation. `prepareWire` projects once into the original fixed reply buffer;
+  canceled observers discard wire occurrences. No child Call or resolver pair
+  is created; tests pin caller allocation count and terminal custody.
 - **Ingress clone** — `Vat.send` / `Vat.tell`'s local arm, over
   `model.cloneArgumentSlice`. `sendCopying`'s contract inside one vat: a queued
   turn runs at a later `drive` whose first outermost turn resets the very arena
   the handler built its args in. `model.measureArgumentSliceOwnedBytes` walks the
   same shape first, so admission refuses a limit **before any queue mutation**.
+- **Far notifications** — `AnswerCell.application_notification_consumed` guards
+  one-shot observation within its 48-byte row. `Port.far_listeners` uses dense
+  indexed storage: a 16-byte larger header supports O(1) bulk removal while other
+  listeners remain cancellable. Bulk failure frees the store without allocating.
+  A Port cutoff refuses old vows, with no completed-answer map.
 - **Settle clones** — `Vat.settle_arena`. Each defends two hazards, which is why
   it can be re-homed but never deleted: a listener may open a top-level turn
   whose depth-0 reset frees a turn-arena value mid-call, and the value may borrow
@@ -232,6 +282,9 @@ pointing it at nothing.
 - **Far send verb splice** — `farDeliverTo`. Stack buffer to seven args, then one
   immediately-freed gpa spine — **never the turn arena, because the path is
   callable at depth 0**, where a bump pins until the next outermost turn.
+- **Turn failure callbacks** — `reserveBreak` in `actors/vat/turn_commit.zig`.
+  Answered far sends reserve shared Vat storage before publication so rollback
+  can defer listeners until all participants have undone their effects.
 - **Reply sever on install** — `callWithOrigin`. Clones the reply onto the turn arena
   when a `become` will install at this frame's unwind, because the install frees
   the box the reply may borrow. **The gate is the install, not this frame's own
@@ -253,10 +306,17 @@ pointing it at nothing.
   reserves one slot per open frame, not per stage. Burst backing is replaced
   transactionally at the next outer-turn boundary, while the live-actor escrow
   remains.
-- **Turn-forward context** — `reserveForward`. One gpa `ForwardContext` per
-  answered eventual forward, local or wire; tells allocate none. Local answer
-  chains settle iteratively without another value clone. Listener settlement or
-  `freeOwnedForwardContexts` reclaims the context.
+- **Forwarding callback identity** — `Vat.forward_listener` retains one function
+  pointer per Vat, shared by every owned forwarding context. Native archives
+  publish and classify through that exact identity, so teardown and iterative
+  settlement do not depend on process-wide identity of compiled private functions.
+  The Host footprint check pins the eight-byte native charge; listeners and
+  sessions gain no fields or allocations.
+- **Turn-forward context** — `reserveForward` owns one `ForwardContext` per
+  answered eventual forward. Tells allocate none. Local chains settle iteratively.
+  Settlement or `freeOwnedForwardContexts` frees it. `forwardTurnVow` also owns a
+  32-byte `ForwardRegistration` until commit or abort, so an existing vow loses
+  only the failed turn's listener. Other forwarding contexts gain no fields.
 - **Dynamic turn break** — `Turn.breakWith` copies a queued call's diagnostic
   into the turn arena before foreign callback storage expires. `settleLocal`
   copies it into its depth-guarded settle arena before listener reentry.
@@ -283,10 +343,9 @@ pointing it at nothing.
   chunk is ordinary here rather than exceptional, so this tier retains
   `steady_feed_tail_bytes` instead of freeing outright.
 - **Sealed byte channel** — `foundation.sealed.SealedChannel` (ADR-0107), one
-  channel type with one thin owner per stream tier: the byte-fed `HostSession`
-  boxes one per sealed session (the unsealed shell pays one null pointer), and
-  the loop tier's sealing completion adapter (`net.noise_completion`) embeds
-  one in its per-connection state. The channel stages inbound wire in its own
+  channel type with one owner: the byte-fed `HostSession` boxes one per sealed
+  session (the unsealed shell pays one null pointer), so every transport
+  resident carries sealed bytes unchanged. The channel stages inbound wire in its own
   spill, bounded by one record plus a chunk tail, and opens each record into a
   plaintext scratch shrunk back to steady size by the next small record.
   Sealing and opening pay the one AEAD pass per record ADR-0107 names;
@@ -295,17 +354,6 @@ pointing it at nothing.
   fixed-size pending handshake message. Deleting the box moves key material
   onto every shell in the 500k budget; deleting the record copy means
   encrypting over borrowed frame bytes the engine still owns.
-- **Sealing adapter ciphertext staging** — the sealed dial arm of
-  `net.noise_completion` (ADR-0107). The loop's submitted send is a borrow,
-  and record boundaries survive partial inner writes only if the ciphertext is
-  owned, so sealed records and handshake messages stage in a two-buffer queue:
-  the frozen half is borrowed by the wrapped backend until its send completes
-  while fresh seals append to the open half — the loop's own ADR-0042 shape,
-  one tier down. A drained burst retains at most the steady bound; opened
-  record plaintext is lent to the recv seat zero-copy from the channel's own
-  scratch, safe because the loop holds one recv seat per connection and
-  recycles before re-arming. Per-leg state is pinned exactly by
-  `test/net/noise_relay_test.zig`; unsealed connections pay nothing.
 - **Shared read-buffer pool** — `completion.BackendOptions.read_buffers` ×
   `completion.BackendOptions.read_buffer_bytes` (ADR-0054). An idle
   connection holds zero read-buffer bytes; whole frames apply zero-copy from the
@@ -348,6 +396,26 @@ pointing it at nothing.
   directly into that same WebSocket staging path; refused TLS sends retry from
   allocation-free intrusive links in bounded turns, never by cloning the
   application payload or adding a per-connection thread.
+- **In-process link rings** — `Link.create` sized by `Exchange.ring_bytes`
+  (ADR-0193). One allocation per `inproc` link holds a bounded ring per
+  direction, the in-process counterpart of a socket's kernel buffers: a write
+  copies into the ring and a read copies out into the reader's pool buffer.
+  Peers on two loops cannot borrow each other's send buffers past the call, so
+  the ring is the one owner between them; its bound turns a fast writer into
+  would-block instead of growth.
+- **Foreign-provider receive copy** — `external_completion.CompletionBackend`
+  (ADR-0193). A provider owns its connection's bytes, so each `try_read` copies
+  into one buffer from the backend's shared pool, the same shape as iroh's
+  `conn_try_read`. Writes stay borrowed through the provider's `try_write`,
+  which copies only what it accepts. Rows hold handles and readiness
+  descriptors, never bytes.
+- **Completion-resident send staging** — `completion_resident.Resident`
+  (ADR-0202). `try_write` hands bytes over on return while the backend borrows
+  a send until it completes, so each connection copies into staging bounded by
+  `send_window_bytes`. Drained buffers return to one resident-wide spare list
+  bounded by `spare_send_buffers` and `spare_send_bytes`, so an idle
+  connection holds none. Reads cost no copy here: the resident lends its held
+  pool receive through the borrowed-read group.
 - **Wrapped-backend ready-queue reservation** — the onion, noise, and
   keyed-relay completion adapters (`ReadyQueue.ensureUnusedCapacity` before
   each poll turn). Consuming one inner completion may terminate a connection
@@ -367,7 +435,9 @@ pointing it at nothing.
   sweeps stragglers; no byte payload crosses the table.
 - **Keyed-relay configuration and carrier lease** — `keyed_relay.Resident`
   copies both URLs into one block because parsed `RelayUrl` fields are retained
-  views. One heap `carrier_runtime.Lease` state owns I/O per resident; each
+  views. The completion backend's registration (`registration.State`) copies
+  its URL the same way and keeps a fixed ring of promoted, unaccepted legs per
+  backend, so a full backlog pauses registration rather than growing. One heap `carrier_runtime.Lease` state owns I/O per resident; each
   listener and admitted channel retains one pointer-sized lease, making the
   last release follow their close barriers. There is no per-dial config copy.
 - **Keyed-relay receive projection** — the completion adapter lends ordinary
@@ -425,31 +495,28 @@ pointing it at nothing.
   moves. Two shells because the sources differ in kind: a raw socket already
   owns std's reader and writer, and shimming it would add a second buffer and
   a copy. Blocking path only; the loop builds no `Connection`.
-- **Bridge slots** — `driver.Bridge.Slot` and its ConnId-to-slot map (ADR-0076).
-  One shell per adopted connection. The map row is removed **first thing** in
-  `freeConnCtx`, before the release's drain, so a teardown drain can arm sibling
-  slots but never the dead one. Peers are never bridge-owned.
-
 ### Host tier
 
 - **Host face wires** — `driver.HostRuntime`'s `Wire` (ADR-0090, ADR-0112). One
-  shell per session plus two `wire_buffer_bytes` buffers on a stream link, one
-  on a multiplexed-provider link, freed only by its owner. Protocol admission
+  shell per session, freed only by its owner. Every link is a resident
+  connection: it feeds the core from a lending resident's own receive, or read into the one
+  `HostRuntime.resident_read_scratch` when the resident only copies, so an
+  idle resident wire holds no read buffer. Protocol admission
   stays independently bounded by `frame_cap`: a larger frame assembles in the
   core's bounded spill instead of making every live wire retain the maximum.
-  A multiplexed-provider link may also retain one outbound frame across a full
+  A link may also retain one outbound frame across a full
   write window — owned transfer from `takeOutbound`, resumed at its offset on
   `ev_writable`, never a copy. An EOF marks the wire closed and breaks its vows
   **without freeing**, because a view still holds the pointers: the
   close-and-release split. Poll scratch grows once and then allocates nothing.
-- **Pending open rows** — `HostRuntime.startDial`,
-  `HostRuntime.startAcceptWire`, and the redeem drain into
+- **Pending open rows** — `HostRuntime.startDial`, a resident listener's
+  accept, and the redeem drain into
   `HostRuntime.stageDial` (ADR-0112). One gpa row per in-flight dial or
   accept, carrying stage, deadline, and outcome route; no byte payload because
   the locator is consumed at stage time. The shared `max_pending_opens`
   admission bound limits these rows and their pre-open sessions/wires across
-  every route; blocking dial and accept consume the same counter while they
-  pump without owning a row. Rows are heap-owned and removed before their
+  every route; a blocking dial consumes the same counter while it pumps
+  without owning a row, and an arrival over the bound closes with no session. Rows are heap-owned and removed before their
   settle notification runs, since a notification may stage further dials and
   a list realloc must not move a row mid-sweep.
 - **Native accept queue** — `driver.Server.accepted` (ADR-0184). One ring of
@@ -475,6 +542,12 @@ pointing it at nothing.
   storage freed before publication. Actions move through drains and parked
   tables without another clone. Their inline arena state adds 16 bytes per
   action (64 → 80) and per Host (2,344 → 2,360 under safety); sessions gain none.
+  A truly local completion has no originating peer. Its diagnostic presence
+  word adds eight bytes per action seat (80 → 88) and the Host's last-action
+  storage. Archive-neutral turn failure text adds 16 inline bytes to the Vat;
+  the safety footprint is 2,592 bytes, including the Vat's rollback notification
+  storage and canonical
+  forwarding callback identity and the shared enliven index. Sessions gain none.
   Projection acquires consumer retains without scratch allocation and rolls
   back a failed prefix through the stable tree. `completion_test.zig` covers
   allocation refusal and the spill boundary; `admission_test.zig` pins sizes.
@@ -517,6 +590,12 @@ pointing it at nothing.
   sturdyref peer check needs the actual session transport and a signed locator
   cannot supply it. Replaces a block the dial already required, so it adds
   nothing.
+- **Advertised locator custody** — `retainCanonical` in `engine/node/locators.zig`
+  makes the sole Node-owned snapshot before replacement. Host preparation borrows
+  input and `HelloHints` scratch through that copy. `Host.prepareAdvertisedLocator`
+  returns an independent owned value when its caller needs a longer lifetime.
+  `bench-host-locator` measures traffic; the driver budget holds replacement and
+  allocation-free repeated accept fallback, with aliased input and OOM rollback.
 - **Import identity memo** — `session.ImportTable.identities`. **Both identities
   must die with the import row**, because a partner may reuse a released position
   and a surviving memo would revive the previous object. The row also counts
@@ -536,14 +615,14 @@ pointing it at nothing.
 Named where they are, not forbidden. Relocating one does not delete it, so the
 name stays here.
 
-- **Bridge app-dial dupes** — `OutboundConnect.app_dial` owns transport and
-  designator for the connect window, because adoption needs them and the loop
-  retains only the resolved target. Redeem stays ticket-only and re-borrows
-  `pendingDial`; it must not take this cost.
 - **Binding dial OS-connect string** — each binding decodes `host` and
   `addresses` once after `glowcap_host_plan_dial`, because the OS connect API
   needs a language string. A second rematerialize of the same view through
   `readMemory` / `string_at` / `bytes<-c` is forbidden.
+- **Rust received capability custody** — `gc::owned_guard` allocates one shared
+  guard for each owned C occurrence, including local callback observations.
+  Clones share that guard; independently received equal ids keep distinct
+  native retains. Its declaration owns the lifetime and cycle derivation.
 - **Binding outbound flush copy** — TypeScript, Python, and Racket copy
   managed-frame bytes and release before the async write; Rust holds the frame
   across it. Language and lifetime forced: no change without a hold-across-await
@@ -567,4 +646,5 @@ name stays here.
   inputs.
 
 The [Loam inventory](references/loam.md) owns durable storage, hosted calls and
-C/Rust projection costs.
+C/Rust projection costs. The [Rooms inventory](references/rooms.md) owns
+managed session execution and archive retention costs.

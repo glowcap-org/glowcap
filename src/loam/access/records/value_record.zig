@@ -9,6 +9,33 @@ pub const ValueRecord = struct {
     pub const max_bytes = 32 * 1024;
     pub const max_depth = 64;
 
+    /// Scalar topology allowance for accepted values. Byte leaves include key
+    /// and tag bytes; capability IDs are emitted by this codec, not the caller.
+    /// Measure shared writer fragments rather than duplicating Syrup widths.
+    pub fn encodedSizeBound(comptime Value: type, values: usize, entries: usize, bytes: usize, capabilities: usize) !usize {
+        var header: usize = 0;
+        inline for (@typeInfo(Value).@"union".field_names) |name| {
+            header = @max(header, try std.math.add(usize, try syrup.render.measureRecord(writeHeader, .{name}), 1));
+        }
+        const key_bytes = @sizeOf(@typeInfo(@TypeOf(loam.ObjectId.key)).@"fn".return_type.?);
+        const maximum_leaf = @max(bytes, key_bytes);
+        const prefix = (try s.byteStringSize(maximum_leaf)) - maximum_leaf;
+        const count_bytes = try syrup.render.measureRecord(s.writePositiveInt, .{@as(u64, @intCast(values))});
+        // Tagged values have both a leaf and a child count. Integer/float
+        // payloads use eight bytes; big integers add one boolean to their leaf.
+        const payload = try std.math.add(usize, prefix, @max(count_bytes, 8));
+        var length = try std.math.mul(usize, values, try std.math.add(usize, header, payload));
+        length = try std.math.add(usize, length, try std.math.mul(usize, entries, prefix));
+        length = try std.math.add(usize, length, bytes);
+        length = try std.math.add(usize, length, try std.math.mul(usize, capabilities, key_bytes));
+        return @min(length, max_bytes);
+    }
+
+    fn writeHeader(sink: anytype, name: []const u8) WalkError!void {
+        try s.beginRecord(sink);
+        try s.writeSymbol(sink, name);
+    }
+
     /// Context maps pre-retained capability leaves to their exact durable IDs.
     /// Both rendering passes are pure; capture occurs before entering the codec.
     pub fn encode(allocator: std.mem.Allocator, value: anytype, context: anytype) ![]u8 {
@@ -22,8 +49,7 @@ pub const ValueRecord = struct {
 
     fn write(sink: anytype, value: anytype, context: anytype, depth: usize) WalkError!void {
         if (depth > max_depth) return error.FrameTooLarge;
-        try s.beginRecord(sink);
-        try s.writeSymbol(sink, @tagName(value));
+        try writeHeader(sink, @tagName(value));
         switch (value) {
             .capability => |ref| try s.writeBytes(sink, &context.id(ref).key()),
             .bytes, .symbol, .string, .keyword => |bytes| try s.writeBytes(sink, bytes),

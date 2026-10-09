@@ -213,13 +213,15 @@ export function MenuList({ className, children }: { className: string; children:
  * a menu holding a field re-renders on every keystroke — so focusing from one
  * took the keyboard back off the reader mid-word, once per character. */
 export function MenuRow(
-	{ icon, className, first, marked, onPick, children }: {
+	{ icon, className, first, marked, disabled, onPick, children }: {
 		icon?: IconName;
 		className: string;
 		first?: boolean;
 		/** Whether this row is the answer in force, for a menu that is choosing
 		 * between states rather than performing actions. */
 		marked?: boolean;
+		/** The row's act is already running. */
+		disabled?: boolean;
 		onPick: () => void;
 		children: ReactNode;
 	},
@@ -235,6 +237,7 @@ export function MenuRow(
 			aria-checked={marked}
 			className={className}
 			ref={row}
+			disabled={disabled}
 			onClick={onPick}
 		>
 			{icon !== undefined && <Icon name={icon} size={15} />}

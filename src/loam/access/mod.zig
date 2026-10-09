@@ -1,6 +1,6 @@
-//! Resource structure, managed grants, and durable owner storage for applications.
-//! Core, codecs, and storage participants perform no I/O. Loam owns shared
-//! transactions and residency; managed capability hosting remains planned.
+//! Resource structure, managed grants, durable owner storage, and managed
+//! capability hosting for applications. Core, codecs, and storage participants
+//! perform no I/O. Loam owns shared transactions and residency.
 
 pub const core = @import("loam_access_core");
 pub const records = @import("loam_access_records");

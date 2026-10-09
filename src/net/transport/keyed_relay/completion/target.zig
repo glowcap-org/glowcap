@@ -14,7 +14,7 @@ const crypto = foundation.crypto;
 const transport_name = model.transport.keyed_relay;
 
 /// Dial target for a completion loop that can keep ordinary TCP and relay
-/// outbound dials in one `driver.Bridge`.
+/// outbound dials on one backend.
 pub const LoopConnectTarget = union(enum) {
     tcp: std.Io.net.IpAddress,
     keyed_relay: struct {

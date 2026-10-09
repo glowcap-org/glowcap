@@ -30,6 +30,7 @@ import {
 	joinLocatorPlaceholder,
 	joinNickTarget,
 	type JoinResolution,
+	joinRoomOffers,
 	looksLikeRoomLink,
 	resolveJoin,
 	suggestedJoinNick,
@@ -78,7 +79,7 @@ import {
 } from "../../../lib/text/join.ts";
 import { MenuLayer, useMenu } from "../Menu.tsx";
 import { Said } from "../Said.tsx";
-import { type DirId, type DirView, liveRoomNames } from "../types.ts";
+import { type DirId, type DirView } from "../types.ts";
 import { WorkingAction } from "../WorkingAction.tsx";
 import { suggestedNickname } from "../application.ts";
 
@@ -215,10 +216,8 @@ export const JoinCard = memo(function JoinCard(
 				);
 				if (run.signal.aborted) return null;
 				if (why !== "") return { field: "locator", text: why };
-				// The typed name was an override for this connection attempt. Once the
-				// directory has reconciled it, the effective grant becomes the next
-				// form's offer rather than a prefilled request to repeat.
-				browser.editJoin({ nick: "" });
+				// Acquisition saves the choice before registration settles. Keep
+				// explicit intent through the room question and clear it after join.
 				return null;
 			}
 			// Empty, the bare home authority, and home's hinted route are one
@@ -335,8 +334,7 @@ export const JoinCard = memo(function JoinCard(
 	//
 	// Rooms on the directory this card is aimed at, which moves with the locator
 	// above: a name advertised somewhere else would open a different room.
-	const aimedAt = session.directoryId(locator.trim()) ?? homeDir;
-	const roomOffers = asLink || aimedAt == null ? [] : liveRoomNames(dirs.get(aimedAt)?.liveRooms ?? new Map());
+	const roomOffers = joinRoomOffers(locator, room, dirs, directoryContext, session.directoryId);
 	// The box the list of room names is measured from, and the layer it is drawn
 	// in. Its own, not the locator menu's: the two can be open at once.
 	const roomWrap = useRef<HTMLDivElement>(null);

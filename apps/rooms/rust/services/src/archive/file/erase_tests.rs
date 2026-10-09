@@ -10,6 +10,42 @@ use rooms_application::archive::{
 };
 use std::{fs, io};
 #[tokio::test]
+async fn scoped_erasure_preserves_other_owner_and_shared_bytes_across_restart() {
+	let temp = Temp::new();
+	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let sources = [Bytes::new(b"shared bytes".to_vec())];
+	let first = line("one", &sources);
+	let mut coordinates = first.coordinates().clone();
+	coordinates.source = "other owner".into();
+	let other = Record::new(coordinates, first.directory().clone(), first.body().clone()).unwrap();
+	archive.put_with_files(first, &sources).await.unwrap();
+	archive.put_with_files(other, &sources).await.unwrap();
+	let page = archive.read(&Filter::default(), 0, 128).await.unwrap();
+	let facet = Facet::new(Filter::default(), Access::Read).unwrap();
+	let first_reader = Reader::attachment(&facet, &page.records[0].record, 0).unwrap();
+	let other_reader = Reader::attachment(&facet, &page.records[1].record, 0).unwrap();
+	archive.clear_source(&"source".into()).await.unwrap();
+	assert!(archive.read_blob(first_reader, 0, 12).await.is_err());
+	assert_eq!(
+		archive.read_blob(other_reader.clone(), 0, 12).await.unwrap(),
+		b"shared bytes"
+	);
+	assert_eq!(archive.blob_usage().await.unwrap().retained_bytes, 12);
+	archive.clear_source(&"source".into()).await.unwrap();
+	drop(archive);
+	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let retained = archive.read(&Filter::default(), 0, 128).await.unwrap();
+	assert_eq!(retained.next, page.next);
+	assert_eq!(retained.records.len(), 1);
+	assert_eq!(
+		retained.records[0].record.coordinates().source.as_str(),
+		Some("other owner")
+	);
+	assert_eq!(archive.read_blob(other_reader, 0, 12).await.unwrap(), b"shared bytes");
+	archive.clear_source(&"other owner".into()).await.unwrap();
+	assert_eq!(archive.blob_usage().await.unwrap(), BlobUsage::default());
+}
+#[tokio::test]
 async fn erase_keeps_cursors_and_shares_while_retiring_bytes_and_readers() {
 	let temp = Temp::new();
 	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();

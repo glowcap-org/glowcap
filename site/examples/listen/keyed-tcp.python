@@ -14,7 +14,7 @@ async with await tcp.keyed.listen("127.0.0.1", 9099, seed=seed) as server:
             raise TypeError("bad invocation")
         return f"Hello, {args[0]}"
 
-    server.host.publish_giftable("greeter", greet)
+    server.host.publish("greeter", greet)
     async for accepted in server:
         async with accepted as session:
             await session.serve()

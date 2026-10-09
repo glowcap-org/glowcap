@@ -30,10 +30,8 @@ and storage, in order.
 ## Runtime and capability semantics
 
 The [runtime semantics plan](planning/runtime-semantics.md) holds the gaps an
-outside OCapN review found: transactional turns, the publication model,
-distributed GC defaults, revocation cleanup, one I/O runtime behind every
-front, and Rooms and Loam polish. Several items wait on a maintainer decision
-named there.
+outside OCapN review found. Far sends retract with a failed turn and keep
+their order through Node staging; one I/O runtime behind every front remains.
 
 ## Visualizer measurements
 
@@ -70,10 +68,13 @@ publication steps each wait on their own conditions and do not block these.
    on C/Rust and browser consumer paths. Rooms session schema, requirement,
    preset and typed custody declarations have application proofs and generated
    browser metadata. Shared saved-reference fields and bounded record codecs
-   have consumer and portable proofs. Project their validation and application
-   management operations in the [remaining dependency order](planning/rooms/integration.md#shared-prerequisite-and-remaining-order).
-   Replace session-specific authority and storage, then
-   integrate recursive
+   have consumer and portable proofs. Persisted dependencies and session kind
+   applicability are enforced; shared callbacks receive trusted resource context.
+   Production startup and browser consumers use managed session authority and storage.
+   The [managed session](rooms/session.md)
+   passes production browser and runtime acceptance. The
+   [session measurements](../bench/rooms/session-costs.md) record allocation and traversal costs.
+   Integrate recursive
    rooms, directory access, branching conversations and reorganization in the
    [Rooms phase order](planning/rooms/access-grants.md#ordered-implementation-and-exit-criteria).
    Deliver the shared access editor with each integration. Exercise a second
@@ -88,9 +89,10 @@ are tracked by the [access API contract](planning/loam/access/api.md#the-foreign
 
 The Rooms contract is split by owner: [operation authority](planning/rooms/authority.md),
 [storage and budgets](planning/rooms/persistence.md),
-[consumer and recovery inventory](planning/rooms/integration.md), and
-[sharing walkthroughs](planning/rooms/scenarios.md). These specify the remaining
-integration work; they do not claim implemented application behavior.
+[consumer and recovery inventory](planning/rooms/integration.md),
+and [sharing walkthroughs](planning/rooms/scenarios.md). These specify the remaining
+recursive resource work. The [session guide](rooms/session.md) and
+[effect contract](rooms/session-effects.md) describe the implemented session.
 
 | Contract or evidence | Detailed plans |
 | --- | --- |

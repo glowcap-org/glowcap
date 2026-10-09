@@ -54,6 +54,12 @@ export async function open(name, create) {
 			database.close();
 			throw new Error("unsupported Loam database schema");
 		}
+		try {
+			await verifyMetadata(database);
+		} catch (error) {
+			database.close();
+			throw error;
+		}
 		const owner = { database, release, ownership, closed: false, active: 0, durability: "strict" };
 		database.onversionchange = () => {
 			owner.closed = true;
@@ -70,13 +76,45 @@ export async function open(name, create) {
 	}
 }
 
-export function close(owner) {
+// The Web Lock excludes another Store claimant through this read and the
+// subsequent metadata claim. Probe one key, never the application population.
+// Absent identity/allocator metadata over surviving rows requires explicit
+// repair, and cannot authorize either create or bootstrap to reset authority.
+function verifyMetadata(database) {
+	return new Promise((resolve, reject) => {
+		const transaction = database.transaction("rows", "readonly");
+		const rows = transaction.objectStore("rows");
+		let failure;
+		transaction.oncomplete = () => failure ? reject(failure) : resolve();
+		transaction.onabort = () => reject(transaction.error);
+		const metadata = rows.get(new Uint8Array([109]));
+		metadata.onsuccess = () => {
+			if (metadata.result !== undefined) return;
+			const first = rows.openKeyCursor();
+			first.onsuccess = () => {
+				if (first.result) failure = new Error("Loam rows exist without identity and allocator metadata");
+			};
+		};
+	});
+}
+
+export function quiescent(owner) {
 	if (owner.active !== 0) throw new Error("Loam database transactions are still active");
+}
+
+export function close(owner) {
+	quiescent(owner);
 	owner.closed = true;
 	owner.database.onversionchange = null;
 	owner.database.onclose = null;
 	owner.database.close();
 	owner.release();
+	return owner.ownership;
+}
+
+export function put(rows, key, value) {
+	if (value == null) rows.delete(key);
+	else rows.put(value, key);
 }
 
 export function execute(owner, write, step) {
@@ -92,14 +130,14 @@ export function execute(owner, write, step) {
 		let failure;
 		let planned = false;
 		let terminal = false;
-		let requests = [];
+		let pending;
 		const finish = (aborted) => {
 			if (terminal) return;
 			terminal = true;
 			transaction.oncomplete = null;
 			transaction.onabort = null;
-			for (const request of requests) request.onsuccess = null;
-			requests = [];
+			if (pending) pending.onsuccess = null;
+			pending = undefined;
 			owner.active--;
 			const error = failure || transaction.error || (!planned && new Error("Loam transaction had no plan"));
 			resolve({ outcome: aborted ? 1 : error ? (write ? 2 : 1) : 0, error: error ? String(error) : "" });
@@ -108,18 +146,18 @@ export function execute(owner, write, step) {
 		transaction.onabort = () => finish(true);
 		const advance = (key, value) => {
 			try {
-				const plan = step(key, value);
+				const plan = step(rows, key, value);
 				if (plan[0] === 0) {
 					const missing = plan[1];
 					const request = rows.get(missing);
-					requests.push(request);
-					request.onsuccess = () => advance(missing, request.result);
+					pending = request;
+					request.onsuccess = () => {
+						const input = request.result;
+						request.onsuccess = null;
+						pending = undefined;
+						advance(missing, input);
+					};
 				} else if (plan[0] === 1) {
-					if (!write && plan[1].length !== 0) throw new Error("read-only Loam plan attempted a write");
-					for (const [key, value] of plan[1]) {
-						if (value === undefined) rows.delete(key);
-						else rows.put(value, key);
-					}
 					planned = true;
 				} else throw new Error("invalid Loam transaction plan");
 			} catch (error) {

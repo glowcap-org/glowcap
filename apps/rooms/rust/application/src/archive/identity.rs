@@ -5,6 +5,19 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 pub const FILE: &str = "peer.json";
 pub const MAX_BYTES: usize = 4096;
+/// An archive account's recording identity creates no peer or publication.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RecordingIdentity(Hex<16>);
+impl RecordingIdentity {
+	pub fn new(entropy: [u8; 16]) -> Self {
+		Self(Hex(entropy))
+	}
+	pub fn source(&self) -> crate::text::DocumentText {
+		let encoded = serde_json::to_string(self).expect("fixed recording identity");
+		encoded[1..encoded.len() - 1].into()
+	}
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Identity {

@@ -144,7 +144,7 @@ generic over the loop type (`Bridge(net.TcpLoop)` /
 `Bridge(Loop(iroh.Backend, iroh.DialResolver))`).
 Gated by `zig build iroh-loop`. Iroh redeem dial
 (`Loop.dialLocator` to `iroh.DialResolver.resolve` to `startDial`) ships
-on the same bridge; gated by `zig build iroh-bridge-redeem`.
+on the same bridge; gated by `zig build iroh-redeem`.
 
 ## Amendment: Backend-owned dial translation
 

@@ -91,6 +91,9 @@ pub fn acceptableLocator(self: *const Node) ?model.PeerLocator {
 
 /// Deep-copy a snapshot before mutating the Catalog and return the canonical
 /// retained key. Allocation failure preserves the previous row and selection.
+/// This is the sole durable locator copy: callers lend their bytes and hello
+/// hint scratch only through retention. Copying before replacement is required
+/// because input may alias the previous row that commit releases.
 fn retainCanonical(self: *Node, locator: model.PeerLocator) ![]const u8 {
     try model.validatePeerLocator(locator);
     const owned = try model.view.PeerLocator.fromOwned(&locator).toOwned(self.allocator);

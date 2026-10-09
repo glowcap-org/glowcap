@@ -26,20 +26,14 @@ impl Draft {
 				.iter()
 				.find(|cap| cap.token == label)
 				.ok_or_else(|| format!("The capability set contains an unknown label: {label}."))?;
-			let swiss = parts.next();
-			if parts.next().is_some() || (pasted && swiss.is_none()) {
+			let uri = parts.next();
+			if parts.next().is_some() || (pasted && uri.is_none()) {
 				return Err(format!(
-					"{label} must be followed by {} one swiss number.",
+					"{label} must be followed by {} one complete capability URI.",
 					if pasted { "exactly" } else { "at most" }
 				));
 			}
-			let swiss = swiss.unwrap_or("");
-			if swiss.contains("://") {
-				return Err(
-					"paste the bare swiss number this directory printed, not a sturdyref for another host".into(),
-				);
-			}
-			draft.insert(definition.id, swiss)?;
+			draft.insert(definition.id, uri.unwrap_or(""))?;
 		}
 		if pasted && draft.0.is_empty() {
 			return Err("Paste the ROOMS-* capability lines printed by the server.".into());
@@ -52,7 +46,10 @@ impl Draft {
 			return Err(format!("The capability set repeats {}.", definition.token));
 		}
 		if swiss.len() > 16384 {
-			return Err("A swiss number exceeds its text limit.".into());
+			return Err("A capability URI exceeds its text limit.".into());
+		}
+		if !swiss.is_empty() && !recipe(swiss) {
+			return Err("Enter the complete capability URI printed by the server.".into());
 		}
 		if self.0.iter().map(|(_, value)| value.len()).sum::<usize>() + swiss.len() > MAX_BUNDLE_BYTES {
 			return Err("The capability set exceeds its text limit.".into());
@@ -64,11 +61,7 @@ impl Draft {
 		self.0.iter().map(|(id, swiss)| (*id, swiss.as_str()))
 	}
 	pub fn ready(&self) -> bool {
-		!self.0.is_empty()
-			&& self
-				.0
-				.iter()
-				.all(|(_, swiss)| !swiss.is_empty() && !swiss.contains("://") && !swiss.chars().any(js_whitespace))
+		!self.0.is_empty() && self.0.iter().all(|(_, uri)| recipe(uri))
 	}
 	pub fn is_empty(&self) -> bool {
 		self.0.is_empty()
@@ -88,4 +81,9 @@ impl Draft {
 			.collect::<Vec<String>>()
 			.join("\n")
 	}
+}
+// Form readiness checks URI shape. The runtime acquisition owner validates the
+// actual sturdy reference and exporter before performing any lookup.
+fn recipe(uri: &str) -> bool {
+	uri.starts_with("ocapn://") && uri.contains("/s/") && !uri.chars().any(js_whitespace)
 }

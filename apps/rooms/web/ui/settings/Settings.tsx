@@ -22,10 +22,11 @@ import {
 	settingsShareDirectory,
 } from "../../../lib/text/settings.ts";
 import { saveAndReload } from "../../../lib/text/controls.ts";
-import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
+import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { current, type DmMode } from "../prefs.ts";
+import { useManagedSession } from "../session/managed/context.tsx";
 import { Button } from "../Button.tsx";
 import { CopyField } from "../Copy.tsx";
 import { SettingsHead } from "./SettingsHead.tsx";
@@ -36,9 +37,7 @@ import type { ArchiveTargetView } from "../archive_model.ts";
 import { SessionSettings } from "./Session.tsx";
 import { Holdings } from "./Holdings.tsx";
 import { Said } from "../Said.tsx";
-import type { RoomsSessionAccess } from "../../../lib/session/client.ts";
-import { mayInteract } from "../../../lib/session/access_view.ts";
-import { effectiveRoomsSessionAccess } from "../controller/access.ts";
+import { useSessionPermission } from "../hooks.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { settingsTitle } from "../../../lib/text/settings.ts";
 import { settingsHoldingsTab, settingsReachabilityTab, settingsSessionTab } from "../../../lib/text/settings.ts";
@@ -58,8 +57,6 @@ interface SettingsProps {
 	keepHistory: boolean;
 	/** Where member-owned history is currently written. */
 	archiveTarget: ArchiveTargetView;
-	/** Null for a local controller; otherwise the authority carried by this attached facet. */
-	sessionAccess: RoomsSessionAccess | null;
 	/** Which panel to show when this dialog mounts. */
 	tab: SettingsTab;
 	/** Keep the tree while another native dialog has the top layer. */
@@ -67,8 +64,7 @@ interface SettingsProps {
 }
 
 export const Settings = memo(function Settings(
-	{ open, retain = false, theme, notifyOn, dir, opsHeld, keepHistory, archiveTarget, sessionAccess, tab }:
-		SettingsProps,
+	{ open, retain = false, theme, notifyOn, dir, opsHeld, keepHistory, archiveTarget, tab }: SettingsProps,
 ) {
 	const { held, onExited } = useHeldModal(open, retain);
 	if (!held) return null;
@@ -83,14 +79,13 @@ export const Settings = memo(function Settings(
 			opsHeld={opsHeld}
 			keepHistory={keepHistory}
 			archiveTarget={archiveTarget}
-			sessionAccess={sessionAccess}
 			tab={tab}
 		/>
 	);
 });
 
 function SettingsDialog(
-	{ open, retain, onExited, theme, notifyOn, dir, opsHeld, keepHistory, archiveTarget, sessionAccess, tab }:
+	{ open, retain, onExited, theme, notifyOn, dir, opsHeld, keepHistory, archiveTarget, tab }:
 		& Omit<
 			SettingsProps,
 			"retain"
@@ -103,15 +98,14 @@ function SettingsDialog(
 	const browser = useRoomsBrowser();
 	const commitments = useCommitments();
 	const session = useRoomsSession();
-	const controller = useRoomsController();
-	const access = effectiveRoomsSessionAccess(controller, sessionAccess);
-	const canInteract = access != null && mayInteract(access);
-	const canAdminister = access === "admin";
+	const canInteract = useSessionPermission("interactWorkspace");
+	const canAdminister = useSessionPermission("manageCustody");
 	const titleId = "settingsTitle";
 	const dialog = useRef<HTMLDialogElement>(null);
 	// The chosen tab receives focus when the dialog opens.
 	const chosenTab = useRef<HTMLButtonElement>(null);
-	const [live] = useState(current);
+	const managed = useManagedSession();
+	const [live] = useState(() => current(managed.current?.intent));
 	const tabs: readonly TabFace<SettingsTab>[] = [
 		{ id: "session", domId: "sessionTab", label: settingsSessionTab, panelId: "sessionPanel" },
 		...(canAdminister
@@ -311,32 +305,34 @@ function SettingsDialog(
 											commitments.request(save, { except: ["settings-direct-message"] });
 										}}
 									>
-										<label className="choice">
-											<input
-												type="radio"
-												name="dm"
-												value="webrtc"
-												checked={dm === "webrtc"}
-												onChange={() => setDm("webrtc")}
-											/>
-											<span>
-												<strong>{settingsDmDirectLabel}</strong>
-												{settingsDmDirectSaid}
-											</span>
-										</label>
-										<label className="choice">
-											<input
-												type="radio"
-												name="dm"
-												value="relay"
-												checked={dm === "relay"}
-												onChange={() => setDm("relay")}
-											/>
-											<span>
-												<strong>{settingsDmRelayLabel}</strong>
-												{settingsDmRelaySaid}
-											</span>
-										</label>
+										<div className="choices" role="radiogroup" aria-labelledby="dmLegend">
+											<label className="choice">
+												<input
+													type="radio"
+													name="dm"
+													value="webrtc"
+													checked={dm === "webrtc"}
+													onChange={() => setDm("webrtc")}
+												/>
+												<span>
+													<strong>{settingsDmDirectLabel}</strong>
+													{settingsDmDirectSaid}
+												</span>
+											</label>
+											<label className="choice">
+												<input
+													type="radio"
+													name="dm"
+													value="relay"
+													checked={dm === "relay"}
+													onChange={() => setDm("relay")}
+												/>
+												<span>
+													<strong>{settingsDmRelayLabel}</strong>
+													{settingsDmRelaySaid}
+												</span>
+											</label>
+										</div>
 										<p className="hint" id="dmReloadHint">{settingsDmReload}</p>
 										{dmError !== "" && <Said kind="failure">{dmError}</Said>}
 										<div className="actions">

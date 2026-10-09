@@ -12,7 +12,7 @@
 // the accept handshake reading its socket until a dialer's bytes arrive through
 // the bridge (a registration accept has no read deadline, so an idle
 // registration simply waits). When one is bridged and its session opens, the
-// host's giftables answer it and the pool replenishes, so the peer can be
+// host's publications answer it and the pool replenishes, so the peer can be
 // cold-dialed again.
 //
 // The dialing side has exactly one mechanism, and it is not here: a
@@ -77,8 +77,8 @@ export interface RendezvousRoute {
 /**
  * Serve inbound cold-dials to `host` through a relay rendezvous. `registerUrl`
  * builds the relay's register endpoint for this host's designator, e.g.
- * `` (id) => `wss://example/register?id=${id}` ``. The host's giftables
- * (`publishGiftable`) answer each accepted session. Returns a handle whose
+ * `` (id) => `wss://example/register?id=${id}` ``. The host's publications
+ * (`publish`) answer each accepted session. Returns a handle whose
  * `stop` ends registration.
  */
 export function serveRendezvous(

@@ -63,7 +63,7 @@ existing database remains a refusal. A prior successful `up` is not required.
 ## Scope (what this does not decide)
 
 This record does not publish a release, prove a workflow run, define image
-registry policy, or provide schema migrations for Rooms state. The Docker
+registry policy, or rewrite incompatible Rooms state. The Docker
 daemon and Compose remain external prerequisites for deployment. The tracked
 Compose template and Dockerfile remain under `apps/rooms/web/deploy/`.
 

@@ -23,7 +23,10 @@ use rooms_application::{
 		policy::{MembershipKind, RoomPolicy},
 		stewardship::Kind,
 	},
-	server::{links::Registration, rooms::MAX_ROOM},
+	server::{
+		links::{Authority, Registration},
+		rooms::MAX_ROOM,
+	},
 };
 use rooms_glowcap::Value;
 use std::collections::BTreeMap;
@@ -93,6 +96,14 @@ impl Links {
 				}
 			)),
 		}
+	}
+	/// Knowledge of a current token does not extend a held manager's room.
+	fn resolve_for(&self, kind: Kind, token: &str, room: &str) -> Result<String, String> {
+		let resolved = self.resolve(kind, token)?;
+		if fold(&resolved) != fold(room) {
+			return Err("that authority token belongs to a different room".into());
+		}
+		Ok(resolved)
 	}
 	pub(super) fn manager_name(&self, identity: &str) -> Result<&str, String> {
 		self.name_by_identity
@@ -243,16 +254,31 @@ impl State {
 
 /// `link(name)` from the directory or a manager: persist, publish, answer.
 pub(super) fn link(state: &State, name: String) -> Result<Argument, String> {
-	let held = name.clone();
+	scoped_link(state, name, None)
+}
+
+fn scoped_link(state: &State, name: String, generation: Option<u64>) -> Result<Argument, String> {
 	submit(
 		state,
 		protocol_data::LINK,
-		move |state| Ok(state.authority.remembered(&held, false, false, None, None)?),
+		prepare_link(name.clone(), generation),
 		move |state, caller| {
 			let swiss = state.publish_room(&name)?;
 			Ok(state.link_for(&swiss, Some(caller)).map_err(|e| e.to_string())?.into())
 		},
 	)
+}
+
+pub(super) fn prepare_link(
+	name: String,
+	generation: Option<u64>,
+) -> impl FnOnce(&State) -> Result<Option<Authority>, String> {
+	move |state| {
+		if let Some(generation) = generation {
+			require_manager(state, &name, generation)?;
+		}
+		Ok(state.authority.remembered(&name, false, false, None, None)?)
+	}
 }
 
 /// `roomAuthorities` on a manager bootstrap: the room link and the manager,
@@ -347,9 +373,7 @@ fn manager(shared: Shared, name: String, generation: u64) -> impl FnMut(&str, &[
 			return Err("a room manager accepts no capability arguments".into());
 		}
 		let state = shared.borrow();
-		if !state.authority.manager_generation_is_current(&name, generation) {
-			return Err("this room manager capability was revoked".into());
-		}
+		require_manager(&state, &name, generation)?;
 		let text = |at: usize| args.get(at).and_then(Argument::as_str);
 		match verb {
 			verbs::MANAGED_IDENTITY | verbs::GOVERNS => {
@@ -362,7 +386,7 @@ fn manager(shared: Shared, name: String, generation: u64) -> impl FnMut(&str, &[
 				if !args.is_empty() {
 					return Err("link takes no arguments".into());
 				}
-				link(&state, name.clone())
+				scoped_link(&state, name.clone(), Some(generation))
 			}
 			verbs::GIVE_STEWARD => {
 				if !args.is_empty() {
@@ -372,7 +396,10 @@ fn manager(shared: Shared, name: String, generation: u64) -> impl FnMut(&str, &[
 				submit(
 					&state,
 					"giveSteward",
-					move |state| Ok(state.authority.remembered(&held, true, false, None, None)?),
+					move |state| {
+						require_manager(state, &held, generation)?;
+						Ok(state.authority.remembered(&held, true, false, None, None)?)
+					},
 					move |state, caller| {
 						let room = state.publish_room(&published)?;
 						let (identity, steward) = state.publish_steward(&published)?;
@@ -399,50 +426,53 @@ fn manager(shared: Shared, name: String, generation: u64) -> impl FnMut(&str, &[
 				} else {
 					Kind::Room
 				};
-				revoke(&state, kind, token.into())
+				state.links.resolve_for(kind, token, &name)?;
+				let (prepare, commit) = revocation(kind, token.into(), Some((name.clone(), generation)));
+				submit(&state, protocol_data::REVOKE, prepare, move |state, _| commit(state))
 			}
 			verbs::UNREGISTER_ROOM => {
-				let (Some(token), 1) = (text(0), args.len()) else {
-					return Err("unregisterRoom takes this manager's exact authority token".into());
-				};
-				if token.is_empty() {
-					return Err("unregisterRoom takes this manager's exact authority token".into());
+				if !args.is_empty() {
+					return Err("unregisterRoom takes no arguments".into());
 				}
-				let id = state.links.resolve(Kind::Manager, token)?;
 				let managed = state
 					.authority
-					.managed_room(&id)
+					.managed_room(&name)
 					.ok_or("this manager has no room access policy")?;
 				let public = managed.name.clone();
-				set_policy(&state, id, public, RoomPolicy::Private)
+				set_policy(&state, name.clone(), public, RoomPolicy::Private, generation)
 			}
 			verbs::SET_POLICY => {
-				let modes = [text(1), text(2), text(3)];
-				let (Some(token), [Some(visibility), Some(entry), Some(speaking)], Some(public), 5) =
-					(text(0), modes, text(4), args.len())
+				let modes = [text(0), text(1), text(2)];
+				let ([Some(visibility), Some(entry), Some(speaking)], Some(public), 4) = (modes, text(3), args.len())
 				else {
-					return Err("setRoomPolicy takes this manager's token, three policy modes, and a room name".into());
+					return Err("setRoomPolicy takes three policy modes and a room name".into());
 				};
-				if token.is_empty() || public.is_empty() {
-					return Err("setRoomPolicy takes this manager's token, three policy modes, and a room name".into());
+				if public.is_empty() {
+					return Err("setRoomPolicy takes three policy modes and a room name".into());
 				}
 				let policy = RoomPolicy::parse(&[visibility, entry, speaking])
 					.ok_or("setRoomPolicy names no supported room access state")?;
 				if public.encode_utf16().count() > MAX_ROOM {
 					return Err(format!("a room name must be between 1 and {MAX_ROOM} characters"));
 				}
-				let id = state.links.resolve(Kind::Manager, token)?;
-				set_policy(&state, id, public.into(), policy)
+				set_policy(&state, name.clone(), public.into(), policy, generation)
 			}
 			_ => Err(format!("a room manager has no method {verb}")),
 		}
 	}
 }
 
+fn require_manager(state: &State, room: &str, generation: u64) -> Result<(), String> {
+	if !state.authority.manager_generation_is_current(room, generation) {
+		return Err("this room manager capability was revoked".into());
+	}
+	Ok(())
+}
+
 /// Revoke only the generation `token` names, inside the serialized change,
 /// so a delayed request for an old token cannot retire its replacement.
 pub(super) fn revoke(state: &State, kind: Kind, token: String) -> Result<Argument, String> {
-	let (prepare, commit) = revocation(kind, token);
+	let (prepare, commit) = revocation(kind, token, None);
 	submit(state, protocol_data::REVOKE, prepare, move |state, _| commit(state))
 }
 
@@ -452,17 +482,22 @@ pub(super) fn request_revoke(
 	kind: Kind,
 	token: String,
 ) -> impl std::future::Future<Output = Result<Argument, String>> + 'static {
-	let (prepare, commit) = revocation(kind, token);
+	let (prepare, commit) = revocation(kind, token, None);
 	request(state, protocol_data::REVOKE, prepare, commit)
 }
 
 /// The two halves of revoking one generation: the successor without it, and
 /// taking its name down once that stands.
-fn revocation(kind: Kind, token: String) -> (Prepare, Commit) {
+pub(super) fn revocation(kind: Kind, token: String, manager: Option<(String, u64)>) -> (Prepare, Commit) {
 	let held = token.clone();
 	(
 		Box::new(move |state: &State| {
-			let name = state.links.resolve(kind, &held)?;
+			let name = if let Some((source, generation)) = &manager {
+				require_manager(state, source, *generation)?;
+				state.links.resolve_for(kind, &held, source)?
+			} else {
+				state.links.resolve(kind, &held)?
+			};
 			Ok(Some(match kind {
 				Kind::Steward => state.authority.with_steward_revoked(&name)?.0,
 				Kind::Room => state.authority.with_room_link_revoked(&name)?,
@@ -483,12 +518,19 @@ fn revocation(kind: Kind, token: String) -> (Prepare, Commit) {
 
 /// Change a managed room's public name and policy without replacing its
 /// identity or any bearer generation.
-fn set_policy(state: &State, id: String, name: String, policy: RoomPolicy) -> Result<Argument, String> {
+fn set_policy(
+	state: &State,
+	id: String,
+	name: String,
+	policy: RoomPolicy,
+	generation: u64,
+) -> Result<Argument, String> {
 	let (held_id, held_name) = (id.clone(), name.clone());
 	submit(
 		state,
 		"setRoomPolicy",
 		move |state| {
+			require_manager(state, &held_id, generation)?;
 			if state.authority.managed_room(&held_id).is_none() {
 				return Err("this manager has no room access policy".into());
 			}

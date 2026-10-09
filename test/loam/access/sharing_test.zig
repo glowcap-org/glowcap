@@ -26,7 +26,7 @@ test "loam sharing commits before discovery and returns the same narrower capabi
     };
     try std.testing.expect(answer.ref == null and !answer.broken);
     var pending_name: h.driver.Host.DurableSwiss = undefined;
-    var rows = server.host.giftables.valueIterator();
+    var rows = server.host.publications.valueIterator();
     var found = false;
     while (rows.next()) |row| if (!row.active) {
         @memcpy(&pending_name.bytes, row.name);
@@ -168,7 +168,7 @@ test "loam sharing aborts reserved publications and refuses endpoint pressure be
         try client.pump();
         try std.testing.expectEqualStrings(if (pressure) "EndpointCapacity" else "InjectedAbort", failed.reason_buf[0..failed.reason_len]);
         try std.testing.expectEqual(revision, store.metadata.revision);
-        try std.testing.expectEqual(@as(u32, 1), server.host.giftables.count());
+        try std.testing.expectEqual(@as(u32, 1), server.host.publications.count());
         try std.testing.expectEqual(@as(usize, 0), server.caps.operations);
         var next: h.Answer = .{};
         try client.send(client.parent, "derivation-sequence", &.{}, &next);

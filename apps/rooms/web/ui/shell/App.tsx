@@ -6,6 +6,7 @@
 // different answer from `state.mobile`.
 
 import * as store from "../store.ts";
+import { openingDirect } from "../../../lib/text/managed_session.ts";
 import {
 	cannotSendBridgeReadOnly,
 	cannotSendDmClosed,
@@ -39,17 +40,8 @@ import { ConvCard } from "../cards/ConvCard.tsx";
 import { ErrorDetail } from "../panes/ErrorDetail.tsx";
 import { Viewer } from "../panes/Viewer.tsx";
 import { Toasts } from "../Toast.tsx";
-import {
-	type AdministeredBridge,
-	dirMarkIn,
-	type IrcGatewayState,
-	type LiveRooms,
-	opsHeldOf,
-	sendControlsFor,
-} from "../types.ts";
+import { type AdministeredBridge, dirMarkIn, type IrcGatewayState, type LiveRooms, sendControlsFor } from "../types.ts";
 import { directoryName, dirWhere, roomCalled } from "../text.ts";
-import { mayInteract, mayObserve } from "../../../lib/session/access_view.ts";
-import { effectiveRoomsSessionAccess } from "../controller/access.ts";
 import { loadOpsPage } from "../chunks.ts";
 import { LoadingSurface } from "../Loading.tsx";
 import { directoryDestinationContext, resolveJoin } from "../joining.ts";
@@ -226,16 +218,7 @@ export function App() {
 	const settingsBlocked = state.helpOpen || helpLayer || state.aboutDir !== null || dirLayer || state.aboutConv ||
 		convLayer ||
 		state.aboutMember !== null || memberLayer;
-	// The toggles and the Operations control mirror possession, whose one
-	// authority is the row fields the data layer sets and clears.
-	const opsHeld = opsHeldOf(
-		state.listeners,
-		state.diagnostics,
-		state.irc,
-		state.operator,
-		state.peering,
-		state.trace,
-	);
+	const opsHeld = state.opsHeld;
 	// What the peering pane could publish: rooms joined on a directory other
 	// than this one. Memoised on the maps it reads, the same reason the roster
 	// is: the pane sits behind a modal, and a keystroke must not rebuild it.
@@ -296,8 +279,10 @@ export function App() {
 	// the document unloads. Every hook above has already run, so drawing nothing
 	// is not a crash card and not a change in hook order. The cover is already up.
 	if (controller.kind === "none") return null;
-	const access = effectiveRoomsSessionAccess(controller, state.sessionAccess);
-	const canInteract = mayInteract(access);
+	const permissions = state.managedAccess.status === "active"
+		? state.managedAccess.effective?.permissions
+		: undefined;
+	const canInteract = permissions?.includes("interactWorkspace") === true;
 	const sendControls = sendControlsFor(controller.kind);
 
 	const appClass = ["app"];
@@ -320,20 +305,26 @@ export function App() {
 	// uses the sheet instead, which `members-open` above drives.
 	const noMembers = ops.on || conv?.type === "dm" || conv?.type === "directory" ||
 		(conv?.type === "room" && !mobile && !state.rosterOpen);
-	const composerAvailability = !mayObserve(access)
+	// A direct line still being opened has no route yet, so only its own
+	// composer waits; every other conversation stays open to write in.
+	const openingHere = conv?.type === "dm" && state.navigationTarget === conv.id;
+	const composerAvailability = permissions?.includes("observeWorkspace") !== true
 		// Paused is not read-only, so this does not say read-only. Nor does it
 		// repeat the bar standing above it: that one carries the state and the
 		// reason it was given, and this one says what this control cannot do. Two
 		// surfaces saying one sentence reads as the page saying it twice, rather
 		// than as each answering for what it owns.
 		? cannotSendPaused
+		: openingHere
+		? openingDirect(conv.id)
 		: !canInteract
 		? cannotSendReadOnly
 		: conv?.type === "dm" && conv.line === "closed"
 		? cannotSendDmClosed
 		: directRegistrationChanged
 		? cannotSendRegistrationEnded
-		: activeDir != null && activeDir.session !== "connected" && activeDir.statusText !== ""
+		: conv?.type === "directory" && activeDir != null && activeDir.session !== "connected" &&
+				activeDir.statusText !== ""
 		? activeDir.statusText
 		: conv?.type === "directory"
 		? ""
@@ -366,7 +357,6 @@ export function App() {
 				joinResolution={joinResolution}
 				railShown={railShown}
 				mobile={mobile}
-				session={acting?.session ?? "connecting"}
 				standing={state.standing}
 				invites={state.invites}
 				settingsOpen={state.settingsOpen}
@@ -435,12 +425,11 @@ export function App() {
 									joinResolution={joinResolution}
 									dirs={state.dirs}
 									directoryContext={directoryContext}
-									composerEnabled={canInteract && conv !== null &&
+									composerEnabled={canInteract && conv !== null && !openingHere &&
 										(conv.type === "directory" ||
-											(activeDir?.session === "connected" &&
-												(conv.type === "room"
-													? conv.membership === "joined"
-													: !directRegistrationChanged && conv.line !== "closed")))}
+											(conv.type === "room"
+												? conv.membership === "joined"
+												: !directRegistrationChanged && conv.line === "live"))}
 									composerPhase={activeDir?.session ?? "disconnected"}
 									composerAvailability={composerAvailability}
 									ignored={state.ignored}
@@ -476,7 +465,6 @@ export function App() {
 				opsHeld={opsHeld}
 				keepHistory={state.keepHistory}
 				archiveTarget={state.archiveTarget}
-				sessionAccess={state.sessionAccess}
 				tab={state.settingsTab}
 			/>
 			<Help

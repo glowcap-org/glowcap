@@ -274,16 +274,16 @@ fn serveGoblinsClient(
 
     // The Goblins client retries its own dial while the descriptor publishes, so
     // this side only has to be listening before the child starts.
+    var child_argv: [8][]const u8 = undefined;
     var child = try std.process.spawn(io, .{
-        .argv = &.{
-            goblins_child.racket_path,
+        .argv = goblins_child.racketArgv(&child_argv, &.{
             caller_script,
             service_id,
             greeter_swiss,
             caller_name,
             daemon.control_path,
             daemon.socks_path,
-        },
+        }),
         .environ_map = environ_map,
         .stdout = .inherit,
         .stderr = .inherit,

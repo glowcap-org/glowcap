@@ -25,8 +25,41 @@ const Served = served_mod.Served;
 /// opaque capabilities without touching wire positions.
 pub const HostTurn = struct {
     host: *Host,
-    session: *HostSession,
+    session: ?*HostSession,
     turn: *actors.Turn,
+
+    /// Recover the same owning context for wire and trusted local deliveries.
+    pub fn fromActorTurn(turn: *actors.Turn) !HostTurn {
+        if (turn.port) |port| {
+            const served: *Served = @fieldParentPtr("port", port);
+            const session: *HostSession = @alignCast(@fieldParentPtr("served", served));
+            return .{ .host = session.host, .session = session, .turn = turn };
+        }
+        const producer = try @import("local_delivery.zig").producer(turn);
+        return .{ .host = producer.host, .session = null, .turn = turn };
+    }
+
+    pub fn beginLocal(self: *HostTurn) !void {
+        try (try @import("local_delivery.zig").producer(self.turn)).enroll(self.turn);
+    }
+
+    /// Transfer a child lease from this already-admitted local delivery. The
+    /// payload vtable and owning Vat prove its actual producer, not a handle.
+    pub fn retainPendingWork(self: *HostTurn) !Host.PendingWorkLease {
+        const source = try @import("local_delivery.zig").producer(self.turn);
+        if (source.host != self.host) return error.ForeignTurn;
+        const lease = if (source.lease) |*lease| lease else return error.NoPendingWork;
+        return lease.fork();
+    }
+
+    pub fn localArguments(self: *HostTurn) !struct { verb: []const u8, args: []const value_mod.Value } {
+        const args = try @import("local_delivery.zig").arguments(self.turn);
+        return .{ .verb = args.verb, .args = args.args };
+    }
+
+    pub fn prepareLocalReply(self: *HostTurn, reply: value_mod.Value) !void {
+        if (!self.turn.forwarded) try (try @import("local_delivery.zig").producer(self.turn)).prepare(reply);
+    }
 
     /// Spawn a fresh local actor mid-turn and return its opaque capability —
     /// the owning-tier twin of `spawnAt`. The spawned behavior is Value-shaped
@@ -64,38 +97,45 @@ pub const HostTurn = struct {
         @import("capabilities/lower.zig").releaseValueCapabilitiesTerminalAt(self.host, values, null);
     }
 
-    /// Forward this turn's answer to another opaque capability on the same
-    /// causal session. The returned value is the turn's borrowed placeholder;
-    /// the forwarded vow owns the real settlement.
+    /// Transfer this answer to another capability. Local invocation uses the
+    /// target's actual home and keeps its original owned reply destination;
+    /// wire invocation stays on its causal session. The returned placeholder
+    /// is ignored while the forwarded completion owns the answer.
     pub fn forward(
         self: *HostTurn,
         target: capability.Ref,
         verb: []const u8,
         values: []const value_mod.Value,
     ) !value_mod.Value {
-        const routed = try self.host.routeTurnCapability(self.session, target, &.{});
-        var prepared = try self.host.prepareValues(self.session, self.turn.arena, values);
+        const session = self.session orelse {
+            try @import("local_delivery.zig").forward(self.turn, target, verb, values);
+            return .{ .void = {} };
+        };
+        const routed = try self.host.routeTurnCapability(session, target, &.{});
+        var prepared = try self.host.prepareValues(session, self.turn.arena, values);
         defer prepared.deinit();
-        try capability_routing.validateRoutedArguments(self.host, self.session, prepared.values);
+        try capability_routing.validateRoutedArguments(self.host, session, prepared.values);
         const reply = try self.turn.forward(routed, .{ .verb = verb, .args = prepared.values });
         _ = prepared.commit();
-        return self.host.liftValue(self.session, self.turn.arena, reply);
+        return self.host.liftValue(session, self.turn.arena, reply);
     }
 
     /// Eventual-send from this callback through the same Host authority as an
     /// owning Session. The returned id is observed with the Host vow surface.
     pub fn send(self: *HostTurn, target: capability.Ref, verb: []const u8, values: []const value_mod.Value) !u64 {
-        return self.host.sendValues(self.session, target, verb, values, self.turn.arena);
+        const session = self.session orelse return @import("local_delivery.zig").send(self.turn, target, verb, values);
+        return self.host.sendValues(session, target, verb, values, self.turn.arena);
     }
 
     /// Fire-and-forget delivery from this callback.
     pub fn tell(self: *HostTurn, target: capability.Ref, verb: []const u8, values: []const value_mod.Value) !void {
-        return self.host.tellValues(self.session, target, verb, values, self.turn.arena);
+        const session = self.session orelse return @import("local_delivery.zig").tell(self.turn, target, verb, values);
+        return self.host.tellValues(session, target, verb, values, self.turn.arena);
     }
 };
 
 /// Adapt a Value-shaped behavior to the actor layer's wire-shaped contract —
-/// the native twin of the C ABI's hosted-behavior trampoline. `B` declares
+/// the Zig counterpart of the C ABI's hosted-behavior trampoline. `B` declares
 ///
 /// ```zig
 /// pub fn handle(self: *B, ht: *HostTurn, verb: []const u8, args: []const Value) !Value
@@ -106,7 +146,7 @@ pub const HostTurn = struct {
 /// returned reply is lowered through the same session's Port. Both walks use
 /// the turn arena, whose lifetime is exactly the borrowed reply's contract.
 /// The owning `Session.spawn` / `Session.publish` and Host-wide
-/// `publishGiftable` wrap every behavior in this adapter; the base Vat and the
+/// `publish` wrap every behavior in this adapter; the base Vat and the
 /// borrowing tier keep the wire-shaped contract.
 pub fn Hosting(comptime B: type) type {
     return struct {
@@ -124,6 +164,14 @@ pub fn Hosting(comptime B: type) type {
             var host_turn = HostTurn{ .host = host, .session = session, .turn = turn };
             const reply = try self.inner.handle(&host_turn, msg.verb, values);
             return host.lowerValue(session, turn.arena, reply);
+        }
+
+        pub fn handleOpaque(self: *@This(), turn: *actors.Turn, _: actors.OpaqueMessage) !void {
+            var host_turn = try HostTurn.fromActorTurn(turn);
+            try host_turn.beginLocal();
+            const input = try host_turn.localArguments();
+            const reply = try self.inner.handle(&host_turn, input.verb, input.args);
+            try host_turn.prepareLocalReply(reply);
         }
 
         /// Forward the wrapped behavior's state teardown, so a reclaimed or

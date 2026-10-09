@@ -82,7 +82,7 @@ export function RoomModeration(
 												<div className="actions">
 													<Button
 														variant="quiet"
-														disabled={confirming === name}
+														disabled={confirming === name || working !== null}
 														onClick={() => setAsking(name)}
 													>
 														{moderationKickAsk}
@@ -99,6 +99,7 @@ export function RoomModeration(
 													busy={working === name}
 													onKeep={() => setAsking(null)}
 													onCommit={() => {
+														if (working !== null) return;
 														setWorking(name);
 														setAskWhy((prior) => ({ ...prior, [name]: "" }));
 														void actionRefusal(() =>
@@ -106,7 +107,9 @@ export function RoomModeration(
 														).then(
 															(refused) => {
 																setAskWhy((prior) => ({ ...prior, [name]: refused }));
-																if (refused === "") setAsking(null);
+																if (refused === "") {
+																	setAsking((open) => open === name ? null : open);
+																}
 															},
 														).finally(() => setWorking(null));
 													}}

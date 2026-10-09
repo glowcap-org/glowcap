@@ -141,6 +141,7 @@ impl HostShared {
 					return Err(surfaced);
 				}
 				if self.progress_persistence().await? {
+					self.note_close_activity();
 					continue;
 				}
 				return Ok(());
@@ -152,11 +153,15 @@ impl HostShared {
 			}
 			// The native drain resumes queued Host work before its first
 			// external action and may synchronously invoke a behavior.
-			let (parked, yielded) = {
+			let actions = {
 				let _deliver = crate::trampoline::DeliverGuard::enter_host(self);
-				crate::action::park(self)?
+				crate::action::park(self)
 			};
-			let persistence_progress = self.progress_persistence().await?;
+			crate::finalizer::drain();
+			let (parked, yielded) = actions?;
+			let persistence_progress = self.progress_persistence().await;
+			crate::finalizer::drain();
+			let persistence_progress = persistence_progress?;
 			if parked.is_empty() && !yielded && !persistence_progress {
 				return Ok(());
 			}

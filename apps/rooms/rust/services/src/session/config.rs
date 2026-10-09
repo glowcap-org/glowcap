@@ -12,12 +12,16 @@ pub struct Config {
 	/// The rendezvous relay this peer dials browser members through when a
 	/// direct partner advertises a relay route.
 	pub relay_url: Option<String>,
+	/// Deployment transport composition, independent of persisted capabilities.
+	pub dial_transports: Vec<String>,
 }
 
 pub const HELP: &str = "rooms-session --state=<directory> [--transport=iroh|tcp|onion]
   --local-control  expose this session through <state>/control.sock
-  --checkpoint=<Rooms JSON>  adopt a workspace or session document on a new peer
-  --readiness-file=<path>  write the administrator sturdyref (default: <state>/admin.sturdyref)
+  --checkpoint=<Rooms JSON>  import capability-free managed workspace intent
+  --dial-transports=tcp,iroh,onion  install outgoing transport families before restoration
+  --readiness-file=<path>  write the workspace use sturdyref (default: <state>/workspace.sturdyref)
+  Management is published separately in <state>/control.sturdyref
   --reachability=discovery|direct  iroh reachability (default: discovery)
   --bind=<host> --port=<port> --announce-host=<host>  TCP listener options
   --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)
@@ -29,7 +33,7 @@ rooms-session --check-ready=<path>  print the sturdyref a running peer wrote to 
 ";
 
 /// The options beyond the transport's own.
-const KEYS: &[&str] = &["state", "checkpoint", "readiness-file", "relay-url"];
+const KEYS: &[&str] = &["state", "checkpoint", "readiness-file", "relay-url", "dial-transports"];
 
 impl Config {
 	/// `None` means help was asked for. Every option may also come from
@@ -68,17 +72,27 @@ impl Config {
 			Error::refused("name durable storage with --state=<directory> or GLOWCAP_ROOMS_SESSION_STATE")
 		})?;
 		let transport = Transport::parse(value, &env, "session").map_err(Error::refused)?;
+		let dial_transports: Vec<String> = value("dial-transports")
+			.map(|value| value.split(',').map(str::to_owned).collect())
+			.unwrap_or_default();
+		if dial_transports
+			.iter()
+			.any(|name| !matches!(name.as_str(), "tcp" | "iroh" | "onion"))
+		{
+			return Err(Error::refused("dial transports must be tcp, iroh or onion"));
+		}
 		Ok(Some(Self {
 			state: state.into(),
 			transport,
 			checkpoint: value("checkpoint").filter(|s| !s.is_empty()).map(Into::into),
 			readiness_file: value("readiness-file").filter(|s| !s.is_empty()).map(Into::into),
 			relay_url: value("relay-url"),
+			dial_transports,
 		}))
 	}
 	pub fn readiness_path(&self) -> PathBuf {
 		self.readiness_file
 			.clone()
-			.unwrap_or_else(|| self.state.join("admin.sturdyref"))
+			.unwrap_or_else(|| self.state.join("workspace.sturdyref"))
 	}
 }

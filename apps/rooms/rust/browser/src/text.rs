@@ -17,11 +17,6 @@ pub fn line_bytes(text: &str) -> usize {
 	text.len()
 }
 
-#[wasm_bindgen(js_name = visualizerOverrideRefusal)]
-pub fn visualizer_override_refusal(text: &str) -> Option<String> {
-	rooms_application::session::visualizer::override_refusal(text).map(str::to_owned)
-}
-
 /// A browser receives only Rooms' inert document projection. Authored source
 /// remains the wire and archive value; parsing failure is represented inside
 /// the document as literal text rather than crossing this boundary as a lost

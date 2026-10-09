@@ -108,25 +108,45 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	let block = stderr_until(&mut process, "rooms: ready");
 	assert!(block.starts_with("rooms: directory listening"), "{block}");
 	assert!(block.contains("  transport   "), "{block}");
-	let swiss_of = |token: &str, block: &str| -> String {
+	let recipe_of = |token: &str, block: &str| -> String {
 		block
 			.lines()
 			.find_map(|line| line.strip_prefix(&format!("{token} ")))
 			.unwrap_or_else(|| panic!("{token} in {block}"))
 			.to_owned()
 	};
-	let listeners = swiss_of("ROOMS-ADMIN-LISTENERS", &block);
-	let diagnostics = swiss_of("ROOMS-DIAGNOSTICS", &block);
-	let irc = swiss_of("ROOMS-IRC", &block);
-	assert_eq!(std::fs::read_to_string(state.join("irc")).unwrap().trim(), irc);
-	assert_eq!(listeners.len(), 64);
+	let locator = block
+		.lines()
+		.find_map(|line| line.trim().strip_prefix("locator     "))
+		.unwrap();
+	let listeners = recipe_of("ROOMS-ADMIN-LISTENERS", &block);
+	let diagnostics = recipe_of("ROOMS-DIAGNOSTICS", &block);
+	let irc = recipe_of("ROOMS-IRC", &block);
+	let swiss_of = |recipe: &str| {
+		String::from_utf8(
+			glowcap::parse_sturdyref(recipe, glowcap::CaptpVersion::V1_0)
+				.unwrap()
+				.swissnum,
+		)
+		.unwrap()
+	};
+	for (file, recipe) in [
+		("admin-listeners", &listeners),
+		("diagnostics", &diagnostics),
+		("irc", &irc),
+	] {
+		let parsed = glowcap::parse_sturdyref(recipe, glowcap::CaptpVersion::V1_0).unwrap();
+		assert_eq!(parsed.locator, glowcap::parse_locator(locator).unwrap());
+		assert_eq!(
+			std::fs::read_to_string(state.join(file)).unwrap().trim(),
+			swiss_of(recipe)
+		);
+		assert_eq!(parsed.swissnum.len(), 64);
+	}
 	assert!(!block.contains("ROOMS-OPERATOR"), "{block}");
-	assert_eq!(
-		std::fs::read_to_string(state.join("diagnostics")).unwrap().trim(),
-		diagnostics
-	);
 	let printed = command()
 		.arg(format!("--capabilities={}", state.display()))
+		.env("GLOWCAP_ROOMS_LOCATOR", locator)
 		.current_dir(std::env::temp_dir())
 		.output()
 		.unwrap();
@@ -135,23 +155,30 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 		"capabilities are readable while the server owns custody"
 	);
 	let printed = String::from_utf8(printed.stdout).unwrap();
-	assert_eq!(swiss_of("ROOMS-ADMIN-LISTENERS", &printed), listeners);
-	assert_eq!(swiss_of("ROOMS-DIAGNOSTICS", &printed), diagnostics);
-	assert_eq!(swiss_of("ROOMS-IRC", &printed), irc);
+	assert_eq!(recipe_of("ROOMS-ADMIN-LISTENERS", &printed), listeners);
+	assert_eq!(recipe_of("ROOMS-DIAGNOSTICS", &printed), diagnostics);
+	assert_eq!(recipe_of("ROOMS-IRC", &printed), irc);
 	assert!(printed.contains("ROOMS-OPERATOR (not minted here; start with --operator to mint it)"));
 	process.signal("-TERM");
-	// Supervised, only the token lines print, and the swiss numbers are the
-	// ones the state directory kept.
+	// Supervised, only complete recipes print. A new listening address changes
+	// their route, while the saved publication identities remain exact.
 	let mut again = Process(started().env("GLOWCAP_ROOMS_SUPERVISED", "1").spawn().unwrap());
 	let lines = stderr_until(&mut again, "ROOMS-IRC");
 	assert!(!lines.contains("rooms: directory listening"), "{lines}");
-	assert_eq!(swiss_of("ROOMS-ADMIN-LISTENERS", &lines), listeners);
-	assert_eq!(swiss_of("ROOMS-DIAGNOSTICS", &lines), diagnostics);
-	assert_eq!(swiss_of("ROOMS-IRC", &lines), irc);
+	assert_eq!(
+		swiss_of(&recipe_of("ROOMS-ADMIN-LISTENERS", &lines)),
+		swiss_of(&listeners)
+	);
+	assert_eq!(
+		swiss_of(&recipe_of("ROOMS-DIAGNOSTICS", &lines)),
+		swiss_of(&diagnostics)
+	);
+	assert_eq!(swiss_of(&recipe_of("ROOMS-IRC", &lines)), swiss_of(&irc));
 	again.signal("-TERM");
 	std::fs::write(state.join("diagnostics"), "invalid state").unwrap();
 	let refused = command()
 		.arg(format!("--capabilities={}", state.display()))
+		.env("GLOWCAP_ROOMS_LOCATOR", locator)
 		.output()
 		.unwrap();
 	assert!(!refused.status.success());

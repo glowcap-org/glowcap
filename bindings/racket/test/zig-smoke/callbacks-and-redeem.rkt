@@ -129,23 +129,25 @@
 
 ;; ── Alias-only unpublish ──────────────────────────────────────────────────────
 ;; Discovery moves, the issued capability does not: after
-;; `host-unpublish-giftable` a fetch of the name breaks even on the session
+;; `host-unpublish` a fetch of the name breaks even on the session
 ;; that fetched it before, a second removal is a loud #f, and the ref fetched
 ;; before removal still answers.
 (define up-server (listen "127.0.0.1" 0))
-(host-publish-giftable (server-host up-server) "ephemeral" (methods [(probe) 11]))
+(host-publish (server-host up-server) "ephemeral" (methods [(probe) 11]))
+(define up-held (box #f))
 (define up-thread
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) void])
        (define hsession (accept up-server))
+       (set-box! up-held (session-published-ref hsession "ephemeral"))
        (session-serve hsession)))))
 (define up-session (open-test-session (tcp-locator "127.0.0.1" (server-port up-server))))
 (define up-cap (session-fetch up-session "ephemeral"))
 (expect (equal? 11 (session-send up-session up-cap 'probe)) "unpublish: the alias fetches and answers before removal")
-(expect (eq? #t (host-unpublish-giftable (server-host up-server) "ephemeral"))
+(expect (eq? #t (host-unpublish (server-host up-server) "ephemeral"))
         "unpublish: removing a live alias reports #t")
-(expect (eq? #f (host-unpublish-giftable (server-host up-server) "ephemeral"))
+(expect (eq? #f (host-unpublish (server-host up-server) "ephemeral"))
         "unpublish: removing an absent alias reports #f")
 (expect (with-handlers ([exn:fail? (lambda (_) #t)])
           (session-fetch up-session "ephemeral")
@@ -174,6 +176,14 @@
         "durable: a fetch of the removed name breaks")
 (expect (equal? 21 (session-send up-session up-durable 'probe))
         "durable: the capability issued before removal still answers")
+(define up-exact-name (host-publish-reference (server-host up-server) (unbox up-held)))
+(define up-exact (session-fetch up-session up-exact-name))
+(expect (equal? 11 (session-send up-session up-exact 'probe))
+        "reference publication: exact original actor answers after alias removal")
+(expect (host-remove-durable (server-host up-server) up-exact-name)
+        "reference publication: remove its independent root")
+(expect (equal? 11 (session-send up-session up-exact 'probe))
+        "reference publication: issued capability survives name removal")
 (session-close! up-session)
 (kill-thread up-thread)
 (server-close! up-server)
@@ -233,7 +243,7 @@
 ;; Host-wide, not session-published: deposit retains the actor before the
 ;; recipient's redeem dial opens, and withdrawal projects that exact actor onto
 ;; the new exporter session without resolving the alias again.
-(host-publish-giftable (server-host rd-e-server) "gifted"
+(host-publish (server-host rd-e-server) "gifted"
                        (let ([n (box 7)])
                          (methods [(use) (unbox n)]
                                   [(bump) (set-box! n 8) 8])))
@@ -280,7 +290,7 @@
 ;; binding path).
 (expect (= 8 (session-send rd-gc rd-tool 'bump))
         "redeem-dial: the gifter mutated the tool before introducing it")
-(host-publish-giftable (server-host rd-e-server) "gifted" (methods [(use) 0]))
+(host-publish (server-host rd-e-server) "gifted" (methods [(use) 0]))
 (define rd-g-ready (make-semaphore 0))
 (define rd-g-thread
   (thread
@@ -371,7 +381,7 @@
 ;; The session the recipient's redeem dial opens. The exporter answers the
 ;; caller's inbox over it, which is the far half of the same claim.
 (define sr-direct (box #f))
-(host-publish-giftable
+(host-publish
  (server-host sr-e-server)
  "gifted"
  (methods
@@ -465,4 +475,3 @@
 (server-close! sr-e-server)
 
 (printf "racket zig-smoke OK: session-send-redeeming surfaces the direct session a redeemed reply lives on\n")
-

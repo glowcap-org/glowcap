@@ -293,9 +293,9 @@ class _VerbsMixin:
         return cast("Session", self)
 
     def published_ref(self, name: str) -> "Ref | None":
-        """Project the Host giftable published under ``name`` onto this Session.
+        """Project the Host publication published under ``name`` onto this Session.
 
-        This is the lazy Session projection for a Host-wide giftable. It
+        This is the lazy Session projection for a Host publication. It
         returns ``None`` when no such name is published.
         """
         self.guard_open()
@@ -313,7 +313,7 @@ class _VerbsMixin:
         _check_host(rc)
         ref = _ref_from_id(out.id)
         if ref.id not in self._hosted:
-            ctx = self._host._giftables.get(name)
+            ctx = self._host._publications.get(name)
             if ctx is not None:
                 self._hosted[ref.id] = ctx
         return ref

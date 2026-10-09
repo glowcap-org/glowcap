@@ -14,6 +14,7 @@ const peer_options = @import("ocapn_peer_options");
 const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const net = glowcap.net;
+const crypto = glowcap.foundation.crypto;
 const driver = glowcap.driver;
 const tcp = net.tcp;
 
@@ -33,9 +34,10 @@ pub const GREETER = "VMDDd1voKWarCe2GvgLbxbVFysNzRPzx";
 pub const PROMISE_RESOLVER = "IokCxYmMj04nos2JN1TDoY1bT8dXh6Lr";
 pub const STURDYREF_ENLIVENER = "gi02I1qghIwPiKGKleCQAOhpy3ZtYRpB";
 
-/// uuid → `host:port`, filled on the loop thread whenever a give or sturdyref
-/// names a `tcp-testing-only` exporter, read when the Host's redeem or gifter
-/// dial resolves that locator. Single loop thread owns it, so no lock.
+/// uuid → `host:port`, filled on the serving thread whenever a give or
+/// sturdyref names a `tcp-testing-only` exporter, read when the Host's redeem
+/// or gifter dial resolves that locator. The one serving thread owns it, so
+/// no lock.
 pub const AddrTable = struct {
     allocator: std.mem.Allocator,
     entries: std.StringHashMapUnmanaged([]u8) = .{},
@@ -69,34 +71,61 @@ pub const AddrTable = struct {
     }
 };
 
-/// Process-global address table. The conformance peer is one Host on one loop
-/// in one process, and the loop's `DialResolver.resolve` is a free function with no
-/// context slot, so the table it consults lives here. `main` owns its storage.
+/// Process-global address table. The conformance peer is one Host on one
+/// runtime in one process, and the transport policy's `resolve` is a free
+/// function with no context slot, so the table it consults lives here. `main`
+/// owns its storage.
 pub var g_addrs: ?*AddrTable = null;
 
-/// The loop's OCapN-locator → dial-target resolver. `tcp-testing-only` resolves
-/// through the address table (the designator is a uuid, the address a hint we
-/// recorded); every other transport defers to the standard `tcp.DialResolver`.
-const ConformanceLocator = struct {
-    pub fn resolve(locator: model.PeerLocator) !std.Io.net.IpAddress {
-        if (std.mem.eql(u8, locator.transport, transport_name)) {
+/// `tcp-testing-only` on the platform completion backend, as the transport
+/// policy `net.completion_resident.Resident` takes. The designator is a bare
+/// uuid: a dial resolves it through the address table, and the listener
+/// advertises the peer's own uuid with no hints, because the suite reads its
+/// address from the readiness banner.
+pub fn TestingPolicy(comptime Backend: type) type {
+    return struct {
+        pub fn resolve(locator: model.PeerLocator) !Backend.ConnectTarget {
+            if (!std.mem.eql(u8, locator.transport, transport_name)) return error.UnknownTransport;
             const table = g_addrs orelse return error.InvalidAddress;
             const hostport = table.get(locator.designator) orelse return error.InvalidAddress;
             return tcp.parseDesignator(hostport);
         }
-        return tcp.DialResolver.resolve(locator);
-    }
-};
 
-pub const ConfLoop = if (use_onion)
-    net.OnionLoop
-else
-    net.completion.Loop(net.Backend, ConformanceLocator);
-pub const ConfBridge = driver.Bridge(ConfLoop);
+        pub fn listenTarget(backend: *const Backend, transport: []const u8, config: net.netlayer.ListenConfig) !Backend.ListenTarget {
+            if (!std.mem.eql(u8, transport, transport_name)) return error.UnknownTransport;
+            const ip4 = switch (try tcp.parseDesignator(config.designator)) {
+                .ip4 => |ip4| ip4,
+                .ip6 => return error.InvalidAddress,
+            };
+            if (!std.mem.eql(u8, &ip4.bytes, &backend.listenerIp4())) return error.InvalidAddress;
+            return Backend.loopListenTarget(ip4.port);
+        }
+
+        pub fn localLocator(_: *Backend, _: Backend.Fd, transport: []const u8, _: ?crypto.PeerKey, allocator: std.mem.Allocator) !model.PeerLocator {
+            return model.clonePeerLocator(allocator, .{
+                .transport = transport,
+                .designator = CAR_FACTORY_BUILDER,
+                .hints = model.Hints.emptyFalse(),
+            });
+        }
+
+        pub fn canonicalizeLocator(
+            _: *Backend,
+            _: Backend.Fd,
+            transport: []const u8,
+            _: ?crypto.PeerKey,
+            allocator: std.mem.Allocator,
+            candidate: model.PeerLocator,
+        ) !model.PeerLocator {
+            if (!std.mem.eql(u8, candidate.transport, transport)) return error.InvalidAddress;
+            return model.clonePeerLocator(allocator, candidate);
+        }
+    };
+}
 
 /// Per-accepted-session conformance state: the resolver→answer map the promise
-/// resolver fills and the serve interceptor reads. Allocated at adoption
-/// (`publishConf`), freed at close (`confFreeConnCtx`).
+/// resolver fills and the serve interceptor reads. Allocated when the session
+/// is admitted (`admitAccepted`), freed when it is released (`releaseClosed`).
 pub const ConfCtx = struct {
     shared: *Shared,
     session: *HostSession,
@@ -115,9 +144,9 @@ pub const PendingEnliven = struct {
 };
 
 /// A Host-driving effect classified under the before-serve callback latch and
-/// executed after Host.serveEvent unwinds. The hook may inspect and claim an
-/// event, but Host.fetch/acceptInlineGive and Bridge.dialOutbound are deliberately
-/// top-level operations and reject callback re-entry.
+/// executed after the runtime step unwinds. The hook may inspect and claim an
+/// event, but Host.fetch/acceptInlineGive and HostRuntime.startDial are
+/// deliberately top-level operations and reject callback re-entry.
 pub const DeferredAction = union(enum) {
     accept_give: struct {
         session: *HostSession,
@@ -143,7 +172,7 @@ pub const DeferredAction = union(enum) {
 pub const Shared = struct {
     allocator: std.mem.Allocator,
     host: *Host,
-    bridge: *ConfBridge,
+    runtime: *driver.HostRuntime,
     /// Per-session conformance state, keyed by session. Only accepted sessions
     /// (desks) register here; dialed exporter/redeem legs never do.
     confs: std.AutoHashMapUnmanaged(PeerHandle, *ConfCtx) = .{},
@@ -152,9 +181,16 @@ pub const Shared = struct {
     pending: std.ArrayListUnmanaged(PendingEnliven) = .empty,
     /// Host-driving effects held until the before-serve callback latch opens.
     deferred: std.ArrayListUnmanaged(DeferredAction) = .empty,
-    /// Exact failure from a callback that has no return slot. Drained at the
-    /// next `confServe` boundary so a gifter intercept cannot vanish as success.
+    /// Exact failure from a callback that has no return slot. Drained after
+    /// the step that raised it, so a gifter intercept cannot vanish as success.
     callback_err: ?anyerror = null,
+    /// Sessions the listener accepted or a gifter dial opened during a step,
+    /// set up once the step unwinds. The runtime pauses each one's inbound at
+    /// open, so setup always precedes the partner's first delivery.
+    accepted: std.ArrayListUnmanaged(*HostSession) = .empty,
+    dialed: std.ArrayListUnmanaged(*HostSession) = .empty,
+    /// Every session this peer owns, released once its wire closes.
+    owned: std.ArrayListUnmanaged(*HostSession) = .empty,
 
     pub fn noteCallbackErr(self: *Shared, err: anyerror) void {
         if (self.callback_err == null) self.callback_err = err;
@@ -174,5 +210,8 @@ pub const Shared = struct {
         self.pending.deinit(self.allocator);
         for (self.deferred.items) |action| action.deinit(self.allocator);
         self.deferred.deinit(self.allocator);
+        self.accepted.deinit(self.allocator);
+        self.dialed.deinit(self.allocator);
+        self.owned.deinit(self.allocator);
     }
 };

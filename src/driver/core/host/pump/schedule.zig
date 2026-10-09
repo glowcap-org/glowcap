@@ -73,8 +73,24 @@ pub fn queueResumeAction(self: *Host) !void {
     self.resume_action_pending = true;
 }
 
+pub const WorkLane = enum(u2) {
+    session,
+    node,
+    handoff,
+    local,
+
+    pub fn next(self: WorkLane) WorkLane {
+        return switch (self) {
+            .session => .node,
+            .node => .handoff,
+            .handoff => .local,
+            .local => .session,
+        };
+    }
+};
+
 pub fn hasInternalWork(self: *const Host) bool {
-    return self.pending_flush.peek() != null or
+    return self.vat.local_ingress.pending_turns != 0 or self.pending_flush.peek() != null or
         self.node.hasAction() or
         self.node.nextHandoffChange() != null;
 }

@@ -38,7 +38,7 @@ async fn stewardship_keeps_rooms_isolated_and_rejects_late_authority() {
 				let identity = authority::room_identity(name).unwrap();
 				let steward_link = link(&format!("steward-{name}"));
 				let room_answer = room_link.clone();
-				host.publish_giftable(name, move || {
+				host.publish(name, move || {
 					Box::new(move |verb, _| match verb {
 						authority::LINK => Ok(room_answer.clone().into()),
 						authority::MANAGED_IDENTITY => Ok(name.into()),
@@ -48,7 +48,7 @@ async fn stewardship_keeps_rooms_isolated_and_rejects_late_authority() {
 				.unwrap();
 				let grant_mode = mode.clone();
 				let grant_identity = identity.clone();
-				host.publish_giftable(&format!("manager-{name}"), move || {
+				host.publish(&format!("manager-{name}"), move || {
 					Box::new(move |verb, _| match verb {
 						authority::GOVERNS => Ok(name.into()),
 						authority::LINK => Ok(room_link.clone().into()),
@@ -74,7 +74,7 @@ async fn stewardship_keeps_rooms_isolated_and_rejects_late_authority() {
 						started.clone(),
 						host.clone(),
 					);
-					host.publish_giftable(&format!("steward-{name}{suffix}"), move || {
+					host.publish(&format!("steward-{name}{suffix}"), move || {
 						Box::new(move |verb, args| match verb {
 							authority::GOVERNS if hold.get() => {
 								*saved.borrow_mut() = Some(actor_host.defer_turn().unwrap());

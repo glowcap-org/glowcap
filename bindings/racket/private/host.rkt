@@ -446,6 +446,17 @@
     (lambda ()
       (check/host (glowcap_host_set_session_limits (host-ptr m) options)))))
 
+;; Bootstrap queue bounds include message spines and rows, with no eager backing.
+(define (host-set-ingress-limits! m #:max-pending-turns turns
+                                  #:max-pending-bytes bytes #:max-chunk-bytes chunk)
+  (for ([value (in-list (list turns bytes chunk))])
+    (unless (and (exact-positive-integer? value) (<= value #xffffffff))
+      (raise-glowcap 'host-set-ingress-limits! ERR-INVALID-ARGUMENT
+                     "ingress limits must be positive uint32 integers")))
+  (call-with-host m
+    (lambda ()
+      (check/host (glowcap_host_set_ingress_limits (host-ptr m) turns bytes chunk)))))
+
 ;; Derive the canonical key designator (64 lowercase hex digits) from a 32-byte
 ;; Ed25519 identity seed — the public half of the key a host signs with
 ;; (ADR-0075).
@@ -462,14 +473,14 @@
   (check/host (glowcap_host_designator_from_seed (pin-immobile seed) 32 out 64))
   (bytes->string/utf-8 out))
 
-;; ── Host-wide giftables ───────────────────────────────────────────────────────
+;; ── Host-wide publications ───────────────────────────────────────────────────────
 ;; Host `behavior` once and bind `name` as a Host-wide alias. Fetch lazily
 ;; projects the actor onto a session; a deposited gift keeps that exact actor
 ;; when a recipient withdraws over its own exporter session. The binding keeps
 ;; the trampoline alive. The behavior is an ordinary actor behavior
 ;; `(lambda (method . args) …)`, e.g. one built with `methods`.
-(define (host-publish-giftable m name behavior)
-  (define tramp (make-giftable-trampoline behavior))
+(define (host-publish m name behavior)
+  (define tramp (make-publication-trampoline behavior))
   (host-retain! m tramp)
   (define nb (string->bytes/utf-8 name))
   ;; The host never owns the row (the free callback is #f), so a refused
@@ -485,7 +496,7 @@
 ;; every session, while issued refs and deposited gifts keep the exact actor,
 ;; whose retained trampoline stays hosted for the host's life. Returns #f when
 ;; no such alias exists.
-(define (host-unpublish-giftable m name)
+(define (host-unpublish m name)
   (define nb (string->bytes/utf-8 name))
   (call-with-host m
     (lambda ()
@@ -512,7 +523,7 @@
        (raise-glowcap 'host-publish-durable ERR-INVALID-ARGUMENT
                       "durable entropy must be exactly ~a bytes"
                       HOST-DURABLE-ENTROPY-LEN)]))
-  (define tramp (make-giftable-trampoline behavior))
+  (define tramp (make-publication-trampoline behavior))
   (host-retain! m tramp)
   ;; Output buffer is mutable Racket bytes the FFI writes into — do not
   ;; `pin-immobile` it (that copies, and the write would be discarded). Plain
@@ -534,6 +545,24 @@
                                         out (bytes-length out)))
         (when (<= written 0) (check/host written))
         (bytes->string/utf-8 (subbytes out 0 written))))))
+
+;; Publish the exact held reference. The name retains an independent root;
+;; after removal, the same entropy restores the name; live collisions refuse.
+(define (host-publish-reference m reference [entropy #f])
+  (define seed (or entropy (crypto-random-bytes HOST-DURABLE-ENTROPY-LEN)))
+  (unless (and (bytes? seed) (= (bytes-length seed) HOST-DURABLE-ENTROPY-LEN))
+    (raise-glowcap 'host-publish-reference ERR-INVALID-ARGUMENT "invalid durable entropy length"))
+  (define out (make-bytes HOST-DURABLE-SWISS-LEN))
+  (call-with-host m
+    (lambda ()
+      (define written
+        (glowcap_host_publish_reference (host-ptr m) (ref->c reference)
+                                       (pin-immobile seed) (bytes-length seed)
+                                       out (bytes-length out)))
+      (when (<= written 0) (check/host written))
+      (unless (= written (bytes-length out))
+        (raise-glowcap 'host-publish-reference ERR-INTERNAL "publication returned an invalid name length"))
+      (bytes->string/utf-8 out))))
 
 ;; Remove a minted durable publication (ADR-0098): the old sturdyref misses
 ;; from now on, while issued refs and deposited gifts keep the exact actor.

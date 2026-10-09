@@ -10,6 +10,7 @@ pub const Append = struct {
     directory: DirectoryEdit,
     child: ?*DirectoryEdit = null,
     parent: ?core.ResourceId = null,
+    grant_parent: ?core.GrantId = null,
     resource_ready: bool = false,
 
     pub fn init(view: *read.Read, family: records.DirectoryPage.Family) !Append {
@@ -58,7 +59,21 @@ pub const Append = struct {
             const step = try self.view.advance();
             if (step != .ready) return step;
         }
-        return self.directory.advance();
+        const step = try self.directory.advance();
+        if (step != .ready) return step;
+        if (self.directory.family == .grant) if (self.grant_parent) |parent| {
+            if (self.child == null) {
+                const binding = (try self.view.binding(.{ .grant = parent })) orelse return error.RecordUnloaded;
+                const row = (try read.Read.rowFor(self.view.store, binding)).?.view;
+                var record = try records.GrantRecord.decodeOwned(self.view.allocator, row.payload);
+                defer record.deinit(self.view.allocator);
+                const child = try self.view.allocator.create(DirectoryEdit);
+                child.* = DirectoryEdit.init(self.view, .grant, record.value.children, self.directory.slot);
+                self.child = child;
+            }
+            return self.child.?.advance();
+        };
+        return .ready;
     }
 
     /// Prepare the child-index path before staging a resource append. A model

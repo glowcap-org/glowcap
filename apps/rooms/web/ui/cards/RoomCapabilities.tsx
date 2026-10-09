@@ -210,7 +210,7 @@ export function RoomCapabilities(
 								<div className="actions">
 									<Button
 										type="submit"
-										busy={takingManager}
+										busy={takingManager === "take"}
 										disabled={!available || authorityWorking || managerPasted.trim() === ""}
 									>
 										{roomManagerTakeCommit}
@@ -224,7 +224,7 @@ export function RoomCapabilities(
 												id="convcardManagerRecover"
 												type="button"
 												variant="quiet"
-												busy={takingManager}
+												busy={takingManager === "recover"}
 												disabled={!available || authorityWorking}
 												onClick={recoverManager}
 											>
@@ -309,6 +309,9 @@ export function RoomCapabilities(
 												)}
 											</div>
 										)}
+									{authoritySaid["drop-manager"] && (
+										<Said kind="failure">{authoritySaid["drop-manager"]}</Said>
+									)}
 									{authoritySaid["unregister-room"] && (
 										<Said kind="failure">{authoritySaid["unregister-room"]}</Said>
 									)}

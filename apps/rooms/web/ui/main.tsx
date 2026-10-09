@@ -1,4 +1,5 @@
-// The Rooms page entry, bundled to /page.js by native rooms-web. Rust Wasm
+import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
+// The Rooms page entry, bundled to /page.js by rooms-web. Rust Wasm
 // admits durable startup choices; this module mounts their React projection.
 //
 // Rust owns local and attached session execution. React renders their shared
@@ -25,28 +26,47 @@ import { reserveSelectionForAddress } from "./page_bootstrap.ts";
 import { RoomsPage } from "./page.ts";
 import { bindTabVisibility, RoomsPageProvider, RoomsProjectionProvider } from "./hooks.ts";
 import * as prefs from "./prefs.ts";
-import { installWorkspaceStatePersistence } from "./workspace_state.ts";
-import { restoreWorkspaceState } from "./workspace/bundle.ts";
-import { AttachedSessionProjection } from "./session/projection.ts";
-import { createAttachedRoomsSession } from "./session/attached_session.ts";
-import { AttachedSessionFiles } from "./session/attached_files.ts";
-import { setWorkspaceControllerSelection, workspaceControllerSelection } from "./workspace_state.ts";
+import { openManagedSession } from "./session/managed/open.ts";
+import { ManagedSessionProvider } from "./session/managed/context.tsx";
+import { ManagedProjection } from "./session/managed/projection.ts";
+import { presentationFiles } from "./session/managed/files.ts";
+import { createManagedController } from "./session/managed/controller.ts";
+import { ManagedHistory } from "./session/managed/history.ts";
 import * as application from "./application.ts";
 import { RoomsBrowserProvider } from "./controller/browser.ts";
-import { createRoomsBrowserController } from "./controller/create_browser.ts";
-import { attachedSessionFailureText } from "./session/attached_failure.ts";
+import { chosenKey, createRoomsBrowserController } from "./controller/create_browser.ts";
+import { finishBrowserDataDeletion } from "./controller/browser_data.ts";
 import { ModalProvider } from "./modal.ts";
-import { CapabilitySetEvents } from "./ops/capability_set_events.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
 import { refusalText } from "../../lib/text/failure.ts";
-import { hostedSelectionRefused } from "../../lib/text/page.ts";
+import { membershipStatus } from "./session/managed/membership_status.ts";
+import * as store from "./store.ts";
+import { bindViewPreferences } from "./view_preferences.ts";
 
 const page = new RoomsPage();
+function report(source: string, error: unknown): void {
+	const reason = refusalText(error);
+	store.noteTrouble(page.projection, source, reason);
+}
+const stopPreferences = bindViewPreferences(page.projection);
+addEventListener("pagehide", stopPreferences, { once: true });
 // The stylesheet refuses page scaling everywhere the root's `touch-action` is
 // honoured; this is WebKit's half, which arrives as its own gesture events.
 refusePageScaling();
 bindTabVisibility(page.projection);
-const browser = createRoomsBrowserController(page, navigateTo, addressOfActive);
+const browser = createRoomsBrowserController(page, navigateTo, addressOfActive, openWorkspace);
+let openingWorkspace: ReturnType<typeof openManagedSession> | null = null;
+function openWorkspace(): ReturnType<typeof openManagedSession> {
+	return openingWorkspace ??= openManagedSession(report).then((opened) => {
+		page.managedSession = opened.session;
+		addEventListener("pagehide", () => {
+			void opened.session.close().catch((error) =>
+				store.noteTrouble(page.projection, managedText.workspaceShutdown, refusalText(error))
+			);
+		}, { once: true });
+		return opened;
+	});
+}
 
 const mount = document.getElementById("root");
 if (!mount) throw new Error("rooms: page.html is missing its #root element");
@@ -129,89 +149,93 @@ async function start(): Promise<void> {
 		if (path == null) throw new Error("the Rooms page has no application module");
 		await application.loadApplication(fetch(path));
 	});
-	restoreWorkspaceState(
-		page,
-		application.directoryId,
-		location.pathname === "/",
-		application.readSavedWorkspace,
-	);
-	const controllerSelection = workspaceControllerSelection(page);
-	const pageLocator = prefs.directoryLocator();
-	if (controllerSelection.kind === "none") {
+	// Session choice and explicit data deletion must remain reachable before
+	// opening storage, including when an obsolete schema refuses startup.
+	const deleted = await finishBrowserDataDeletion(chosenKey());
+	if (deleted != null) {
+		standAtFrontOfPrivilegedAddress();
+		await showSessionSetup("", deleted);
+		return;
+	}
+	if (localStorage.getItem(chosenKey()) !== "yes") {
 		standAtFrontOfPrivilegedAddress();
 		await showSessionSetup();
 		return;
 	}
-	// After the branch that has no wait left to name: a browser with no session
-	// chosen goes straight to choosing one, and a line about looking for rooms
-	// would be on screen for exactly as long as it was untrue.
-	noteBootPhase(controllerSelection.kind === "attached" ? "session" : "rooms");
+	let opened: Awaited<ReturnType<typeof openManagedSession>>;
+	try {
+		opened = await openWorkspace();
+	} catch (error) {
+		standAtFrontOfPrivilegedAddress();
+		await showSessionSetup("", refusalText(error));
+		return;
+	}
+	const { session: managed, local } = opened;
+	if (local && managed.current != null) {
+		const search = new URLSearchParams(location.search);
+		const current = managed.current.intent;
+		const connection = prefs.dmFrom(search, current.connection);
+		if (connection !== current.connection) {
+			await managed.actions.run("chooseConnection", [connection]);
+		}
+	}
+	page.controllerSelection.set(
+		local ? { kind: "local" } : { kind: "attached", sturdyref: await managed.workspace.publish() },
+	);
+	noteBootPhase(local ? "rooms" : "session");
 	const establishedUi = loadEstablished();
 	prefetch(() => establishedUi);
 	if (location.pathname.startsWith("/ops")) prefetch(loadOpsPage);
-	const capabilityEvents = new CapabilitySetEvents();
-	addEventListener("pagehide", () => {
-		capabilityEvents.close();
-	}, { once: true });
-	const { connectAttachedRoomsSession, connectLocalRoomsSession } = await import("./session/attached_connection.ts");
-	let controller: Awaited<ReturnType<typeof connectAttachedRoomsSession>>;
-	try {
-		if (controllerSelection.kind === "attached") {
-			controller = await connectAttachedRoomsSession(page, controllerSelection.sturdyref);
-		} else {
-			const local = await connectLocalRoomsSession(page);
-			controller = local.controller;
-			page.hostedSession.bind(async () => {
-				try {
-					const sturdyref = await local.publish();
-					if (!setWorkspaceControllerSelection(page, { kind: "hosted", sturdyref })) {
-						return hostedSelectionRefused;
-					}
-					return "";
-				} catch (error) {
-					return attachedSessionFailureText(error);
-				}
-			});
+	const history = new ManagedHistory(page, managed, report);
+	const files = presentationFiles(page.projection, () => history.source);
+	history.bindFiles(files);
+	const projection = new ManagedProjection(
+		page,
+		managed,
+		files,
+		() => history.refresh(),
+		(key) => history.unavailable(key),
+	);
+	const stopProjection = projection.bind();
+	let selfLocator: string | null = null;
+	const session: RoomsSessionController = createManagedController(
+		page,
+		browser,
+		managed,
+		files,
+		await prefs.directoryLocator() ?? "",
+		history,
+		() => selfLocator,
+	);
+	if (local) {
+		selfLocator = await managed.application.startRooms(membershipStatus(page.projection, report));
+		// Opening the page observes its directory without claiming a nickname.
+		// Existing holdings keep their exact saved authority and user intent.
+		if (!managed.current?.intent.directories.some((row) => row.home)) {
+			const reason = await session.reachDirectory("", { kind: "exact", name: "" });
+			if (reason !== "") report(managedText.roomsConnection, reason);
 		}
-	} catch (error) {
-		await showSessionSetup(
-			controllerSelection.kind === "attached" ? controllerSelection.sturdyref : undefined,
-			attachedSessionFailureText(error),
-		);
-		return;
 	}
-	page.attachedSession.hold(controller);
-	const files = new AttachedSessionFiles(controller, page.projection);
-	const projection = new AttachedSessionProjection(page, files, capabilityEvents);
-	const stopProjection = projection.bind(controller);
-	const session: RoomsSessionController = createAttachedRoomsSession(page, browser, controller, files, {
-		defaultDirectoryLocator: await pageLocator,
-		capabilityEvents,
-		recoverSends: controllerSelection.kind === "local",
-	});
-	addEventListener("pagehide", () => {
-		page.workspace.persistenceControl?.flush();
-		page.attachedSession.release();
+	history.start();
+	managed.bindPresentation(async () => {
 		stopProjection();
 		files.close();
-		void controller.close();
-	}, { once: true });
+		await history.close();
+	});
 	if (location.pathname !== "/") reserveSelectionForAddress(page);
-	installWorkspaceStatePersistence(page);
 	const { EstablishedSession, bindEstablishedRouting } = await establishedUi;
 	bindEstablishedRouting(page);
-	const renderEstablished = (current: RoomsSessionController, key: string) => {
-		root.render(
-			<StrictMode>
-				<PageSurface>
-					<ModalProvider key={key}>
-						<EstablishedSession session={current} />
+	root.render(
+		<StrictMode>
+			<PageSurface>
+				<ManagedSessionProvider value={managed}>
+					<ModalProvider key="established-session">
+						<EstablishedSession session={session} />
 					</ModalProvider>
-				</PageSurface>
-			</StrictMode>,
-		);
-	};
-	renderEstablished(session, "established-session");
+				</ManagedSessionProvider>
+			</PageSurface>
+		</StrictMode>,
+	);
 
 	handOffWhenReady(page.projection, "controller-snapshot");
 }

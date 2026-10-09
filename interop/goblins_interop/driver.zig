@@ -328,14 +328,15 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     }
 
     // 3. Spawn the Goblins client. It dials our listener, so bind before spawn.
-    var argv_buf: [5][]const u8 = .{ goblins_child.racket_path, scenario.dialer, port_text, scenario.swiss, "" };
-    var argv_len: usize = 4;
+    var script_argv: [4][]const u8 = .{ scenario.dialer, port_text, scenario.swiss, "" };
+    var script_len: usize = 3;
     if (scenario.call_arg) |arg| {
-        argv_buf[4] = arg;
-        argv_len = 5;
+        script_argv[3] = arg;
+        script_len = 4;
     }
+    var argv_buf: [6][]const u8 = undefined;
     var child = try std.process.spawn(io, .{
-        .argv = argv_buf[0..argv_len],
+        .argv = goblins_child.racketArgv(&argv_buf, script_argv[0..script_len]),
         .environ_map = init.environ_map,
         .stdout = .pipe,
         .stderr = .pipe,

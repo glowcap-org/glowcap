@@ -1,18 +1,17 @@
-//! Live TCP scale: many concurrent connections served from one loop
-//! thread through `driver.Bridge` over `net.TcpLoop` (ADR-0076).
+//! Live TCP scale: many concurrent connections served from one thread by a
+//! `driver.Server` (ADR-0193).
 //!
-//! One completion loop (`net.TcpLoop`) runs a full byte-fed multi-session
-//! CapTP host (`driver.core.Host`) through `driver.Bridge`: adoption, the keyed
-//! handshake, per-event serving, the budgeted drive, and the host's action
-//! queue all on a single thread. Many clients dial it at once. Each client is an
-//! ordinary blocking `driver.BlockingSession`. Each one fetches the published greeter, and
-//! call it several times, every reply asserted. The run then repeats a second
-//! wave over recycled slots, so the run covers connection churn as well as
-//! concurrency.
+//! One Server's runtime runs the full multi-session CapTP host: adoption, the
+//! keyed handshake, per-event serving, and the host's action queue, all on
+//! its one serving thread over the runtime's stream stack. Many clients dial
+//! it at once. Each client is its own `driver.Session`; each fetches the
+//! published greeter and calls it several times, every reply asserted. The
+//! run then repeats a second wave of fresh connections, so the run covers
+//! connection churn as well as concurrency.
 //!
 //! While the first wave's connections are all open and quiescent, the driver
 //! reads the server side's live heap through a counting allocator and prints
-//! the marginal bytes one bridged connection costs, the way
+//! the marginal bytes one served connection costs, the way
 //! `bench-peer-scaling` reports the sans-io peer's footprint. The figure is
 //! measured and printed, never gated: wall-clock and RSS-shaped numbers on
 //! shared CI hardware flake, and the gating rationale lives in ADR-0073.
@@ -25,77 +24,30 @@ const glowcap = @import("glowcap");
 const harness = @import("interop_harness");
 
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
-const actors = glowcap.actors;
 const driver = glowcap.driver;
-const net = glowcap.net;
-
-const TcpBridge = driver.Bridge(net.TcpLoop);
-const runLoop = harness.LoopRunner(net.TcpLoop).runAfterClosed;
+const tcp = glowcap.net.tcp;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over the tcp loop";
 
-/// Concurrent connections in each wave, all served by the one loop thread.
+/// Concurrent connections in each wave, all served by the one thread.
 const conns_per_wave: usize = 128;
-/// Two waves, so slot recycling and churn are covered: 256 lifecycles total.
+/// Two waves, so connection churn is covered: 256 lifecycles total.
 const waves: usize = 2;
-
-/// ADR-0082 park-metric dogfood: Loop.on_park increments this (make_ctx is the
-/// bridge, so the counter lives here rather than on the hook ctx).
-var park_hits: std.atomic.Value(usize) = .init(0);
-
-/// Park-duration reclaims seen during the run. A healthy wave must produce
-/// none: every connection here drains, so a reclaim would mean the throttle
-/// parked something it never released.
-var park_kills: std.atomic.Value(usize) = .init(0);
-var drain_kills: std.atomic.Value(usize) = .init(0);
-var closes_seen: std.atomic.Value(usize) = .init(0);
-
-/// Watch the close reason on the way past, then hand the complete report to the
-/// bridge. `CloseReason` lets an embedder tell backpressure reclaim apart from
-/// ordinary peer loss; the report also preserves the originating failure.
-fn watchClose(
-    ctx: ?*anyopaque,
-    slot: usize,
-    conn_ctx: ?*anyopaque,
-    report: net.completion.CloseReport,
-) void {
-    // Counted first, and unconditionally. The two reclaim counters below are
-    // only ever read as "still zero", so a `watchClose` that stopped being
-    // called — or a `reason` arm that stopped matching — would satisfy the
-    // gate forever. This is the witness that the observation happened at all.
-    _ = closes_seen.fetchAdd(1, .monotonic);
-    switch (report.reason) {
-        .park_kill => _ = park_kills.fetchAdd(1, .monotonic),
-        // Counted apart from the park kill. Both are reclaims, but the failure
-        // message names one of them, and reporting a terminal-flush timeout as
-        // a slow-reader kill sends the reader to the wrong knob.
-        .drain_kill => _ = drain_kills.fetchAdd(1, .monotonic),
-        .ordinary => {},
-    }
-    TcpBridge.onClose(ctx, slot, conn_ctx, report);
-}
-
-/// Parks where this connection's own partner stopped draining, counted apart
-/// from fan-in victims. An operator needs that distinction to tell a slow
-/// peer from a peer being throttled for someone else's slowness, and this
-/// gate needs it because the two are indistinguishable from the outside.
-var sink_parks: std.atomic.Value(usize) = .init(0);
-
-fn reportPark(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, reason: net.completion.ParkReason) void {
-    _ = ctx;
-    _ = slot;
-    _ = conn_ctx;
-    _ = park_hits.fetchAdd(1, .monotonic);
-    if (reason == .sink) _ = sink_parks.fetchAdd(1, .monotonic);
-}
 /// Calls each connection makes, several turns per connection so the proof is
 /// sustained multiplexing, not a single round trip.
 const calls_per_conn: usize = 4;
 
+/// Generous against a loopback server so an ordinary slow machine still
+/// passes, and finite so a broken one reports instead of hanging.
+const opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 30_000 },
+    .settle = .{ .ms = 30_000 },
+};
+
 /// Tracks live heap bytes with a signed atomic delta per allocator op, so the
-/// main thread can read a quiescent steady state the loop thread built.
+/// main thread can read a quiescent steady state the serving thread built.
 const LiveBytes = struct {
     backing: std.mem.Allocator,
     live: std.atomic.Value(i64) = .init(0),
@@ -139,10 +91,8 @@ const LiveBytes = struct {
     }
 };
 
-/// The published actor: answers `greet` with a static greeting; a fresh
-/// instance per connection through the bridge's publish callback.
-const Greeter = harness.StaticReplyActor("greet", greeting);
-const publishGreeter = harness.publisher("greeter", Greeter);
+/// The published actor: answers `greet` with a static greeting.
+const Greeter = harness.StaticReplyBehavior("greet", greeting);
 
 /// Gates the footprint measurement: wave-one clients report in when their
 /// calls are done and hold their connection open until the main thread has
@@ -152,183 +102,55 @@ const Barrier = struct {
     measured: std.atomic.Value(bool) = .init(false),
 };
 
-/// How long a client waits on the server before calling it a failure.
-///
-/// The budgets default to unbounded, and unbounded here would turn every
-/// property this driver proves into a hang: a park that never resumes, a reply
-/// that never arrives, and a handshake that never completes all read as "still
-/// running" rather than as the regression they are. Generous against a loopback
-/// server so an ordinary slow machine still passes, and finite so a broken one
-/// reports.
-const client_budget: driver.Budget = .{ .ms = 30_000 };
-
 /// One client lifecycle: dial, keyed handshake, fetch, `calls_per_conn`
 /// asserted calls, then (in the measured wave) hold the connection open until
-/// the footprint read. `barrier == null` skips the hold — the churn wave.
-fn clientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16, barrier: ?*Barrier) anyerror!void {
-    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
-    defer scaffold.deinit();
+/// the footprint read. `barrier == null` skips the hold: the churn wave.
+fn clientOnce(io: std.Io, allocator: std.mem.Allocator, address: std.Io.net.IpAddress, barrier: ?*Barrier) anyerror!void {
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, glowcap.net.tcp.locatorFromAddress(&designator_buf, address), .ephemeral, opts);
+    defer session.deinit();
 
-    const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    const tcp_provider = try net.tcp.Provider.create(allocator, io, .{});
-    defer tcp_provider.destroy(allocator);
-    const netlayers = tcp_provider.netlayers();
-    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    var cv = try driver.connectVia(allocator, &netlayers, &scaffold.peer, net.tcp.locatorFromAddress(&designator_buf, address), .ephemeral, scaffold.read_buf, scaffold.write_buf, .{
-        .handshake = client_budget,
-        .settle = client_budget,
-    });
-    defer cv.deinit();
-
-    const greeter = try cv.fetch("greeter");
-    var i: usize = 0;
-    while (i < calls_per_conn) : (i += 1) {
-        try harness.expectStringReply(&cv, allocator, greeter, "greet", &.{}, greeting);
+    const greeter = try session.fetch("greeter");
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    for (0..calls_per_conn) |_| {
+        _ = arena.reset(.retain_capacity);
+        switch (try session.call(greeter, "greet", &.{}, arena.allocator())) {
+            .fulfilled => |value| if (value != .string or !std.mem.eql(u8, value.string, greeting)) return error.WrongReply,
+            .broken => return error.BrokenReply,
+        }
     }
 
     if (barrier) |b| {
         _ = b.ready.fetchAdd(1, .acq_rel);
-        // Fail loud past a wall-clock deadline — an undeadlined spin here is
-        // the same silent-hang class the test/support/wait harness closes for
-        // the hermetic suite; the interop harness mirrors that contract.
+        // Fail loud past a wall-clock deadline: an undeadlined spin here is
+        // the silent-hang class the test/support/wait harness closes.
         try harness.untilFlag(io, 15_000, &b.measured);
     }
 }
 
-/// How many replies to ask for before checking whether the server has parked.
-///
-/// A client that stops reading does not create backpressure until its receive
-/// buffer and the server's send buffer are both full: until then the server's
-/// writes complete into the kernel and its queue drains as fast as it fills, so
-/// `pendingOut` never approaches the 4 KiB mark. A few hundred replies vanish
-/// into buffer space. So the requests go out in batches and the park is checked
-/// between them, rather than as one fixed count chosen to beat whatever the
-/// kernel happens to buffer.
-const backpressure_batch: usize = 512;
-
-/// The client's receive buffer while it plays the slow reader.
-///
-/// Volume alone cannot force this park. Linux auto-tunes a receive window up
-/// to `net.ipv4.tcp_rmem`'s maximum — tens of megabytes on an ordinary
-/// machine — so a client that merely declines to read still absorbs every
-/// reply into the kernel, the server's writes all succeed, and its outbound
-/// queue never reaches the high-water mark. Sending more is an arms race
-/// against a number the kernel picks.
-///
-/// Setting `SO_RCVBUF` explicitly opts this socket out of that auto-tuning,
-/// so the proof is a statement about glowcap rather than about the host's
-/// sysctls. Small on purpose: the window closes almost at once, so
-/// the server's writes back up into the queue ADR-0042 bounds.
-const client_rcvbuf_bytes: c_int = 4096;
-
-/// How many batches to try before calling it a failure. The product is the old
-/// fixed count, so a machine that needs every one of them still passes; a
-/// machine that parks early stops early instead of pushing the rest uphill into
-/// a pipe the server has already stopped reading.
-const backpressure_batches: usize = 12;
-
-/// Force the parked-sink path against a real kernel.
-///
-/// Every other client here reads each reply, so the server's outbound never
-/// crosses the high-water mark and the ADR-0042 park never fires. This one
-/// asks for far more than it reads: it queues eventual sends in batches and
-/// never reads a reply. The server answers, its outbound queue passes the mark,
-/// and it parks this connection's read rather than piling more replies onto a
-/// socket nobody is draining.
-///
-/// Batched, and stopping at the first park, because how many replies it takes
-/// is a property of the kernel's buffer sizing rather than of anything this
-/// driver controls. A single fixed count large enough for a small buffer also
-/// pushes several hundred kilobytes of *requests* uphill into a server whose
-/// read seat has already parked, which can wedge the flush and be reclaimed by
-/// the park deadline — a failure that reads as a bug and is a machine.
-///
-/// The park is observed, not assumed: the loop runs in this process, so
-/// `on_park` increments a counter this function waits on. Then it reads,
-/// which is the other half of the contract — the queue drains, the read
-/// re-arms, every reply lands, and the connection still works afterwards.
-fn backpressureOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerror!void {
-    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
-    defer scaffold.deinit();
-
-    const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    const tcp_provider = try net.tcp.Provider.create(allocator, io, .{});
-    defer tcp_provider.destroy(allocator);
-    const netlayers = tcp_provider.netlayers();
-    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    var cv = try driver.connectVia(allocator, &netlayers, &scaffold.peer, net.tcp.locatorFromAddress(&designator_buf, address), .ephemeral, scaffold.read_buf, scaffold.write_buf, .{
-        .handshake = client_budget,
-        .settle = client_budget,
-    });
-    defer cv.deinit();
-
-    const greeter = try cv.fetch("greeter");
-
-    // Become a genuinely slow reader before asking for anything (see
-    // `client_rcvbuf_bytes`). The fetch above is already settled, so shrinking
-    // the window now cannot stall the handshake that got us here.
-    if (cv.conn.socketHandle()) |fd| {
-        std.posix.setsockopt(
-            fd,
-            std.posix.SOL.SOCKET,
-            std.posix.SO.RCVBUF,
-            &std.mem.toBytes(client_rcvbuf_bytes),
-        ) catch |err| {
-            std.debug.print("tcp-loop: could not shrink the client receive buffer: {s}\n", .{@errorName(err)});
-            return error.SlowReaderNotEstablished;
-        };
-    } else return error.SlowReaderNotEstablished;
-
-    // Heap, not stack: this many vows is more than a thread stack should hold.
-    const vows = try allocator.alloc(actors.Vow, backpressure_batch * backpressure_batches);
-    defer allocator.free(vows);
-
-    // Ask in batches, and stop as soon as the server has parked. Counted at
-    // the decision, not sampled from outside: the park is transient — the
-    // kernel keeps accepting, the queue drains, the read re-arms — so polling
-    // the loop's state from this thread misses it. An earlier version of this
-    // proof did exactly that and reported no park while eight were firing.
-    // A baseline, not a reset. The earlier version zeroed the counter after
-    // awaiting the previous wave's clients, but a client returning does not
-    // mean the loop thread has finished tearing its connection down, and the
-    // reset was ordered against nothing — so a straggler park from that wave
-    // could satisfy this wait, and the proof would pass without this
-    // connection ever having been parked.
-    const parks_before = sink_parks.load(.monotonic);
-    const deadline = harness.deadlineAfter(io, 10_000);
-    var sent: usize = 0;
-    while (sent < vows.len and sink_parks.load(.monotonic) == parks_before) {
-        for (vows[sent .. sent + backpressure_batch]) |*v| {
-            v.* = try cv.send(greeter, .{ .verb = "greet", .args = &.{} });
+/// Accept every connection and serve them all from this one thread until the
+/// main thread has joined both waves.
+fn serve(server: *driver.Server, allocator: std.mem.Allocator, done: *std.atomic.Value(bool)) anyerror!void {
+    var sessions: std.ArrayListUnmanaged(*driver.Session) = .empty;
+    defer {
+        for (sessions.items) |session| session.deinit();
+        sessions.deinit(allocator);
+    }
+    while (!done.load(.acquire)) {
+        if (try server.waitAcceptable(0)) {
+            const session = try server.accept();
+            sessions.append(allocator, session) catch |err| {
+                session.deinit();
+                return err;
+            };
+            // An accepted session dispatches nothing until its owner attends.
+            try session.attend();
+            continue;
         }
-        sent += backpressure_batch;
-        // Write-only: `flush` drains outbound without touching the read side.
-        try cv.flush();
-        if (harness.expired(io, deadline)) return error.NoSinkParkUnderBackpressure;
+        _ = try server.runtime.stepAny(10);
     }
-
-    // The server is now answering into a queue we are not draining. Give the
-    // last batch's replies time to cross the mark if they have not already.
-    while (sink_parks.load(.monotonic) == parks_before) {
-        if (harness.expired(io, deadline)) return error.NoSinkParkUnderBackpressure;
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5), .real) catch {};
-    }
-
-    // Read again. Every queued reply must arrive, which proves the park held
-    // the replies rather than dropping them.
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
-    defer arena_state.deinit();
-    for (vows[0..sent]) |*v| {
-        const settled = try cv.settleVow(v.*, arena_state.allocator());
-        const ok = switch (settled) {
-            .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-            .broken, .give => false,
-        };
-        if (!ok) return error.WrongReply;
-    }
-
-    // And the connection is still usable: the read seat re-armed on drain.
-    try harness.expectStringReply(&cv, allocator, greeter, "greet", &.{}, greeting);
+    if (sessions.items.len != conns_per_wave * waves) return error.MissingAccepts;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -338,101 +160,47 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    // Everything the server side allocates — host, bridge, loop, adopted
-    // peers, vats — runs through the counting allocator, so live bytes at a
-    // warmed steady state divided by the connection count is the marginal
-    // cost of one bridged connection.
+    // Everything the server side allocates, from its runtime and stream stack
+    // to adopted sessions and the Host Vat, runs through the counting
+    // allocator, so live bytes at a warmed steady state divided by the
+    // connection count is the marginal cost of one served connection.
     var counting = LiveBytes{ .backing = allocator };
     const server_alloc = counting.allocator();
 
-    var session_root: [32]u8 = undefined;
-    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = try driver.core.Host.init(server_alloc, @as([32]u8, @splat(0x42)), session_root, .{
-        .limits = .{ .max_frame_bytes = frame_cap },
-        // This live proof targets the completion loop's byte-queue mark, not
-        // the Host's independent retained-semantic-work waterline. The fixed
-        // `backpressure_batches` bound still caps the proof's total work; an
-        // unbounded Host budget here ensures the kernel/Loop queue is the
-        // first limiter, so a Host resource refusal cannot masquerade as a
-        // transport-backpressure regression.
-        .outbound_high_water_bytes = std.math.maxInt(usize),
-    });
-    defer host.deinit();
-    var loop: net.TcpLoop = undefined;
-    var bridge = TcpBridge.init(server_alloc, &host, io, &loop, .{ .publish = publishGreeter });
-    defer bridge.deinit();
+    var server = try driver.listen(server_alloc, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    defer server.deinit();
+    try server.publish("greeter", Greeter, .{});
+    var designator_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&designator_buf));
 
-    loop = try net.TcpLoop.initWithBackendOptions(server_alloc, .{
-        .read_buffer_bytes = frame_cap,
-    }, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-        .max_conns = conns_per_wave * 2,
-        .listen = 0,
-        // ADR-0082's resource posture, enabled over real sockets. The unit
-        // tests drive each part with a scripted backend; this is the only
-        // place the set runs against a kernel, at scale, under a bridge and a
-        // host.
-        //
-        // What this proves and what it does not: the throttle's accounting
-        // and its per-arm check run on every armed read of 256 connection
-        // lifecycles without stalling the loop or reclaiming anything, and
-        // the close reason reaches an embedder. These clients read every
-        // reply, so none of them crosses the mark; the park itself is forced
-        // by `backpressureOnce` below, which stops reading mid-conversation
-        // and waits for the loop to park it.
-        //
-        // `fan_in_throttle` needs a park deadline beside it: a sink the
-        // partner never drains would otherwise park every other read with
-        // nothing to wake the poll. The bound is generous, because tripping
-        // it here would mean a genuinely wedged connection, not a slow one.
-        .on_park = reportPark,
-        // A mark this proof can actually reach.
-        //
-        // The independent default is 64 KiB, and reaching it from a
-        // client means out-writing the kernel: Linux auto-tunes a receive
-        // window to `net.ipv4.tcp_rmem`'s maximum and a send buffer to `tcp_wmem`'s —
-        // tens of megabytes between them on an ordinary machine — and the
-        // server's socket is inside this loop where no client can shrink it.
-        // Volume alone is therefore an arms race against numbers the host
-        // picks, and the proof lost it: the queue peaked around 3 KiB while
-        // the mark sat at 4 KiB, so the park never fired and the failure read
-        // as a glowcap regression.
-        //
-        // The mark is configuration, so the honest proof configures it. What
-        // ADR-0042 claims is that the queue parks the read once it passes the
-        // mark, and that claim is the same at any mark; pinning a low one
-        // makes the assertion about glowcap rather than about sysctls.
-        .outbound_high_water_bytes = 1024,
-        .fan_in_throttle = true,
-        .park_kill_ms = 30_000,
-    }));
-    // After `hookOptions`, which installs the bridge's own `on_close`.
-    loop.on_close = watchClose;
-    defer loop.deinit();
-    const port = loop.port().?;
-    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    const designator_addr = try net.tcp.parseHostPort("127.0.0.1", port);
-    const designator = net.tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
-    try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
-
-    // The two waves plus the one backpressure connection below.
-    const total_lifecycles = conns_per_wave * waves + 1;
-    var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(runLoop, .{ &loop, total_lifecycles, &loop_err });
+    var done = std.atomic.Value(bool).init(false);
+    var serving = try io.concurrent(serve, .{ server, server_alloc, &done });
+    var serving_joined = false;
+    defer if (!serving_joined) {
+        done.store(true, .release);
+        serving.await(io) catch {};
+    };
 
     const baseline: i64 = counting.live.load(.acquire);
 
-    const Future = @TypeOf(io.concurrent(clientOnce, .{ io, allocator, port, @as(?*Barrier, null) }) catch unreachable);
+    const Future = @TypeOf(io.concurrent(clientOnce, .{ io, allocator, address, @as(?*Barrier, null) }) catch unreachable);
     var futures: [conns_per_wave]Future = undefined;
 
     // Wave one, measured: every client completes its calls and then holds its
     // connection open, so the footprint read sees all of them warmed at once.
     var barrier = Barrier{};
-    for (&futures) |*f| f.* = try io.concurrent(clientOnce, .{ io, allocator, port, @as(?*Barrier, &barrier) });
+    for (&futures) |*f| f.* = try io.concurrent(clientOnce, .{ io, allocator, address, @as(?*Barrier, &barrier) });
+    const ready_deadline = harness.deadlineAfter(io, 60_000);
     while (barrier.ready.load(.acquire) < conns_per_wave) {
+        if (harness.expired(io, ready_deadline)) {
+            // Release the holders so the joins below report the real failure.
+            barrier.measured.store(true, .release);
+            break;
+        }
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5), .real) catch {};
     }
-    // A beat for the loop thread to go quiescent (parked in poll) before the
-    // heap is read.
+    // A beat for the serving thread to go quiescent (parked on readiness)
+    // before the heap is read.
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real) catch {};
     const warmed: i64 = counting.live.load(.acquire);
     barrier.measured.store(true, .release);
@@ -442,58 +210,26 @@ pub fn main(init: std.process.Init) !void {
         if (first_err == null) first_err = err;
     };
 
-    // Wave two, churn: the same count again over recycled slots, no hold.
-    for (&futures) |*f| f.* = try io.concurrent(clientOnce, .{ io, allocator, port, @as(?*Barrier, null) });
+    // Wave two, churn: the same count again over fresh connections, no hold.
+    for (&futures) |*f| f.* = try io.concurrent(clientOnce, .{ io, allocator, address, @as(?*Barrier, null) });
     for (&futures) |*f| f.await(io) catch |err| {
         if (first_err == null) first_err = err;
     };
 
-    // `park_hits` is only reported, so a reset here is harmless. `sink_parks`
-    // is *waited on*, and this reset was ordered against nothing — a client
-    // returning does not mean the loop thread has finished with its
-    // connection. `backpressureOnce` takes its own baseline instead.
-    park_hits.store(0, .monotonic);
-    backpressureOnce(io, allocator, port) catch |err| {
-        if (first_err == null) first_err = err;
-    };
-
-    loop_future.await(io);
-    if (loop_err) |err| return err;
+    done.store(true, .release);
+    serving_joined = true;
+    const served = serving.await(io);
     if (first_err) |err| return err;
+    try served;
 
     const marginal = @divTrunc(warmed - baseline, @as(i64, @intCast(conns_per_wave)));
     const at_500k_mib = @divTrunc(marginal * 500_000, 1024 * 1024);
     std.debug.print(
-        "tcp-loop: OK, {d} concurrent TCP connections per wave x {d} waves ({d} lifecycles), {d} calls each, one loop thread over the Host bridge\n",
-        .{ conns_per_wave, waves, total_lifecycles, calls_per_conn },
+        "tcp-loop: OK, {d} concurrent TCP connections per wave x {d} waves ({d} lifecycles), {d} calls each, one Server thread\n",
+        .{ conns_per_wave, waves, conns_per_wave * waves, calls_per_conn },
     );
     std.debug.print(
         "tcp-loop: measured server-side footprint {d} bytes/connection warmed ({d} connections; ~{d} MiB at 500k), printed not gated\n",
         .{ marginal, conns_per_wave, at_500k_mib },
     );
-    std.debug.print(
-        "tcp-loop: fan-in throttle and a 30s park deadline on; a non-reading client forced {d} sink park(s) of {d} total, no reclaims\n",
-        .{ sink_parks.load(.monotonic), park_hits.load(.monotonic) },
-    );
-    // A park-kill here means a connection sat parked for thirty seconds while
-    // its peers finished, which is a wedge rather than backpressure. A
-    // drain-kill means a terminal flush ran out of budget, which is a different
-    // fault and a different knob, so it is reported as itself.
-    // The reclaim gate below tests for zero, so it needs proof the counter was
-    // ever reachable. Every one of these lifecycles ends in a close, so a run
-    // that observed none observed nothing.
-    if (closes_seen.load(.monotonic) < total_lifecycles) {
-        std.debug.print(
-            "tcp-loop: FAIL close hook saw {d} of {d} connection endings; the reclaim gate below reads zero from a counter nothing reached\n",
-            .{ closes_seen.load(.monotonic), total_lifecycles },
-        );
-        return error.CloseHookMissedConnections;
-    }
-    if (park_kills.load(.monotonic) != 0 or drain_kills.load(.monotonic) != 0) {
-        std.debug.print(
-            "tcp-loop: FAIL {d} connection(s) reclaimed by the park deadline, {d} by the drain deadline\n",
-            .{ park_kills.load(.monotonic), drain_kills.load(.monotonic) },
-        );
-        return error.ReclaimDuringHealthyRun;
-    }
 }

@@ -103,7 +103,7 @@
 ;; watcher's, say — so a caller that already has its own room callback does not
 ;; need a second registration to hear about members arriving and leaving. The
 ;; member's own register inbox reaches this directly.
-(define (dm-notify member event name registration-id) ($ member 'heard event name registration-id))
+(define (dm-notify member event name registration-id [opening #f]) ($ member 'heard event name registration-id opening))
 
 ;; A name as the room keys it. The room matches nicks case-insensitively, so a
 ;; member's own tables have to as well or an inbox filed under one casing is
@@ -118,6 +118,12 @@
 
 (define (registration-id? value)
   (and (string? value) (regexp-match-exact? registration-id-rx value)))
+
+(define (opening? value)
+  (and (string? value) (positive? (string-length value))
+       (<= (for/sum ([character (in-string value)])
+             (if (> (char->integer character) #xffff) 2 1))
+           128)))
 
 (define (^dm-member _bcom directory nick locator on-message on-sent on-status on-error)
   ;; The current registration for each peer name. Every other table is keyed by
@@ -148,6 +154,10 @@
   ;; again straight away instead of parking. `apps/rooms/lib/room/client.ts` keeps
   ;; the same memo against the same race.
   (define introducible-seen (make-hash))
+  (define opening-sequence 0)
+  (define (new-opening)
+    (set! opening-sequence (add1 opening-sequence))
+    (format "racket:~a" opening-sequence))
   (define registered? (box #f))
 
   ;; The capability the room calls this member back on. Separate from the member
@@ -159,7 +169,8 @@
               [(notify event . rest)
                (heard event
                       (if (pair? rest) (car rest) "")
-                      (if (and (pair? rest) (pair? (cdr rest))) (cadr rest) ""))]))))
+                      (if (and (pair? rest) (pair? (cdr rest))) (cadr rest) "")
+                      (if (>= (length rest) 3) (caddr rest) #f))]))))
 
   ;; The inbox one named peer's messages arrive on. `peer` is closed over at mint
   ;; time and never read off a message, because the room hands this inbox to that
@@ -168,6 +179,9 @@
     (spawn
      (lambda (_bcom)
        (methods
+        [(directReady reply)
+         (hash-set! back-channels registration-id reply)
+         (void)]
         [(dm text . rest)
          (define reply (if (pair? rest) (car rest) #f))
          (when reply (hash-set! back-channels registration-id reply))
@@ -184,27 +198,20 @@
                (hash-set! inboxes registration-id inbox)
                inbox))))
 
-  ;; Offer `peer` the inbox minted for them. Always re-offered rather than only
-  ;; once: the room forgets a member's offers whenever either name changes hands,
-  ;; and saying it again is the only way back.
-  ;;
-  ;; `fresh?` mints a new inbox first, discarding whatever was held for that name.
-  ;; It is how a request from the room is answered, because the room asks only
-  ;; when it holds no inbox for that caller — either genuine first contact, or the
-  ;; name having changed hands since. Reusing the old inbox there would hand the
-  ;; new holder of a name the messages meant for the last one.
-  (define (offer peer registration-id #:fresh? [fresh? #f])
+  ;; This actor receives every opening for one exact registration. Each offer
+  ;; names the requested exchange; forgetting a registration retires its cached
+  ;; actor before the next holder of that name can receive an offer.
+  (define (offer peer registration-id opening)
     (cond
       [(string=? (peer-key peer) (peer-key nick)) (void)]
       [else
-       (when fresh? (hash-remove! inboxes registration-id))
-       (offer-minted peer registration-id)]))
+       (offer-minted peer registration-id opening)]))
 
-  (define (offer-minted peer registration-id)
+  (define (offer-minted peer registration-id opening)
     (cond
       [(inbox-for peer registration-id)
        => (lambda (inbox)
-            (on (<- directory 'offerInbox peer registration-id inbox)
+            (on (<- directory 'offerInbox peer registration-id opening inbox)
                 void
                 #:catch (lambda (err) (on-error (format "offer ~a an inbox" peer) err))))]
       [else
@@ -246,8 +253,9 @@
   ;; Open the introduced line to `peer` and send `text` on it. The room answers
   ;; with the inbox that member offered for us, as a give; Goblins redeems it by
   ;; dialing the member directly, so the send below is already off-room.
-  (define (introduce-then-say peer registration-id text)
-    (on (<- directory 'introduce peer registration-id)
+  (define (introduce-then-say peer registration-id text opening)
+    (define key (cons registration-id opening))
+    (on (<- directory 'introduce peer registration-id opening)
         (lambda (their-inbox)
           (hash-set! lines registration-id their-inbox)
           (void (say-on-open-route registration-id peer text)))
@@ -261,11 +269,11 @@
             ;; now rather than park on a notice that has already been spent.
             [(equal? (room-error-code err) "introduction-pending")
              (cond
-               [(hash-ref introducible-seen registration-id #f)
-                (hash-remove! introducible-seen registration-id)
-                (introduce-then-say peer registration-id text)]
+               [(hash-ref introducible-seen key #f)
+                (hash-remove! introducible-seen key)
+                (introduce-then-say peer registration-id text opening)]
                [else
-                (hash-update! waiting registration-id (lambda (held) (cons text held)) '())])]
+                (hash-update! waiting key (lambda (held) (cons text held)) '())])]
             [else (on-error (format "reach ~a" peer) err)]))))
 
   (define (say peer text)
@@ -280,7 +288,7 @@
        (on-error (format "direct message to ~a" peer) "peer-offline: no current registration")]
       [else
        (unless (say-on-open-route registration-id peer text)
-         (introduce-then-say peer registration-id text))]
+         (introduce-then-say peer registration-id text (new-opening)))]
       ))
 
   (define (forget peer registration-id)
@@ -290,16 +298,22 @@
     (hash-remove! inboxes registration-id)
     (hash-remove! lines registration-id)
     (hash-remove! back-channels registration-id)
-    (hash-remove! waiting registration-id)
+    (for ([key (in-list (hash-keys waiting))] #:when (equal? (car key) registration-id))
+      (hash-remove! waiting key))
     ;; The next holder of this name is somebody else, and must not inherit a
     ;; notice the last one earned.
-    (hash-remove! introducible-seen registration-id))
+    (for ([key (in-list (hash-keys introducible-seen))]
+          #:when (equal? (car key) registration-id))
+      (hash-remove! introducible-seen key)))
 
   ;; One `notify` the room pushed, whichever inbox it arrived on.
-  (define (heard event name registration-id)
+  (define (heard event name registration-id [opening #f])
     (when (member event '("registered" "unregistered" "mintInboxFor" "introducible"))
       (unless (and (string? name) (registration-id? registration-id))
         (error 'rooms-dm "~a carried an invalid member registration" event)))
+    (when (member event '("mintInboxFor" "introducible"))
+      (unless (opening? opening)
+        (error 'rooms-dm "~a carried an invalid direct opening" event)))
     (define name-key (peer-key name))
     (cond
       [(equal? event "registered")
@@ -315,9 +329,8 @@
           (unless (unbox registered?)
             (set-box! registered? #t)
             (on-status (format "the room granted you the name ~a" nick)))]
-         ;; Another member arrived and can be direct-messaged. Offering unasked
-         ;; saves them the refused first introduction.
-         [else (offer name registration-id)])]
+         ;; An opening request names the exact inbox exchange.
+         [else (void)])]
       [(equal? event "unregistered")
        (when (equal? (hash-ref registrations name-key #f) registration-id)
          (forget name registration-id)
@@ -330,18 +343,19 @@
        (define prior (hash-ref registrations name-key #f))
        (when (and prior (not (equal? prior registration-id))) (forget name prior))
        (hash-set! registrations name-key registration-id)
-       (offer name registration-id #:fresh? #t)]
+       (offer name registration-id opening)]
       ;; A member we were told to wait for has offered an inbox. Whatever was
       ;; typed while waiting goes now, in the order it was typed.
       [(equal? event "introducible")
        (when (equal? (hash-ref registrations name-key #f) registration-id)
-         (define held (reverse (hash-ref waiting registration-id '())))
-         (hash-remove! waiting registration-id)
+         (define key (cons registration-id opening))
+         (define held (reverse (hash-ref waiting key '())))
+         (hash-remove! waiting key)
          ;; Nothing parked yet means the refusal this notice belongs to is still on
          ;; its way, so the notice is remembered for it rather than dropped.
          (if (null? held)
-             (hash-set! introducible-seen registration-id #t)
-             (for ([text (in-list held)]) (introduce-then-say name registration-id text))))]
+             (hash-set! introducible-seen key #t)
+             (for ([text (in-list held)]) (introduce-then-say name registration-id text opening))))]
       [else (void)]))
 
   (define member-self
@@ -352,7 +366,7 @@
           #:catch (lambda (err) (on-error (format "register as ~a" nick) err)))]
      [(say peer text) (say peer text)]
      [(forget peer registration-id) (forget peer registration-id)]
-     [(heard event name registration-id) (heard event name registration-id)]))
+     [(heard event name registration-id opening) (heard event name registration-id opening)]))
 
   member-self)
 

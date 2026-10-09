@@ -2,6 +2,11 @@
 //! scenarios own semantics; this trace catches projection and persistence drift.
 use super::{Argument, ControlPowers, Policy, Ref, Session};
 
+pub async fn revision(session: &Session, control: &Ref) -> u64 {
+	let reply = session.send(control, "describe-control", &[]).await.unwrap();
+	super::parse_control_revision(&reply).unwrap()
+}
+
 fn request(policy: &Policy) -> Vec<Argument> {
 	let wide = policy.value(&[10, 20], &[]).unwrap();
 	wide.managed_derive_arguments(
@@ -9,9 +14,11 @@ fn request(policy: &Policy) -> Vec<Argument> {
 		1,
 		ControlPowers {
 			policy_ceiling: Some(wide),
+			delegate_control: true,
 			pause: true,
 			resume: true,
 			revoke: true,
+			..Default::default()
 		},
 	)
 }
@@ -76,7 +83,10 @@ pub async fn exercise(session: &Session, root: &Ref, root_control: &Ref, policy:
 		"same sequence with changed powers conflicts"
 	);
 	assert!(
-		session.send(&child, "pause", &[]).await.is_err(),
+		session
+			.send(&child, "pause", &[Argument::Bytes(0u64.to_be_bytes().to_vec())])
+			.await
+			.is_err(),
 		"use does not imply management"
 	);
 	let grandchild = session
@@ -129,13 +139,32 @@ pub async fn exercise(session: &Session, root: &Ref, root_control: &Ref, policy:
 	let narrow_control = Ref::try_from(&narrow_child[1]).unwrap();
 	assert!(
 		session
-			.send(&narrow_control, "mutate", &narrow.set_policy_arguments(1))
+			.send(
+				&narrow_control,
+				"mutate",
+				&narrow.set_policy_arguments(1, super::management::revision(session, &narrow_control).await)
+			)
 			.await
 			.is_err()
 	);
-	assert!(session.send(&narrow_control, "revoke", &[]).await.is_err());
+	assert!(
+		session
+			.send(
+				&narrow_control,
+				"revoke",
+				&[Argument::Bytes(
+					super::management::revision(session, &narrow_control)
+						.await
+						.to_be_bytes()
+						.to_vec()
+				)]
+			)
+			.await
+			.is_err()
+	);
 
 	let limited = ControlPowers {
+		delegate_control: true,
 		policy_ceiling: Some(narrow),
 		pause: true,
 		..Default::default()
@@ -149,13 +178,39 @@ pub async fn exercise(session: &Session, root: &Ref, root_control: &Ref, policy:
 	);
 	assert!(
 		session
-			.send(&leaf, "mutate", &wide.set_policy_arguments(1))
+			.send(
+				&leaf,
+				"mutate",
+				&wide.set_policy_arguments(1, super::management::revision(session, &leaf).await)
+			)
 			.await
 			.is_err(),
 		"editing ceiling cannot expand"
 	);
-	assert!(session.send(&leaf, "resume", &[]).await.is_err());
-	assert!(session.send(&leaf, "revoke", &[]).await.is_err());
+	assert!(
+		session
+			.send(
+				&leaf,
+				"resume",
+				&[Argument::Bytes(
+					super::management::revision(session, &leaf).await.to_be_bytes().to_vec()
+				)]
+			)
+			.await
+			.is_err()
+	);
+	assert!(
+		session
+			.send(
+				&leaf,
+				"revoke",
+				&[Argument::Bytes(
+					super::management::revision(session, &leaf).await.to_be_bytes().to_vec()
+				)]
+			)
+			.await
+			.is_err()
+	);
 	assert!(
 		session
 			.send(
@@ -174,32 +229,65 @@ pub async fn exercise(session: &Session, root: &Ref, root_control: &Ref, policy:
 	let wrong_schema = Policy::new([6; 16], &[10, 20], &[]).unwrap().value(&[10], &[]).unwrap();
 	assert!(
 		session
-			.send(&control, "mutate", &wrong_schema.set_policy_arguments(2))
+			.send(
+				&control,
+				"mutate",
+				&wrong_schema.set_policy_arguments(2, super::management::revision(session, &control).await)
+			)
 			.await
 			.is_err(),
 		"schema mismatch cannot consume the mutation sequence"
 	);
-	let mut malformed = narrow.set_policy_arguments(2);
-	malformed[2] = Argument::Bytes(vec![0; 15]);
+	let mut malformed = narrow.set_policy_arguments(2, revision(session, &control).await);
+	malformed[3] = Argument::Bytes(vec![0; 15]);
 	assert!(
 		session.send(&control, "mutate", &malformed).await.is_err(),
 		"malformed policy refuses without changing authority"
 	);
 	session
-		.send(&control, "mutate", &narrow.set_policy_arguments(2))
+		.send(
+			&control,
+			"mutate",
+			&narrow.set_policy_arguments(2, super::management::revision(session, &control).await),
+		)
 		.await
 		.unwrap();
 	policies(session, &grandchild).await;
-	session.send(&leaf, "pause", &[]).await.unwrap();
 	session
-		.send(&control, "mutate", &wide.set_policy_arguments(3))
+		.send(
+			&leaf,
+			"pause",
+			&[Argument::Bytes(
+				super::management::revision(session, &leaf).await.to_be_bytes().to_vec(),
+			)],
+		)
+		.await
+		.unwrap();
+	session
+		.send(
+			&control,
+			"mutate",
+			&wide.set_policy_arguments(3, super::management::revision(session, &control).await),
+		)
 		.await
 		.unwrap();
 	assert!(
 		session.send(&child, "get", &[]).await.is_err(),
 		"editing a paused grant does not resume it"
 	);
-	session.send(&control, "resume", &[]).await.unwrap();
+	session
+		.send(
+			&control,
+			"resume",
+			&[Argument::Bytes(
+				super::management::revision(session, &control)
+					.await
+					.to_be_bytes()
+					.to_vec(),
+			)],
+		)
+		.await
+		.unwrap();
 	assert!(session.send(&grandchild, "get", &[]).await.is_ok());
 	let dependent = session
 		.send(
@@ -216,39 +304,87 @@ pub async fn exercise(session: &Session, root: &Ref, root_control: &Ref, policy:
 	let dependent = Ref::try_from(&dependent).unwrap();
 	assert!(
 		session
-			.send(&dependent, "mutate", &narrow.set_policy_arguments(1))
+			.send(
+				&dependent,
+				"mutate",
+				&narrow.set_policy_arguments(1, super::management::revision(session, &dependent).await)
+			)
 			.await
 			.is_err(),
 		"lifecycle-only control cannot edit policy"
 	);
+	let retired_revision = revision(session, &leaf).await;
 	session.send(&leaf, "revoke-control", &[]).await.unwrap();
-	assert!(session.send(&leaf, "pause", &[]).await.is_err());
 	assert!(
-		session.send(&dependent, "pause", &[]).await.is_err(),
+		session
+			.send(
+				&leaf,
+				"pause",
+				&[Argument::Bytes(retired_revision.to_be_bytes().to_vec())]
+			)
+			.await
+			.is_err()
+	);
+	assert!(
+		session
+			.send(
+				&dependent,
+				"pause",
+				&[Argument::Bytes(retired_revision.to_be_bytes().to_vec())]
+			)
+			.await
+			.is_err(),
 		"control retirement fences its dependent controls"
 	);
 	assert!(
 		session.send(&child, "get", &[]).await.is_ok(),
 		"control retirement preserves use and independent control"
 	);
-	session.send(root_control, "pause", &[]).await.unwrap();
-	assert!(session.send(&grandchild, "get", &[]).await.is_err());
-	session.send(root_control, "resume", &[]).await.unwrap();
 	session
-		.send(&control, "mutate", &narrow.set_policy_arguments(4))
+		.send(
+			root_control,
+			"pause",
+			&[Argument::Bytes(
+				super::management::revision(session, root_control)
+					.await
+					.to_be_bytes()
+					.to_vec(),
+			)],
+		)
+		.await
+		.unwrap();
+	assert!(session.send(&grandchild, "get", &[]).await.is_err());
+	session
+		.send(
+			root_control,
+			"resume",
+			&[Argument::Bytes(
+				super::management::revision(session, root_control)
+					.await
+					.to_be_bytes()
+					.to_vec(),
+			)],
+		)
+		.await
+		.unwrap();
+	let final_revision = revision(session, &control).await;
+	session
+		.send(&control, "mutate", &narrow.set_policy_arguments(4, final_revision))
 		.await
 		.unwrap();
 	policies(session, &grandchild).await;
-	swiss
+	format!("{final_revision}:{swiss}")
 }
 
 pub async fn reopen(session: &Session, root: &Ref, policy: &Policy, swiss: &str) {
+	let (expected_revision, swiss) = swiss.split_once(':').unwrap();
+	let expected_revision = expected_revision.parse::<u64>().unwrap();
 	let (child, control) = derive(session, root, policy).await;
 	assert_eq!(name(session, &child).await, swiss, "managed receipt survives restart");
 	let narrow = policy.value(&[10], &[]).unwrap();
 	assert_eq!(
 		session
-			.send(&control, "mutate", &narrow.set_policy_arguments(4))
+			.send(&control, "mutate", &narrow.set_policy_arguments(4, expected_revision))
 			.await
 			.unwrap()
 			.as_bool(),
@@ -278,7 +414,10 @@ pub async fn reopen(session: &Session, root: &Ref, policy: &Policy, swiss: &str)
 		.send(
 			&control,
 			"mutate",
-			&policy.value(&[10, 20], &[]).unwrap().set_policy_arguments(5),
+			&policy
+				.value(&[10, 20], &[])
+				.unwrap()
+				.set_policy_arguments(5, revision(session, &control).await),
 		)
 		.await
 		.unwrap();
@@ -286,11 +425,16 @@ pub async fn reopen(session: &Session, root: &Ref, policy: &Policy, swiss: &str)
 		session.send(&child, "mutate", &denied).await.is_ok(),
 		"held editing ceiling persists"
 	);
-	session.send(&control, "revoke", &[]).await.unwrap();
+	let revoke = vec![
+		Argument::Integer(6),
+		Argument::String("revoke".into()),
+		Argument::Bytes(revision(session, &control).await.to_be_bytes().to_vec()),
+	];
+	session.send(&control, "mutate", &revoke).await.unwrap();
 	assert_eq!(
-		session.send(&control, "revoke", &[]).await.unwrap().as_bool(),
-		Some(false),
-		"terminal grant revocation remains idempotent"
+		session.send(&control, "mutate", &revoke).await.unwrap().as_bool(),
+		Some(true),
+		"terminal grant revocation replays the original committed receipt"
 	);
 	assert!(session.send(&child, "get", &[]).await.is_err());
 	assert!(

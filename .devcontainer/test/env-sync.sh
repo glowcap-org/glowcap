@@ -119,6 +119,9 @@ require_absent "${devcontainer_json}" "type=volume" "devcontainer.json owns host
 require_literal "${devcontainer_json}" "source=\${localEnv:HOME}/.cache/glowcap,target=${GLOWCAP_CACHE_DIR},type=bind" "devcontainer.json glowcap cache bind"
 require_literal "${compose_file}" "ZIG_LOCAL_CACHE_DIR: ${ZIG_WORK_CACHE_DIR}/zig-local" "docker-compose.yml ZIG_LOCAL_CACHE_DIR"
 require_literal "${compose_file}" "ZIG_LOCAL_PKG_DIR: ${ZIG_WORK_CACHE_DIR}/zig-pkg" "docker-compose.yml ZIG_LOCAL_PKG_DIR"
+while IFS=: read -r key value; do
+    require_line "${compose_file}" "      ${key}: ${value}" "docker-compose.yml build environment"
+done < <(glowcap_devcontainer_build_env_rows)
 require_line "${compose_file}" "        source: glowcap-dev-zig-work" "docker-compose.yml Zig work-cache volume source"
 require_line "${compose_file}" "        target: ${ZIG_WORK_CACHE_DIR}" "docker-compose.yml Zig work-cache volume target"
 require_line "${compose_file}" "    name: glowcap-dev-\${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}-zig-work" "docker-compose.yml per-worktree Zig volume name"

@@ -24,6 +24,19 @@ test "loam LMDB creates and reopens an exclusively owned store" {
 }
 
 const f = @import("loam_test_support");
+test "loam LMDB bootstrap survives opening before any resource commit" {
+    var tmp = try Temp.init();
+    defer tmp.deinit();
+    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .bootstrap = f.id } });
+    const incarnation = db.metadata.incarnation;
+    try db.close();
+    try std.testing.expectError(error.StoreMismatch, Lmdb.open(tmp.path, .{ .mode = .{ .bootstrap = @fromBackingInt(999) } }));
+    db = try Lmdb.open(tmp.path, .{ .mode = .{ .bootstrap = f.id } });
+    defer db.close() catch unreachable;
+    try std.testing.expect(db.metadata.incarnation > incarnation);
+    try std.testing.expectEqual(@as(u64, 0), db.metadata.objects);
+}
+
 const Temp = struct {
     dir: std.testing.TmpDir,
     path: [:0]u8,
@@ -299,4 +312,39 @@ test "loam LMDB insertion barrier traces mapped edges after black record mutatio
     try f.collect(&store, &db);
     try std.testing.expectEqual(@as(u64, 8), store.metadata.objects);
     try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
+}
+
+test "loam LMDB commit handles preserve their terminal outcome" {
+    for ([_]bool{ false, true }) |aborted| {
+        var tmp = try Temp.init();
+        defer tmp.deinit();
+        var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id } });
+        defer db.close() catch unreachable;
+        var store = try core.Store.init(std.testing.allocator, db.metadata, &f.schemas, f.limits);
+        defer store.deinit() catch unreachable;
+        try store.begin();
+        const id = try store.allocateId();
+        try store.putCopying(f.record(id, "saved"), null);
+        const ticket = try store.prepare();
+        const batch = try store.beginWrite(ticket);
+        var pending = try db.beginCommit(batch);
+        defer pending.abort();
+        if (aborted) pending.abort();
+        const outcome = pending.finish();
+        if (aborted) {
+            try std.testing.expect(outcome == .unchanged);
+        } else {
+            try std.testing.expect(outcome == .committed);
+        }
+        pending.abort();
+        const repeated = pending.finish();
+        const recovered = try db.recover(batch);
+        try store.completeWrite(ticket, repeated);
+        try std.testing.expectEqualDeep(outcome, repeated);
+        if (aborted) {
+            try std.testing.expect(recovered == .unchanged);
+        } else {
+            try std.testing.expectEqualDeep(outcome.committed, recovered.committed);
+        }
+    }
 }

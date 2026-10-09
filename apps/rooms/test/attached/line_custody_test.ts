@@ -3,7 +3,7 @@
 
 import type { Attachment } from "../../lib/attachment.ts";
 import { MAX_SCROLLBACK } from "../../lib/limits.ts";
-import type { AttachedRoomsController } from "../../web/ui/session/attached.ts";
+import type { FileSources } from "../../web/ui/session/attached_files.ts";
 
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
@@ -32,7 +32,7 @@ Deno.test("attached lines release file capability custody whenever they leave th
 	const released: string[] = [];
 	const controller = {
 		releaseAttachment: (file: Attachment) => released.push(file.name),
-	} as unknown as AttachedRoomsController;
+	} as unknown as FileSources<Attachment>;
 	const files = new AttachedSessionFiles(controller, page.projection);
 	const room = resetRoom(page, "custody");
 	const first = attachment("cleared.txt");

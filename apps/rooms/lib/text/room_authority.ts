@@ -14,8 +14,7 @@ export const roomCapabilitiesTitle = "Room capabilities";
  * them, and the reader who most needs this is the one who does not yet know
  * where IRC operations is. The component supplies the address, because routes
  * are the page's business and words are this file's. */
-export const bridgeHasNoManagerLead =
-	"The IRC bridge owns entry and moderator authority. There is no native room manager to take, so administer the channel in";
+export const bridgeHasNoManagerLead = "The IRC bridge owns entry and moderator authority. Administer the channel in";
 export const bridgeHasNoManagerLink = "IRC operations";
 export const bridgeHasNoManagerAfter = ".";
 export const roomManagerTake = "Take a shared room manager capability";
@@ -94,10 +93,10 @@ export const roomAuthorityTopic = "Set the topic";
 export const roomAuthorityTopicHeld = "Held by this membership";
 export const roomAuthorityTopicNotOffered = "Not offered by this room";
 export const roomAuthorityModerate = "Moderate membership";
-export const roomAuthorityModerateHeld = "Held by this tab";
+export const roomAuthorityModerateHeld = "Held by this session";
 export const roomAuthorityModerateRetained = "Retained, but not held on this connection";
 export const roomAuthorityModerateViaManager = "Available through the held room manager";
-export const roomAuthorityModerateNotHeld = "Not held by this tab";
+export const roomAuthorityModerateNotHeld = "Not held by this session";
 export const roomModeratorIssuing = "Issuing moderator capability…";
 export const roomModeratorTakingRetained = "Taking retained capability…";
 export const roomModeratorIssue = "Issue moderator capability";

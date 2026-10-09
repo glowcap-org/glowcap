@@ -4,7 +4,9 @@ use super::super::{
 	Error,
 	value::{self, Stored, Values},
 };
-use rooms_application::archive::{self, ConversationKind, Kind, Record, blobs::Address, index::Entry, output::Output};
+use rooms_application::archive::{
+	self, ConversationKind, Filter, Kind, Record, blobs::Address, index::Entry, output::Output,
+};
 use std::sync::Arc;
 use wasm_bindgen::{JsCast, JsValue};
 const MAX_SAFE: u64 = (1 << 53) - 1;
@@ -35,6 +37,27 @@ pub(super) fn key(record: &Record) -> JsValue {
 		record.conversation(),
 		&c.id,
 	))
+}
+// One bounded serialized context per stored envelope. IndexedDB owns the
+// compound context/revision index and updates it atomically with every put/delete.
+pub(super) fn context(record: &Record) -> JsValue {
+	json((
+		kind(record),
+		record.conversation_kind().map(conversation).unwrap_or(""),
+		record.directory(),
+		record.conversation(),
+	))
+}
+pub(super) fn selected_context(filter: &Filter) -> Option<JsValue> {
+	if filter.kind != Some(Kind::Line) {
+		return None;
+	}
+	Some(json((
+		"line",
+		conversation(filter.conversation_kind?),
+		filter.directory.as_ref()?,
+		filter.conversation.as_ref()?,
+	)))
 }
 pub(super) fn coordinates(record: &Record) -> JsValue {
 	let c = record.coordinates();
@@ -86,13 +109,14 @@ pub(super) fn encode(record: &Record, revision: u64) -> Result<JsValue, Error> {
 	value::object(&[
 		("key", key(record)),
 		("coordinates", coordinates(record)),
+		("context", context(record)),
 		("revision", (revision as f64).into()),
 		("digests", digests(record).into()),
 		("row", Values::list(archive::output::record::<Values>(record))),
 	])
 }
 pub(in crate::storage) fn decode(row: JsValue) -> Result<Entry, Error> {
-	value::shape(&row, &["key", "coordinates", "revision", "digests", "row"])?;
+	value::shape(&row, &["key", "coordinates", "context", "revision", "digests", "row"])?;
 	let revision = value::natural(&value::get(&row, "revision")?, MAX_SAFE)?;
 	if revision == 0 {
 		return Err(Error::Invalid("invalid archive storage revision"));
@@ -100,6 +124,9 @@ pub(in crate::storage) fn decode(row: JsValue) -> Result<Entry, Error> {
 	let record = archive::protocol::record(&Stored::new(value::get(&row, "row")?))?;
 	if value::get(&row, "key")? != key(&record) || value::get(&row, "coordinates")? != coordinates(&record) {
 		return Err(Error::Invalid("archive record does not match its storage key"));
+	}
+	if value::get(&row, "context")? != context(&record) {
+		return Err(Error::Invalid("archive record does not match its conversation index"));
 	}
 	if !digests_match(&value::get(&row, "digests")?, &record) {
 		return Err(Error::Invalid("archive record does not match its digest index"));

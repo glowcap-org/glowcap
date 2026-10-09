@@ -7,7 +7,7 @@ decision: "Management decoders receive loaded held-control powers; the fixed-res
 supersedes: []
 superseded_by: []
 amends: [ADR-0185]
-amended_by: []
+amended_by: [ADR-0207]
 ---
 
 # ADR-0187 Held scope for management vocabulary

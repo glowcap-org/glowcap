@@ -126,7 +126,15 @@ services:
     tmpfs:
       - /run/rooms-session:mode=0700
     healthcheck:
-      test: ["CMD", "/runtime/bin/glowcap", "apps", "rooms", "session", "ready", "--file=/run/rooms-session/admin.sturdyref"]
+      test: [
+        "CMD",
+        "/runtime/bin/glowcap",
+        "apps",
+        "rooms",
+        "session",
+        "ready",
+        "--file=/run/rooms-session/admin.sturdyref",
+      ]
       interval: 30s
       timeout: 10s
       retries: 3

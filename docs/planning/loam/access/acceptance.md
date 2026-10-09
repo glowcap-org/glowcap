@@ -86,7 +86,7 @@ of a new method's failure or cost contract.
    Consolidate authority-relevant
    content into its atomic owner store; remove superseded session-specific
    grants and independent commit paths in the owning integration slice. No
-   automatic reset, prerelease migration stack, or silently volatile fallback.
+   automatic reset, prerelease format converter, or silently volatile fallback.
 6. **Record evidence and publish supported limits.** Pin allocation budgets,
    fault-batch limits, turn-work budgets, and measured native/browser costs.
    Recovery, shutdown, backup, blob retention, and cleanup tests are required

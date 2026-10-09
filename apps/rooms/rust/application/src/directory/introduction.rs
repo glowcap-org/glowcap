@@ -6,6 +6,11 @@ pub use crate::protocol_data::INTRODUCE;
 pub const MAX_OUTSTANDING: usize = 256;
 pub const WAIT_MS: u64 = 10_000;
 
+/// A descriptive identity never confers authority; the held registration does.
+pub fn valid_opening(value: &str) -> bool {
+	crate::fields::Text::<128, true>::accepts_utf16(value.encode_utf16())
+}
+
 /// First contact may consume one early notification. A second refusal must
 /// wait for a fresh offer; a third refusal ends this introduction.
 #[derive(Default)]
@@ -53,21 +58,21 @@ impl PartialEq for Ticket {
 	}
 }
 impl Eq for Ticket {}
-struct Waiting<W> {
+struct Waiting<W, K> {
 	ticket: u64,
-	id: Id,
+	id: K,
 	ready: bool,
 	wake: W,
 }
 /// W is an opaque platform wake token. The core returns wake effects; it never
 /// runs them. Ready but unobserved waits still count against the retained bound.
-pub struct Notices<W> {
+pub struct Notices<W, K = Id> {
 	owner: Rc<()>,
-	bank: VecDeque<Id>,
-	waiting: Vec<Waiting<W>>,
+	bank: VecDeque<K>,
+	waiting: Vec<Waiting<W, K>>,
 	serial: u64,
 }
-impl<W> Default for Notices<W> {
+impl<W, K> Default for Notices<W, K> {
 	fn default() -> Self {
 		Self {
 			owner: Rc::new(()),
@@ -77,10 +82,10 @@ impl<W> Default for Notices<W> {
 		}
 	}
 }
-impl<W> Notices<W> {
+impl<W, K: Clone + PartialEq> Notices<W, K> {
 	/// A banked notification can satisfy only the first retry. A subsequent
 	/// refusal requires a notification arriving after the fresh wait begins.
-	pub fn wait(&mut self, id: &Id, use_banked: bool, wake: W) -> Result<Option<Ticket>, Error> {
+	pub fn wait(&mut self, id: &K, use_banked: bool, wake: W) -> Result<Option<Ticket>, Error> {
 		if use_banked && let Some(at) = self.bank.iter().position(|entry| entry == id) {
 			self.bank.remove(at);
 			self.trim();
@@ -139,8 +144,8 @@ impl<W> Notices<W> {
 		}
 	}
 }
-impl<W: Clone> Notices<W> {
-	pub fn notify(&mut self, id: &Id) -> Vec<W> {
+impl<W: Clone, K: Clone + PartialEq> Notices<W, K> {
+	pub fn notify(&mut self, id: &K) -> Vec<W> {
 		// At most MAX_OUTSTANDING wake tokens cross the platform boundary.
 		// Collecting them permits the adapter to wake after releasing its borrow.
 		let mut wake = Vec::new();

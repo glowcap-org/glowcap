@@ -80,22 +80,16 @@ pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) 
     try ctx.ensureDialAllowed();
     const locator = try model.uri.parsePeer(ctx.gpa, uri);
     defer model.freePeerLocator(ctx.gpa, locator);
-    ctx.dial_resident = .{ .io = ctx.io };
-    ctx.dial_netlayers[0] = ctx.dial_resident.netlayer();
-    var netlayer_count: usize = 1;
     var created_relay = false;
     if (ctx.environ.get("GLOWCAP_RENDEZVOUS")) |url| {
         if (ctx.rendezvous_provider == null) {
-            ctx.rendezvous_provider = .{};
+            ctx.rendezvous_provider = @as(relay_runtime.Provider, undefined);
             relay_runtime.init(ctx, &ctx.rendezvous_provider.?, url, null) catch |err| {
                 ctx.rendezvous_provider = null;
                 return err;
             };
             created_relay = true;
         }
-        const relay_layers = ctx.rendezvous_provider.?.netlayers();
-        @memcpy(ctx.dial_netlayers[1..3], relay_layers);
-        netlayer_count = 3;
     }
     // Undo only a provider this dial created; a refused deinit keeps the slot
     // as its own retry owner. Declared at function scope so it covers the
@@ -104,13 +98,22 @@ pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) 
         const failure = relay_runtime.deinitAndReport(ctx, &ctx.rendezvous_provider.?);
         if (failure == null) ctx.rendezvous_provider = null;
     };
-    const netlayers = ctx.dial_netlayers[0..netlayer_count];
-    if (glowcap.net.netlayer.resolve(netlayers, locator.transport) == null) {
+    const symbols: []const model.transport.Known = if (ctx.rendezvous_provider != null)
+        &.{ .tcp, .keyed_relay, .noise_relay }
+    else
+        &.{.tcp};
+    for (symbols) |symbol| {
+        if (std.mem.eql(u8, symbol.metadata().symbol, locator.transport)) break;
+    } else {
         ctx.logErr("transport '{s}' is not registered in this CapTP front", .{locator.transport});
         return error.UnknownTransport;
     }
+    const transports: driver.Transports = .{
+        .symbols = symbols,
+        .relay = if (ctx.rendezvous_provider) |*provider| try provider.options(ctx.io) else null,
+    };
     const identity = try ctx.dialIdentity();
-    return driver.connect(ctx.gpa, netlayers, locator, identity, session_opts.withRecipient(ctx, opts)) catch |err| {
+    return driver.connect(ctx.gpa, ctx.io, transports, locator, identity, session_opts.withRecipient(ctx, opts)) catch |err| {
         ctx.logErr("dial failed: {s}", .{@errorName(err)});
         return err;
     };

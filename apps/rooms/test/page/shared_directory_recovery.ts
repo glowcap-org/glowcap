@@ -40,7 +40,15 @@ export async function proveSharedDirectoryRecovery(page: Page, port: number): Pr
 		await page.fill("#room", "other-room");
 		await page.click("#joinBtn");
 		await namedRoomRow(page, "other-room", false, "membership-joined").waitFor({ timeout: 30_000 })
-			.catch(() => fail("an attached session could not add and join another directory"));
+			.catch(async () => {
+				console.error("FOREIGN-DIRECTORY-VIEW", await page.locator("body").innerText());
+				const review = page.getByRole("button", { name: "Review", exact: true });
+				if (await review.count() > 0) {
+					await review.first().click();
+					console.error("FOREIGN-DIRECTORY-REVIEW", await page.locator("body").innerText());
+				}
+				fail("an attached session could not add and join another directory");
+			});
 
 		await stopOwned(peer);
 		peer = null;
@@ -48,7 +56,10 @@ export async function proveSharedDirectoryRecovery(page: Page, port: number): Pr
 			.catch(() => fail("an attached session did not expose a room whose directory restarted"));
 		peer = await restartStatefulServer(port, state);
 		await namedRoomRow(page, "other-room", false, "membership-joined").waitFor({ timeout: 60_000 })
-			.catch(() => fail("an attached session did not rejoin its room after the directory restarted"));
+			.catch(async () => {
+				console.error("FOREIGN-DIRECTORY-REJOIN", await page.locator("body").innerText());
+				fail("an attached session did not rejoin its room after the directory restarted");
+			});
 
 		await page.click("#newRoomBtn");
 		await page.fill("#newRoomInput", "after-restart");

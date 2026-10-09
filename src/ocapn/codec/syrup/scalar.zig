@@ -50,9 +50,19 @@ pub fn writeAbortWireString(sink: anytype, abort: model.AbortReason) !void {
 }
 
 pub fn writeBytes(sink: anytype, bytes: []const u8) !void {
-    try writeUnsigned(sink, bytes.len);
-    try sink.append(':');
+    try writeBytesPrefix(sink, bytes.len);
     try sink.appendSlice(bytes);
+}
+
+/// Length-only measurement shares the emitted prefix and never reads a payload.
+pub fn byteStringSize(length: usize) error{Overflow}!usize {
+    const prefix = @import("render.zig").measureRecord(writeBytesPrefix, .{length}) catch unreachable;
+    return std.math.add(usize, prefix, length);
+}
+
+fn writeBytesPrefix(sink: anytype, length: usize) !void {
+    try writeUnsigned(sink, length);
+    try sink.append(':');
 }
 
 pub fn writeInteger(sink: anytype, value: i64) !void {

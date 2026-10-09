@@ -1,5 +1,5 @@
 #lang racket/base
-;; Pure-parser checks for site_report.rkt. Run with:
+;; Pure-parser checks for site_report.rkt, run by `zig build check`, or:
 ;;   racket bench/site_report-test.rkt
 ;; No benches run here, the fixtures are captured ReleaseFast output, so the
 ;; parsers work without a build. Exit code is nonzero on any failure.
@@ -36,6 +36,16 @@
                                    "| ~a | glowcap | ~a | 0.3 | 0.5 | ~a | 7.0 | 4.0 |\n"
                                    "| ~a | glowcap-tt | ~a | 0.3 | 0.5 | ~a | 7.0 | 5.0 |\n")
                    s g gr s p pr s t tr))))
+
+(define loam-out
+  (string-append
+   "footprint conversations=64 message_bytes=256 objects=320 record_bytes=1 cold_zig_heap_bytes=1 resident_bytes=0\n"
+   "footprint conversations=64 message_bytes=4096 objects=320 record_bytes=1099776 cold_zig_heap_bytes=65992 resident_bytes=0\n"
+   "hot conversations=64 message_bytes=4096 ops=128 reads=0 writes=0 elapsed_ns=335250 p50_ns=1500 p99_ns=2100\n"
+   "cold conversations=64 message_bytes=4096 ops=128 reads=128 writes=0 elapsed_ns=1155458 p50_ns=7700 p99_ns=19750\n"
+   "edit-unrelated-read conversations=64 message_bytes=4096 ops=128 reads=0 writes=128 elapsed_ns=1 p50_ns=9 p99_ns=9\n"
+   "edit conversations=64 message_bytes=4096 ops=128 reads=0 writes=128 elapsed_ns=12011250 p50_ns=1586917 p99_ns=1709125\n"
+   "restart conversations=64 message_bytes=4096 reads=1 elapsed_ns=6827292\n"))
 
 (define snap-out
   (string-append
@@ -122,6 +132,17 @@
       (check-true (regexp-match? #px"round-trips / s" region))
       ;; latency renders in µs: 155209 ns -> 155.2 µs.
       (check-true (regexp-match? #px"155.2" region)))
+    (test-case "loam"
+      (define rows (parse-loam loam-out))
+      ;; The 256-byte footprint and the edit-unrelated-read row must not parse.
+      (check-equal? rows (list (list 64 '(1500 2100) '(7700 19750) '(1586917 1709125) '(1 6827292) '(1099776 65992))))
+      (define region (loam-region rows))
+      (check-true (regexp-match? #px"Call latency" region))
+      ;; asleep p50 renders in µs and the restart in ms.
+      (check-true (regexp-match? #px"<td>7.7 / 19.8</td>" region))
+      (check-true (regexp-match? #px"<td>6.8</td>" region))
+      ;; Per-conversation memory at the largest population, in KiB.
+      (check-true (regexp-match? #px"holds 1 KiB per conversation, against 16.8 KiB" region)))
     (test-case "langs"
       (define rows (parse-langs-md langs-md))
       ;; Three data rows; the header separator (`| --- | ...`) must not parse.

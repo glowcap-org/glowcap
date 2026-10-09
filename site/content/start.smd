@@ -77,14 +77,14 @@ the stream transports.
 >     defer endpoint.deinit() catch |err| std.log.err("iroh endpoint: {s}", .{@errorName(err)});
 >     var adapter = try iroh.MultiplexedAdapter.init(allocator, &endpoint);
 >     defer if (adapter.deinit()) |failure| std.log.err("iroh adapter: {s}", .{failure.primaryName()});
->     const providers = [_]glowcap.driver.HostRuntime.ProviderRegistration{.{
->         .multiplexed = .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
->     }};
+>     const residents = [_]glowcap.driver.HostRuntime.ProviderRegistration{
+>         .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
+>     };
 >
->     const session = try glowcap.driver.connectProviders(
+>     const session = try glowcap.driver.connect(
 >         allocator,
 >         io,
->         &providers,
+>         .{ .residents = &residents },
 >         partner,
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -97,8 +97,6 @@ the stream transports.
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Same TCP sockets as cleartext keyed dialing; Noise_XK seals the CapTP stream.
->     var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
->     const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
 >     // The designator is the peer's durable key; the hint is where to dial.
 >     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
@@ -110,7 +108,8 @@ the stream transports.
 >
 >     const session = try glowcap.driver.connect(
 >         allocator,
->         &netlayers,
+>         io,
+>         .{ .symbols = &.{.noise_tcp} },
 >         partner,
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -125,19 +124,29 @@ the stream transports.
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Noise_XK seals the session end to end; the relay forwards ciphertext.
 >     const relay_url = "wss://relay.example/relay";
->     var relay: native_relay.Provider = undefined;
->     switch (relay.init(io, allocator, relay_url, null, .system)) {
->         .ready => {},
+>     var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+>         .ready => |ready| ready.owner,
 >         .failed => return error.RelayUnavailable,
->     }
->     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const netlayers = [_]glowcap.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
+>     };
+>     defer switch (tls.release()) {
+>         .released => {},
+>         .busy, .failed => std.log.err("relay TLS teardown failed", .{}),
+>     };
+>     var entropy: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
+>     try io.randomSecure(&entropy);
+>     const transports: glowcap.driver.Transports = .{ .symbols = &.{.noise_relay}, .relay = .{
+>         .url = relay_url,
+>         .entropy_seed = entropy,
+>         .resolver_io = io,
+>         .tls_owner = tls,
+>     } };
 >     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
 >     const partner = glowcap.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
 >     const session = try glowcap.driver.connect(
 >         allocator,
->         &netlayers,
+>         io,
+>         transports,
 >         partner,
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -149,15 +158,15 @@ the stream transports.
 > const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     // Dial through the same SOCKS endpoint the listener named.
->     var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
->         .socks = "/run/tor/socks",
+>     // Dial through a running Tor daemon's SOCKS port.
+>     const transports: glowcap.driver.Transports = .{ .symbols = &.{.onion}, .onion = .{
+>         .socks = try glowcap.net.tcp.parseDesignator("127.0.0.1:9050"),
 >     } };
->     const netlayers = [_]glowcap.net.netlayer.Netlayer{onion_resident.netlayer()};
 >     const partner = glowcap.net.onion.locator("<56-character onion service id>");
 >     const session = try glowcap.driver.connect(
 >         allocator,
->         &netlayers,
+>         io,
+>         transports,
 >         partner,
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -170,8 +179,6 @@ the stream transports.
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Key designator, cleartext CapTP. Reuse a seed across restarts to keep the same key.
->     var keyed_resident = glowcap.net.tcp.keyed.Resident{ .io = io };
->     const netlayers = [_]glowcap.net.netlayer.Netlayer{keyed_resident.netlayer()};
 >     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
 >     const partner = glowcap.net.tcp.keyed.locator(
@@ -182,7 +189,8 @@ the stream transports.
 >
 >     const session = try glowcap.driver.connect(
 >         allocator,
->         &netlayers,
+>         io,
+>         .{ .symbols = &.{.keyed_tcp} },
 >         partner,
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -197,19 +205,29 @@ the stream transports.
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // The key names the peer; the hint names the relay that can reach it.
 >     const relay_url = "wss://relay.example/relay";
->     var relay: native_relay.Provider = undefined;
->     switch (relay.init(io, allocator, relay_url, null, .system)) {
->         .ready => {},
+>     var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+>         .ready => |ready| ready.owner,
 >         .failed => return error.RelayUnavailable,
->     }
->     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const netlayers = [_]glowcap.net.netlayer.Netlayer{relay.resident(.keyed).netlayer()};
+>     };
+>     defer switch (tls.release()) {
+>         .released => {},
+>         .busy, .failed => std.log.err("relay TLS teardown failed", .{}),
+>     };
+>     var entropy: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
+>     try io.randomSecure(&entropy);
+>     const transports: glowcap.driver.Transports = .{ .symbols = &.{.keyed_relay}, .relay = .{
+>         .url = relay_url,
+>         .entropy_seed = entropy,
+>         .resolver_io = io,
+>         .tls_owner = tls,
+>     } };
 >     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
 >     const partner = glowcap.net.relay.keyed.locator(peer_key, relay_url, &hint_storage);
 >     const session = try glowcap.driver.connect(
 >         allocator,
->         &netlayers,
+>         io,
+>         transports,
 >         partner,
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -222,13 +240,12 @@ the stream transports.
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Plain TCP uses a cleartext `host:port` locator.
->     var tcp_resident = glowcap.net.tcp.Resident{ .io = io };
->     const netlayers = [_]glowcap.net.netlayer.Netlayer{tcp_resident.netlayer()};
 >     const partner = glowcap.net.tcp.locator("127.0.0.1:9099");
 >
 >     const session = try glowcap.driver.connect(
 >         allocator,
->         &netlayers,
+>         io,
+>         .{ .symbols = &.{.tcp} },
 >         partner,
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -240,15 +257,16 @@ the stream transports.
 > const glowcap = @import("glowcap");
 >
 > pub fn example(
+>     io: std.Io,
 >     allocator: std.mem.Allocator,
->     network: *glowcap.net.inproc.Network,
+>     exchange: *glowcap.net.inproc_completion.Exchange,
 > ) !void {
 >     // The listening peer and dialer share this process-local switchboard.
->     const netlayers = [_]glowcap.net.netlayer.Netlayer{network.netlayer()};
 >     const partner = glowcap.net.inproc.locator("greeter");
 >     const session = try glowcap.driver.connect(
 >         allocator,
->         &netlayers,
+>         io,
+>         .{ .symbols = &.{.inproc}, .inproc = exchange },
 >         partner,
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -326,13 +344,13 @@ advertises.
 >     defer endpoint.deinit() catch |err| std.log.err("iroh endpoint: {s}", .{@errorName(err)});
 >     var adapter = try iroh.MultiplexedAdapter.init(allocator, &endpoint);
 >     defer if (adapter.deinit()) |failure| std.log.err("iroh adapter: {s}", .{failure.primaryName()});
->     const providers = [_]glowcap.driver.HostRuntime.ProviderRegistration{.{
->         .multiplexed = .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
->     }};
->     const server = try glowcap.driver.listenProviders(
+>     const residents = [_]glowcap.driver.HostRuntime.ProviderRegistration{
+>         .{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() },
+>     };
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         io,
->         &providers,
+>         .{ .residents = &residents },
 >         iroh.transport_name,
 >         .{ .designator = "" },
 >         .{ .keyed = secret },
@@ -355,10 +373,11 @@ advertises.
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
 >     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
->     var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
 >     const server = try glowcap.driver.listen(
 >         allocator,
->         noise_resident.netlayer(),
+>         io,
+>         .{ .symbols = &.{.noise_tcp} },
+>         glowcap.ocapn.model.transport.noise_tcp,
 >         .{ .designator = "127.0.0.1:9099" },
 >         .{ .keyed = secret },
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -382,21 +401,27 @@ advertises.
 >     // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
 >     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
->     var relay: native_relay.Provider = undefined;
->     switch (relay.init(
->         io,
->         allocator,
->         "wss://relay.example/relay",
->         "wss://relay.example/register",
->         .system,
->     )) {
->         .ready => {},
+>     var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+>         .ready => |ready| ready.owner,
 >         .failed => return error.RelayUnavailable,
->     }
->     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
+>     };
+>     defer switch (tls.release()) {
+>         .released => {},
+>         .busy, .failed => std.log.err("relay TLS teardown failed", .{}),
+>     };
+>     var entropy: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
+>     try io.randomSecure(&entropy);
 >     const server = try glowcap.driver.listen(
 >         allocator,
->         relay.resident(.noise).netlayer(),
+>         io,
+>         .{ .symbols = &.{.noise_relay}, .relay = .{
+>             .url = "wss://relay.example/relay",
+>             .entropy_seed = entropy,
+>             .resolver_io = io,
+>             .tls_owner = tls,
+>             .registration = .{ .url = "wss://relay.example/register" },
+>         } },
+>         glowcap.ocapn.model.transport.noise_relay,
 >         .{ .designator = "" },
 >         .{ .keyed = secret },
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -416,14 +441,15 @@ advertises.
 > const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     // glowcap starts no Tor. Name an already-running daemon's SOCKS and control endpoints.
->     var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
->         .socks = "/run/tor/socks",
->         .control_endpoint = "/run/tor/control",
->     } };
+>     // glowcap starts no Tor. Name an already-running daemon's SOCKS and control ports.
 >     const server = try glowcap.driver.listen(
 >         allocator,
->         onion_resident.netlayer(),
+>         io,
+>         .{ .symbols = &.{.onion}, .onion = .{
+>             .socks = try glowcap.net.tcp.parseDesignator("127.0.0.1:9050"),
+>             .control = try glowcap.net.tcp.parseDesignator("127.0.0.1:9051"),
+>         } },
+>         glowcap.ocapn.model.transport.onion,
 >         .{ .designator = "" },
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -451,10 +477,11 @@ advertises.
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
 >     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
->     var keyed_resident = glowcap.net.tcp.keyed.Resident{ .io = io };
 >     const server = try glowcap.driver.listen(
 >         allocator,
->         keyed_resident.netlayer(),
+>         io,
+>         .{ .symbols = &.{.keyed_tcp} },
+>         glowcap.ocapn.model.transport.keyed_tcp,
 >         .{ .designator = "127.0.0.1:9099" },
 >         .{ .keyed = secret },
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -474,10 +501,11 @@ advertises.
 > const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     var tcp_resident = glowcap.net.tcp.Resident{ .io = io };
 >     const server = try glowcap.driver.listen(
 >         allocator,
->         tcp_resident.netlayer(),
+>         io,
+>         .{ .symbols = &.{.tcp} },
+>         glowcap.ocapn.model.transport.tcp,
 >         .{ .designator = "127.0.0.1:9099" },
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -497,11 +525,13 @@ advertises.
 > const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     var network = glowcap.net.inproc.Network.init(allocator, io);
->     defer network.deinit();
+>     var exchange = glowcap.net.inproc_completion.Exchange.init(allocator);
+>     defer exchange.deinit();
 >     const server = try glowcap.driver.listen(
 >         allocator,
->         network.netlayer(),
+>         io,
+>         .{ .symbols = &.{.inproc}, .inproc = &exchange },
+>         glowcap.ocapn.model.transport.inproc,
 >         .{ .designator = "greeter" },
 >         .ephemeral,
 >         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
@@ -524,7 +554,7 @@ const Greeter = struct {
 };
 
 fn serve(server: *glowcap.driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
+    try server.publish("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();
         defer session.deinit();

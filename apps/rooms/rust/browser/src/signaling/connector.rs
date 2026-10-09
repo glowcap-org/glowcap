@@ -3,7 +3,7 @@
 use super::dial;
 use crate::ice;
 use glowcap::{Connector, DialOrigin};
-use rooms_glowcap::client::{Deadline, Tasks, directory::Directory};
+use rooms_glowcap::client::{Deadline, Tasks, directory::signaling::Route};
 use std::io;
 
 /// Select from the application's existing directory inventory before starting
@@ -14,7 +14,7 @@ use std::io;
 pub fn connector<D, F>(select: F, ice: ice::Source) -> glowcap::Result<Connector>
 where
 	D: Deadline + Tasks + Clone + 'static,
-	F: Fn(&glowcap::Locator, &DialOrigin) -> Result<Directory<D>, String> + 'static,
+	F: Fn(&glowcap::Locator, &DialOrigin) -> Result<Route<D>, String> + 'static,
 {
 	Connector::new(
 		&[glowcap::TRANSPORT_WEBRTC],
@@ -27,15 +27,14 @@ where
 					.filter(|budget| !budget.is_zero())
 					.ok_or("Rooms WebRTC requires a finite handshake budget")?;
 				let directory = select(locator, &origin)?;
-				let session = directory.client().session();
-				if !session.host().same_host(&host) || !session.is_open() {
+				if !directory.host().same_host(&host) || directory.session().is_some_and(|session| !session.is_open()) {
 					return Err("Rooms signaling directory is not open on the dialing Host".into());
 				}
 				if let DialOrigin::Pending {
 					introducer: Some(source),
 				} = &origin
 				{
-					if !session.same_session(source) {
+					if directory.session().is_none_or(|session| !session.same_session(source)) {
 						return Err("Rooms signaling directory differs from the introducing session".into());
 					}
 				}

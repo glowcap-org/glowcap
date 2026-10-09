@@ -72,7 +72,7 @@ pub fn stageRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
 fn reserve(attachment: *h.Attachment, record: core.ObjectId, swiss: driver.Host.DurableSwiss) !void {
     for (attachment.retirements) |slot| if (slot) |held| if (held.record.eql(record)) return error.RetirementPending;
     for (attachment.retirements) |*slot| if (slot.* == null) {
-        slot.* = .{ .record = record, .swiss = swiss, .registered = attachment.host.giftables.contains(swiss.slice()) };
+        slot.* = .{ .record = record, .swiss = swiss, .registered = attachment.host.publications.contains(swiss.slice()) };
         return;
     };
     return error.RetirementCapacity;

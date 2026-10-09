@@ -222,7 +222,7 @@ From here, the CapTP workflow is the same for every transport:
 
 ```rust
 println!("{}", server.uri()?); // hand this locator to partners
-server.host().publish_giftable("greeter", || Box::new(greeter))?;
+server.host().publish("greeter", || Box::new(greeter))?;
 loop {
     let session = server.accept().await?;
     session.serve().await?;
@@ -256,7 +256,7 @@ reads and writes await; the protocol verbs never block.
 returning `Result<Argument, String>`. An `Err` breaks the answer with its words,
 and a panic settles it broken without crossing the C boundary.
 To hand one actor across an introduction so a third peer can reach it directly,
-publish it on a `Host` with `publish_giftable`. You hold a `Host` as `server.host()`
+publish it on a `Host` with `publish`. You hold a `Host` as `server.host()`
 from `listen`.
 [Concepts]($link.page('concepts')) covers pipelining and attenuation.
 

@@ -304,7 +304,7 @@ pub fn build(b: *std.Build) void {
     const tcp_archive = installArchive(b, "glowcap_net_transport_tcp", tcp_abi_mod, abi_version);
     const relay_archive = installArchive(b, "glowcap_net_transport_relay", relay_abi_mod, abi_version);
     mbedtls_build.addArchiveChecks(b, target, optimize, native_relay.secure_check, relay_archive.static, relay_archive.dynamic);
-    _ = installArchive(b, "glowcap_net_transport_inproc", inproc_abi_mod, abi_version);
+    const inproc_archive = installArchive(b, "glowcap_net_transport_inproc", inproc_abi_mod, abi_version);
     const onion_archive = installArchive(b, "glowcap_net_transport_onion", onion_abi_mod, abi_version);
     const host_archive = installArchive(b, "glowcap_host", host_archive_mod, abi_version);
     const host_static = host_archive.static;
@@ -562,6 +562,18 @@ pub fn build(b: *std.Build) void {
         .wasm_archives = gates.wasm_archives,
         .iroh_abi_step = iroh_abi_step,
         .iroh_sidecar_archive = iroh_sidecar_archive,
+        .native_archives = &.{
+            &ocapn_archive.static_install.step,
+            &host_archive.static_install.step,
+            &driver_archive.static_install.step,
+            &tcp_archive.static_install.step,
+            &relay_archive.static_install.step,
+            &inproc_archive.static_install.step,
+            &onion_archive.static_install.step,
+            loam_abi.native_installs[0],
+            loam_abi.native_installs[1],
+            iroh_abi_step,
+        },
         .ocapn_install = &ocapn_archive.dynamic_install.step,
         .host_install = &host_archive.dynamic_install.step,
         .driver_install = &driver_archive.dynamic_install.step,

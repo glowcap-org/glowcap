@@ -42,8 +42,8 @@ pub fn decodeAttenuation(_: ?*anyopaque, _: std.mem.Allocator, _: core.Control.P
     return powers(args[0].integer, null);
 }
 fn powers(mask: i64, ceiling: ?core.Terms) !core.Control.Powers {
-    if (mask < 0 or mask > 7) return error.InvalidArguments;
-    return .{ .pause = mask & 1 != 0, .resume_access = mask & 2 != 0, .revoke = mask & 4 != 0, .policy_ceiling = ceiling };
+    if (mask < 0 or mask > 15) return error.InvalidArguments;
+    return .{ .inspect = mask & 8 != 0, .delegate_control = ceiling != null, .pause = mask & 1 != 0, .resume_access = mask & 2 != 0, .revoke = mask & 4 != 0, .policy_ceiling = ceiling };
 }
 pub fn configure(server: *h.Hosted) void {
     server.service.decode_managed_derive = decodeManaged;

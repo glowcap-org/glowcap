@@ -79,7 +79,7 @@ before backend overhead, even after descriptor collection. Future compaction
 must preserve these identity reservations.
 
 Loam metadata format 2 requires the index. Format 1 stores are rejected and must
-be recreated; there is no migration scan or partial-compatibility reader. This
+be recreated. Startup accepts only its exact registered schema. This
 is independent of the LMDB disk-format version.
 
 ## Evidence and gate

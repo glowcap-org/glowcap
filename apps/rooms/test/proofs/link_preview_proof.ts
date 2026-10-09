@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 /// <reference lib="dom" />
 // The link-preview product scene, isolated so UI and effect work can rerun it
 // without paying for the full page proof. The web front, Rust browser app, and
@@ -6,14 +7,13 @@
 import { chromium } from "playwright";
 import { run } from "../page/link_previews.ts";
 import { fail } from "../page/harness.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
-import { WEB } from "../support/paths.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const httpPort = freePort();
 const roomPort = freePort();
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "null",

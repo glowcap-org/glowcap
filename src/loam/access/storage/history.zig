@@ -117,7 +117,7 @@ pub fn touchGrants(view: *Read, path: []const core.GrantId) !void {
         if (value.value.inventory.revision == @backingInt(view.header.version.grants)) continue;
         value.value.grant.revision = view.header.version.grants;
         value.value.inventory = try stamp(view, @backingInt(view.header.version.grants));
-        var edges: [514]loam.Edge = undefined;
+        var edges: [515]loam.Edge = undefined;
         var iterator = found.view.edges();
         var count: usize = 0;
         while (iterator.next()) |edge| {

@@ -1,14 +1,14 @@
-# Durable capability fields
+# Stored capability fields
 
-An actor's saved state can hold capabilities. This guide covers how a held
-capability is turned into something that can be saved and restored after a
-restart: an edge to a record in the same store, a dependency on another
-attachment, or the sturdyref of an object on another host.
+An actor's saved state can hold capabilities. Durable fields restore through
+a local record, another attachment, or a sturdyref on another Host. Live fields
+retain exact authority until their hosting lifetime ends. This guide covers
+both lifetimes and how to replace or remove saved fields.
 
 | Term | Meaning here |
 | --- | --- |
 | attachment | The connection between one store and a Host: it wakes actors when calls arrive and saves their state before replying. |
-| recipe | A small record that says how to get a saved reference back: which local record, which other attachment, or which sturdyref. |
+| recipe | A small record selecting a local record, another attachment, a sturdyref, or exact custody in the current live lifetime. |
 | scope | A registry that lets several attachments on one Host and store name each other. |
 | custody | A retain the library holds on your behalf while an operation is in flight, released when it finishes or is cancelled. |
 | disclosure | Handing saved authority to a caller in a reply. A managed reply must declare what it discloses. |
@@ -52,7 +52,8 @@ A foreign save requires an already established sturdy URI. Host enlivens it and
 checks canonical capability identity against the held capability. A name for a
 different use or control role fails with `DurableReferenceMismatch` before any
 content write. Readiness proves identity; it does not promise remote availability
-or permission. URI input and canonical output are limited to 4096 bytes.
+or permission. URI input and canonical output are limited to
+`references.max_uri_bytes`, 4096 bytes.
 Live-only targets without a durable recipe fail with `NotDurable`. Foreign
 fields require object references on both save and restoration. Resolve a
 promise to its object before saving; promise references refuse with
@@ -63,6 +64,32 @@ does not publish a target remotely and creates no distributed transaction.
 Store access and publication names remain privileged embedding interfaces;
 remote callers enter through held capabilities.
 
+## Live fields
+
+For authority that ends at restart, declare `.save_live = held` and configure
+a bounded `hosting.LiveScope`. Its runtime table retains the exact capability
+under the committed recipe identity. The stored recipe contains an epoch and
+one strong epoch edge. It contains no runtime handle and cannot reconstruct
+authority after restart. Register `hosting.LiveEpoch.schema` alongside the
+reference schema when configuring a Zig Store.
+
+`LiveScope.startHosted` starts a fresh or advanced epoch on an existing
+attachment. Drive ordinary attachment work through confirmed commit or exact
+recovery before admitting live fields. The C `glowcap_loam_live_start` and Rust
+`Attachment.start_live` expose the same path; their schema inventory includes
+the epoch automatically. The marker returned by `live_marker` is descriptive
+trusted startup metadata. A new hosting lifetime must advance it even when
+the Store remains open.
+
+Warm lookup checks the current epoch and actual recipe custody. New scopes
+refuse old fields with `LiveReferenceExpired`. Reservations precede waits;
+unknown writes preserve them, confirmed absence releases them, and confirmed
+commit preserves custody even if reply delivery refuses. Bounded maintenance
+releases custody when collection removes the last recipe occurrence.
+Closing a quiescent scope releases its runtime inventory.
+[ADR-0204](../decisions/adr/ADR-0204-live-recipes-retain-exact-runtime-custody.md)
+owns this contract. Ordinary durable saves still refuse unsupported live targets.
+
 ## Preparing and editing fields
 
 A managed `ContentBehavior.references` callback declares the prerequisites for
@@ -71,6 +98,7 @@ its method. It returns `references.Request` entries:
 - `.restore = field_index` prepares one existing strong field.
 - `.save = .{ .capability = held, .uri = established_uri }` validates a proposed
   replacement; omit the URI for a supported local target.
+- `.save_live = held` reserves exact authority for this hosting lifetime.
 
 The declaration is pure. Preparation runs after current grant admission and
 before `invoke`, using the attachment's ordinary read lane and Host networking.
@@ -108,11 +136,20 @@ only retain custody. Managed replies require an explicit disclosure declaration.
 or control role. `discloseDependent` returns a runtime facet retaining the
 invoking endpoint and exact target. It declares only the facet for the reply;
 capturing or saving the underlying target cannot authorize its disclosure.
-Same-attachment targets use the shared
-managed evaluator. Other targets require the source content behavior's pure
+Same-attachment targets in one authority domain use the shared
+managed evaluator. Independent owners, including those sharing an attachment,
+require the source content behavior's pure
 `dependent_requirement` callback for each forwarded method. The source checks
 that requirement before dispatch; the target checks its own authority through
 normal delivery. Source revocation does not recall an effect already dispatched.
+
+`save_live_dependent` prepares and reserves one facet over an actual source and
+target before waits. `preparedLiveDependent` borrows only the matching declared
+facet for staging; it grants no disclosure. Saving that facet once makes exact
+receipt disclosure and replay return the same authority. On settlement retry,
+`matchesLiveDependent` checks the saved facet's actual guarded pair without
+constructing another facet. Cold restoration still refuses
+([ADR-0205](../decisions/adr/ADR-0205-stable-dependent-live-results.md)).
 
 Forwarding dispatches once through existing Host/Vat delivery. Later Store
 changes cannot replay the target effect. Its owned reply preserves nested

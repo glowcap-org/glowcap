@@ -35,10 +35,66 @@ fn currentOwnerThreadId() OwnerThreadId {
 pub const PendingWorkLease = struct {
     host: ?*Host,
 
+    /// A borrowed work proof is meaningful only at its actual owning Host.
+    /// Validate before another boundary allocates or publishes child effects.
+    pub fn checkHost(self: *const PendingWorkLease, expected: *Host) !void {
+        try claimOwner(expected);
+        const owner = self.host orelse return error.NoPendingWork;
+        if (owner != expected) return error.ForeignWork;
+        switch (expected.lifecyclePhase()) {
+            .active, .finishing => {},
+            .terminating, .closed => return error.HostClosing,
+        }
+    }
+
+    /// Derive child custody from an actual live operation. Finish preserves
+    /// this authority; cancellation and completed leases cannot mint work.
+    pub fn fork(self: *const PendingWorkLease) !PendingWorkLease {
+        const host = self.host orelse return error.NoPendingWork;
+        try (WorkAdmission{ .retained = self }).check(host);
+        beginOperation(host);
+        return .{ .host = host };
+    }
+
+    /// Bounded child delivery uses the same producers and reply owners as a
+    /// top-level call. The actual capability determines its local/wire home.
+    pub fn call(self: *const PendingWorkLease, allocator: std.mem.Allocator, target: @import("../capability.zig").Ref, verb: []const u8, args: []const @import("../value.zig").Value, reply_bytes: usize) !*@import("owned_call.zig").Call {
+        const host = self.host orelse return error.NoPendingWork;
+        const admission: WorkAdmission = .{ .retained = self };
+        try admission.check(host);
+        if (host.localActorFor(target) != null)
+            return @import("local_delivery.zig").callAdmitted(host, allocator, target, verb, args, reply_bytes, admission);
+        const session = host.capabilitySession(target) orelse return error.UnknownCapability;
+        return @import("owned_call.zig").callAdmitted(host, allocator, session, target, verb, args, reply_bytes, admission);
+    }
+
+    /// Cold reference preparation remains a child of the admitted operation.
+    /// Existing Enliven rows and dial tickets own all asynchronous completion.
+    pub fn enliven(self: *const PendingWorkLease, host: *Host, allocator: std.mem.Allocator, sturdyref: @import("model").SturdyRef) !*@import("../enliven.zig").Enliven {
+        return @import("../enliven.zig").enlivenAdmitted(host, allocator, sturdyref, .{ .retained = self });
+    }
+
     pub fn complete(self: *PendingWorkLease) void {
         const host = self.host orelse return;
         finishOperation(host);
         self.host = null;
+    }
+};
+
+/// Synchronous admission proof borrowed through an existing owner's prepare /
+/// commit boundary. It adds no state to queued work or completion owners.
+pub const WorkAdmission = union(enum) {
+    application,
+    retained: *const PendingWorkLease,
+
+    pub fn check(self: WorkAdmission, host: *Host) !void {
+        switch (self) {
+            .application => {
+                try claimOwner(host);
+                try admitApplicationOperation(host);
+            },
+            .retained => |lease| try lease.checkHost(host),
+        }
     }
 };
 
@@ -94,14 +150,14 @@ pub fn admitConfigurationMutation(self: *Host) error{ ReenteredHost, WrongThread
     if (withinCallback(self)) return error.ReenteredHost;
 }
 
-/// Refuse independent driving during a Host callback or native Vat execution
+/// Refuse independent driving during a Host callback or Vat execution
 /// and pin the owning thread under runtime safety.
 pub fn refuseReentry(self: *Host) error{ ReenteredHost, WrongThread }!void {
     try claimOwner(self);
     if (withinCallback(self)) return error.ReenteredHost;
 }
 
-/// Whether a Host callback or native Vat execution owns the current boundary.
+/// Whether a Host callback or Vat execution owns the current boundary.
 /// This lifetime query keeps borrowed callback storage alive; top-level
 /// admission uses refuseReentry instead.
 pub fn withinCallback(self: *const Host) bool {

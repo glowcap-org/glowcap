@@ -130,7 +130,7 @@ async def _enliven_round_trips_then_caches() -> None:
         assert verb == "hello", verb
         return Symbol("alive")
 
-    server_host.publish_giftable("greeter", greeter)
+    server_host.publish("greeter", greeter)
     server = await tcp.listen("127.0.0.1", 0, host=server_host)
     try:
 

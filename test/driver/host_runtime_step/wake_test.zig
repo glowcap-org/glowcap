@@ -5,7 +5,6 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const netlayer_test = @import("../../support/netlayer.zig");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
@@ -29,20 +28,30 @@ test "a silent connector cannot park a staged-accept server: a healthy dial open
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
-    const server_netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    const server_transports: driver.Transports = .{ .symbols = &.{.tcp} };
 
-    // A server built the driver archive's way: a bare listener whose accepts
-    // are staged, never pumped.
-    var server_runtime = try driver.HostRuntime.init(allocator, io, &server_netlayers, .ephemeral, opts);
+    // A server built the driver archive's way: a runtime-owned listener whose
+    // accepts are staged by `stepAny`, never pumped.
+    var server_runtime = try driver.HostRuntime.init(allocator, io, server_transports, .ephemeral, opts);
     defer server_runtime.deinit();
-    var listener = try netlayer_test.listenBlocking(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" });
-    defer netlayer_test.close(listener);
-    const listener_locator = try listener.localLocator(allocator);
-    defer model.freePeerLocator(allocator, listener_locator);
-    try server_runtime.core.setAdvertisedLocator(listener_locator);
-    try server_runtime.publishGiftable("treasure", Treasure, .{});
     var accepts = DialRecorder{};
+    var listener = try server_runtime.bindListener(model.transport.tcp, "127.0.0.1:0", .inherit);
+    var prepared = switch (server_runtime.prepareListenerLocatorOutcome(&listener)) {
+        .ready => |value| value,
+        .failed => |failure| {
+            if (server_runtime.closeListener(&listener)) |cleanup| server_runtime.noteTerminalOperationFailure(cleanup);
+            return failure.cause;
+        },
+    };
+    const listener_locator = try model.clonePeerLocator(allocator, prepared.value);
+    defer model.freePeerLocator(allocator, listener_locator);
+    try server_runtime.activateOwnedListener(&listener, &prepared, 1, .{
+        .ctx = &accepts,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+    _ = try server_runtime.selectOwnedListener(1);
+    try server_runtime.publish("treasure", Treasure, .{});
 
     // The silent connector arrives first: a raw TCP stream that never sends
     // a hello. A blocking accept would park the server inside its handshake
@@ -51,12 +60,12 @@ test "a silent connector cannot park a staged-accept server: a healthy dial open
     var silent = try std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream });
     defer silent.close(io);
 
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
     var sink = RecordingSink{};
     var client_runtime = try driver.HostRuntime.init(
         allocator,
         io,
-        &netlayers,
+        transports,
         .ephemeral,
         harness.stepped(sink.sink(), harness.Quiet.observer()),
     );
@@ -75,13 +84,6 @@ test "a silent connector cannot park a staged-accept server: a healthy dial open
     const started_ms = net.clock.nowMs(io);
     var rounds: usize = 0;
     while (sink.settled.load(.acquire) == 0 and rounds < 1_000) : (rounds += 1) {
-        while (listener.waitAcceptable(0) catch false) {
-            try server_runtime.startAcceptWire(listener, listener.transportName(), 1, .{
-                .ctx = &accepts,
-                .opened = DialRecorder.opened,
-                .failed = DialRecorder.failed,
-            });
-        }
         while (try server_runtime.stepAny(0) != null) {}
         _ = try client_runtime.stepAny(10);
         if (dials.opened_session != null and fetch_vow == 0) {
@@ -108,10 +110,11 @@ test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame byt
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         opts,
@@ -129,11 +132,11 @@ test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame byt
     }.run, .{server});
 
     // The client is built stepped: its descriptor is read below, never armed.
-    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     var client = try driver.connect(
         allocator,
-        &netlayers,
+        io,
+        .{ .symbols = &.{.tcp} },
         tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
         harness.steppedQuiet(),
@@ -172,10 +175,11 @@ test "wakeReadiness raises the descriptor from another thread, and a sessionless
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        tcp_resident.netlayer(),
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         harness.steppedQuiet(),

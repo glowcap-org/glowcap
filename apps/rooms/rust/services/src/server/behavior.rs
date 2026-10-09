@@ -27,7 +27,13 @@ const INTRODUCE: &str = rooms_application::protocol_data::INTRODUCE;
 fn takes_capability(verb: &str) -> bool {
 	matches!(
 		verb,
-		member::REGISTER | member::OFFER_INBOX | WATCH_BASELINE | WATCH | signal::OFFER_INBOX | signal::OFFER
+		member::REGISTER
+			| creation::SUBSCRIBE_PUBLICATION
+			| member::OFFER_INBOX
+			| WATCH_BASELINE
+			| WATCH | rooms_application::directory::UNWATCH
+			| signal::OFFER_INBOX
+			| signal::OFFER
 	)
 }
 
@@ -42,12 +48,15 @@ pub(super) fn root(state: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
 		match verb {
 			LIST_BASELINE | LIST => list(&state, args, shape_of(verb)),
 			WATCH_BASELINE | WATCH => watch(&state, connection, args, shape_of(verb)),
+			rooms_application::directory::UNWATCH => unwatch(&state, connection, args),
 			creation::OPEN
 			| creation::OPEN_MANAGED
 			| creation::ENTER
 			| creation::ENTER_PUBLICATION
 			| creation::LINK
 			| creation::PRIVATE_LINK => super::rooms::directory_verb(&state, connection, verb, args),
+			creation::SUBSCRIBE_PUBLICATION => super::rooms::subscribe_publication(&state, connection, args),
+			creation::LINK_PUBLICATION => super::rooms::link_publication(&state, args),
 			member::REGISTER => registration::register(&state, connection, args),
 			member::OFFER_INBOX => offer_inbox(&state, connection, args),
 			INTRODUCE => introduce(&state, connection, args),
@@ -82,6 +91,38 @@ pub(super) fn capability(args: &[Argument], at: usize) -> Option<&Ref> {
 }
 
 fn list(state: &Shared, args: &[Argument], shape: Shape) -> Reply {
+	if let [Argument::String(name)] = args
+		&& shape == Shape::Publication
+	{
+		if name.is_empty() || name.encode_utf16().count() > rooms_application::server::rooms::MAX_ROOM {
+			return Err("public room lookup needs one bounded name".into());
+		}
+		let state = state.borrow();
+		let rows;
+		if let Some(mut durable) = state.authority.named_publication(name) {
+			let id = state
+				.authority
+				.publication_room(durable.id.text().as_str().expect("publication id"))
+				.expect("named publication");
+			let key = if id.managed {
+				rooms_application::server::rooms::RoomKey::managed(id.id)
+			} else {
+				rooms_application::server::rooms::RoomKey::public(id.id)
+			};
+			let count = state.rooms.member_count(&key);
+			durable.count = rooms_application::fields::Nullable::Value(
+				rooms_application::fields::SafeInteger::new(count as u64).expect("bounded roster"),
+			);
+			rows = vec![durable];
+		} else {
+			let folded = name.to_lowercase();
+			rows = state
+				.listed()
+				.filter(|row| row.name.text().as_str().is_some_and(|n| n.to_lowercase() == folded))
+				.collect();
+		}
+		return Ok(wire::rooms::<Arguments>(&rows, shape));
+	}
 	if !args.is_empty() {
 		return Err(format!(
 			"{} takes no arguments",
@@ -114,15 +155,26 @@ fn watch(state: &Shared, connection: u64, args: &[Argument], shape: Shape) -> Re
 	Ok(wire::snapshot::<Arguments>(&snapshot, shape))
 }
 
+fn unwatch(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
+	let [Argument::Reference(observer)] = args else {
+		return Err("unwatchPublications needs exactly its original observer capability".into());
+	};
+	let mut state = state.borrow_mut();
+	if let Some(released) = state.policy.unwatch(connection, observer) {
+		state.give_back(released.connection, released.capability);
+	}
+	Ok(Argument::Void)
+}
+
 fn offer_inbox(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
-	let (Some(offered), 3) = (capability(args, 2), args.len()) else {
-		return Err("offerInbox needs a nick, registration ID, and inbox capability".into());
+	let (Some(offered), 4) = (capability(args, 3), args.len()) else {
+		return Err("offerInbox needs a nick, registration ID, opening identity and inbox capability".into());
 	};
 	let (nick, id) = (text(args, 0).unwrap_or(""), text(args, 1).unwrap_or(""));
 	let offer = state
 		.borrow()
 		.policy
-		.prepare_inbox(connection, nick, id)
+		.prepare_inbox(connection, nick, id, text(args, 2).unwrap_or(""))
 		.map_err(|r| r.reason())?;
 	let caller = current_session()
 		.map_err(|e| e.to_string())?
@@ -143,14 +195,14 @@ fn offer_inbox(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 }
 
 fn introduce(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
-	if args.len() != 2 {
+	if args.len() != 3 {
 		return Err("introduce takes a valid registered name and its registration ID".into());
 	}
 	let (nick, id) = (text(args, 0).unwrap_or(""), text(args, 1).unwrap_or(""));
-	let state = state.borrow();
+	let mut state = state.borrow_mut();
 	match state
 		.policy
-		.introduce(connection, nick, id)
+		.introduce(connection, nick, id, text(args, 2).unwrap_or(""))
 		.map_err(|refusal| refusal.reason())?
 	{
 		// A reference homed on the member's own connection: the Host hands

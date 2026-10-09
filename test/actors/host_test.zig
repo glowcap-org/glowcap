@@ -426,3 +426,100 @@ test "an answered deliver to an exported-but-unbound position breaks the answer 
     try std.testing.expect(captured.broken);
     try std.testing.expectEqualStrings("NoSuchActor", captured.message[0..captured.message_len]);
 }
+
+test "reply interceptor nested calls commit their local and far sends" {
+    const Send = struct {
+        local: actors.Ref,
+        pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+            try turn.tell(self.local, .{ .verb = "add", .args = &.{.{ .integer = 1 }} });
+            try turn.tell(.{ .far = model.FarRef.object(9) }, .{ .verb = "add", .args = &.{.{ .integer = 1 }} });
+            return .{ .void = {} };
+        }
+    };
+    const Hook = struct {
+        const Mode = enum { pass, claim, refuse };
+        vat: *actors.Vat,
+        port: *actors.Port,
+        sender: actors.Ref,
+        mode: Mode,
+        fn fire(ctx: ?*anyopaque, answer: engine.AnswerTarget, value: model.Argument) anyerror!actors.InterceptOutcome {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            _ = try self.vat.nearFromPort(self.port, .local, self.sender, .{ .verb = "send" });
+            return switch (self.mode) {
+                .pass => .{ .resolve = value },
+                .refuse => error.HookRefused,
+                .claim => blk: {
+                    try self.port.peer.sendAnswerTargetResolutionCopying(answer, .{ .fulfill = value });
+                    break :blk .claimed;
+                },
+            };
+        }
+    };
+    const Reply = struct {
+        calls: usize = 0,
+        value: ?i64 = null,
+        refused: bool = false,
+        fn receive(ctx: ?*anyopaque, result: actors.Resolution) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.calls += 1;
+            switch (result) {
+                .fulfilled => |value| self.value = value.integer,
+                .broken => |reason| self.refused = std.mem.eql(u8, reason, "HookRefused"),
+                .give => unreachable,
+            }
+        }
+    };
+    inline for (.{ model.CaptpVersion.v1_0, model.CaptpVersion.next }) |profile| {
+        for (std.enums.values(Hook.Mode)) |mode| {
+            const allocator = std.testing.allocator;
+            var pair = switch (profile) {
+                .v1_0 => try engine.pairing.pairedV1_0Syrup(allocator),
+                .next => try engine.pairing.paired(allocator),
+            };
+            defer pair.deinit();
+            var server = actors.Vat.init(allocator);
+            defer server.deinit();
+            var server_port = actors.Port.init(allocator, &pair.p2);
+            defer server_port.deinit(&server);
+            const counter = try server.spawn(Counter, .{ .n = 20 });
+            try server_port.bindExport(&server, counter, 7);
+            try pair.p2.exportObject(7);
+            try pair.p1.importObject(7);
+            const local = try server.spawn(Counter, .{ .n = 0 });
+            const sender = try server.spawn(Send, .{ .local = local });
+            var hook: Hook = .{ .vat = &server, .port = &server_port, .sender = sender, .mode = mode };
+            server_port.setResolveInterceptor(.{ .ctx = &hook, .func = Hook.fire });
+            var client = actors.Vat.init(allocator);
+            defer client.deinit();
+            var client_port = actors.Port.init(allocator, &pair.p1);
+            defer client_port.deinit(&client);
+            const remote = try client.spawn(Counter, .{ .n = 0 });
+            try client_port.bindExport(&client, remote, 9);
+            try pair.p1.exportObject(9);
+            try pair.p2.importObject(9);
+            var reply: Reply = .{};
+            const vow = try client_port.send(&client, .{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 2 }} });
+            try client_port.on(&client, vow, .{ .ctx = &reply, .func = Reply.receive });
+            try shuttle(&pair.p1, &pair.p2);
+            while (pair.p2.pollEvent()) |incoming| {
+                var event = incoming;
+                defer event.deinit();
+                _ = try server_port.serve(&server, &event);
+            }
+            try server.drive();
+            try shuttle(&pair.p2, &pair.p1);
+            while (pair.p1.pollEvent()) |incoming| {
+                var event = incoming;
+                defer event.deinit();
+                _ = try client_port.serve(&client, &event);
+            }
+            try std.testing.expectEqual(@as(i64, 22), (try server.near(counter, .{ .verb = "get" })).integer);
+            try std.testing.expectEqual(@as(i64, 1), (try server.near(local, .{ .verb = "get" })).integer);
+            try std.testing.expectEqual(@as(i64, 1), (try client.near(remote, .{ .verb = "get" })).integer);
+            try std.testing.expectEqual(@as(usize, 1), reply.calls);
+            if (mode == .refuse) try std.testing.expect(reply.refused) else try std.testing.expectEqual(@as(?i64, 22), reply.value);
+            try std.testing.expectEqual(@as(usize, 0), server.staged.items.len);
+            try std.testing.expectEqual(@as(usize, 0), server.participants.items.len);
+        }
+    }
+}

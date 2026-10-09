@@ -19,8 +19,8 @@ pub const SignalingAuthority = signaling.SignalingAuthority;
 pub const max_signal_bytes = signaling.signaling_frame_bytes;
 
 /// The WebRTC completion backend for `net.completion.Loop`: one resident
-/// readiness fd and non-blocking try-I/O adapted to the socket-shaped contract
-/// `driver.Bridge` consumes.
+/// readiness fd and non-blocking try-I/O adapted to the socket-shaped completion
+/// contract.
 ///
 /// Construct with `initBound`, then pass this value to
 /// `completion.Loop(Backend, DialResolver).initWithBackend`. Outbound dials
@@ -87,6 +87,11 @@ pub const Backend = struct {
     /// Wake pair for foreign-thread signaling and owner stop requests.
     signal_wake: net.wake_channel.WakeChannel,
     signal_wake_failure: net.wake_channel.FailureLatch = .{},
+    /// One descriptor over the signaling wake, the resident's readiness, and
+    /// an armed foreign poll: this backend's own readiness descriptor.
+    ready_set: net.readiness.ReadySet,
+    /// The one foreign descriptor a host asked this backend to watch.
+    foreign_poll: ?readiness.ForeignPoll = null,
     /// Loop-owned queue swapped with signal_in without per-wake allocation,
     /// preserving the inbox's pre-reserved capacity while work is applied.
     signal_work: std.ArrayList(signaling.SignalIn) = .empty,
@@ -118,6 +123,10 @@ pub const Backend = struct {
         errdefer signal_payloads.deinit(allocator);
         const fd = resident.readinessFd();
         if (fd < 0) return error.ListenFailed;
+        var ready_set = try net.readiness.ReadySet.init();
+        errdefer ready_set.deinit();
+        try ready_set.add(signal_wake.read);
+        try ready_set.add(fd);
         return .{
             .allocator = allocator,
             .resident = resident,
@@ -130,6 +139,7 @@ pub const Backend = struct {
             .signal_in = signal_in,
             .signal_payloads = signal_payloads,
             .signal_wake = signal_wake,
+            .ready_set = ready_set,
             .signal_work = signal_work,
             .accept_stash = accept_stash,
             .buffer_pool = buffer_pool,
@@ -169,13 +179,20 @@ pub const Backend = struct {
         self.signal_work.deinit(self.allocator);
         std.debug.assert(self.signal_reservations == 0);
         self.signal_payloads.deinit(self.allocator);
+        std.debug.assert(self.foreign_poll == null);
+        self.ready_set.deinit();
         self.signal_wake.deinit();
         self.ready.deinit(self.allocator);
         self.buffer_pool.deinit();
     }
 
     /// Nothing to arm: the signaling inbox is the listener substrate.
-    pub fn openListener(_: *Backend, _: u16) !Fd {
+    /// Reachability is the signaling inbox; there is nothing to choose.
+    pub const ListenTarget = void;
+
+    pub fn loopListenTarget(_: u16) ListenTarget {}
+
+    pub fn openListener(_: *Backend, _: ListenTarget) !Fd {
         return listen_fd;
     }
 
@@ -206,11 +223,18 @@ pub const Backend = struct {
     pub const verifiedChannelKey = ConnectionOps.verifiedChannelKey;
     pub const submitRecv = ConnectionOps.submitRecv;
     pub const submitSend = ConnectionOps.submitSend;
-    pub const submitCancel = ConnectionOps.submitCancel;
+    pub fn submitCancel(self: *Self, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
+        if (try ReadinessOps.cancelForeignPoll(self, cancel_user_data, target_user_data, fd)) return;
+        return ConnectionOps.submitCancel(self, cancel_user_data, target_user_data, fd);
+    }
 
     pub const closeFd = LifecycleOps.closeFd;
     pub const shutdownFd = LifecycleOps.shutdownFd;
     pub const submitClose = LifecycleOps.submitClose;
 
     pub const poll = ReadinessOps.poll;
+    pub const readinessFd = ReadinessOps.readinessFd;
+    pub const flush = ReadinessOps.flush;
+    pub const submitPoll = ReadinessOps.submitPoll;
+    pub const waitBoundMs = ReadinessOps.waitBoundMs;
 };

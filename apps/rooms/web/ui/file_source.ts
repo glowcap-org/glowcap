@@ -5,7 +5,9 @@ import type { AttachmentSource } from "../../lib/attachment.ts";
 /** One browser file as the shared attachment layer reads it. The description
  * is also validated before Send clears the composer, so refusal preserves the
  * reader's draft and attached chips. */
-export async function pickedSource(file: File): Promise<AttachmentSource> {
+export async function pickedSource(
+	file: File,
+): Promise<AttachmentSource & { size: number; read: NonNullable<AttachmentSource["read"]> }> {
 	const mime = file.type || "application/octet-stream";
 	let dimensions: { width?: number; height?: number } = {};
 	if (mime.startsWith("image/")) {

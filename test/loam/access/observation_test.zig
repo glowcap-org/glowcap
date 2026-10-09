@@ -21,7 +21,11 @@ test "access observation joins submitted cancellation and refuses stale prepared
 }
 
 test "access observation registration replay and cancellation unwind every allocation refusal" {
-    try @import("std").testing.checkAllAllocationFailures(h.a, cases.allocation, .{});
+    const std = @import("std");
+    // A remap may succeed only after the debug allocator has reused a page.
+    // Refuse growth so every fallback allocation is exercised deterministically.
+    var backing = std.testing.FailingAllocator.init(h.a, .{ .resize_fail_index = 0 });
+    try std.testing.checkAllAllocationFailures(backing.allocator(), cases.allocation, .{});
 }
 
 test "access observation filters control inventory and follows management and grant ancestors" {

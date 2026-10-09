@@ -164,7 +164,8 @@ export async function run(tab: Page): Promise<void> {
 	}
 	await tab.click("#convcardStewardClaim");
 	await tab.waitForFunction(() =>
-		document.querySelector('[aria-label="Room capabilities"]')?.textContent?.includes("Held by this tab") === true
+		document.querySelector('[aria-label="Room capabilities"]')?.textContent?.includes("Held by this session") ===
+			true
 	).catch(async () => {
 		const state = await tab.evaluate(() => ({
 			refusal: document.getElementById("convcardStewardSaid")?.textContent,
@@ -213,7 +214,8 @@ export async function run(tab: Page): Promise<void> {
 	await tab.fill("#convcardStewardTake", steward);
 	await tab.getByRole("button", { name: "Take capability" }).click();
 	await tab.waitForFunction(() =>
-		document.querySelector('[aria-label="Room capabilities"]')?.textContent?.includes("Held by this tab") === true
+		document.querySelector('[aria-label="Room capabilities"]')?.textContent?.includes("Held by this session") ===
+			true
 	).catch(() => fail("a moderator capability discarded locally could not be taken again"));
 	await tab.waitForSelector("#convcardModerationTab");
 	await tab.click("#convcardManagerDropAsk");

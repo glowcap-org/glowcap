@@ -109,6 +109,8 @@ or `resolver-break!` once the worker completes. If the worker gives up, use
 `resolver-abandon!`: it breaks a live answer and also succeeds when its calling
 session has already retired the answer. Run these operations outside the
 hosted callback.
+`host-defer-turn-if-answer` returns a resolver for calls and `#f` for tells.
+The worker must retain its own lifetime when a tell supplies no reply custody.
 
 ## Current semantic limits
 

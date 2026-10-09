@@ -70,10 +70,13 @@ pub(super) struct Deletion {
 }
 impl Deletion {
 	fn start(effects: Effects) -> Result<Rc<Self>, Error> {
+		Self::start_named(effects, "rooms-history")
+	}
+	pub(super) fn start_named(effects: Effects, name: &str) -> Result<Rc<Self>, Error> {
 		let factory = js_sys::Reflect::get(&js_sys::global(), &"indexedDB".into())?
 			.dyn_into::<IdbFactory>()
 			.map_err(|_| Error::Unavailable)?;
-		let request = factory.delete_database("rooms-history")?;
+		let request = factory.delete_database(name)?;
 		let state = Rc::new(Self {
 			request,
 			effects,
@@ -118,14 +121,15 @@ impl Deletion {
 		*state.retained.borrow_mut() = Some(state.clone());
 		Ok(state)
 	}
-	async fn wait(&self) -> Result<(), Error> {
+	pub(super) async fn wait(&self) -> Result<(), Error> {
 		loop {
 			if let Some(outcome) = self.outcome.borrow().clone() {
 				return outcome;
 			}
 			if self.blocked.get() {
 				return Err(Error::Platform(
-					"archive deletion is pending in another tab; close that tab and retry Delete browser data".into(),
+					"Rooms database deletion is pending in another tab; close that tab and retry Delete browser data"
+						.into(),
 				));
 			}
 			self.changed.notified().await;

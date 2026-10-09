@@ -9,6 +9,7 @@
 // left to test here; reachability is checked the way the page reaches the
 // room: a keyed OCapN session established over `/relay`.
 
+import { parseOpsBundle } from "../../web/ui/ops/bundle.ts";
 import { assertEquals } from "../assert.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { freePort } from "../support/rooms_server.ts";
@@ -42,7 +43,9 @@ Deno.test("the web supervisor prints one pasteable capability bundle", async () 
 	} finally {
 		await Deno.remove(state, { recursive: true });
 	}
-	assertEquals(output.match(/^ROOMS-OPERATOR [0-9a-f]{64}$/gm)?.length ?? 0, 1);
+	const operators = [...output.matchAll(/^ROOMS-OPERATOR (ocapn:\/\/\S+)$/gm)];
+	assertEquals(operators.length, 1);
+	assertEquals(parseOpsBundle(output).get("operator"), operators[0][1]);
 	assert(!output.includes("operator capabilities, paste"), "the supervisor printed a second capability projection");
 });
 

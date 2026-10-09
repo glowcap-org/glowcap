@@ -196,8 +196,16 @@ impl fmt::Display for Ended {
 /// needs to hear; anything else is the partner's business, returned so the
 /// peer can report it, and never the peer's own failure.
 pub async fn serve_partner(session: Session) -> Result<(), Ended> {
-	let session = session.with_gc();
-	let served = session.serve().await;
+	serve_partner_until(session, std::future::pending()).await
+}
+
+/// Stop an accepted partner while keeping the shared Host alive. Retire its
+/// admitted calls before the application releases their source attachment.
+pub async fn serve_partner_until(session: Session, halt: impl std::future::Future<Output = ()>) -> Result<(), Ended> {
+	let served = tokio::select! {
+		_ = halt => Ok(()),
+		served = session.serve() => served,
+	};
 	let closed = session.close(PendingWork::Cancel).await;
 	let cause = match served {
 		Ok(()) => None,

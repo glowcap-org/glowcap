@@ -9,7 +9,7 @@ encrypted QUIC.
 Topology — three iroh endpoints (separate identities) in one process, the
 relay-less ``DIRECT`` posture on loopback, so the gate is deterministic and
 flake-free (no discovery service, no network):
-  Exporter  binds an iroh endpoint and publishes a node-giftable ``greeter``.
+  Exporter  binds an iroh endpoint and publishes a Host-published ``greeter``.
   Gifter    binds its own endpoint, dials the exporter (sharing one node
             identity), fetches the greeter, records the exporter's dialable URI
             as the give's exporter location, and publishes an ``introducer`` that
@@ -88,9 +88,9 @@ def greeter(verb: str, args: list):
 
 
 async def run() -> None:
-    # ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
+    # ── Exporter: a Host-published greeter on its own endpoint ────────────────────
     exporter = await listen(IrohConfig(Reachability.DIRECT))
-    exporter.host.publish_giftable("greeter", greeter)
+    exporter.host.publish("greeter", greeter)
     exporter_id, exporter_addrs = await dialable(exporter)
     exporter_served: list = []
     exporter_task = asyncio.create_task(accept_loop_with_served(exporter, exporter_served))
@@ -121,7 +121,7 @@ async def run() -> None:
             return greeter_ref
         return None
 
-    gifter.host.publish_giftable("introducer", introducer)
+    gifter.host.publish("introducer", introducer)
     gifter_served: list = []
     gifter_task = asyncio.create_task(accept_loop_with_served(gifter, gifter_served))
     print(f"python-iroh-handoff: gifter published introducer on {gifter_id}")

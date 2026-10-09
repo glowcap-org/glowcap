@@ -65,10 +65,10 @@ glowcap's C ABI, so a product carries that ABI and not only examples. Zig
 could have done everything Rooms does, and would have needed neither the C ABI
 nor the WebAssembly boundary to do it. Using them is the point.
 
-The [move off TypeScript](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
-tightened two things. The crate holding the rules is `no_std`, so it cannot
-reach a file or a socket by importing the standard library, and the services
-ship as binaries with no runtime to install.
+The [application boundary](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
+keeps the application rules in a portable Rust crate that cannot perform I/O
+by importing the standard library. The services ship as binaries with no runtime
+to install.
 
 It costs bundle size and build time, and typed commands are copied where the
 page meets WebAssembly.
@@ -132,7 +132,8 @@ settings and its local archive; a session kept locally is the device's own,
 saved in the browser's storage.
 
 That is what lets a shared session outlive every device it is opened on,
-while each one keeps its own theme, open panels, drafts, and local history.
+while each one keeps its own theme, open panels, and local history. Drafts and
+conversation selection belong to the shared session.
 It also makes deleting exact: clearing a session does not erase an archive
 somebody else still holds.
 

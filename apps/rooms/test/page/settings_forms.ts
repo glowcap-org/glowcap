@@ -4,7 +4,6 @@
 // without changing the profile used by the rest of the whole-page scenario.
 
 import type { Browser } from "playwright";
-import { WORKSPACE_STATE_VERSION } from "../../lib/rooms_state.ts";
 import { fail } from "./harness.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
@@ -58,6 +57,13 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 				};
 			})
 		);
+		// Returning users must reach explicit deletion even when preflight
+		// refuses their storage. This choice has no workspace authority.
+		await page.evaluate(() => {
+			const tab = crypto.randomUUID();
+			sessionStorage.setItem("rooms.managed-tab", tab);
+			localStorage.setItem(`rooms.workspace-choice.${tab}`, "yes");
+		});
 		await page.goto(`http://127.0.0.1:${httpPort}/`);
 		await page.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
 		await page.waitForSelector("#sessionSetup");
@@ -88,8 +94,6 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 				path: location.pathname,
 				joinCard: document.querySelector(".join-card")?.getAttribute("class"),
 				rail: getComputedStyle(document.getElementById("roomList")!).display,
-				controller: JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null")?.controller ?? null,
-				active: JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null")?.session?.active ?? null,
 			}));
 			fail(`The isolated settings profile did not join refresh-state: ${JSON.stringify(state)}`);
 		});
@@ -105,9 +109,19 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		if (await page.isChecked("#keepHistoryToggle")) {
 			fail("Message history did not turn off when its switch was pressed");
 		}
-		await page.waitForFunction(
-			() => JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null")?.session?.keepHistory === false,
-		).catch(() => fail("Message history did not remember that it was turned off"));
+		await page.reload();
+		await page.waitForSelector("#line:not([disabled])").catch(async () => {
+			fail(
+				`The history-disabled workspace did not become interactive after reload: ${
+					JSON.stringify(await page.evaluate(() => document.body.innerText))
+				}`,
+			);
+		});
+		await page.click("#settingsBtn");
+		await page.click("#sessionTab");
+		if (await page.isChecked("#keepHistoryToggle")) {
+			fail("Message history did not retain its disabled choice across reload");
+		}
 		const stores = await page.evaluate(() =>
 			new Promise<string[]>((resolve, reject) => {
 				const open = indexedDB.open("rooms-history");
@@ -129,31 +143,21 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		if (!await page.isChecked("#keepHistoryToggle")) {
 			fail("Message history did not turn on when its switch was pressed again");
 		}
-		await page.waitForFunction(
-			() => JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null")?.session?.keepHistory === true,
-		).catch(() => fail("Message history did not remember that it was turned on"));
-		await page.evaluate(() =>
-			new Promise<void>((resolve, reject) => {
-				const request = indexedDB.deleteDatabase("rooms-history");
-				request.onsuccess = () => resolve();
-				request.onerror = () => reject(request.error);
-			})
-		);
-		await page.click("#keepHistoryToggle");
-		await page.locator('#sessionPanel [role="alert"]').waitFor();
+		await page.reload();
+		await page.waitForSelector("#line:not([disabled])");
+		await page.click("#settingsBtn");
+		await page.click("#sessionTab");
 		if (!await page.isChecked("#keepHistoryToggle")) {
-			fail("Message history painted itself off after its erase failed");
-		}
-		if (
-			await page.evaluate(() =>
-				JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null")?.session?.keepHistory
-			) !== true
-		) {
-			fail("Message history remembered an erase that failed");
+			fail("Message history did not retain its enabled choice across reload");
 		}
 		await page.click("#holdingsTab");
 		await page.click("#opsListenersToggle");
-		await page.fill("#capabilityValueSwiss", "discard-this-capability-draft");
+		// This is an uncommitted form value, never acquired authority. Exercise
+		// the current complete-URI grammar while the discard checks retain it.
+		await page.fill(
+			"#capabilityValueSwiss",
+			"ocapn://127.0.0.1%3A1234.tcp/s/ZGlzY2FyZC10aGlzLWNhcGFiaWxpdHktZHJhZnQ",
+		);
 		await page.getByRole("button", { name: "Save to capability set" }).click();
 		await page.waitForSelector("#capabilityValueTitle", { state: "detached" });
 		if (await page.getAttribute("#opsListenersToggle", "aria-checked") !== "true") {
@@ -196,7 +200,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		await page.waitForSelector("#settingsTitle", { state: "visible" });
 		await page.click("#holdingsTab");
 		await page.click("#opsListenersToggle");
-		await page.fill("#capabilityValueSwiss", "discard-before-reload");
+		await page.fill("#capabilityValueSwiss", "ocapn://127.0.0.1%3A1234.tcp/s/ZGlzY2FyZC1iZWZvcmUtcmVsb2Fk");
 		await page.getByRole("button", { name: "Save to capability set" }).click();
 		await page.waitForSelector("#capabilityValueTitle", { state: "detached" });
 		await page.click("#reachabilityTab");
@@ -240,8 +244,11 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		const downloadPath = await saved.path();
 		if (downloadPath == null) fail("the Rooms state download had no readable file");
 		const document = JSON.parse(await Deno.readTextFile(downloadPath));
-		if (document.version !== WORKSPACE_STATE_VERSION || document.session?.dmMode !== "relay") {
-			fail(`the downloaded Rooms state lost its version or connection choice: ${JSON.stringify(document)}`);
+		if (
+			document.version !== 1 || document.kind !== "rooms-presentation" || document.view == null ||
+			!document.conversations.some((row: { label: string }) => row.label === "refresh-state")
+		) {
+			fail(`the presentation export lost its view or conversation: ${JSON.stringify(document)}`);
 		}
 		document.view.theme = document.view.theme === "dark" ? "light" : "dark";
 		const importedTheme = document.view.theme;
@@ -252,13 +259,19 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 			await page.waitForFunction(() => document.querySelector(".file-pick[data-chosen]") !== null).catch(() =>
 				fail("the file picker did not show the chosen file")
 			);
-			await Promise.all([
-				page.waitForNavigation(),
-				page.click("#stateImportGo"),
-			]);
-			await page.waitForSelector("#boot", { state: "detached", timeout: 60_000 });
+			await page.click("#stateImportGo");
+			await page.waitForFunction((theme) => document.documentElement.dataset.theme === theme, importedTheme);
+			await page.waitForSelector(".session-data-modal .file-pick[data-chosen]", { state: "detached" })
+				.catch(() => fail("a committed state import kept its selected file as an unsaved draft"));
 			const restoredTheme = await page.evaluate(() => document.documentElement.dataset.theme);
-			if (restoredTheme !== importedTheme) fail("loading Rooms state did not replace the saved workspace");
+			if (restoredTheme !== importedTheme) fail("importing state did not restore browser preferences");
+			await page.locator(".session-data-modal").getByRole("button", { name: "Close", exact: true }).click();
+			await page.click("#settingsClose");
+			await page.reload();
+			await page.waitForSelector("#line:not([disabled])");
+			if (await page.evaluate(() => document.documentElement.dataset.theme) !== importedTheme) {
+				fail("imported preferences did not survive reload");
+			}
 			await proveReturnToSetupDoesNotFlashACrash(page, "Leave workspace");
 		} finally {
 			await Deno.remove(importPath).catch(() => {});

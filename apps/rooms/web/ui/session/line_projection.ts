@@ -1,4 +1,22 @@
-import type { AttachedLineEvent as RoomsSessionLineEvent } from "./remote.ts";
+import type { ArchiveCoordinates } from "../../../lib/archive/protocol.ts";
+import type { Presence } from "../../../lib/room/presence.ts";
+import type { RoomFacts } from "../../../lib/room/message.ts";
+import type { FileDescription } from "./attached_files.ts";
+export interface PresentedLine<F extends FileDescription = FileDescription> {
+	conversationId: string;
+	from: string;
+	text: string;
+	at: number;
+	lineId: number | null;
+	change: "said" | "edited" | "refiled" | "withdrawn" | null;
+	editable: boolean;
+	history: ArchiveCoordinates | null;
+	system: boolean;
+	presence?: Presence;
+	facts?: RoomFacts;
+	previewUrls: string[];
+	attachments: F[];
+}
 // Projection of live attached-session lines into the presentation store.
 
 import * as store from "../store.ts";
@@ -15,14 +33,14 @@ import type { RoomsPageContext } from "../page.ts";
 /** Own the synchronous handoff from one accepted session event to either the
  * visible log or file-capability release. Snapshot topology remains in the
  * parent projection; this owner only resolves its stable conversation key. */
-export class AttachedLineProjection {
+export class AttachedLineProjection<F extends FileDescription = FileDescription> {
 	readonly #conversationKey: (conversationId: string) => string | null;
-	readonly #files: AttachedSessionFiles | null;
+	readonly #files: AttachedSessionFiles<F> | null;
 	readonly #page: RoomsPageContext;
 
 	constructor(
 		conversationKey: (conversationId: string) => string | null,
-		files: AttachedSessionFiles | null,
+		files: AttachedSessionFiles<F> | null,
 		page: RoomsPageContext,
 	) {
 		this.#conversationKey = conversationKey;
@@ -30,7 +48,7 @@ export class AttachedLineProjection {
 		this.#page = page;
 	}
 
-	apply(event: RoomsSessionLineEvent): void {
+	apply(event: PresentedLine<F>): void {
 		const key = this.#conversationKey(event.conversationId);
 		if (key == null) {
 			this.#releaseIncoming(event);
@@ -70,15 +88,12 @@ export class AttachedLineProjection {
 			? undefined
 			: history.find((item) => item.kind === "chat" && sameArchiveCoordinates(item.history, event.history));
 		const named = recorded ??
-			(event.lineId == null || event.history != null
+			(event.lineId == null
 				? undefined
-				: history.find((item) => item.kind === "chat" && item.lineId === event.lineId)) ??
-			(event.change === "said" && mine
-				? history.find((item) =>
-					item.kind === "chat" && item.mine && item.state != null && item.text === event.text &&
-					(item.attachments?.length ?? 0) === event.attachments.length
-				)
-				: undefined);
+				: history.find((item) =>
+					item.kind === "chat" && item.lineId === event.lineId &&
+					(event.history == null || item.history == null)
+				));
 		if (event.change === "edited" && event.lineId != null) {
 			if (named?.kind === "chat") {
 				store.updateItem(this.#page.projection, key, named.id, {
@@ -124,7 +139,10 @@ export class AttachedLineProjection {
 			this.#releaseIncoming(event);
 			return;
 		}
-		if (named?.kind === "chat" && sameAttachments(named.attachments ?? [], event.attachments)) {
+		if (
+			named?.kind === "chat" && (named.attachments ?? []).every((view) => this.#files?.retains(view.id)) &&
+			sameAttachments(named.attachments ?? [], event.attachments)
+		) {
 			// Replayed authority carries fresh capability occurrences for the same
 			// immutable bytes. Keep settled object URLs and transfer state; only the
 			// duplicate occurrences need releasing. An optimistic send also owns its
@@ -132,8 +150,8 @@ export class AttachedLineProjection {
 			// but must not regroup or remount the bubble by replacing its local time.
 			store.updateItem(this.#page.projection, key, named.id, {
 				text: event.text,
-				...(named.state == null ? { at: event.at } : {}),
-				state: undefined,
+				...(named.state == null && named.lineId == null ? { at: event.at } : {}),
+				state: named.awaitingReceipt ? named.state : undefined,
 				...(event.history == null ? {} : { history: event.history }),
 				...(event.lineId == null ? {} : { order: event.lineId, lineId: event.lineId }),
 				...(event.editable ? { held: true } : {}),
@@ -143,11 +161,13 @@ export class AttachedLineProjection {
 			return;
 		}
 		const attachments = this.#holdIncoming(event, conversation.dir);
-		if (recorded?.kind === "chat") {
-			if (attachments.length > 0) this.#files?.release(recorded.attachments ?? []);
-			store.updateItem(this.#page.projection, key, recorded.id, {
+		if (named?.kind === "chat") {
+			if (attachments.length > 0) this.#files?.release(named.attachments ?? []);
+			store.updateItem(this.#page.projection, key, named.id, {
 				text: event.text,
-				at: event.at,
+				...(named.state == null && named.lineId == null ? { at: event.at } : {}),
+				state: named.awaitingReceipt ? named.state : undefined,
+				...(event.history == null ? {} : { history: event.history }),
 				...(event.lineId == null ? {} : { order: event.lineId }),
 				...(event.lineId == null ? {} : { lineId: event.lineId }),
 				...(event.editable ? { held: true } : {}),
@@ -182,7 +202,7 @@ export class AttachedLineProjection {
 		) maybeNotify(this.#page.projection, event.from, event.text || event.attachments[0]?.name || "sent a file");
 	}
 
-	#holdIncoming(event: RoomsSessionLineEvent, directory: DirId): AttachmentView[] {
+	#holdIncoming(event: PresentedLine<F>, directory: DirId): AttachmentView[] {
 		if (event.attachments.length === 0) return [];
 		const files = this.#files;
 		if (files == null) throw new Error("the attached line projection has no file capability owner");
@@ -192,7 +212,7 @@ export class AttachedLineProjection {
 		return event.attachments.map((attachment) => files.hold(attachment, unavailable));
 	}
 
-	#releaseIncoming(event: RoomsSessionLineEvent): void {
+	#releaseIncoming(event: PresentedLine<F>): void {
 		if (event.attachments.length === 0) return;
 		if (this.#files == null) throw new Error("the attached line projection has no file capability owner");
 		this.#files.releaseIncoming(event.attachments);
@@ -200,7 +220,7 @@ export class AttachedLineProjection {
 
 	#openArrivingImages(
 		key: string,
-		event: RoomsSessionLineEvent,
+		event: PresentedLine<F>,
 		mine: boolean,
 		views: readonly AttachmentView[],
 	): void {
@@ -212,9 +232,9 @@ export class AttachedLineProjection {
 	}
 }
 
-function sameAttachments(
+function sameAttachments<F extends FileDescription>(
 	views: readonly AttachmentView[],
-	incoming: RoomsSessionLineEvent["attachments"],
+	incoming: PresentedLine<F>["attachments"],
 ): boolean {
 	return views.length === incoming.length && views.every((view, index) => {
 		const attachment = incoming[index];

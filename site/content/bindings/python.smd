@@ -196,7 +196,7 @@ From here, the CapTP workflow is the same for every transport:
             raise TypeError("bad invocation")
         return f"Hello, {args[0]}"
 
-    server.host.publish_giftable("greeter", greet)
+    server.host.publish("greeter", greet)
     async for accepted in server:
         async with accepted as session:
             await session.serve()
@@ -219,7 +219,7 @@ the inbound loop as a background task until the session closes.
 raise breaks the answer with the exception's own words, and each deliver
 crosses into Python once, through one trampoline.
 To hand one actor across an introduction so a third peer can reach it directly,
-publish it on a `Host` with `publish_giftable`. You hold a `Host` as `server.host`
+publish it on a `Host` with `publish`. You hold a `Host` as `server.host`
 from `listen`.
 
 The complete API lives in the

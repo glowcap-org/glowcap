@@ -13,3 +13,5 @@ pub const Observation = @import("observation.zig").Observation;
 pub const ObservationRegistration = @import("observation_registration.zig").Registration;
 pub const ObservationCancellation = @import("observation_cancellation.zig").Cancellation;
 pub const Maintenance = @import("maintenance.zig").Maintenance;
+
+pub const GrantInventory = @import("grant_inventory.zig").Inventory;

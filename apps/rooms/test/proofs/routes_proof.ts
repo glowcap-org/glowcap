@@ -1,3 +1,4 @@
+import { spawnWeb } from "../support/web_front.ts";
 /// <reference lib="dom" />
 // The page's address, and what standing at one means.
 //
@@ -36,11 +37,10 @@
 
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { reapOwned, spawnOwned } from "../support/children.ts";
+import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../page/harness.ts";
 
-import { WEB } from "../support/paths.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const FIRST = "arrivals";
 const SECOND = "departures";
@@ -74,7 +74,7 @@ const deadline = setTimeout(() => fail("web-routes scenario timed out after 180s
 
 const httpPort = freePort();
 const roomPort = freePort();
-spawnOwned(WEB, {
+spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "null",
@@ -173,10 +173,14 @@ try {
 		PRIVATE,
 		{ timeout: 30_000 },
 	).catch(() => fail("the private room never opened"));
+	// Privacy is what the room's policy says, and the policy arrives after the
+	// room opens. The address must settle on the private form once it does.
+	await tab.waitForFunction(
+		(room) => location.pathname === `/room/${room}` && new URLSearchParams(location.search).get("private") === "1",
+		PRIVATE,
+		{ timeout: 15_000 },
+	).catch(async () => fail(`a private room's address is ${await addressOf(tab)}`));
 	const privateAddress = await addressOf(tab);
-	if (!privateAddress.startsWith(`/room/${PRIVATE}`) || !privateAddress.includes("private=1")) {
-		fail(`a private room's address is ${privateAddress}`);
-	}
 	// Its key is the whole authority to it, so nothing resembling one may be
 	// in the address a reader could paste anywhere.
 	const key = await tab.evaluate(() => {
@@ -219,33 +223,15 @@ try {
 	const returning = await browser.newContext();
 	await returning.addInitScript(() => {
 		localStorage.setItem(
-			"rooms.workspace-state",
+			"rooms.view-preferences",
 			JSON.stringify({
-				version: 1,
-				controller: { kind: "local" },
-				session: {
-					version: 1,
-					directories: [],
-					conversations: [],
-					invitations: [],
-					active: null,
-					standing: "",
-					ignored: [],
-					keepHistory: true,
-					join: { locator: "ocapn://elsewhereelsewhere.iroh", room: "lobby", nick: "ada" },
-					dmMode: "webrtc",
-					traceOverride: "",
-					capabilities: { operations: [], archivePeer: null },
-					peering: [],
-				},
-				view: {
-					theme: "light",
-					notifyOn: false,
-					railOpen: true,
-					rosterOpen: true,
-					settingsTab: "session",
-					opsPane: "listeners",
-				},
+				theme: "light",
+				notifyOn: false,
+				railOpen: true,
+				rosterOpen: true,
+				settingsTab: "session",
+				opsPane: "listeners",
+				remembered: { locator: "ocapn://elsewhereelsewhere.iroh", room: "lobby", nick: "ada" },
 			}),
 		);
 	});

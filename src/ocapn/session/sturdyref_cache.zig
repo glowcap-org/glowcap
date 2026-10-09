@@ -15,10 +15,17 @@ const Session = session.Session;
 const SturdyrefCacheEntry = Entry;
 
 /// One resolved sturdyref enlivenment. `swissnum` is owned by the cache row;
-/// `far` is stored whole so the far-kind survives cache hits.
+/// `far` is stored whole so the far-kind survives cache hits. Two inline row
+/// indexes maintain a circular FIFO through dense swap removal: eviction must
+/// not rehash every surviving swissnum during a large foreign-graph restore.
+/// Their retained cost is two words per admitted cache row, bounded by the
+/// session's cache cap, with no additional allocation or idle Session field.
+/// Row zero is always oldest; its older neighbor is newest.
 pub const Entry = struct {
     swissnum: []u8,
     far: model.FarRef,
+    older: usize,
+    newer: usize,
 };
 
 /// The cached enlivenment row for `swissnum`, by value, or null on a cache
@@ -138,8 +145,8 @@ pub fn finishPendingEnliven(self: *Session, swissnum: []const u8) void {
 /// Once the import's wire count reaches zero the partner may reuse its
 /// position for another object. A cached swissnum must miss after that point
 /// and enliven again, rather than returning the old position under its new
-/// meaning. The cache is bounded and FIFO-ordered, so the removal is a small
-/// linear sweep that preserves the surviving order.
+/// meaning. A bounded sweep finds matching positions; unlinking each match
+/// preserves FIFO order without moving or rehashing the surviving population.
 pub fn forgetSturdyrefEnlivenmentsAt(self: *Session, position: model.ImportPosition) void {
     var i: usize = 0;
     while (i < self.sturdyref_cache.items.len) {
@@ -168,9 +175,16 @@ fn reserveCacheRow(self: *Session) !void {
 /// `reserveCacheRow`, or made available by evicting a full cache.
 fn appendReservedSturdyrefCacheRow(self: *Session, owned: []u8, far: model.FarRef) void {
     const index = self.sturdyref_cache.items.len;
+    const newest = if (index == 0) 0 else self.sturdyref_cache.items[0].older;
+    if (index != 0) {
+        self.sturdyref_cache.items[newest].newer = index;
+        self.sturdyref_cache.items[0].older = index;
+    }
     self.sturdyref_cache.appendAssumeCapacity(.{
         .swissnum = owned,
         .far = far,
+        .older = newest,
+        .newer = 0,
     });
     self.sturdyref_cache_index.putAssumeCapacity(owned, index);
 }
@@ -185,17 +199,56 @@ fn findSturdyrefCacheIndex(self: *const Session, swissnum: []const u8) ?usize {
     return self.sturdyref_cache_index.get(swissnum);
 }
 
-/// Drop the oldest FIFO row and repair every surviving index in the side map
-/// so lookups stay consistent with `orderedRemove(0)`'s shift.
+/// Row zero is the FIFO anchor even after arbitrary import invalidation.
 fn evictOldest(self: *Session) void {
     removeAt(self, 0);
 }
 
 fn removeAt(self: *Session, index: usize) void {
-    const evicted = self.sturdyref_cache.orderedRemove(index);
+    const evicted = self.sturdyref_cache.items[index];
+    const last = self.sturdyref_cache.items.len - 1;
     std.debug.assert(self.sturdyref_cache_index.remove(evicted.swissnum));
     self.allocator.free(evicted.swissnum);
-    for (self.sturdyref_cache.items[index..], index..) |entry, i| {
-        self.sturdyref_cache_index.getPtr(entry.swissnum).?.* = i;
+    if (last == 0) {
+        _ = self.sturdyref_cache.pop();
+        return;
     }
+    self.sturdyref_cache.items[evicted.older].newer = evicted.newer;
+    self.sturdyref_cache.items[evicted.newer].older = evicted.older;
+    const removed = self.sturdyref_cache.swapRemove(index);
+    std.debug.assert(removed.swissnum.ptr == evicted.swissnum.ptr);
+    if (index != last) repairRow(self, index);
+    if (index == 0) {
+        const oldest = if (evicted.newer == last) 0 else evicted.newer;
+        if (oldest != 0) swapRows(self, 0, oldest);
+    }
+}
+
+/// Repair the one row relocated from the dense list's former last slot.
+fn repairRow(self: *Session, index: usize) void {
+    const entry = self.sturdyref_cache.items[index];
+    // A singleton's neighbors named its former slot before relocation.
+    if (self.sturdyref_cache.items.len == 1) {
+        self.sturdyref_cache.items[index].older = index;
+        self.sturdyref_cache.items[index].newer = index;
+    } else {
+        self.sturdyref_cache.items[entry.older].newer = index;
+        self.sturdyref_cache.items[entry.newer].older = index;
+    }
+    self.sturdyref_cache_index.getPtr(entry.swissnum).?.* = index;
+}
+
+fn swapRows(self: *Session, a: usize, b: usize) void {
+    const entries = self.sturdyref_cache.items;
+    std.mem.swap(Entry, &entries[a], &entries[b]);
+    for ([_]usize{ a, b }) |index| {
+        entries[index].older = swapped(entries[index].older, a, b);
+        entries[index].newer = swapped(entries[index].newer, a, b);
+    }
+    repairRow(self, a);
+    repairRow(self, b);
+}
+
+fn swapped(index: usize, a: usize, b: usize) usize {
+    return if (index == a) b else if (index == b) a else index;
 }

@@ -1,11 +1,5 @@
-//! Browser clients use the shared per-peer connection owner.
-use crate::platform::Platform;
+//! Browser task retirement reports one terminal result.
 use tokio::sync::watch;
-pub(super) type Connections = rooms_runtime::directories::connections::Connections<Platform>;
-pub(super) type Connection = rooms_runtime::directories::connections::Connection<Platform>;
-pub(super) type Terminal = rooms_runtime::directories::connections::Terminal;
-pub(super) use rooms_runtime::directories::connections::terminal;
-
 /// Wait for a browser-owned task to report how it ended.
 ///
 /// This is the sibling of the runtime's `terminal`, not a copy of it: these

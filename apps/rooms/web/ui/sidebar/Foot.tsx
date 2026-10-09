@@ -6,9 +6,10 @@
 // part of either list, and why it does not switch with the conversation being
 // read.
 
+import { useState } from "react";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
-import { type DirId, dirMarkIn, type DirView, type SessionPhase } from "../types.ts";
+import { type DirId, dirMarkIn, type DirView } from "../types.ts";
 import { directoryName, footState } from "../text.ts";
 import { Avatar } from "../Avatar.tsx";
 import { StandingMenu } from "../Standing.tsx";
@@ -39,20 +40,22 @@ import {
  * A reader can then see that this name belongs to one of the directories on
  * screen rather than to the page. */
 export function Foot(
-	{ dirs, home, session, standing, canInteract }: {
+	{ dirs, home, standing, canInteract }: {
 		dirs: ReadonlyMap<DirId, DirView>;
 		home: DirId | null;
-		session: SessionPhase;
 		standing: string;
 		canInteract: boolean;
 	},
 ) {
 	const browser = useRoomsBrowser();
 	const rooms = useRoomsSession();
+	const [releasing, setReleasing] = useState<ReadonlySet<DirId>>(new Set());
 	// Every directory that has granted a name, in the order this tab opened
 	// them; the page's own directory answers first while it has granted one.
 	const grants = [...dirs.values()].filter((held) => held.nick !== "");
-	const primary = (grants.find((held) => held.id === home) ?? grants[0])?.nick ?? "";
+	const named = grants.find((held) => held.id === home) ?? grants[0];
+	const primary = named?.nick ?? "";
+	const session = named?.session ?? "connecting";
 	// Distinct names, not directories: two directories both granting "alice"
 	// agree, and a count that said otherwise would raise a question the title
 	// could not answer.
@@ -63,7 +66,6 @@ export function Foot(
 	// mark elsewhere: one directory needs no colour to be told apart from, and
 	// past the ramp nothing is marked at all (`dirsWearMarks`). The title beside
 	// it says every name and its directory in words whatever the colors do.
-	const named = grants.find((held) => held.id === home) ?? grants[0];
 	if (primary === "") return null;
 	const mark = named === undefined ? undefined : dirMarkIn(named.id, home, dirs);
 	// What is known about the reader, from the one seat on the page that is about
@@ -84,11 +86,20 @@ export function Foot(
 			const where = directoryName(grant.id, home);
 			return {
 				label: footReleaseName(grant.nick, where),
+				disabled: releasing.has(grant.id),
 				onPick: () => {
+					if (releasing.has(grant.id)) return;
+					setReleasing((prior) => new Set(prior).add(grant.id));
 					void rooms.releaseNick(grant.id).then((why) => {
 						if (why !== "") browser.toast("failure", why);
 						else browser.toast("success", footReleasedName(grant.nick, where));
-					});
+					}).finally(() =>
+						setReleasing((prior) => {
+							const next = new Set(prior);
+							next.delete(grant.id);
+							return next;
+						})
+					);
 				},
 			};
 		})

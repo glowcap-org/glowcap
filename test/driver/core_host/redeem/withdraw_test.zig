@@ -30,7 +30,7 @@ const CapturedRef = harness.CapturedRef;
 const CapturedString = harness.CapturedString;
 const openPair = harness.openPair;
 
-/// One generation of a host-wide giftable. The reply is the tag its row carries,
+/// One generation of a Host publication. The reply is the tag its row carries,
 /// so a call says *which* registration answered rather than only that one did.
 const FailedRedeemListener = struct {
     host: *Host,

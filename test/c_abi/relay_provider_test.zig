@@ -286,7 +286,7 @@ test "relay C provider preserves the final tail until explicit connection releas
     while (!upgraded.load(.acquire)) try std.Io.sleep(io, .fromMilliseconds(1), .real);
     var tail: [4]u8 = undefined;
     try std.testing.expectEqual(
-        c.GLOWCAP_MULTIPLEXED_WOULD_BLOCK,
+        c.GLOWCAP_TRANSPORT_WOULD_BLOCK,
         table.try_read.?(table.ctx, conn, &tail, tail.len),
     );
     table.conn_take_failure.?(table.ctx, conn, &failure);
@@ -481,6 +481,8 @@ test "relay C listener cancellation and stop each settle through the route id" {
             route_id,
             transport.ptr,
             transport.len,
+            &designator,
+            designator.len,
             &designator,
             designator.len,
             null,

@@ -2,15 +2,15 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    // Dial through the same SOCKS endpoint the listener named.
-    var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
-        .socks = "/run/tor/socks",
+    // Dial through a running Tor daemon's SOCKS port.
+    const transports: glowcap.driver.Transports = .{ .symbols = &.{.onion}, .onion = .{
+        .socks = try glowcap.net.tcp.parseDesignator("127.0.0.1:9050"),
     } };
-    const netlayers = [_]glowcap.net.netlayer.Netlayer{onion_resident.netlayer()};
     const partner = glowcap.net.onion.locator("<56-character onion service id>");
     const session = try glowcap.driver.connect(
         allocator,
-        &netlayers,
+        io,
+        transports,
         partner,
         .ephemeral,
         .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },

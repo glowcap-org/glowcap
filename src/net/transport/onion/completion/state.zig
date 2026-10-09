@@ -48,7 +48,6 @@ pub fn Types(comptime Inner: type, comptime Namespace: type) type {
             plain: Inner.ConnectTarget,
             onion: Target,
         };
-        pub const ListenerAddress = [socks5.service_id_len]u8;
 
         pub const ConnId = u32;
         pub const InternalOp = enum(u3) { connect, recv, send, close };

@@ -44,7 +44,8 @@ pub fn stage(store: *common.Store, policy: access.core.Policy, owner_id: access.
         if (try prepared(&read, access.storage.Append.prepareResource, .{ &append, @as(?access.core.ResourceId, null) }) != .ready) return error.InvalidTransaction;
         break :blk try prepared(&read, access.storage.stage.appendResource, .{ &append, kind, @as(?access.core.ResourceId, null) });
     };
-    const terms: access.core.Terms = .{ .scope = .{ .object = resource }, .policy = try policy.value(policy.permission_keys[0..policy.permission_count], &.{}) };
+    const initial: access.core.Policy.Value = .{ .schema = policy.id, .permissions = try policy.supported(kind, false), .bounds = @splat(null) };
+    const terms: access.core.Terms = .{ .scope = .{ .object = resource }, .policy = initial };
     var plan: ?access.core.GrantPlan = null;
     defer if (plan) |*owned| owned.deinit(store.allocator);
     for (0..16) |_| {
@@ -77,14 +78,14 @@ pub fn stage(store: *common.Store, policy: access.core.Policy, owner_id: access.
         break;
     }
     const use_id = use_descriptor orelse return error.InvalidTransaction;
-    const powers: access.core.Control.Powers = .{ .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms };
+    const powers: access.core.Control.Powers = .{ .inspect = true, .issue_ceiling = terms, .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms };
     const control_descriptor = try @This().prepared(&read, access.storage.Capabilities.stageControl, .{ &caps, &read, staged.change.grant, powers, false });
     const content = try transaction.allocateId();
     const binding = try @This().prepared(&read, resourceObject, .{ &read, resource });
     try transaction.putCopying(.{ .id = content, .revision = 0, .schema = schema, .schema_version = version, .payload = payload, .edges = &.{.{ .target = binding }} }, null);
     const use_endpoint: access.records.EndpointRecord = .{ .descriptor = use_id, .content = .{ .resource = resource, .object = content } };
     const use = try @This().prepared(&read, access.hosting.stageEndpoint, .{ &read, store.allocator, use_endpoint, true });
-    const control_endpoint: access.records.EndpointRecord = .{ .descriptor = control_descriptor };
+    const control_endpoint: access.records.EndpointRecord = .{ .descriptor = control_descriptor, .administration = use_endpoint.content };
     const control = try @This().prepared(&read, access.hosting.stageEndpoint, .{ &read, store.allocator, control_endpoint, true });
     return .{ .owner = common.objectToC(owner), .use = common.objectToC(use), .control = common.objectToC(control) };
 }

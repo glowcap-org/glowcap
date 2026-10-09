@@ -54,6 +54,32 @@ pub const freePeer = model.freePeerLocator;
 /// forms call through here rather than growing a second copy of the shape.
 pub const validatePercentEncoding = uri_shape.validatePercentEncoding;
 
+pub const ParseAllocationBound = struct { bytes: usize, allocations: usize };
+
+/// Bounds successful owned sturdyref parsing without parsing or allocating.
+/// Component strings partition the URI. Percent decoding may copy twice;
+/// escaped baseline Swiss bytes can additionally require a decoded buffer.
+/// Hint spine growth follows ArrayList's public capacity policy, assuming
+/// every resize requires a fresh allocation, including its final owned slice.
+pub fn parseAllocationBound(uri_bytes: usize, hints: usize) !ParseAllocationBound {
+    if (hints > model.max_locator_hint_count) return error.InvalidLocator;
+    var bound: ParseAllocationBound = .{
+        .bytes = try std.math.mul(usize, uri_bytes, 3),
+        .allocations = try std.math.add(usize, 7, try std.math.mul(usize, hints, 4)),
+    };
+    var capacity: usize = 0;
+    while (capacity < hints) {
+        capacity = std.ArrayList(model.HintEntry).growCapacity(capacity + 1);
+        bound.bytes = try std.math.add(usize, bound.bytes, try std.math.add(usize, try std.math.mul(usize, capacity, @sizeOf(model.HintEntry)), @alignOf(model.HintEntry) - 1));
+        bound.allocations = try std.math.add(usize, bound.allocations, 1);
+    }
+    if (hints != 0) {
+        bound.bytes = try std.math.add(usize, bound.bytes, try std.math.add(usize, try std.math.mul(usize, hints, @sizeOf(model.HintEntry)), @alignOf(model.HintEntry) - 1));
+        bound.allocations = try std.math.add(usize, bound.allocations, 1);
+    }
+    return bound;
+}
+
 pub fn freeSturdyref(allocator: std.mem.Allocator, sturdyref: model.SturdyRef) void {
     model.freePeerLocator(allocator, sturdyref.peer);
     allocator.free(sturdyref.swissnum);

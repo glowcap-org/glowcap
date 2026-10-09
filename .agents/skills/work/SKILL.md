@@ -28,9 +28,10 @@ Read only what the task needs:
 Economy is a routing rule, not a quality bar. Start with the smallest
 authoritative slice, widen the moment a claim depends on another surface, and
 prefer generated inventories or build steps over re-deriving facts by hand.
-Release gates are evidence for the product claims this scope derives; they do
-not define the scope, and a green gate cannot close a design question it never
-asked.
+Release review starts with the core invariants and failure paths, then follows
+their consumers outward. Record what each layer's evidence establishes and what
+remains open before expanding to the next layer. A green gate or one repaired
+defect does not establish that the underlying design is sound.
 
 | If the task touches…                                  | Read first                                                                                                 |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |

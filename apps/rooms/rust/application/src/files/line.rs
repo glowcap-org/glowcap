@@ -21,6 +21,9 @@ pub struct HostedLine {
 }
 
 impl HostedLine {
+	pub fn id(&self) -> LineId {
+		self.line.id()
+	}
 	pub fn files(&self) -> &[HostedFile] {
 		self.line.files()
 	}

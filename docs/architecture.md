@@ -91,7 +91,6 @@ embedding glowcap behind another runtime. Most Zig programs start higher.
 | `driver.HostRuntime` | You want one identity across several file-descriptor-backed sessions. |
 | `driver.BlockingSession` | You own the connection and buffers, or your transport has no pollable descriptor (an in-process pipe, or a WebRTC peer you already opened). Values are actor-layer references rather than opaque host capabilities. A call may return a handoff for you to redeem. |
 | `driver_core.Host` | Your runtime feeds bytes and drains actions without letting glowcap own I/O. Native bindings hand this Host to the driver; the browser package feeds it itself. |
-| `driver.Bridge` | You are connecting `driver_core.Host` to a completion loop for many sessions. |
 
 Consumers reach Host through `driver.core`. The files under `host/` are
 implementation; they are not a second public API.
@@ -142,8 +141,10 @@ I/O through the embedding's executor and adds no Host or scheduler of its own.
 Loam's persistence core does not depend on managed access, the Host, or CapTP
 session state; optional integration modules connect them. The Loam facade
 offers managed access without requiring resource state for ordinary objects.
-Rooms still keeps its own durable state, and the remaining integration is in
-the [Loam design](planning/loam/architecture.md). The
+Rooms stores its managed session through Loam on LMDB and IndexedDB. The
+[session guide](rooms/session.md) owns its custody and recovery contract.
+Recursive room, directory and archive resources remain in the
+[resource integration plan](planning/rooms/integration.md). The
 [Loam API plan](planning/loam/api.md) separates record schemas, storage
 encoding, reference restoration, and wire codecs. The
 `libglowcap_loam` C companion includes managed access, with no separate archive
@@ -242,21 +243,25 @@ plain TCP, and in-process pipes
 
 Inbound frames have a size limit. A frame larger than the current read buffer
 uses one bounded spill buffer rather than forcing every connection to retain a
-maximum-sized buffer. Read buffers are pooled across the completion loop.
+maximum-sized buffer. Read buffers are pooled across each completion resident.
 Outbound backpressure stops reads when queued reply bytes cross their limit.
 
 The simple blocking pump runs on one fiber. Applications that must keep reading
-while a partner streams use a completion loop (TCP, iroh, onion, or keyed-relay
-outbound). Session and HostRuntime accept two kinds of provider through one
-runtime. A stream provider gives each connection its own socket. A
-multiplexed provider carries many connections over one endpoint. Native iroh
+while a partner streams use `Session` or `Server`. Session and HostRuntime
+accept two kinds of provider through one runtime. A stream provider gives each
+connection its own readiness descriptor and nonblocking reads and writes, and
+runs on `net.external_completion`. A multiplexed provider carries many
+connections over one endpoint. A completion backend joins HostRuntime the same
+way through `net.completion_resident`, lending each received chunk from the
+backend's pool and keeping no buffer on an idle wire
+([ADR-0202](decisions/adr/ADR-0202-stream-transports-join-hostruntime-as-a-completion-resident.md)). Native iroh
 is the multiplexed case: `iroh.MultiplexedAdapter` drives every connection
 from the endpoint's one readiness descriptor, and the C ABI uses the same
 adapter state. A Server admits connections through the runtime's listener
 lifecycle, and a session it hands out keeps working after the Server is
 destroyed. WebRTC has no socket to poll, so it joins a Host through
 a completion backend once signaling is configured (`zig build webrtc-loop`; redeem via
-`zig build webrtc-bridge-redeem`). A bare locator without that authority still
+`zig build webrtc-redeem`). A bare locator without that authority still
 refuses. Crossed connections, where both peers dial at once, are resolved by
 the host because the choice depends on peer identity rather than transport
 mechanics.
@@ -274,9 +279,9 @@ pool and completion ownership rules. Applications can call
 `net.tcpBackendStatus(&loop)` after constructing a TCP, onion, keyed-relay,
 Noise, or iroh loop. A non-null `fallback_reason` explains why epoll was
 selected. On an iroh loop, this names the wrapped Linux platform layer, not the
-iroh transport. The many-sessions example and Rooms peer report this through
-their own diagnostic streams. The library does not print it because the
-embedding owns its logs and operator interface. The 500,000-session measurement
+iroh transport. The library does not print it because the embedding owns its
+logs and operator interface. `driver.HostRuntime` does not yet report the
+selection for its own stream stack. The 500,000-session measurement
 used io_uring. Epoll passes the completion-loop behavior tests but has no
 equivalent scale result.
 [ADR-0152](decisions/adr/ADR-0152-linux-completion-backend-selection.md) records
@@ -293,7 +298,7 @@ amplification are separate decisions:
 | Option | What it limits | Default |
 | --- | --- | --- |
 | `driver.HostRuntime.Options.frame_cap` | Protocol admission for sessions the owning face creates. | 1 MiB |
-| `driver.HostRuntime.Options.wire_buffer_bytes` / `GlowcapDriverOptions.wire_buffer_bytes` | Each stream read/write buffer and multiplexed-resident read staging buffer. | 16 KiB |
+| `driver.HostRuntime.Options.wire_buffer_bytes` / `GlowcapDriverOptions.wire_buffer_bytes` | The floor of the one read-staging buffer the runtime shares across wires whose resident copies rather than lends its received bytes. | 16 KiB |
 | `driver.HostRuntime.Options.max_pending_opens` / `GlowcapDriverOptions.max_pending_opens` | Transport connects and CapTP handshakes admitted at once, across dial, accept, adoption, and redeem. | 256 |
 | `driver.HostRuntime.Options.listener_setup` / `GlowcapDriverOptions.listener_setup_ms` | Maximum time one admitted listener construction may remain pending before its terminal failure. | 10 seconds |
 | `driver_core.Host.Options.limits.max_frame_bytes` | Protocol admission for every peer the byte-fed host creates. | 1 MiB |
@@ -420,6 +425,11 @@ the canonical struct manifests also generate the Rust, TypeScript, Python, and
 Racket layout expectations; C-only rows remain part of archive identity.
 Native binding loaders compare every archive before an ordinary call;
 implementation-only edits do not perturb the contract (ADR-0123).
+These fingerprints check the public ABI. Archives sharing opaque Host and actor
+owners are built together; private compatibility across different builds is
+outside that check. Actor callbacks use stable protocol tokens and diagnostic
+text across archive copies, with typed Zig errors local to their compilation
+([ADR-0059](decisions/adr/ADR-0059-composable-c-abi-archives.md)).
 
 Native bindings load `libglowcap_host` and `libglowcap_driver`. The driver
 takes an idle Host and runs the loop. The binding waits on one readiness

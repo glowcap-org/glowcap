@@ -3,9 +3,9 @@
 //! cleartext TCP transport as a baseline.
 //!
 //! Each sample is one synchronous `greet` round-trip: an `op:deliver` out and a
-//! resolve back over a live connection between two residents in this process:
-//! a server thread that accepts, publishes a greeter, and serves, and a client
-//! that fetches once and then calls in a loop. No pipelining; one call is in
+//! resolve back over a live connection between two runtimes in this process:
+//! a `driver.Server` thread that publishes a greeter and serves, and a
+//! `driver.Session` client that fetches once and then calls in a loop. No pipelining; one call is in
 //! flight at a time, so the per-call number is the wire's serial latency and the
 //! throughput is its reciprocal.
 //!
@@ -28,63 +28,45 @@ const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
-const actors = glowcap.actors;
+const crypto = glowcap.foundation.crypto;
 const driver = glowcap.driver;
-const net = glowcap.net;
-
-fn listenReady(layer: net.netlayer.Netlayer, allocator: std.mem.Allocator, designator: []const u8) !net.netlayer.Listener {
-    var result = switch (layer.listen(allocator, .{ .designator = designator })) {
-        .admitted => |result| result,
-        .failed => |failure| return failure.cause,
-    };
-    return switch (result.requireReady()) {
-        .ready => |listener| listener,
-        .failed => |failure| failure.cause,
-    };
-}
 
 const frame_cap: usize = 4096;
 const greeting = "hello over the wire";
 
-const IrohLoop = net.completion.Loop(iroh.Backend, iroh.DialResolver);
-
 /// Finite waits for every dial and settle: a partner that wedges fails the
 /// bench loudly instead of parking it, which is the cli rule's posture for
 /// anything that dials. Sixty seconds dwarfs any healthy call here.
-const bench_budgets: driver.BlockingSession.Options = .{ .handshake = .{ .ms = 60_000 }, .settle = .{ .ms = 60_000 } };
-const IrohBridge = driver.Bridge(IrohLoop);
+const opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 60_000 },
+    .settle = .{ .ms = 60_000 },
+};
 
 /// The published actor: answers `greet` with a static greeting so the timed loop
 /// measures the transport and the protocol turn, not application work.
 const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+    pub fn handle(_: *Greeter, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+        if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         return .{ .string = greeting };
     }
 };
 
-/// Server half: accept one partner over `listener` signing with `identity`
-/// (the tcp arm accepts ephemeral; the iroh arm signs with its endpoint's own
-/// key, since a key-designator dial pins the session to the dialed node id),
-/// publish the greeter, and serve until the client closes, the client's
-/// `cv.deinit` ends this serve.
-fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator, identity: driver.AcceptIdentity) anyerror!void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf, bench_budgets);
-    defer cv.deinit();
-    _ = try cv.publish("greeter", Greeter, .{});
-    try cv.serve();
+/// Server half: accept every partner, attend it, and serve until `done`.
+fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+    var sessions: [loop_conns]*driver.Session = undefined;
+    var accepted: usize = 0;
+    defer for (sessions[0..accepted]) |session| session.deinit();
+    while (!done.load(.acquire)) {
+        if (accepted < sessions.len and try server.waitAcceptable(0)) {
+            sessions[accepted] = try server.accept();
+            accepted += 1;
+            // An accepted session dispatches nothing until its owner attends.
+            try sessions[accepted - 1].attend();
+            continue;
+        }
+        _ = try server.runtime.stepAny(10);
+    }
 }
 
 /// Monotonic clock read in nanoseconds. `.awake` is `CLOCK_MONOTONIC`.
@@ -97,50 +79,38 @@ fn nowNs(io: std.Io) i128 {
 fn clientMeasure(
     io: std.Io,
     allocator: std.mem.Allocator,
-    netlayers: []const net.netlayer.Netlayer,
+    transports: driver.Transports,
     locator: model.PeerLocator,
     warmup: usize,
     samples: []u64,
 ) !void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, bench_budgets);
-    defer cv.deinit();
-
-    const greeter = try cv.fetch("greeter");
+    const session = try driver.connect(allocator, io, transports, locator, .ephemeral, opts);
+    defer session.deinit();
+    const greeter = try session.fetch("greeter");
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var w: usize = 0;
-    while (w < warmup) : (w += 1) {
+    for (0..warmup) |_| {
         _ = arena_state.reset(.retain_capacity);
-        if (!try callOnce(&cv, greeter, arena)) return error.WrongReply;
+        if (!try callOnce(session, greeter, arena)) return error.WrongReply;
     }
 
     for (samples) |*sample| {
         _ = arena_state.reset(.retain_capacity);
         const t0 = nowNs(io);
-        const ok = try callOnce(&cv, greeter, arena);
+        const ok = try callOnce(session, greeter, arena);
         const t1 = nowNs(io);
         if (!ok) return error.WrongReply;
         sample.* = @intCast(t1 - t0);
     }
 }
 
-fn callOnce(cv: *driver.BlockingSession, greeter: anytype, arena: std.mem.Allocator) !bool {
-    const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena);
-    return switch (settled) {
-        .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-        .broken, .give => false,
+fn callOnce(session: *driver.Session, greeter: driver.Capability, arena: std.mem.Allocator) !bool {
+    return switch (try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena)) {
+        .fulfilled => |value| value == .string and std.mem.eql(u8, value.string, greeting),
+        .broken => false,
     };
 }
 
@@ -165,84 +135,98 @@ fn report(transport: []const u8, warmup: usize, samples: []u64) void {
     );
 }
 
+/// Serve one Server on its own thread while `measure` runs, then join it.
+fn withServer(io: std.Io, server: *driver.Server, measure: anytype, measure_args: anytype) !void {
+    var done = std.atomic.Value(bool).init(false);
+    var serving = try io.concurrent(serve, .{ server, &done });
+    const measured = @call(.auto, measure, measure_args);
+    done.store(true, .release);
+    const served = serving.await(io);
+    try measured;
+    try served;
+}
+
 /// Run the TCP baseline: a loopback listener on an ephemeral port, dialed by the
 /// bound `host:port` the listener reports.
 fn benchTcp(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []u64) !void {
-    var resident = net.tcp.Resident{ .io = io };
-    const entries = [_]net.netlayer.Netlayer{resident.netlayer()};
-
-    var listener = try listenReady(net.netlayer.resolve(&entries, net.tcp.transport_name).?, allocator, "127.0.0.1:0");
-    defer std.debug.assert(listener.close() == null);
-
-    const locator = try listener.localLocator(allocator);
+    const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var server = try driver.listen(allocator, io, transports, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    defer server.deinit();
+    try server.publish("greeter", Greeter, .{});
+    const locator = try model.clonePeerLocator(allocator, try server.advertisedLocator());
     defer model.freePeerLocator(allocator, locator);
-
-    var host = try io.concurrent(hostOnce, .{ listener, allocator, driver.AcceptIdentity.ephemeral });
-    const client_result = clientMeasure(io, allocator, &entries, net.tcp.locator(locator.designator), warmup, samples);
-    const host_result = host.await(io);
-    try client_result;
-    try host_result;
+    try withServer(io, server, clientMeasure, .{ io, allocator, transports, locator, warmup, samples });
     report("tcp", warmup, samples);
 }
+
+/// One iroh endpoint and the resident its runtime polls.
+const Endpoint = struct {
+    endpoint: iroh.Resident,
+    adapter: iroh.MultiplexedAdapter,
+    providers: [1]driver.HostRuntime.ProviderRegistration = undefined,
+
+    fn init(self: *Endpoint, io: std.Io, allocator: std.mem.Allocator, seed: ?*const [32]u8) !void {
+        self.endpoint = try iroh.Resident.init(io, seed, .{ .reachability = .local_discovery });
+        errdefer self.endpoint.deinit() catch {};
+        self.adapter = try iroh.MultiplexedAdapter.init(allocator, &self.endpoint);
+        self.providers = .{.{ .profile = iroh.transport_profile, .resident = self.adapter.multiplexed() }};
+    }
+
+    fn deinit(self: *Endpoint) void {
+        if (self.adapter.deinit()) |failure| std.log.err("iroh adapter: {s}", .{failure.primaryName()});
+        self.endpoint.deinit() catch |err| std.log.err("iroh endpoint teardown failed: {s}", .{@errorName(err)});
+    }
+
+    fn transports(self: *Endpoint) driver.Transports {
+        return .{ .residents = &self.providers };
+    }
+
+    /// A Server signing with the endpoint's own key: a key-designator dial
+    /// pins the session to the dialed node id.
+    fn listen(self: *Endpoint, io: std.Io, allocator: std.mem.Allocator, seed: [32]u8) !*driver.Server {
+        const server = try driver.listen(allocator, io, self.transports(), iroh.transport_name, .{ .designator = "" }, .{
+            .keyed = crypto.SecretKey.fromSeed(seed),
+        }, opts);
+        errdefer server.deinit();
+        try server.publish("greeter", Greeter, .{});
+        return server;
+    }
+
+    fn locator(self: *Endpoint, id_buf: *[iroh.node_id_len]u8) model.PeerLocator {
+        return .{ .transport = iroh.transport_name, .designator = self.endpoint.nodeId(id_buf), .hints = model.Hints.emptyFalse() };
+    }
+};
 
 /// Run the iroh path: two real iroh endpoints, the client dialing the server by
 /// its node id alone through the deterministic in-process address book.
 fn benchIroh(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []u64) !void {
     const server_seed: [32]u8 = @splat(0x61);
-    const server_secret = glowcap.foundation.crypto.SecretKey.fromSeed(server_seed);
-    var server = try iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery });
-    defer server.deinit() catch |err| std.log.err("iroh server teardown failed: {s}", .{@errorName(err)});
-    var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
-    defer client.deinit() catch |err| std.log.err("iroh client teardown failed: {s}", .{@errorName(err)});
+    var server_endpoint: Endpoint = undefined;
+    try server_endpoint.init(io, allocator, &server_seed);
+    defer server_endpoint.deinit();
+    var client_endpoint: Endpoint = undefined;
+    try client_endpoint.init(io, allocator, null);
+    defer client_endpoint.deinit();
 
-    const server_entries = [_]net.netlayer.Netlayer{server.netlayer()};
-    const client_entries = [_]net.netlayer.Netlayer{client.netlayer()};
-
-    var listener = try listenReady(net.netlayer.resolve(&server_entries, iroh.transport_name).?, allocator, "");
-    defer std.debug.assert(listener.close() == null);
-
+    var server = try server_endpoint.listen(io, allocator, server_seed);
+    defer server.deinit();
     var id_buf: [iroh.node_id_len]u8 = undefined;
-    const server_id = server.nodeId(&id_buf);
-    const locator: model.PeerLocator = .{
-        .transport = iroh.transport_name,
-        .designator = server_id,
-        .hints = model.Hints.emptyFalse(),
-    };
-
-    var host = try io.concurrent(hostOnce, .{ listener, allocator, driver.AcceptIdentity{ .keyed = server_secret } });
-    const client_result = clientMeasure(io, allocator, &client_entries, locator, warmup, samples);
-    const host_result = host.await(io);
-    try client_result;
-    try host_result;
+    try withServer(io, server, clientMeasure, .{ io, allocator, client_endpoint.transports(), server_endpoint.locator(&id_buf), warmup, samples });
     report("iroh", warmup, samples);
 }
 
-// ── iroh at its design point: many connections on one readiness loop ──────────
+// ── iroh at its design point: many connections on one serving thread ─────────
 // The serial bench above is one connection, one call in flight, the worst case
-// for the async sidecar bridge, where every blocking read pays a cross-thread
-// `block_on` wakeup with nothing to amortize it against. ADR-0057's readiness
-// loop is the path iroh is built to be served on: one thread multiplexes many
-// connections through the endpoint's single readiness fd. This measures the
+// for the async sidecar bridge, where every read pays a cross-thread wakeup
+// with nothing to amortize it against. One Server thread multiplexing many
+// connections through the endpoint's single readiness descriptor is the path
+// iroh is built to be served on (ADR-0057). This measures the
 // aggregate round-trip throughput there, so the page can show that the serial
 // single-stream number is a floor, not the transport's capacity.
 
-/// Connections multiplexed on the one loop thread for the throughput run. Fixed
-/// (comptime) so the futures array is sized at compile time, like `iroh-loop`.
+/// Connections multiplexed on the one serving thread for the throughput run.
+/// Fixed (comptime) so the futures array is sized at compile time.
 const loop_conns: usize = 16;
-
-/// Per-connection setup the loop host runs on accept: publish this connection's
-/// greeter on its own vat (the same static `Greeter` the serial bench uses).
-fn publishGreeterLoop(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
-    _ = ctx;
-    _ = try served.publish(vat, "greeter", Greeter, .{});
-}
-
-/// Run the completion loop until every connection has closed.
-fn serveIrohLoop(loop: *IrohLoop, out_err: *?anyerror) void {
-    loop.run(.{ .after_closed = loop_conns }) catch |err| {
-        out_err.* = err;
-    };
-}
 
 /// Cross-thread start barrier: each client signals `ready` once it is connected
 /// and warm, then parks on `go` so every connection's timed calls overlap. The
@@ -253,107 +237,77 @@ const LoopSync = struct {
     go: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 };
 
-/// One loop-throughput client: bind its own iroh endpoint, dial the server by id
-/// alone, fetch the greeter, warm the path, then — once every client is at the
-/// barrier — make `calls` sequential calls. Its own connection is serial; the
-/// concurrency across the `loop_conns` clients is what the one loop multiplexes.
+/// One throughput client: bind its own iroh endpoint, dial the server by id
+/// alone, fetch the greeter, warm the path, then, once every client is at the
+/// barrier, make `calls` sequential calls. Its own connection is serial; the
+/// concurrency across the `loop_conns` clients is what the one thread
+/// multiplexes.
 fn loopClient(
     io: std.Io,
     allocator: std.mem.Allocator,
-    server_id: []const u8,
+    server_locator: model.PeerLocator,
     warmup: usize,
     calls: usize,
     sync: *LoopSync,
 ) anyerror!void {
-    var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
-    defer client.deinit() catch |err| std.log.err("iroh loop client teardown failed: {s}", .{@errorName(err)});
-    const entries = [_]net.netlayer.Netlayer{client.netlayer()};
-
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    const locator: model.PeerLocator = .{
-        .transport = iroh.transport_name,
-        .designator = server_id,
-        .hints = model.Hints.emptyFalse(),
-    };
-    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, bench_budgets);
-    defer cv.deinit();
-
-    const greeter = try cv.fetch("greeter");
+    var endpoint: Endpoint = undefined;
+    try endpoint.init(io, allocator, null);
+    defer endpoint.deinit();
+    const session = try driver.connect(allocator, io, endpoint.transports(), server_locator, .ephemeral, opts);
+    defer session.deinit();
+    const greeter = try session.fetch("greeter");
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var w: usize = 0;
-    while (w < warmup) : (w += 1) {
+    for (0..warmup) |_| {
         _ = arena_state.reset(.retain_capacity);
-        if (!try callOnce(&cv, greeter, arena)) return error.WrongReply;
+        if (!try callOnce(session, greeter, arena)) return error.WrongReply;
     }
 
     _ = sync.ready.fetchAdd(1, .acq_rel);
     while (!sync.go.load(.acquire)) std.Thread.yield() catch {};
 
-    var i: usize = 0;
-    while (i < calls) : (i += 1) {
+    for (0..calls) |_| {
         _ = arena_state.reset(.retain_capacity);
-        if (!try callOnce(&cv, greeter, arena)) return error.WrongReply;
+        if (!try callOnce(session, greeter, arena)) return error.WrongReply;
     }
 }
 
-/// Aggregate round-trip throughput when one loop thread serves `loop_conns`
+/// Aggregate round-trip throughput when one Server thread serves `loop_conns`
 /// connections at once. Prints one `loop` line; the serial bench's per-stream
 /// reciprocal is the contrast the page draws.
 fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls: usize) !void {
     const server_seed: [32]u8 = @splat(0x62);
-    var server = try iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery });
-    defer server.deinit() catch |err| std.log.err("iroh loop server teardown failed: {s}", .{@errorName(err)});
-
+    var server_endpoint: Endpoint = undefined;
+    try server_endpoint.init(io, allocator, &server_seed);
+    defer server_endpoint.deinit();
+    var server = try server_endpoint.listen(io, allocator, server_seed);
+    defer server.deinit();
     var id_buf: [iroh.node_id_len]u8 = undefined;
-    const server_id = server.nodeId(&id_buf);
+    const server_locator = server_endpoint.locator(&id_buf);
 
-    var session_root: [32]u8 = undefined;
-    try io.randomSecure(&session_root);
-    var host = try driver.core.Host.init(allocator, server_seed, session_root, .{
-        .limits = .{ .max_frame_bytes = frame_cap },
-    });
-    defer host.deinit();
-    var loop: IrohLoop = undefined;
-    var bridge = IrohBridge.init(allocator, &host, io, &loop, .{ .publish = publishGreeterLoop });
-    defer bridge.deinit();
-
-    const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
-    const backend = try iroh.Backend.initBound(allocator, &server, 256, 256, read_buffer_bytes);
-    loop = try IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(&bridge), IrohBridge.hookOptions(.{
-        .max_conns = 64,
-        .listen = 0,
-    }));
-    defer loop.deinit();
-    try bridge.attach(model.transport.Known.iroh.metadata(), server_id, &.{});
-
-    var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(serveIrohLoop, .{ &loop, &loop_err });
+    var done = std.atomic.Value(bool).init(false);
+    var serving = try io.concurrent(serve, .{ server, &done });
 
     var sync = LoopSync{};
-    var futures: [loop_conns]@TypeOf(io.concurrent(loopClient, .{ io, allocator, server_id, warmup, calls, &sync }) catch unreachable) = undefined;
+    var futures: [loop_conns]@TypeOf(io.concurrent(loopClient, .{ io, allocator, server_locator, warmup, calls, &sync }) catch unreachable) = undefined;
     var started: usize = 0;
+    var first_err: ?anyerror = null;
     while (started < loop_conns) : (started += 1) {
-        futures[started] = try io.concurrent(loopClient, .{ io, allocator, server_id, warmup, calls, &sync });
+        futures[started] = io.concurrent(loopClient, .{ io, allocator, server_locator, warmup, calls, &sync }) catch |err| {
+            first_err = err;
+            break;
+        };
     }
 
-    // Every client connected and warm: open the gate and time the overlapped calls.
-    while (sync.ready.load(.acquire) < loop_conns) std.Thread.yield() catch {};
+    // Every client connected and warm: open the gate and time the overlapped
+    // calls. A client that fails before the barrier ends the wait early.
+    while (first_err == null and sync.ready.load(.acquire) < started) std.Thread.yield() catch {};
     const t0 = nowNs(io);
     sync.go.store(true, .release);
 
-    var first_err: ?anyerror = null;
     for (futures[0..started]) |*f| {
         if (f.await(io)) |_| {} else |err| {
             if (first_err == null) first_err = err;
@@ -361,9 +315,10 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
     }
     const t1 = nowNs(io);
 
-    loop_future.await(io);
-    if (loop_err) |err| return err;
+    done.store(true, .release);
+    const served = serving.await(io);
     if (first_err) |err| return err;
+    try served;
 
     const total: u64 = @intCast(loop_conns * calls);
     const secs: f64 = @as(f64, @floatFromInt(t1 - t0)) / 1_000_000_000.0;
@@ -398,7 +353,7 @@ pub fn main(init: std.process.Init) !void {
     try benchIroh(io, allocator, warmup, samples);
 
     // iroh's design point: aggregate throughput with many connections on one
-    // readiness loop, the contrast to the serial single-stream number above.
+    // serving thread, the contrast to the serial single-stream number above.
     const loop_calls: usize = if (smoke) 50 else 300;
     const loop_warmup: usize = if (smoke) 5 else 20;
     try benchIrohLoop(io, allocator, loop_warmup, loop_calls);

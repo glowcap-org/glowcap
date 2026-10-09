@@ -99,8 +99,8 @@ impl Server {
 	/// across every accepted session. Pass it to
 	/// [`crate::RuntimeConfig::adopt_host`](crate::RuntimeConfig::adopt_host) so a capability fetched on a dialed
 	/// session and returned to an accepted one shares one Host (the gifter
-	/// half of a three-party handoff), and publish a Host-giftable on it with
-	/// [`Host::publish_giftable`].
+	/// half of a three-party handoff), and publish a Host-published on it with
+	/// [`Host::publish`].
 	pub fn host(&self) -> Host {
 		self.listener.host()
 	}
